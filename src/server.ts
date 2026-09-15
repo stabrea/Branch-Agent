@@ -163,7 +163,7 @@ export async function startServer(
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
-  let inFlight = 0;
+  let executions = 0;
   const server = createServer(async (request, response) => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
@@ -173,12 +173,14 @@ export async function startServer(
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       authorize(request, url, token);
-      if (inFlight >= 8) throw new HttpError(429, "Too many active requests");
-      inFlight++;
+      const executes = isExecution(request, path);
+      if (executes && executions >= 8)
+        throw new HttpError(429, "Too many active executions");
+      if (executes) executions++;
       try {
         send(response, 200, await api(app, request, path));
       } finally {
-        inFlight--;
+        if (executes) executions--;
       }
     } catch (e) {
       if (!response.headersSent)
@@ -188,9 +190,7 @@ export async function startServer(
       else response.end();
     }
   });
-  server.requestTimeout = 150000;
-  server.headersTimeout = 10000;
-  server.maxHeadersCount = 40;
+  configureLimits(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 3210, "127.0.0.1", () => {
@@ -209,11 +209,22 @@ export async function startServer(
     close: () => stopServer(app, server),
   };
 }
+function isExecution(request: IncomingMessage, path: string): boolean {
+  return (
+    request.method === "POST" && ["/api/run", "/api/action"].includes(path)
+  );
+}
+function configureLimits(server: Server): void {
+  server.requestTimeout = 150000;
+  server.headersTimeout = 10000;
+  server.maxHeadersCount = 40;
+}
 async function stopServer(app: Branch, server: Server): Promise<void> {
-  for (const run of app.store.runs(app.runtime.owner))
-    if (run.status === "running") app.runtime.cancel(run.id);
-  await app.scheduler.stop();
-  await new Promise<void>((resolve, reject) =>
+  const closed = new Promise<void>((resolve, reject) =>
     server.close((e) => (e ? reject(e) : resolve())),
   );
+  const schedulesStopped = app.scheduler.stop();
+  await app.runtime.shutdown();
+  await schedulesStopped;
+  await closed;
 }

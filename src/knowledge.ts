@@ -227,10 +227,11 @@ export class Knowledge {
   }
   promoteSpecialist(context: ToolContext, id: string): SavedRecord {
     this.require(context, "specialists.manage");
-    const state = this.required("specialists", context.owner, id)
-      .data as unknown as SpecialistState;
+    const record = this.required("specialists", context.owner, id);
+    const state = record.data as unknown as SpecialistState;
     if (!state.evaluationPassed || !state.evidence)
       throw new Error("A passing measured evaluation is required");
+    if (state.activeVersion === state.version) return record;
     return this.store.save("specialists", context.owner, id, {
       ...state,
       previousActive: state.activeVersion,

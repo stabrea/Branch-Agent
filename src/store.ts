@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
+import { reconcileTranscript } from "./transcript.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules";
@@ -24,7 +25,7 @@ export class Store {
       this.db.close();
       if (e instanceof Error && e.message.includes("locked"))
         throw new Error(
-          "Branch is already running against this data directory",
+          "Branch Agent is already running against this data directory",
         );
       throw e;
     }
@@ -47,11 +48,7 @@ export class Store {
         this.db.exec(
           `ALTER TABLE usage ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
         );
-    this.db
-      .prepare(
-        "UPDATE tasks SET status='interrupted',output='Process stopped before completion; side effects were not replayed',updated_at=? WHERE status='running'",
-      )
-      .run(new Date().toISOString());
+    this.recoverInterruptedRuns();
     this.interruptSchedules();
   }
   close(): void {
@@ -69,6 +66,8 @@ export class Store {
         .get(sessionId, owner)
     )
       throw new Error("Session not found");
+    if (sessionId)
+      this.reconcileMessages(sessionId, "previous run interruption");
     const session = sessionId ?? randomUUID();
     this.db
       .prepare("INSERT OR IGNORE INTO sessions VALUES(?,?,?)")
@@ -102,6 +101,10 @@ export class Store {
       .map((row) => this.toRun(row));
   }
   finish(id: string, status: RunStatus, output: string): Run {
+    const run = this.run(id);
+    if (!run) throw new Error("Run not found");
+    const added = this.reconcileMessages(run.sessionId, status);
+    if (added) this.event(id, "session.reconciled", { added, reason: status });
     this.db
       .prepare("UPDATE tasks SET status=?,output=?,updated_at=? WHERE id=?")
       .run(status, output, new Date().toISOString(), id);
@@ -117,6 +120,20 @@ export class Store {
       .prepare("SELECT body FROM messages WHERE session_id=? ORDER BY id")
       .all(sessionId)
       .map((row) => JSON.parse(String(row.body)) as Message);
+  }
+  reconcileMessages(sessionId: string, reason: string): number {
+    const repaired = reconcileTranscript(this.messages(sessionId), reason);
+    if (!repaired.added) return 0;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId);
+      for (const message of repaired.messages) this.message(sessionId, message);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return repaired.added;
   }
   event(runId: string, kind: string, data: Record<string, unknown>): void {
     this.db
@@ -236,6 +253,18 @@ export class Store {
     this.db.exec(
       "UPDATE schedules SET data=json_set(data,'$.status','interrupted') WHERE json_extract(data,'$.status')='running'",
     );
+  }
+  private recoverInterruptedRuns(): void {
+    for (const row of this.db
+      .prepare("SELECT id FROM tasks WHERE status='running'")
+      .all())
+      this.finish(
+        String(row.id),
+        "interrupted",
+        "Process stopped before completion; side effects were not replayed",
+      );
+    for (const row of this.db.prepare("SELECT id FROM sessions").all())
+      this.reconcileMessages(String(row.id), "startup recovery");
   }
   private toRun(r: Row): Run {
     return {

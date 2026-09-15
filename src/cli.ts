@@ -38,7 +38,7 @@ async function serve(
     throw new Error("Invalid BRANCH_PORT");
   const server = await startServer(app, { dataDir, port });
   console.log(
-    `Branch listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
+    `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
   );
   let closing = false;
   const stop = () => {
