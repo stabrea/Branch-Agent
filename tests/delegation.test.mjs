@@ -18,7 +18,7 @@ function scripted() {
     }
     request.signal.throwIfAborted();
     if (/answer as json/i.test(system)) return { content: user.includes("bad") ? "not json at all" : '```json\n{"city":"Lagos","temperature":31}\n```', toolCalls: [] };
-    if (/parallel/i.test(system)) { await delay(120); return { content: `done:${user.split(/\s+/)[0]}`, toolCalls: [] }; }
+    if (/parallel/i.test(system)) return { content: `done:${user.split(/\s+/)[0]}`, toolCalls: [] };
     return { content: `child said: ${user.slice(0, 40)}`, toolCalls: [] };
   } };
   return provider;
@@ -79,7 +79,7 @@ test("delegation enforces depth, concurrency and a child timeout, and cancelling
 });
 
 test("fan-out runs independent tasks together, orders dependent ones, feeds results forward and merges under the parent", async (t) => {
-  const { app } = await fixture(t);
+  const { app, provider } = await fixture(t);
   const parent = await app.runtime.run({ prompt: "parent" });
   const context = app.runtime.context({ runId: parent.id });
   const tasks = [
@@ -89,14 +89,19 @@ test("fan-out runs independent tasks together, orders dependent ones, feeds resu
   assert.deepEqual(fanoutWaves(tasks), [["a", "b"], ["c"]]);
   assert.throws(() => fanoutWaves([{ id: "x", prompt: "p", dependsOn: ["y"] }]), /unknown task y/);
   assert.throws(() => fanoutWaves([{ id: "x", prompt: "p", dependsOn: ["y"] }, { id: "y", prompt: "p", dependsOn: ["x"] }]), /cycle/);
-  const started = Date.now();
-  const outcome = await app.runtime.fanout(context, tasks, () => ({ permissions: ["files.read"], instructions: "Parallel worker." }));
-  const elapsed = Date.now() - started;
+  // Both independent tasks must be in flight before either is allowed to finish: that proves overlap without timing.
+  const gate = deferred();
+  provider.holds.set("alpha", gate); provider.holds.set("beta", gate);
+  const pending = app.runtime.fanout(context, tasks, () => ({ permissions: ["files.read"], instructions: "Parallel worker." }));
+  for (let i = 0; i < 300 && provider.requests.filter((r) => /alpha work|beta work/.test(r.user)).length < 2; i++) await delay(10);
+  assert.equal(provider.requests.filter((r) => /alpha work|beta work/.test(r.user)).length, 2, "alpha and beta started together");
+  assert.equal(provider.requests.filter((r) => /combine/.test(r.user)).length, 0, "combine waits for its dependencies");
+  gate.resolve(); provider.holds.delete("alpha"); provider.holds.delete("beta");
+  const outcome = await pending;
   assert.deepEqual(outcome.waves, [["a", "b"], ["c"]]);
   assert.equal(outcome.tasks.a.output, "done:alpha");
   assert.equal(outcome.tasks.b.output, "done:beta");
   assert.equal(outcome.tasks.c.output, "done:combine");
-  assert.ok(elapsed < 120 * 3 + 100, `independent tasks overlapped (${elapsed} ms for three 120 ms tasks)`);
   const runs = app.store.runs("local");
   const combineRun = runs.find((r) => r.id === outcome.tasks.c.runId);
   assert.match(app.store.messages(combineRun.sessionId)[0].content, /Results from earlier tasks:[\s\S]*\[a\] done:alpha[\s\S]*\[b\] done:beta/);

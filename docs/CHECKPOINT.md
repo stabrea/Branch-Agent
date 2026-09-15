@@ -47,6 +47,14 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Process note: v0.5.0 shipped while the PR check was red
+
+The fan-out test used a wall-clock bound (three 120 ms tasks under 460 ms) that hosted runners
+miss under load (938 ms, 2796 ms observed). The release command chain used `;`, so the merge and
+publish went ahead despite the failed check. The assertion is now a deterministic overlap check
+(both independent tasks must be in flight before either may finish). Rule going forward: chain
+release steps with `&&` and read the PR check conclusion before merging.
+
 ## Batch 9: delegation results, limits, cancellation, fan-out
 
 `src/delegation.ts` (checkResult JSON-Schema subset, fanoutWaves), `Runtime.delegate` options
