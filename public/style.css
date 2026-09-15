@@ -541,9 +541,29 @@ form > button {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.message.assistant {
+.message.assistant,
+.message.assistant-step {
   background: var(--well);
   border: 1px solid var(--line);
+}
+.message-controls {
+  margin-top: 12px;
+  white-space: normal;
+}
+.message-controls button,
+.session-context button {
+  margin: 0;
+  font-size: 12px;
+}
+.session-context {
+  border-left: 2px solid var(--line);
+  padding: 0 16px;
+  margin: 16px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.session-context p {
+  margin: 0 0 8px;
 }
 .message small {
   display: block;

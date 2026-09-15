@@ -3,6 +3,8 @@ const desktop = new URLSearchParams(location.search).get("desktop") === "1";
 if (desktop) document.querySelector(".brand").href = "/?desktop=1";
 let savedAppearance;
 let historyReadRevision = 0;
+let conversationBusy = false;
+let currentBranch = null;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -57,7 +59,7 @@ function button(label, handler) {
     } catch (e) {
       toast(e.message);
     } finally {
-      node.disabled = false;
+      node.disabled = node.classList.contains("conversation-switch") && conversationBusy;
     }
   });
   return node;
@@ -326,13 +328,81 @@ async function refresh() {
   renderProcedures();
   renderSchedules();
 }
-function message(role, content) {
-  const node = el("div", undefined, "message " + role);
+function message(role, content, source) {
+  const node = el("div", undefined, "message " + (source?.toolCalls?.length ? "assistant-step" : role));
   node.append(
     el("small", role === "user" ? "You" : "Branch Agent"),
     document.createTextNode(content),
   );
+  if (source?.messageId && !source.toolCalls?.length) {
+    const controls = el("div", undefined, "message-controls");
+    controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    node.append(controls);
+  }
   $("conversation").append(node);
+}
+function conversationButton(label, handler) {
+  const node = button(label, async () => {
+    if (conversationBusy) return;
+    setConversationBusy(true);
+    try { await handler(); } finally { setConversationBusy(false); }
+  });
+  node.classList.add("conversation-switch", "text-button");
+  node.disabled = conversationBusy;
+  return node;
+}
+function setConversationBusy(busy) {
+  conversationBusy = busy;
+  $("send").disabled = busy;
+  $("new-session").disabled = busy;
+  document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
+}
+function selectConversation(id, branch = null) {
+  sessionId = id;
+  currentBranch = branch;
+  $("conversation").dataset.sessionId = id || "";
+  $("session-label").textContent = branch ? "Branched conversation" : "Saved conversation";
+  displayView("chat");
+  renderConversationContext();
+}
+function renderConversationContext() {
+  const context = $("session-context");
+  context.replaceChildren();
+  context.hidden = !currentBranch;
+  if (!currentBranch) return;
+  const original = currentBranch.parentSessionId;
+  context.append(el("p", "Conversation copied through the selected message. This branch shares workspace files and saved memory."),
+    conversationButton("Open original conversation", () => openConversation(original)));
+}
+function renderConversation(value, status) {
+  selectConversation(value.sessionId, value.branch);
+  $("conversation").replaceChildren();
+  for (const source of value.messages) {
+    if (["user", "assistant"].includes(source.role)) message(source.role, source.content, source);
+  }
+  if (status) $("session-label").textContent = status + (value.branch ? " · branched conversation" : " · conversation saved");
+}
+async function loadConversation(id, status) {
+  try {
+    renderConversation(await api("sessions/" + id), status);
+  } catch (error) {
+    renderConversationContext();
+    const context = $("session-context");
+    context.hidden = false;
+    context.append(el("p", "The conversation is saved, but its messages could not be loaded. New messages will continue this saved conversation. You can retry opening it."),
+      conversationButton("Retry opening conversation", () => openConversation(id)));
+    toast(error.message);
+  }
+}
+async function openConversation(id) {
+  const value = await api("sessions/" + id);
+  renderConversation(value);
+}
+async function branchConversation(original, messageId) {
+  const branch = await api("action", { tool: "sessions.branch", args: { sessionId: original, messageId } });
+  selectConversation(branch.sessionId, branch);
+  $("conversation").replaceChildren();
+  await loadConversation(branch.sessionId);
 }
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -356,30 +426,36 @@ $("lock").addEventListener("click", () => {
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const prompt = $("prompt").value.trim();
-  if (!prompt) return;
+  if (!prompt || conversationBusy) return;
+  setConversationBusy(true);
   if (!sessionId) $("conversation").replaceChildren();
   message("user", prompt);
   $("prompt").value = "";
-  $("send").disabled = true;
   try {
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
     });
     sessionId = run.sessionId;
+    $("conversation").dataset.sessionId = sessionId;
     message("assistant", run.output);
     $("session-label").textContent = run.status + " · conversation saved";
+    await loadConversation(run.sessionId, run.status);
     await refresh();
   } catch (e) {
     message("assistant", e.message);
   } finally {
-    $("send").disabled = false;
+    setConversationBusy(false);
   }
 });
 $("new-session").addEventListener("click", () => {
+  if (conversationBusy) return;
   sessionId = null;
+  currentBranch = null;
+  $("conversation").dataset.sessionId = "";
   $("conversation").replaceChildren();
   $("session-label").textContent = "New conversation";
+  renderConversationContext();
 });
 $("demo-prompt").addEventListener("click", () => {
   $("prompt").value =
@@ -439,11 +515,16 @@ async function readHistoricalMessage(match, offset = 0) {
   const detail = $("history-message");
   if (!offset) detail.replaceChildren(
     el("h3", value.role === "user" ? "Your message" : "Branch Agent’s reply"),
-    el("small", "Conversation started " + date(value.sessionCreatedAt)), el("pre", ""));
+    el("small", "Conversation started " + date(value.sessionCreatedAt)), el("pre", ""),
+    el("p", "Branching copies the conversation through this message. Workspace files and saved memory remain shared."),
+    conversationButton("Branch from here", () => branchConversation(value.sessionId, value.messageId)),
+    conversationButton("Open conversation", () => openConversation(value.sessionId)));
   detail.querySelector("pre").append(document.createTextNode(value.content));
-  detail.querySelector("button")?.remove();
-  if (value.nextOffset !== null)
-    detail.append(button("Read more", () => readHistoricalMessage(match, value.nextOffset)));
+  detail.querySelector(".history-read-more")?.remove();
+  if (value.nextOffset !== null) {
+    const more = button("Read more", () => readHistoricalMessage(match, value.nextOffset));
+    more.classList.add("history-read-more"); detail.append(more);
+  }
   detail.hidden = false;
 }
 form("specialist-form", () =>
