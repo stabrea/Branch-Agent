@@ -164,13 +164,19 @@ export class Updater {
   private async writeScript(stagedDir: string): Promise<string> {
     const script = join(this.options.scratchDir, "apply-update.cmd");
     const install = this.options.installDir!;
+    const exe = join(install, this.options.executableName), previous = `${install}.previous`;
+    const mirror = (from: string, to: string) => `robocopy "${from}" "${to}" /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS >NUL`;
     await writeFile(script, [
       "@echo off", "setlocal", 'set "PID=%~1"', ":wait",
       'tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL',
       "if not errorlevel 1 ( timeout /t 1 /nobreak >NUL & goto wait )",
-      `robocopy "${stagedDir}" "${install}" /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS >NUL`,
-      "if errorlevel 8 exit /b 1",
-      `if not "%~2"=="stay" start "" "${join(install, this.options.executableName)}"`, "",
+      mirror(install, previous), "if errorlevel 8 exit /b 1",
+      mirror(stagedDir, install), "if errorlevel 8 goto restore",
+      'if "%~2"=="stay" exit /b 0',
+      `start "" "${exe}"`, "timeout /t 15 /nobreak >NUL",
+      `tasklist /FI "IMAGENAME eq ${this.options.executableName}" 2>NUL | find /I "${this.options.executableName}" >NUL`,
+      "if not errorlevel 1 exit /b 0",
+      ":restore", mirror(previous, install), `start "" "${exe}"`, "exit /b 1", "",
     ].join("\r\n"), "utf8");
     return script;
   }

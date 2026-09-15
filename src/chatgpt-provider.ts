@@ -70,7 +70,6 @@ export function responsesBody(request: CompletionRequest, model: string): Record
     input: request.messages.filter((m) => m.role !== "system").flatMap(inputItems),
     store: false,
     stream: true,
-    max_output_tokens: request.maxTokens,
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
         type: "function", name: wireName(t.name), description: t.description, parameters: t.parameters,
@@ -106,7 +105,7 @@ const responsesEvent = z.object({
   }).passthrough().optional(),
   response: z.object({
     status: z.string().optional(),
-    usage: z.object({ input_tokens: count, output_tokens: count }).optional(),
+    usage: z.object({ input_tokens: count, output_tokens: count }).nullable().optional(),
     error: z.object({ message: z.string().optional() }).nullable().optional(),
     incomplete_details: z.object({ reason: z.string().optional() }).nullable().optional(),
   }).passthrough().optional(),

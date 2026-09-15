@@ -26,6 +26,10 @@ Forest/Daylight preferences live in the application database, so they survive se
 
 `chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Updates run in the main process (`updater.ts`): the GitHub release archive is downloaded to the temp folder, verified against the published SHA-256, expanded with PowerShell, and applied by `apply-update.cmd` after the app exits. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
 
+## Smart App Control and the executable
+
+Windows Smart App Control blocks unsigned executables it has never seen. The packager normally rewrites the executable's icon and version resources, so every build has a new, unknown hash; on a machine with Smart App Control on, that build is refused ("An Application Control policy has blocked this file"). Until releases are code-signed, `scripts/package-desktop.mjs` copies the stock Electron executable (a widely known hash) over `Branch Agent.exe` after packaging. Window, tray and taskbar icons are set at runtime, so only the file icon in Explorer differs. The update hand-over script keeps the previous version in `<install>.previous` and restores it when the new executable does not start within fifteen seconds.
+
 ## Verification boundary
 
 The native test exercises a task that writes and verifies a file, checks renderer isolation, blocks navigation to a real local server outside the permitted origin, checks that tokens are absent from URL/HTML/session storage, changes appearance across reload and process restart, hides the window to tray, and verifies the process and loopback listener stop on quit.

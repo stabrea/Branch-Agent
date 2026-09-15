@@ -133,6 +133,7 @@ function state(app: Branch): unknown {
   const owner = app.runtime.owner;
   return {
     provider: app.runtime.provider.name,
+    activeModel: app.runtime.models.plan(owner, "").choice,
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },
     preferences: preferences(app.store, owner),

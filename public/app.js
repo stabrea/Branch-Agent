@@ -355,21 +355,20 @@ async function refresh() {
   $("workspace").hidden = false;
   $("lock").hidden = desktop;
   $("connection").textContent = "Connected";
-  $("provider").textContent = state.provider;
+  const active = state.activeModel ?? { provider: state.provider, presetName: state.provider, model: "" };
+  const demo = active.provider === "offline-demo-fixture";
+  $("provider").textContent = demo ? "Offline demonstration" : `${active.presetName} · ${active.model}`;
   if (savedAppearance !== state.preferences.appearance) {
     savedAppearance = state.preferences.appearance;
     applyAppearance(savedAppearance);
   }
-  $("context-provider").textContent =
-    state.provider === "offline-demo-fixture"
-      ? "Not connected"
-      : state.provider;
+  $("context-provider").textContent = demo ? "Not connected" : active.presetName;
   $("context-runs").textContent = state.runs.filter(
     (run) => run.status === "running",
   ).length;
   $("context-memory").textContent = state.memoryCapacity?.count ?? state.memory.length;
   $("context-tools").textContent = state.tools.length;
-  $("demo-notice").hidden = state.provider !== "offline-demo-fixture";
+  $("demo-notice").hidden = !demo;
   renderRuns();
   renderMemory();
   renderSpecialists();

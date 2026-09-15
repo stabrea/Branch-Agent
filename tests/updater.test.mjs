@@ -90,12 +90,15 @@ test("install downloads, verifies, unpacks beside the install and writes the han
   assert.ok(!stagedDir.startsWith(installDir), "staging never lands inside the install");
   const text = await readFile(script, "utf8");
   assert.match(text, /robocopy ".*unpacked.*" ".*installed" \/MIR/);
+  assert.match(text, /robocopy ".*installed" ".*installed\.previous" \/MIR/, "previous version is kept");
+  assert.match(text, /:restore[\s\S]*robocopy ".*installed\.previous" ".*installed" \/MIR/, "rollback path exists");
   assert.match(text, /start "" ".*installed\\Branch Agent\.exe"/);
   assert.match(text, /tasklist \/FI "PID eq %PID%"/);
   assert.equal(await readFile(join(installDir, "Branch Agent.exe"), "utf8"), "old executable", "install untouched until the script runs");
   await run("cmd.exe", ["/d", "/c", script, "999999", "stay"]).catch(() => undefined);
   assert.equal(await readFile(join(installDir, "Branch Agent.exe"), "utf8"), "new executable");
   assert.ok(await stat(join(installDir, "resources", "app.txt")));
+  assert.equal(await readFile(join(installDir + ".previous", "Branch Agent.exe"), "utf8"), "old executable", "previous version kept beside the install");
 });
 
 test("a checksum mismatch refuses to install", { skip: !windows && "Windows archive tooling" }, async (t) => {

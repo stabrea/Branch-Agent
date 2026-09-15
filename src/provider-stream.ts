@@ -27,7 +27,8 @@ export async function readEventStream(
   response: Response,
   consume: (data: string) => void,
 ): Promise<void> {
-  if (!response.headers.get("content-type")?.includes("text/event-stream"))
+  const type = response.headers.get("content-type");
+  if (type && !type.includes("text/event-stream"))
     throw new Error("Provider did not return an event stream");
   const reader = response.body!.getReader(), decoder = new TextDecoder();
   const framing = new EventFraming(consume);
