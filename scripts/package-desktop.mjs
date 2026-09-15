@@ -1,5 +1,5 @@
 import { packager } from "@electron/packager";
-import { copyFile } from "node:fs/promises";
+import { copyFile, utimes } from "node:fs/promises";
 import { join } from "node:path";
 
 const paths = await packager({
@@ -27,5 +27,9 @@ const paths = await packager({
 // are code-signed, ship the stock Electron executable (a widely known hash) under the app name;
 // window, tray and taskbar icons are set at runtime, so only the file icon in Explorer changes.
 if (process.platform === "win32")
-  for (const out of paths) await copyFile("node_modules/electron/dist/electron.exe", join(out, "Branch Agent.exe"));
+  for (const out of paths) {
+    const target = join(out, "Branch Agent.exe");
+    await copyFile("node_modules/electron/dist/electron.exe", target);
+    await utimes(target, new Date(), new Date()); // Electron's file dates predate 1980, which ZIP cannot store
+  }
 console.log(paths.join("\n"));
