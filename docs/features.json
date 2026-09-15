@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T19:56:24.427342+00:00",
+  "assessment_date": "2026-09-15T20:05:08.774672+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1069,7 +1069,7 @@
       "family": "memory",
       "name": "Editable user profile and assistant identity",
       "acceptance_criterion": "Edit a profile fact and verify that the next eligible session uses the corrected value.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/memory.ts",
@@ -1078,7 +1078,14 @@
           "src/server.ts",
           "public/app.js",
           "tests/memory.test.mjs",
-          "tests/memory-ui.test.mjs"
+          "tests/memory-ui.test.mjs",
+          "src/identity.ts",
+          "src/runtime.ts",
+          "src/index.ts",
+          "public/index.html",
+          "tests/identity.test.mjs",
+          "tests/identity-ui.test.mjs",
+          "tests/desktop-identity.test.mjs"
         ],
         "tests": [
           "corrected profile fact is retrieved by the next eligible session without changing the earlier conversation",
@@ -1086,13 +1093,23 @@
           "stale edits retain the draft and do not overwrite a newer fact; cancel discards the draft",
           "polling preserves the open editor, focus, selection and continued typing",
           "an older pending save cannot discard a reopened editor draft",
-          "failed pending memory save restores both fields with the original draft intact"
+          "failed pending memory save restores both fields with the original draft intact",
+          "assistant identity persists per owner and rejects stale, malformed or oversized writes",
+          "new and resumed sessions receive current identity with an inspectable applied revision",
+          "active tasks retain their identity snapshot and custom instructions cannot grant a denied tool",
+          "identity HTTP settings require local authorization, reject forged owners and expose saved revisions",
+          "identity saves across reload and the next task receives its name and instructions",
+          "identity draft and focus survive actual polling, including a blurred name field",
+          "identity conflict retains draft until explicit reload discards it for saved values",
+          "pending identity saves freeze every control and failure restores the intact draft",
+          "explicit identity reload freezes controls until saved values arrive",
+          "native identity settings survive restart and apply to a new task without exposing the local token"
         ],
-        "detail": "Revision-checked fact editing persists corrected profile information and source metadata. Core and browser fixtures prove a new eligible model-driven session calls memory.search and retrieves the corrected value while the earlier conversation remains unchanged. Reload retains the correction; stale edits do not overwrite a newer revision and retain the draft. This satisfies the fact-correction criterion, but the broader entry also names configurable assistant identity. UI regressions now cover actual polling with focus/selection intact, delayed completion of an older save after reopening an editor, disabled fields during a pending save, and restoration/retry of both draft fields after failure.",
-        "supported_acceptance_scope": "Explicit model memory-tool retrieval is verified; automatic injection into every session and configurable assistant identity are not implemented.",
-        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
+        "detail": "Revision-checked fact editing persists corrected profile information and source metadata; previous core/browser fixtures prove a new eligible model-driven session retrieves the correction through memory.search while the earlier conversation stays unchanged. Configurable assistant name and working instructions now persist separately per owner with default revision 0, strict input validation and expected-revision checks. Runtime applies the saved identity to the system context at task start and records identity.applied with name/revision. New tasks and resumed conversations receive the current identity; active tasks retain their snapshot. Browser settings persist across reload, preserve drafts/focus during polling and conflicts, freeze controls during save/reload, and restore drafts after failure.",
+        "supported_acceptance_scope": "Both editable profile facts and configured assistant identity are covered. Fact use is verified through explicit model memory-tool retrieval, not automatic fact injection into every task. Identity instructions do not grant permissions: a fixture asking for every tool still cannot write a denied file. Fixture models verify supplied context, not guaranteed obedience by arbitrary external models. The packaged native application also preserves saved identity across restart and records the applied identity in its subsequent task.",
+        "validation_source": "Direct assessor source review and nine core/browser identity tests passed. Parent verified final core/UI specification and quality approvals, full suite 178 passed and 1 skipped (179 total), and eight desktop/settings/export/identity tests with the rebuilt executable selected for native fixtures. The native identity test saved settings through the UI, restarted the executable and verified the applied revision in a completed task. Core commit 4bc689a; UI commit 917db7a."
       },
-      "remaining": "Implement configurable assistant identity and verify that eligible sessions use the configured identity. Fact correction and subsequent eligible-session retrieval are verified."
+      "remaining": ""
     },
     {
       "id": "memory.facts",

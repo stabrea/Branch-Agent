@@ -4,7 +4,7 @@ Date: 2026-09-15. Local platform: Windows x64, Node.js 24.15.0, Python 3.12.10. 
 
 ## Application
 
-The strict TypeScript build and 168 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
+The strict TypeScript build and 178 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
 
 - OpenAI-compatible and Anthropic adapters use protocol fixtures; no paid provider account has been exercised by this record.
 - Real Chromium tests verify forms, denied origins/redirects/password fields, overlapping run isolation, cancellation, resource limits and shutdown during pending launch.
@@ -20,8 +20,9 @@ The strict TypeScript build and 168 behavioral tests passed locally; one Windows
 - Conversation-library tests exercise clean-instance archive transfer, exact continuation, unchanged source history, fresh message identities, import provenance through copies/branches, Unicode search/pagination and atomic rollback. HTTP tests preserve split UTF-8 text above 64 KiB, reject oversized imports and enforce owner authentication. Malformed roles, unsupported versions, unmatched tool calls and non-object tool arguments are rejected before writing.
 - Browser lifecycle tests export a real JSON file, import it, reload the app and send a follow-up in the imported session. They also verify duplication, source preservation, mobile layout, failed-view recovery and busy controls. Native export tests exercise actual Electron IPC and disk writing, with the OS save-dialog result substituted by a scratch destination; cancellation, invalid input, another window's sender and the blanket download blocker are checked.
 - Memory tests verify revisioned corrections through the next fixture-provider session, stale/denied writes, per-owner capacity, concurrent additions, full metadata restoration, idempotent imports, conflict/write-fault rollback and bounded UTF-8 retrieval. Migration fixtures retain legacy whitespace-only notes and records above the new capacity. Browser tests preserve editor focus and capacity drafts through actual polling, and delayed save responses cannot discard newer drafts. Native memory export uses the same guarded Save path as conversation export.
+- Identity tests verify owner-scoped persistence, revision conflicts, authenticated updates, current settings in new/resumed tasks, stable settings during active tasks and unchanged permission enforcement. Browser fixtures exercise polling, stale saves and failed-request recovery. A native packaged-app test saves identity, restarts and verifies the new task's `identity.applied` trace without exposing the bearer token.
 - Host command tests execute real Node fixtures with argument arrays, checked cwd, selected environment, captured results and persisted tool evidence. Windows parent/child cancellation and shutdown pass; an escaped child with retained pipes returns promptly with incomplete cleanup. Invalid UTF-8 and split-character cases respect the combined output byte limit. POSIX process-group behavior is implemented but has not been executed on this Windows host.
-- The desktop/settings/export suite passed all seven tests with the generated Windows executable selected for native fixtures, including its bundled logo, acorn, preload, provider configuration and archive export. Package contents contain runtime/public files, production dependencies and license notices; private state and workspace are excluded.
+- The desktop/settings/export suite passed all eight tests with the generated Windows executable selected for native fixtures, including its bundled logo, acorn, preload, provider configuration and archive export. Package contents contain runtime/public files, production dependencies and license notices; private state and workspace are excluded.
 
 Re-run `npm test` for the current tree. Review findings produced additional regression cases; an earlier passing suite did not cover all of those failures. CI is configured for Windows and must independently pass on the pushed revision.
 
@@ -42,6 +43,6 @@ No reset correction was applied. The run used zero language-model tokens but con
 
 ## Completion boundary
 
-The 169-entry inventory currently has 18 implemented entries, 54 partial, 1 external and 96 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
+The 169-entry inventory currently has 19 implemented entries, 53 partial, 1 external and 96 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
 
 Outstanding work includes remaining capability families, actual configured-service checks, broader failure scenarios, supported-platform packaging, installers/signing/updates, and measured learning/efficiency comparisons. No AGI, sentience or complete feature-parity claim is supported by these checks.

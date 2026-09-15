@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 18 implemented, 54 partial, 1 external and 96 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 19 implemented, 53 partial, 1 external and 96 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -87,7 +87,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Editable user profile and assistant identity (`memory.profile`) | partial | Implement configurable assistant identity and verify that eligible sessions use the configured identity. Fact correction and subsequent eligible-session retrieval are verified. |
+| Editable user profile and assistant identity (`memory.profile`) | implemented | Covered by the listed local fixtures. |
 | Bounded durable facts (`memory.facts`) | implemented | Covered by the listed local fixtures. |
 | Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
 | Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |

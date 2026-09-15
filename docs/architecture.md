@@ -24,6 +24,8 @@ The conversation library lists owned histories and transfers versioned JSON arch
 
 Memory facts carry edit revisions. Updates compare the expected revision before replacing a fact, and every store-level write observes the owner's configured capacity. Imports preserve fact identifiers and metadata in one transaction; matching records are unchanged and conflicting identifiers reject the entire merge. Legacy facts receive revision 1 and retain their original text/source. Model retrieval selects bounded matches rather than inserting the whole fact store into every request.
 
+Assistant identity is an owner-scoped setting with a revision. A task snapshots its configured name and working instructions before its first model call, retaining that snapshot through tool rounds and retries. The next task reads the latest setting, including when resuming an existing conversation. The applied name/revision is recorded in the run trace. These instructions consume ordinary context budget and do not change the runtime's tool grants.
+
 Interrupted work is marked as interrupted. A crash after a side effect has an uncertain outcome; resuming the reasoning is not permission to repeat the effect. Automatic recovery must reconcile external state or use a destination's idempotency support before replaying it.
 
 ## Learning and specialists
