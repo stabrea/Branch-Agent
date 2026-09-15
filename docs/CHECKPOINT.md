@@ -43,7 +43,11 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
-## Batch 9 (local, unreleased): delegation results, limits, cancellation, fan-out
+## Batches 7–9 ship as 0.5.0
+
+Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
+
+## Batch 9: delegation results, limits, cancellation, fan-out
 
 `src/delegation.ts` (checkResult JSON-Schema subset, fanoutWaves), `Runtime.delegate` options
 (timeoutMs, resultSchema; 4 concurrent children per parent; derived abort signal), `delegateChecked`,
