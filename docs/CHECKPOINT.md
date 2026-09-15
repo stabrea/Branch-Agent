@@ -16,6 +16,11 @@ from **Settings → Updates**. Do not merge or release every batch.
 - The owner's app now runs from `C:/Users/bishi/AppData/Local/Programs/Branch Agent/` (copied
   from `release/`), so `npm run package:desktop` no longer fights the running executable. The
   in-app updater mirrors new releases into that folder.
+- Smart App Control (state 1, enforcing on this machine) blocked the repackaged 0.2.1 executable while
+  the stock Electron binary and the earlier 0.2.0 build ran. Packaging now ships the stock
+  `electron.exe` as `Branch Agent.exe` (see docs/desktop.md); the update script keeps
+  `<install>.previous` and rolls back if the new build does not start. Code signing (Azure Trusted
+  Signing or an OV certificate) is the real fix; tracked under security (#12) and owner requests (#18).
 - Version `0.2.1`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.

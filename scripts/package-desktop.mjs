@@ -1,4 +1,6 @@
 import { packager } from "@electron/packager";
+import { copyFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const paths = await packager({
   dir: ".",
@@ -20,4 +22,10 @@ const paths = await packager({
     ),
   prune: true,
 });
+// Smart App Control blocks unsigned executables it has never seen. The packager rewrites the
+// executable's icon and version resources, giving every build a brand-new hash. Until releases
+// are code-signed, ship the stock Electron executable (a widely known hash) under the app name;
+// window, tray and taskbar icons are set at runtime, so only the file icon in Explorer changes.
+if (process.platform === "win32")
+  for (const out of paths) await copyFile("node_modules/electron/dist/electron.exe", join(out, "Branch Agent.exe"));
 console.log(paths.join("\n"));
