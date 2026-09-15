@@ -38,6 +38,7 @@ interface ModelRoute {
 export interface RunOptions {
   prompt: string;
   sessionId?: string;
+  temporary?: boolean;
   permissions?: string[];
   signal?: AbortSignal;
   budget?: BudgetOptions;
@@ -199,6 +200,12 @@ export class Runtime {
       this.execute({ prompt, signal: parent.signal }, context, instructions),
     );
   }
+  /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
+  private scopeToSession(run: Run, context: ToolContext): ToolContext {
+    if (!this.store.sessionTemporary(run.sessionId)) return context;
+    this.store.event(run.id, "session.temporary", { memoryWrites: false });
+    return { ...context, permissions: new Set([...context.permissions].filter((p) => p !== "memory.write")) };
+  }
   private prepareRun(options: RunOptions): Run {
     RunInputSchema.parse({
       prompt: options.prompt,
@@ -206,7 +213,7 @@ export class Runtime {
     });
     if (options.sessionId && this.activeSessions.has(options.sessionId))
       throw new Error("Session already has an active run");
-    return this.store.createRun(this.owner, options.prompt, options.sessionId);
+    return this.store.createRun(this.owner, options.prompt, options.sessionId, options.temporary ?? false);
   }
   private async execute(
     options: RunOptions,
@@ -223,14 +230,14 @@ export class Runtime {
       options.signal ?? new AbortController().signal,
       AbortSignal.timeout(120000),
     ]);
-    const context = parent
+    const context = this.scopeToSession(run, parent
       ? { ...parent, runId: run.id, signal }
       : this.context({
           runId: run.id,
           signal,
           budget,
           ...(options.permissions ? { permissions: options.permissions } : {}),
-        });
+        }));
     this.store.message(run.sessionId, {
       role: "user",
       content: options.prompt,

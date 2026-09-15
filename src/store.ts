@@ -49,6 +49,8 @@ export class Store {
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
+    if (!this.db.prepare("PRAGMA table_info(sessions)").all().some((row) => row.name === "temporary"))
+      this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     this.memories = new MemoryFacts(this.db);
     this.skills = new InstalledSkills(this.db);
     this.migrateUsage();
@@ -57,6 +59,7 @@ export class Store {
     this.library = new SessionLibrary(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
+    this.discardTemporarySessions();
   }
   private migrateUsage(): void {
     const usageColumns = this.db
@@ -85,7 +88,7 @@ export class Store {
     return this.branches.branch(owner, input);
   }
   sessionView(owner: string, sessionId: string) {
-    return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId) };
+    return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
   }
   searchSessions(owner: string, input: unknown) {
     return this.library.search(owner, input);
@@ -99,7 +102,7 @@ export class Store {
   duplicateSession(owner: string, sessionId: string) {
     return this.library.duplicate(owner, sessionId);
   }
-  createRun(owner: string, prompt: string, sessionId?: string): Run {
+  createRun(owner: string, prompt: string, sessionId?: string, temporary = false): Run {
     const now = new Date().toISOString();
     if (
       sessionId &&
@@ -112,8 +115,8 @@ export class Store {
       this.reconcileMessages(sessionId, "previous run interruption");
     const session = sessionId ?? randomUUID();
     this.db
-      .prepare("INSERT OR IGNORE INTO sessions VALUES(?,?,?)")
-      .run(session, owner, now);
+      .prepare("INSERT OR IGNORE INTO sessions(id,owner,created_at,temporary) VALUES(?,?,?,?)")
+      .run(session, owner, now, Number(temporary));
     const run: Run = {
       id: randomUUID(),
       sessionId: session,
@@ -133,6 +136,33 @@ export class Store {
   run(id: string): Run | undefined {
     const row = this.db.prepare("SELECT * FROM tasks WHERE id=?").get(id);
     return row ? this.toRun(row) : undefined;
+  }
+  sessionTemporary(sessionId: string): boolean {
+    return Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(sessionId)?.temporary ?? 0) === 1;
+  }
+  /** Removes a temporary conversation and everything recorded for it; nothing of it remains searchable. */
+  discardSession(owner: string, sessionId: string): { discarded: boolean; messages: number } {
+    if (!this.ownsSession(owner, sessionId)) throw new Error("Conversation not found");
+    if (!this.sessionTemporary(sessionId)) throw new Error("Only temporary conversations can be discarded");
+    if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status='running'").get(sessionId))
+      throw new Error("Wait for the active task before discarding this conversation");
+    return this.purgeSession(sessionId);
+  }
+  private purgeSession(sessionId: string): { discarded: boolean; messages: number } {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM events WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
+      this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
+      this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
+      const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
+      this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
+      this.db.exec("COMMIT");
+      return { discarded: true, messages: Number(messages) };
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+  private discardTemporarySessions(): void {
+    for (const row of this.db.prepare("SELECT id FROM sessions WHERE temporary=1").all())
+      this.purgeSession(String(row.id));
   }
   ownsSession(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);
@@ -289,6 +319,9 @@ export class Store {
   searchMemory(owner: string, query: string) { return this.memories.search(owner, query); }
   exportMemory(owner: string) { return this.memories.export(owner); }
   importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
+  forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }
+  forgetMemory(owner: string, input: unknown) { return this.memories.forget(owner, input); }
+  memorySuppressed(owner: string, sessionId: string) { return this.memories.suppressed(owner, sessionId); }
   claimSchedule(
     owner: string,
     id: string,

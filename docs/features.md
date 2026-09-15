@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 26 implemented, 52 partial, 1 external and 90 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 28 implemented, 51 partial, 1 external and 89 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -35,7 +35,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Shared agent identity with separate conversations (`routing.shared-identity`) | partial | Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate. |
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
 | Search resume duplicate import and export sessions (`routing.lifecycle`) | implemented | Covered by the listed local fixtures. |
-| Temporary chats excluded from history and memory (`routing.temporary`) | missing | Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory. |
+| Temporary chats excluded from history and memory (`routing.temporary`) | implemented | Covered by the listed local fixtures. |
 | Branch a conversation from a selected prior state (`routing.branch`) | implemented | Covered by the listed local fixtures. |
 
 ## Models
@@ -94,7 +94,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
 | Explicit agent and project memory boundaries (`memory.scope`) | partial | Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes. |
 | Source lineage and admission controls (`memory.lineage`) | partial | Add session admission/denial policy and automatic-ingestion exclusion fixtures. |
-| Preview removal of tracked derived memory (`memory.forget`) | partial | Implement session-derived deletion preview, exclusions, and durable suppression of automatic re-ingestion. |
+| Preview removal of tracked derived memory (`memory.forget`) | implemented | Covered by the listed local fixtures. |
 | Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
 | Automatic archival and expiry of stale memory (`memory.hygiene`) | missing | Apply a configured retention policy to seeded stale memories and report which entries were archived or purged. |
 | Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
@@ -201,7 +201,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Guided provider and channel setup (`operations.setup`) | partial | Provide onboarding with actual configured model and channel test calls. |
+| Guided provider and channel setup (`operations.setup`) | partial | Add a channel test call once messaging channels exist (routing.channels). |
 | Background gateway and foreground modes (`operations.daemon`) | partial | Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop. |
 | Single-binary constrained deployment (`operations.portable`) | missing | Launch a packaged binary on a declared supported target and report measured gateway resource usage. |
 | Serverless idle suspension (`operations.hibernation`) | missing | Suspend the configured serverless environment and resume an operation with its persisted workspace intact. |

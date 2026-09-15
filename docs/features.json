@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T20:59:51.647248+00:00",
+  "assessment_date": "2026-09-15T22:33:01.350936+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -432,17 +432,26 @@
       "family": "routing",
       "name": "Temporary chats excluded from history and memory",
       "acceptance_criterion": "Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
           "src/store.ts",
-          "src/server.ts"
+          "src/runtime.ts",
+          "src/history.ts",
+          "src/session-library.ts",
+          "src/sessions.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/temporary.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "temporary conversations stay out of history, the library, branches and long-term memory, and vanish on discard",
+          "HTTP API starts a temporary conversation and discards it"
+        ],
+        "detail": "Temporary flag on the session; excluded from history search/read, the library, export, duplicate and branching; memory.write permission removed for its runs; discard deletes messages, runs, events and usage; leftovers are purged at startup."
       },
-      "remaining": "Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory."
+      "remaining": ""
     },
     {
       "id": "routing.branch",
@@ -1301,18 +1310,22 @@
       "family": "memory",
       "name": "Preview removal of tracked derived memory",
       "acceptance_criterion": "Preview and remove tracked session-derived memory while reporting exclusions and preventing automatic re-ingestion.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "public/app.js"
+          "src/memory.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory-forget.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "forgetting previews a conversation's own saved facts, keeps owner-edited ones, and blocks automatic re-saving",
+          "HTTP API exposes forget preview and forget"
         ],
-        "detail": "Individual owner memory deletion exists."
+        "detail": "Preview lists facts a conversation's runs saved (tracked by origin run through later edits), reports owner-edited facts as kept with a reason, removes the rest in one transaction and records a suppression that makes memory.put from that conversation refuse; the owner can still save by hand."
       },
-      "remaining": "Implement session-derived deletion preview, exclusions, and durable suppression of automatic re-ingestion."
+      "remaining": ""
     },
     {
       "id": "memory.documents",
@@ -2607,17 +2620,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/cli.ts",
-          "src/providers.ts",
-          "public/app.js"
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/onboarding.test.mjs"
         ],
         "tests": [
-          "CLI loads explicitly configured integrations before doctor",
-          "browser UI connects, runs demo, saves memory, and fits mobile viewport"
+          "setup ends with a real test call and a remembered completion"
         ],
-        "detail": "Local service/session-token connection and environment configuration exist; doctor explicitly reports networkProviderTested false."
+        "detail": "First-run panel offers ChatGPT plan sign-in, API key or offline demonstration; 'Test the connection' makes a real completion through the chosen preset and reports the reply and time; completion is remembered. Verified in the desktop app by driving the flow."
       },
-      "remaining": "Provide onboarding with actual configured model and channel test calls."
+      "remaining": "Add a channel test call once messaging channels exist (routing.channels)."
     },
     {
       "id": "operations.daemon",

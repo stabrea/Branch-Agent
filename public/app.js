@@ -6,6 +6,7 @@ let historyReadRevision = 0;
 let conversationBusy = false;
 let currentBranch = null;
 let currentImported = false;
+let currentTemporary = false;
 let savedSearchRevision = 0;
 let savedNextOffset = null;
 let savedQuery = "";
@@ -379,7 +380,62 @@ async function refresh() {
   renderModels();
   renderChatGPT();
   renderUpdates();
+  renderFirstRun();
 }
+let firstRunDoor = null, firstRunTimer = null;
+function renderFirstRun() {
+  const show = state.onboarding && !state.onboarding.done;
+  $("first-run").hidden = !show;
+  if (!show) { clearTimeout(firstRunTimer); return; }
+  const active = state.activeModel;
+  if (active && active.provider !== "offline-demo-fixture" && firstRunDoor !== "demo")
+    $("first-run-status").textContent = `Ready: ${active.presetName} will answer. Test it, then start chatting.`;
+}
+function chooseDoor(door) {
+  firstRunDoor = door;
+  for (const id of ["door-chatgpt", "door-key", "door-demo"]) $(id).classList.toggle("selected", id === "door-" + door);
+  $("first-run-done").hidden = true;
+}
+$("door-chatgpt").addEventListener("click", async () => {
+  chooseDoor("chatgpt");
+  const prompt = await startChatGPTLogin();
+  if (!prompt) return;
+  $("first-run-status").textContent = `Enter ${prompt.userCode} on the sign-in page that just opened (${prompt.verificationUrl}). This page updates by itself when you finish.`;
+  const poll = async () => {
+    const status = await api("chatgpt/status").catch(() => null);
+    if (status?.signedIn) { await refresh(); $("first-run-status").textContent = "Signed in. Test the connection, then start chatting."; return; }
+    if ($("first-run").hidden) return;
+    firstRunTimer = setTimeout(poll, 3000);
+  };
+  firstRunTimer = setTimeout(poll, 3000);
+});
+$("door-key").addEventListener("click", () => {
+  chooseDoor("key");
+  $("first-run-status").textContent = window.branchDesktop
+    ? "Fill in Settings → Model connection, then come back here and test it."
+    : "Set BRANCH_PROVIDER, BRANCH_ENDPOINT, BRANCH_MODEL and BRANCH_API_KEY where you start Branch, restart it, then test here.";
+  if (window.branchDesktop) { displayView("settings"); $("model-provider").focus(); }
+});
+$("door-demo").addEventListener("click", () => {
+  chooseDoor("demo");
+  $("first-run-status").textContent = "You are on the offline demonstration. It can only write, read and check one greeting file, but everything else in the app works.";
+  $("first-run-done").hidden = false;
+});
+$("first-run-test").addEventListener("click", async () => {
+  $("first-run-test").disabled = true;
+  $("first-run-status").textContent = "Testing…";
+  try {
+    const result = await api("models/test", {});
+    $("first-run-status").textContent = `${result.presetName} answered in ${(result.ms / 1000).toFixed(1)} s${result.reply ? `: “${result.reply}”` : "."}`;
+    $("first-run-done").hidden = false;
+  } catch (e) {
+    $("first-run-status").textContent = e.message;
+  } finally { $("first-run-test").disabled = false; }
+});
+$("first-run-done").addEventListener("click", async () => {
+  try { await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus(); }
+  catch (e) { toast(e.message); }
+});
 let chatgptTimer = null, chatgptBusy = false;
 function chatgptPoll(active) {
   clearTimeout(chatgptTimer);
@@ -409,8 +465,8 @@ async function renderChatGPT() {
   chatgptPoll(pending);
   if (status.signedIn && !$("session-model").options.length) await refresh();
 }
-$("chatgpt-login").addEventListener("click", async () => {
-  if (chatgptBusy) return;
+async function startChatGPTLogin() {
+  if (chatgptBusy) return null;
   chatgptBusy = true;
   try {
     const prompt = await api("chatgpt/login", {});
@@ -418,8 +474,10 @@ $("chatgpt-login").addEventListener("click", async () => {
     $("chatgpt-open").href = prompt.verificationUrl;
     $("chatgpt-code-block").hidden = false;
     if (window.branchDesktop) window.branchDesktop.openExternal(prompt.verificationUrl).catch(() => undefined);
-  } catch (e) { toast(e.message); } finally { chatgptBusy = false; await renderChatGPT(); }
-});
+    return prompt;
+  } catch (e) { toast(e.message); return null; } finally { chatgptBusy = false; await renderChatGPT(); }
+}
+$("chatgpt-login").addEventListener("click", () => { void startChatGPTLogin(); });
 $("chatgpt-open").addEventListener("click", (event) => {
   if (!window.branchDesktop) return;
   event.preventDefault();
@@ -685,6 +743,40 @@ function renderConversationContext() {
     const original = currentBranch.parentSessionId;
     context.append(conversationButton("Open original conversation", () => openConversation(original)));
   }
+  if (!currentTemporary) context.append(conversationButton("Forget what this conversation saved to memory", () => previewForget(context)));
+}
+async function previewForget(context) {
+  let preview;
+  try { preview = await api("memory/forget/preview", { sessionId }); } catch (e) { toast(e.message); return; }
+  const panel = el("div", undefined, "forget-panel");
+  if (!preview.remove.length && !preview.excluded.length) {
+    panel.append(el("p", preview.suppressed
+      ? "Nothing saved from here, and this conversation no longer saves memory on its own."
+      : "This conversation has not saved anything to memory."));
+  } else {
+    if (preview.remove.length) {
+      panel.append(el("p", `${preview.remove.length} saved ${preview.remove.length === 1 ? "fact" : "facts"} will be removed:`));
+      const list = document.createElement("ul");
+      for (const entry of preview.remove) list.append(el("li", entry.text));
+      panel.append(list);
+    }
+    if (preview.excluded.length) {
+      panel.append(el("p", `${preview.excluded.length} kept because you edited ${preview.excluded.length === 1 ? "it" : "them"}:`));
+      const kept = document.createElement("ul");
+      for (const entry of preview.excluded) kept.append(el("li", `${entry.text} — ${entry.reason}`));
+      panel.append(kept);
+    }
+    panel.append(el("p", "Afterwards this conversation will not save memory on its own again.", "subtle"));
+    if (preview.remove.length || !preview.suppressed)
+      panel.append(conversationButton("Forget them", async () => {
+        try {
+          const result = await api("memory/forget", { sessionId });
+          toast(`Removed ${result.removed} from memory.`);
+          await refresh(); renderConversationContext();
+        } catch (e) { toast(e.message); }
+      }));
+  }
+  context.append(panel);
 }
 function renderConversation(value, status) {
   selectConversation(value.sessionId, value.branch, value.imported);
@@ -708,6 +800,9 @@ async function loadConversation(id, status) {
   }
 }
 async function openConversation(id) {
+  currentTemporary = false;
+  $("temporary-toggle").checked = false;
+  $("temporary-toggle").disabled = true;
   const value = await api("sessions/" + id);
   renderConversation(value);
 }
@@ -828,14 +923,18 @@ $("chat-form").addEventListener("submit", async (event) => {
   message("user", prompt);
   $("prompt").value = "";
   try {
+    const startingTemporary = !sessionId && $("temporary-toggle").checked;
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
+      ...(startingTemporary ? { temporary: true } : {}),
     });
+    if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
+    $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     message("assistant", run.output);
-    $("session-label").textContent = run.status + " · conversation saved";
+    $("session-label").textContent = currentTemporary ? run.status + " · temporary, not saved" : run.status + " · conversation saved";
     await loadConversation(run.sessionId, run.status);
     await refresh();
     await loadSessionModel();
@@ -845,8 +944,15 @@ $("chat-form").addEventListener("submit", async (event) => {
     setConversationBusy(false);
   }
 });
-$("new-session").addEventListener("click", () => {
+$("new-session").addEventListener("click", async () => {
   if (conversationBusy) return;
+  if (currentTemporary && sessionId) {
+    try { await api(`sessions/${sessionId}/discard`, {}); toast("Temporary conversation discarded."); }
+    catch (e) { toast(e.message); }
+  }
+  currentTemporary = false;
+  $("temporary-toggle").checked = false;
+  $("temporary-toggle").disabled = false;
   sessionId = null;
   currentBranch = null;
   currentImported = false;

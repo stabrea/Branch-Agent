@@ -73,6 +73,21 @@
       </section>
       <div id="workspace" hidden>
         <section id="chat" class="view">
+          <section id="first-run" class="card first-run" hidden>
+            <span class="eyebrow">// FIRST THINGS FIRST</span>
+            <h2>Choose how your assistant thinks.</h2>
+            <p>Pick one to start. You can change it any time in Settings.</p>
+            <div class="doors">
+              <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste.</span></button>
+              <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
+              <button id="door-demo" type="button" class="door"><strong>Just look around</strong><span>An offline demonstration that only writes and reads one greeting file.</span></button>
+            </div>
+            <p id="first-run-status" role="status"></p>
+            <div class="identity-actions">
+              <button id="first-run-test" type="button">Test the connection</button>
+              <button id="first-run-done" type="button" hidden>Done, start chatting</button>
+            </div>
+          </section>
           <details id="saved-conversations" class="card saved-conversations">
             <summary>Saved conversations</summary>
             <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
@@ -131,7 +146,9 @@
               rows="3"
             ></textarea>
             <div>
-              <span id="session-label"
+              <label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
+                ><input id="temporary-toggle" type="checkbox" /> Temporary</label
+              ><span id="session-label"
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button

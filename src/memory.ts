@@ -10,6 +10,8 @@ export const MemoryDataSchema = z.object({
   text: z.string().min(1).max(4000),
   source: z.string().min(1).max(500).default("Saved by workspace owner"),
   sourceRunId: z.string().max(200).default(""),
+  /** The run that first saved the fact; survives later edits so a conversation can be forgotten precisely. */
+  originRunId: z.string().max(200).optional(),
 }).strict();
 const NewMemoryDataSchema = MemoryDataSchema.extend({
   text: z.string().trim().min(1).max(4000),
@@ -52,6 +54,42 @@ export class MemoryFacts {
     if (!db.prepare("PRAGMA table_info(memory)").all().some(row => row.name === "revision"))
       db.exec("ALTER TABLE memory ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
     db.exec("CREATE TABLE IF NOT EXISTS memory_limits(owner TEXT PRIMARY KEY,max_facts INTEGER NOT NULL)");
+    db.exec(`CREATE TABLE IF NOT EXISTS memory_suppressions(owner TEXT NOT NULL, session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL, PRIMARY KEY(owner,session_id))`);
+  }
+  /** Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones. */
+  forgetPreview(owner: string, sessionId: string) {
+    if (!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner))
+      throw new Error("Conversation not found");
+    const runIds = new Set(this.db.prepare("SELECT id FROM tasks WHERE session_id=?").all(sessionId).map(row => String(row.id)));
+    const remove: { id: string; text: string; source: string; createdAt: string }[] = [];
+    const excluded: { id: string; text: string; reason: string }[] = [];
+    for (const record of this.list(owner)) {
+      if (!runIds.has(String(record.data.originRunId || record.data.sourceRunId))) continue;
+      const text = String(record.data.text);
+      if (record.revision > 1) excluded.push({ id: record.id, text, reason: `You edited this after it was saved (revision ${record.revision}), so it stays.` });
+      else remove.push({ id: record.id, text, source: String(record.data.source), createdAt: record.createdAt });
+    }
+    return { sessionId, remove, excluded, suppressed: this.suppressed(owner, sessionId) };
+  }
+  /** Removes the previewed facts (or a chosen subset) and stops the conversation from saving memory again on its own. */
+  forget(owner: string, input: unknown) {
+    const { sessionId, ids } = z.object({ sessionId: z.string().uuid(), ids: z.array(MemoryIdSchema).max(500).optional() }).strict().parse(input);
+    const preview = this.forgetPreview(owner, sessionId);
+    const removable = new Set(preview.remove.map(entry => entry.id));
+    const chosen = ids ?? [...removable];
+    if (chosen.some(id => !removable.has(id))) throw new Error("Only facts listed in the preview can be forgotten");
+    this.db.exec("BEGIN");
+    try {
+      const remove = this.db.prepare("DELETE FROM memory WHERE owner=? AND id=?");
+      for (const id of chosen) remove.run(owner, id);
+      this.db.prepare("INSERT OR IGNORE INTO memory_suppressions VALUES(?,?,?)").run(owner, sessionId, new Date().toISOString());
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    return { sessionId, removed: chosen.length, excluded: preview.excluded, suppressed: true };
+  }
+  suppressed(owner: string, sessionId: string): boolean {
+    return !!this.db.prepare("SELECT 1 AS found FROM memory_suppressions WHERE owner=? AND session_id=?").get(owner, sessionId);
   }
   capacity(owner: string) {
     return { count: Number(this.db.prepare("SELECT COUNT(*) AS count FROM memory WHERE owner=?").get(owner)!.count),
@@ -74,7 +112,9 @@ export class MemoryFacts {
   }
   save(owner: string, id: string, input: unknown): MemoryRecord {
     MemoryIdSchema.parse(id);
-    const data = NewMemoryDataSchema.parse(input), previous = this.get(owner, id);
+    const parsed = NewMemoryDataSchema.parse(input), previous = this.get(owner, id);
+    const origin = previous ? (previous.data.originRunId || previous.data.sourceRunId) : (parsed.originRunId || parsed.sourceRunId);
+    const data = { ...parsed, ...(origin ? { originRunId: origin } : {}) };
     if (!previous) this.requireRoom(owner, 1);
     if (previous?.revision === Number.MAX_SAFE_INTEGER) throw new Error("Memory revision limit reached");
     const now = new Date(Math.max(Date.now(), previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString();
@@ -140,7 +180,12 @@ export class MemoryFacts {
 export function registerMemory(registry: ToolRegistry, store: Store): void {
   registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp.",
     permission: "memory.write", parameters: UpdateMemorySchema.pick({ text: true, source: true }),
-    execute: async (value, context) => store.save("memory", context.owner, randomUUID(), { ...value, sourceRunId: context.runId }) });
+    execute: async (value, context) => {
+      const sessionId = store.run(context.runId)?.sessionId;
+      if (sessionId && store.memorySuppressed(context.owner, sessionId))
+        throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
+      return store.save("memory", context.owner, randomUUID(), { ...value, sourceRunId: context.runId });
+    } });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => store.updateMemory(context.owner, value, context.runId) });

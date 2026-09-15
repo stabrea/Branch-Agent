@@ -29,7 +29,7 @@ export class SessionHistory {
       snippet(message_search,0,'','','…',48) AS excerpt
       FROM message_search JOIN messages m ON m.id=message_search.rowid
       JOIN sessions s ON s.id=m.session_id
-      WHERE message_search MATCH ? AND s.owner=? AND s.id<>?
+      WHERE message_search MATCH ? AND s.owner=? AND s.id<>? AND s.temporary=0
       ORDER BY rank, m.id DESC LIMIT ?`).all(expression, owner, excludeSessionId, query.limit);
     return rows.map((row) => ({
       messageId: Number(row.source_id), sessionId: String(row.session_id),
@@ -41,7 +41,7 @@ export class SessionHistory {
     const options = HistoryReadSchema.parse(input);
     const row = this.db.prepare(`SELECT m.body, s.created_at FROM messages m
       JOIN sessions s ON s.id=m.session_id WHERE m.source_id=? AND m.session_id=?
-      AND s.owner=? AND s.id<>? AND json_extract(m.body,'$.role') IN ('user','assistant')`)
+      AND s.owner=? AND s.id<>? AND s.temporary=0 AND json_extract(m.body,'$.role') IN ('user','assistant')`)
       .get(options.messageId, options.sessionId, owner, excludeSessionId);
     if (!row) throw new Error("Historical message not found");
     const message = JSON.parse(String(row.body)) as { role: string; content: string };

@@ -70,7 +70,7 @@ export class SessionLibrary {
       (SELECT substr(json_extract(m.body,'$.content'),1,240) FROM messages m
         WHERE m.session_id=s.id AND json_extract(m.body,'$.role') IN ('user','assistant')
         ORDER BY m.id LIMIT 1) AS preview
-      FROM sessions s WHERE s.owner=? AND EXISTS(SELECT 1 FROM messages m WHERE m.session_id=s.id
+      FROM sessions s WHERE s.owner=? AND s.temporary=0 AND EXISTS(SELECT 1 FROM messages m WHERE m.session_id=s.id
         AND json_extract(m.body,'$.role') IN ('user','assistant')
         AND (?='' OR instr(branch_fold(json_extract(m.body,'$.content')),branch_fold(?))>0))
       ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, offset);
@@ -100,8 +100,9 @@ export class SessionLibrary {
     return this.copy(owner, this.export(owner, sessionId), this.imported(sessionId), sessionId);
   }
   private requireIdleOwner(owner: string, sessionId: string) {
-    if (!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner))
-      throw new Error("Conversation not found");
+    const session = this.db.prepare("SELECT temporary FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);
+    if (!session) throw new Error("Conversation not found");
+    if (Number(session.temporary) === 1) throw new Error("Temporary conversations cannot be exported or copied");
     if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status='running'").get(sessionId))
       throw new Error("Wait for this conversation's active task before exporting or duplicating it");
   }
@@ -109,7 +110,7 @@ export class SessionLibrary {
     const sessionId = randomUUID(), now = new Date().toISOString();
     this.db.exec("BEGIN");
     try {
-      this.db.prepare("INSERT INTO sessions VALUES(?,?,?)").run(sessionId, owner, now);
+      this.db.prepare("INSERT INTO sessions(id,owner,created_at) VALUES(?,?,?)").run(sessionId, owner, now);
       const insert = this.db.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)");
       for (const message of archive.messages) insert.run(sessionId, JSON.stringify(message));
       this.db.prepare("INSERT INTO session_origins VALUES(?,?,?,?)")
