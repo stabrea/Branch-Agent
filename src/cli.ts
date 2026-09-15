@@ -4,6 +4,7 @@ import { providerFromEnv } from "./providers.js";
 import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
+import { startTerminal } from "./terminal.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -57,9 +58,9 @@ async function serve(
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
-  if (!["start", "run", "demo", "doctor"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | run <prompt> | demo | doctor",
+      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -75,6 +76,10 @@ async function main(): Promise<void> {
     return;
   }
   try {
+    if (command === "chat") {
+      await startTerminal(app.runtime);
+      return;
+    }
     if (command === "doctor") {
       printDoctor(app, dataDir);
       return;

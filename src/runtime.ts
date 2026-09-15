@@ -25,6 +25,8 @@ export interface RunOptions {
   permissions?: string[];
   signal?: AbortSignal;
   budget?: BudgetOptions;
+  onStarted?: (run: Run) => void;
+  onTextDelta?: (text: string) => void;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -216,7 +218,8 @@ export class Runtime {
     let status: Run["status"] = "completed";
     let output: string;
     try {
-      output = await this.loop(run, context, instructions);
+      options.onStarted?.(run);
+      output = await this.loop(run, context, instructions, options.onTextDelta);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -260,6 +263,7 @@ export class Runtime {
     run: Run,
     context: ToolContext,
     instructions: string,
+    onTextDelta?: (text: string) => void,
   ): Promise<string> {
     const messages: Message[] = [
       {
@@ -272,7 +276,7 @@ export class Runtime {
     ];
     for (let round = 0; round < 12; round++) {
       context.budget.step(context.signal);
-      const completion = await this.complete(run, messages, context);
+      const completion = await this.complete(run, messages, context, onTextDelta);
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
@@ -300,6 +304,7 @@ export class Runtime {
     run: Run,
     messages: Message[],
     context: ToolContext,
+    onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
     const tools = this.registry.descriptions(context.permissions);
     const input = estimateTokens({ messages, tools });
@@ -321,6 +326,7 @@ export class Runtime {
         tools,
         signal: context.signal,
         maxTokens,
+        ...(onTextDelta ? { onTextDelta } : {}),
       });
       const usage = UsageSchema.safeParse(raw.usage),
         reported = usage.success ? usage.data : undefined;

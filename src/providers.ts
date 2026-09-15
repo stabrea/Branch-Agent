@@ -8,6 +8,7 @@ import type {
   ToolCall,
 } from "./contracts.js";
 import { DemoProvider } from "./demo.js";
+import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
 
 export interface ProviderOptions {
   endpoint: string;
@@ -85,6 +86,7 @@ async function post(
   body: unknown,
   headers: Record<string, string>,
   signal: AbortSignal,
+  consume?: (data: string) => void,
 ): Promise<unknown> {
   const response = await fetch(options.endpoint.replace(/\/$/, "") + path, {
     method: "POST",
@@ -100,6 +102,7 @@ async function post(
     );
   }
   if (!response.body) throw new Error("Provider returned empty body");
+  if (consume) return readEventStream(response, consume);
   const reader = response.body.getReader(),
     chunks: Uint8Array[] = [];
   let size = 0;
@@ -144,23 +147,15 @@ export class OpenAIProvider implements Provider {
     validateOptions(options);
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const body = {
-      model: this.options.model,
-      max_tokens: request.maxTokens,
-      messages: request.messages.map(openaiMessage),
-      ...(request.tools.length
-        ? {
-            tools: request.tools.map((t) => ({
-              type: "function",
-              function: {
-                name: wireName(t.name),
-                description: t.description,
-                parameters: t.parameters,
-              },
-            })),
-          }
-        : {}),
-    };
+    const body = openaiBody(request, this.options.model);
+    if (request.onTextDelta) {
+      const stream = new OpenAIStream(request.onTextDelta);
+      await post(this.options, "/chat/completions",
+        { ...body, stream: true, stream_options: { include_usage: true } },
+        { authorization: `Bearer ${this.options.apiKey}` }, request.signal,
+        (data) => stream.consume(data));
+      return restoreToolNames(stream.result(), request);
+    }
     const response = openaiResponse.parse(
       await post(
         this.options,
@@ -188,6 +183,19 @@ export class OpenAIProvider implements Provider {
         : {}),
     };
   }
+}
+function openaiBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: request.maxTokens,
+    messages: request.messages.map(openaiMessage),
+    ...(request.tools.length ? {
+      tools: request.tools.map((t) => ({
+        type: "function",
+        function: { name: wireName(t.name), description: t.description, parameters: t.parameters },
+      })),
+    } : {}),
+  };
 }
 function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
   const result: { role: string; content: Record<string, unknown>[] }[] = [];
@@ -225,20 +233,14 @@ export class AnthropicProvider implements Provider {
     validateOptions(options);
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const body = {
-      model: this.options.model,
-      max_tokens: request.maxTokens,
-      system: request.messages
-        .filter((m) => m.role === "system")
-        .map((m) => m.content)
-        .join("\n"),
-      messages: anthropicMessages(request.messages),
-      tools: request.tools.map((t) => ({
-        name: wireName(t.name),
-        description: t.description,
-        input_schema: t.parameters,
-      })),
-    };
+    const body = anthropicBody(request, this.options.model);
+    if (request.onTextDelta) {
+      const stream = new AnthropicStream(request.onTextDelta);
+      await post(this.options, "/messages", { ...body, stream: true },
+        { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
+        request.signal, (data) => stream.consume(data));
+      return restoreToolNames(stream.result(), request);
+    }
     const response = anthropicResponse.parse(
       await post(
         this.options,
@@ -270,6 +272,21 @@ export class AnthropicProvider implements Provider {
         : {}),
     };
   }
+}
+function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: request.maxTokens,
+    system: request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
+    messages: anthropicMessages(request.messages),
+    tools: request.tools.map((t) => ({ name: wireName(t.name), description: t.description, input_schema: t.parameters })),
+  };
+}
+function restoreToolNames(completion: Completion, request: CompletionRequest): Completion {
+  return {
+    ...completion,
+    toolCalls: completion.toolCalls.map((call) => ({ ...call, name: originalName(call.name, request) })),
+  };
 }
 export function providerFromEnv(
   env: NodeJS.ProcessEnv = process.env,

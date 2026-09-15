@@ -32,6 +32,8 @@ export interface CompletionRequest {
   tools: ToolDescription[];
   signal: AbortSignal;
   maxTokens: number;
+  /** Live provider text only; partial text is not a committed completion. */
+  onTextDelta?: (text: string) => void;
 }
 export interface Completion {
   content: string;
