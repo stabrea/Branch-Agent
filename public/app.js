@@ -667,9 +667,23 @@ function renderModels() {
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
 }
 let sessionModel = { preset: null, reasoning: null };
+async function loadSessionSkill() {
+  const select = $("session-skill");
+  const enabled = (state.skills || []).filter((skill) => skill.activeVersion);
+  const current = sessionId ? (await api(`sessions/${sessionId}/skill`).catch(() => ({ skillId: null }))).skillId : null;
+  select.replaceChildren(el("option", "None"), ...enabled.map((skill) => { const option = el("option", skill.name); option.value = skill.id; return option; }));
+  select.options[0].value = "";
+  select.value = current ?? "";
+}
+$("session-skill").addEventListener("change", async () => {
+  if (!sessionId) return;
+  try { await api(`sessions/${sessionId}/skill`, { skillId: $("session-skill").value || null }); toast($("session-skill").value ? "Skill pinned to this conversation." : "Skill unpinned."); }
+  catch (e) { toast(e.message); }
+});
 async function loadSessionModel() {
   $("model-controls").hidden = !sessionId;
   if (!sessionId) return;
+  await loadSessionSkill();
   const value = await api(`sessions/${sessionId}/model`);
   sessionModel = value;
   presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);

@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 38 implemented, 47 partial, 1 external and 83 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 43 implemented, 46 partial, 1 external and 79 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -57,7 +57,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
 | File editing and shell execution (`execution.files-shell`) | implemented | Covered by the listed local fixtures. |
-| Web search and fetch (`execution.web`) | missing | Search for a query and fetch a selected page with readable content and its source URL. |
+| Web search and fetch (`execution.web`) | implemented | Covered by the listed local fixtures. |
 | Browser automation screenshots and persistent sessions (`execution.browser`) | partial | Add actual screenshot output and a multi-page fixture proving same authorized browser session across pages. |
 | Live shared Linux desktop (`execution.desktop`) | missing | Operate a desktop-only test application and allow the user to take over the same live desktop. |
 | DOM inspection and element-attached comments (`execution.annotations`) | missing | Attach a comment to a DOM element and include the element identity and inspection context in the resulting task. |
@@ -72,7 +72,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Progressive skill loading (`extensions.progressive`) | implemented | Covered by the listed local fixtures. |
 | Skill creation editing installation and curation (`extensions.authoring`) | implemented | Covered by the listed local fixtures. |
-| Pin a procedure to active chat (`extensions.pinning`) | missing | Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned. |
+| Pin a procedure to active chat (`extensions.pinning`) | implemented | Covered by the listed local fixtures. |
 | MCP servers and tool selection (`extensions.mcp`) | implemented | Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability. |
 | Plugin and channel adapter registry (`extensions.registry`) | missing | Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation. |
 | Agent templates without secrets (`extensions.templates`) | partial | Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets. |
@@ -96,7 +96,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Source lineage and admission controls (`memory.lineage`) | partial | Add session admission/denial policy and automatic-ingestion exclusion fixtures. |
 | Preview removal of tracked derived memory (`memory.forget`) | implemented | Covered by the listed local fixtures. |
 | Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
-| Automatic archival and expiry of stale memory (`memory.hygiene`) | missing | Apply a configured retention policy to seeded stale memories and report which entries were archived or purged. |
+| Automatic archival and expiry of stale memory (`memory.hygiene`) | implemented | Covered by the listed local fixtures. |
 | Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
 | Time-aware entity and relationship memory (`memory.temporal-graph`) | missing | Store changing facts about an entity and answer a time-qualified query using the fact valid at that time. |
 | Editable linked knowledge pages (`memory.linked-wiki`) | missing | Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval. |
@@ -172,13 +172,13 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Platform-specific OS sandboxes (`security.os`) | partial | Add actual supported OS sandbox backends and enforcement fixtures. |
 | Capability-limited WASM (`security.wasm`) | missing | Run a WASM tool and reject a host operation absent from its capability manifest. |
 | Host-side credential injection (`security.credentials`) | partial | Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output. |
-| Host/path allowlists and rate limits (`security.network`) | partial | Add path-specific policy and cover every outbound tool transport. |
+| Host/path allowlists and rate limits (`security.network`) | partial | Path-level rules and the same policy for MCP HTTP and browser requests. |
 | CPU memory and execution limits (`security.resources`) | partial | Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes. |
 | Encrypted credential store and hidden prompts (`security.secrets`) | implemented | Covered by the listed local fixtures. |
 | Untrusted-output wrapping and detection (`security.content`) | partial | Add provenance envelopes and configured detection policy tested against injected instructions. |
 | Execution audit and authenticated successful-call receipts (`security.audit`) | partial | Add verifiable successful-result receipts and detect modified results. |
 | Passkey authentication for the assistant service (`security.passkeys`) | missing | Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt. |
-| Block internal-network request forgery (`security.ssrf`) | missing | Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses. |
+| Block internal-network request forgery (`security.ssrf`) | implemented | Covered by the listed local fixtures. |
 | Cross-origin WebSocket admission control (`security.origin`) | partial | Implement the WebSocket surface and test rejection/acceptance of upgrade origins. |
 | Verify downloaded release provenance and hashes (`security.release-verification`) | partial | Publish and verify a signed attestation alongside the checksum. |
 | End-to-end encrypted relay transport (`security.encrypted-relay`) | missing | Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext. |
@@ -243,7 +243,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Runtime-verified task exit criteria (`reliability.completion-contract`) | partial | Apply declared exit criteria to each delegated task outcome and report failed evidence to parent. |
 | Measure task accuracy energy latency and cost (`reliability.evaluation`) | partial | Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs. |
 | Export task traces and service metrics (`reliability.tracing`) | partial | Add trace/metric export to configured observability endpoints. |
-| Live inventory of tools and configuration readiness (`reliability.capability-inventory`) | partial | Report actual configuration/readiness and update inventory when an adapter is disabled. |
+| Live inventory of tools and configuration readiness (`reliability.capability-inventory`) | implemented | Covered by the listed local fixtures. |
 
 ## Collaboration
 

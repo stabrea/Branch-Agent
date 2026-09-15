@@ -335,6 +335,9 @@ export class Store {
   forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }
   forgetMemory(owner: string, input: unknown) { return this.memories.forget(owner, input); }
   memorySuppressed(owner: string, sessionId: string) { return this.memories.suppressed(owner, sessionId); }
+  memoryHygiene(owner: string, input: unknown, now?: number) { return this.memories.hygiene(owner, input, now); }
+  archivedMemory(owner: string) { return this.memories.archived(owner); }
+  restoreMemory(owner: string, id: string) { return this.memories.restore(owner, id); }
   claimSchedule(
     owner: string,
     id: string,

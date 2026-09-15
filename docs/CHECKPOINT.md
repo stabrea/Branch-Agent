@@ -43,6 +43,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
+## Batch 7 (local, unreleased): web reading, network guard, skill pinning, memory hygiene, tool inventory
+
+`src/integrations/web.ts` (web.search / web.fetch, registered by default; SSRF guard on every hop;
+host allow/block lists; `web` section in the integrations file), `pinned-skill:<session>` setting with
+`/api/sessions/:id/skill`, `memory_archive` table + `/api/memory/hygiene|archive|archive/:id/restore`,
+`registry.unregister/names/inventory` + `GET /api/tools` (integrations unregister their tools on close).
+Coverage 43 implemented, 46 partial, 79 missing. v0.4.0 published (main 86e66a9); the hung push CI run
+was cancelled after the identical PR run passed.
+
 ## Batch 6: automation (0.4.0 with batch 5)
 
 Commit 364da62. Scheduler: `deliverTo` (channel delivery with recorded message id), per-schedule

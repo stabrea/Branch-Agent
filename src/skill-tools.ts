@@ -5,6 +5,19 @@ import type { ToolRegistry } from "./registry.js";
 import type { SkillCatalogEntry } from "./skills.js";
 import { skillVersionInput } from "./skill-document.js";
 
+export const pinnedSkillKey = (sessionId: string) => `pinned-skill:${sessionId}`;
+/** A skill pinned to a conversation has its full instructions in every turn until it is unpinned. */
+export function pinnedSkillInstructions(store: Store, context: ToolContext): string {
+  const sessionId = context.runId ? store.run(context.runId)?.sessionId : undefined;
+  if (!sessionId) return "";
+  const pinned = store.get("settings", context.owner, pinnedSkillKey(sessionId))?.data as { skillId?: string } | undefined;
+  if (!pinned?.skillId) return "";
+  const entry = store.skills.catalog(context.owner).find((skill) => skill.id === pinned.skillId);
+  if (!entry) return "";
+  const document = store.skills.read(context.owner, entry.id, { version: entry.version });
+  store.event(context.runId, "skills.pinned", { id: entry.id, version: entry.version, name: entry.name });
+  return `\nPinned skill "${entry.name}" (v${entry.version}) applies to this whole conversation. Its instructions:\n${document.document}\n`;
+}
 export function skillInstructions(store: Store, context: ToolContext): string {
   const entries = context.permissions.has("skills.read") ? store.skills.catalog(context.owner) : [];
   store.event(context.runId, "skills.catalog", { entries });

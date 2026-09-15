@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T23:05:16.194345+00:00",
+  "assessment_date": "2026-09-15T23:24:16.768554+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -762,17 +762,22 @@
       "family": "execution",
       "name": "Web search and fetch",
       "acceptance_criterion": "Search for a query and fetch a selected page with readable content and its source URL.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "web.fetch returns readable text with the final address, follows bounded redirects and refuses non-text",
+          "web.search parses result links and snippets and drops the search engine's own links",
+          "web tools are registered by default, take settings from the integrations file, and appear in the live tool inventory"
+        ],
+        "detail": "web.search (DuckDuckGo-lite style HTML endpoint, configurable) returns titles, addresses and snippets; web.fetch returns readable text with title and final address after bounded redirects, refusing non-text bodies. Registered by default with permission web.read."
       },
-      "remaining": "Search for a query and fetch a selected page with readable content and its source URL."
+      "remaining": ""
     },
     {
       "id": "execution.browser",
@@ -957,18 +962,22 @@
       "family": "extensions",
       "name": "Pin a procedure to active chat",
       "acceptance_criterion": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/skill-tools.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a skill pinned to a conversation is present in every turn until unpinned"
+        ],
+        "detail": "A conversation can pin one enabled skill; its full instructions are in every turn, recorded as a skills.pinned event, until unpinned. Other conversations are unaffected."
       },
-      "remaining": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned."
+      "remaining": ""
     },
     {
       "id": "extensions.mcp",
@@ -1351,16 +1360,20 @@
       "family": "memory",
       "name": "Automatic archival and expiry of stale memory",
       "acceptance_criterion": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "memory hygiene previews, archives (restorable) or purges stale facts by age"
+        ],
+        "detail": "Retention by last-update age: preview, archive (restorable from a separate table, restore counts as an edit) or purge, each returning the affected facts."
       },
-      "remaining": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged."
+      "remaining": ""
     },
     {
       "id": "memory.export-import",
@@ -2306,16 +2319,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/integrations/browser.ts",
-          "src/providers.ts",
-          "src/integrations/mcp-config.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
         "tests": [
-          "an allowed site cannot redirect the browser to an unlisted origin"
+          "the network guard refuses loopback, private, link-local and blocked hosts before any request, and honours an allowlist"
         ],
-        "detail": "Browser enforces exact origins and blocks redirects before forwarding; no path allowlist or universal egress policy."
+        "detail": "Host allowlist and blocklist (with subdomains) for web reading, enforced before sending."
       },
-      "remaining": "Add path-specific policy and cover every outbound tool transport."
+      "remaining": "Path-level rules and the same policy for MCP HTTP and browser requests."
     },
     {
       "id": "security.resources",
@@ -2422,19 +2436,20 @@
       "family": "security",
       "name": "Block internal-network request forgery",
       "acceptance_criterion": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "the network guard refuses loopback, private, link-local and blocked hosts before any request, and honours an allowlist"
+        ],
+        "detail": "Every hop (including redirects) is checked: loopback, private, link-local, unspecified, multicast, IPv4-mapped, .local/.internal/localhost names and embedded credentials are refused before any request; DNS results are checked for hostnames."
       },
-      "remaining": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses."
+      "remaining": ""
     },
     {
       "id": "security.origin",
@@ -3250,21 +3265,20 @@
       "family": "reliability",
       "name": "Live inventory of tools and configuration readiness",
       "acceptance_criterion": "List currently available tools with actual configuration readiness and update the list after disabling an adapter.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/registry.ts",
           "src/integrations/bootstrap.ts",
           "src/server.ts",
-          "src/cli.ts"
+          "tests/web-pin-hygiene.test.mjs"
         ],
         "tests": [
-          "CLI loads explicitly configured integrations before doctor",
-          "MCP version changes and absent allowlisted tools fail before registration"
+          "web tools are registered by default, take settings from the integrations file, and appear in the live tool inventory"
         ],
-        "detail": "State lists registered tool descriptions; registration gates MCP startup but no live health/disable lifecycle."
+        "detail": "GET /api/tools lists the tools that exist right now with permission and readiness; closing an integration unregisters its tools and the list updates."
       },
-      "remaining": "Report actual configuration/readiness and update inventory when an adapter is disabled."
+      "remaining": ""
     },
     {
       "id": "collaboration.signed-events",

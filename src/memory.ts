@@ -56,6 +56,8 @@ export class MemoryFacts {
     db.exec("CREATE TABLE IF NOT EXISTS memory_limits(owner TEXT PRIMARY KEY,max_facts INTEGER NOT NULL)");
     db.exec(`CREATE TABLE IF NOT EXISTS memory_suppressions(owner TEXT NOT NULL, session_id TEXT NOT NULL,
       created_at TEXT NOT NULL, PRIMARY KEY(owner,session_id))`);
+    db.exec(`CREATE TABLE IF NOT EXISTS memory_archive(id TEXT NOT NULL, owner TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL, revision INTEGER NOT NULL, archived_at TEXT NOT NULL, PRIMARY KEY(id,owner))`);
   }
   /** Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones. */
   forgetPreview(owner: string, sessionId: string) {
@@ -87,6 +89,41 @@ export class MemoryFacts {
       this.db.exec("COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
     return { sessionId, removed: chosen.length, excluded: preview.excluded, suppressed: true };
+  }
+  /** Retention: facts untouched for longer than the policy are archived (restorable) or purged, with a report. */
+  hygiene(owner: string, input: unknown, now: number = Date.now()) {
+    const { olderThanDays, action } = z.object({ olderThanDays: z.number().int().min(1).max(3650), action: z.enum(["preview", "archive", "purge"]) }).strict().parse(input);
+    const cutoff = new Date(now - olderThanDays * 86_400_000).toISOString();
+    const stale = this.list(owner).filter((record) => record.updatedAt < cutoff);
+    if (action === "preview") return { action, cutoff, stale: stale.map(summary), archived: [], purged: [] };
+    this.db.exec("BEGIN");
+    try {
+      for (const record of stale) {
+        if (action === "archive")
+          this.db.prepare("INSERT OR REPLACE INTO memory_archive(id,owner,data,created_at,updated_at,revision,archived_at) VALUES(?,?,?,?,?,?,?)")
+            .run(record.id, owner, JSON.stringify(record.data), record.createdAt, record.updatedAt, record.revision, new Date().toISOString());
+        this.db.prepare("DELETE FROM memory WHERE owner=? AND id=?").run(owner, record.id);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    return { action, cutoff, stale: [], archived: action === "archive" ? stale.map(summary) : [], purged: action === "purge" ? stale.map(summary) : [] };
+  }
+  archived(owner: string) {
+    return this.db.prepare("SELECT * FROM memory_archive WHERE owner=? ORDER BY archived_at DESC LIMIT 500").all(owner)
+      .map((row) => ({ ...this.record(row), archivedAt: String(row.archived_at) }));
+  }
+  restore(owner: string, id: string) {
+    const row = this.db.prepare("SELECT * FROM memory_archive WHERE owner=? AND id=?").get(owner, id);
+    if (!row) throw new Error("Archived memory not found");
+    this.requireRoom(owner, 1);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("INSERT INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,?)")
+        .run(id, owner, String(row.data), String(row.created_at), new Date().toISOString(), Number(row.revision) + 1);
+      this.db.prepare("DELETE FROM memory_archive WHERE owner=? AND id=?").run(owner, id);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    return this.get(owner, id)!;
   }
   suppressed(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT 1 AS found FROM memory_suppressions WHERE owner=? AND session_id=?").get(owner, sessionId);
@@ -195,4 +232,8 @@ export function registerMemory(registry: ToolRegistry, store: Store): void {
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => store.delete("memory", context.owner, value.id) });
+}
+
+function summary(record: MemoryRecord) {
+  return { id: record.id, text: String(record.data.text), updatedAt: record.updatedAt };
 }
