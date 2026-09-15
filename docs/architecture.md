@@ -20,6 +20,8 @@ Conversation retrieval uses a local FTS5 index over user and assistant text. Sta
 
 Conversation branching atomically copies a valid prefix into a new session with new source identifiers. A separate lineage record preserves the parent session and selected source message. Completed tool evidence is copied as data, while workspace files and owner-scoped memory remain shared. Creating a branch does not execute tools or alter its parent transcript.
 
+The conversation library lists owned histories and transfers versioned JSON archives. Import validates message roles, tool request/result pairing and size before an atomic copy. Archives contain conversation messages, not owner identities, permissions, tasks, workspace files or memory. Imports receive new local identifiers and durable import provenance; duplication and subsequent branches preserve that provenance. Export and duplication wait until the source has no active task.
+
 Interrupted work is marked as interrupted. A crash after a side effect has an uncertain outcome; resuming the reasoning is not permission to repeat the effect. Automatic recovery must reconcile external state or use a destination's idempotency support before replaying it.
 
 ## Learning and specialists

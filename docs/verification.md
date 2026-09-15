@@ -4,7 +4,7 @@ Date: 2026-09-15. Local platform: Windows x64, Node.js 24.15.0, Python 3.12.10. 
 
 ## Application
 
-The strict TypeScript build and 139 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
+The strict TypeScript build and 152 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
 
 - OpenAI-compatible and Anthropic adapters use protocol fixtures; no paid provider account has been exercised by this record.
 - Real Chromium tests verify forms, denied origins/redirects/password fields, overlapping run isolation, cancellation, resource limits and shutdown during pending launch.
@@ -17,8 +17,10 @@ The strict TypeScript build and 139 behavioral tests passed locally; one Windows
 - A raw TCP preconnection regression verifies quit cannot hang on speculative browser connections after runtime work is drained.
 - Conversation-history tests verify full-text matching, owner and role filters, exact source retrieval, Unicode pagination, current-session exclusion, separate permissions, legacy backfill and stable references across transcript repair. The browser test searches and reads an actual completed reply.
 - Nine core/API/browser branching tests verify exact conversation-prefix copies, independent continuation, stable lineage after restart, separate permissions, atomic rollback, size bounds and rejection of unfinished tool requests. Existing tool effects are not replayed. Browser checks cover busy controls and retaining a created branch when loading its messages fails; files and saved memory remain shared.
+- Conversation-library tests exercise clean-instance archive transfer, exact continuation, unchanged source history, fresh message identities, import provenance through copies/branches, Unicode search/pagination and atomic rollback. HTTP tests preserve split UTF-8 text above 64 KiB, reject oversized imports and enforce owner authentication. Malformed roles, unsupported versions, unmatched tool calls and non-object tool arguments are rejected before writing.
+- Browser lifecycle tests export a real JSON file, import it, reload the app and send a follow-up in the imported session. They also verify duplication, source preservation, mobile layout, failed-view recovery and busy controls. Native export tests exercise actual Electron IPC and disk writing, with the OS save-dialog result substituted by a scratch destination; cancellation, invalid input, another window's sender and the blanket download blocker are checked.
 - Host command tests execute real Node fixtures with argument arrays, checked cwd, selected environment, captured results and persisted tool evidence. Windows parent/child cancellation and shutdown pass; an escaped child with retained pipes returns promptly with incomplete cleanup. Invalid UTF-8 and split-character cases respect the combined output byte limit. POSIX process-group behavior is implemented but has not been executed on this Windows host.
-- The generated Windows executable has been run through all four native desktop/settings tests, including its bundled logo, acorn, preload and provider configuration. Package contents contain runtime/public files, production dependencies and license notices; private state and workspace are excluded.
+- The desktop/settings/export suite passed all six tests with the generated Windows executable selected for native fixtures, including its bundled logo, acorn, preload, provider configuration and archive export. Package contents contain runtime/public files, production dependencies and license notices; private state and workspace are excluded.
 
 Re-run `npm test` for the current tree. Review findings produced additional regression cases; an earlier passing suite did not cover all of those failures. CI is configured for Windows and must independently pass on the pushed revision.
 
@@ -39,6 +41,6 @@ No reset correction was applied. The run used zero language-model tokens but con
 
 ## Completion boundary
 
-The 169-entry inventory currently has 15 implemented entries, 56 partial, 1 external and 97 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
+The 169-entry inventory currently has 16 implemented entries, 55 partial, 1 external and 97 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
 
 Outstanding work includes remaining capability families, actual configured-service checks, broader failure scenarios, supported-platform packaging, installers/signing/updates, and measured learning/efficiency comparisons. No AGI, sentience or complete feature-parity claim is supported by these checks.

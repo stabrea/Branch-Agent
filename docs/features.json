@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T19:15:04.885283+00:00",
+  "assessment_date": "2026-09-15T19:35:47.773785+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -385,19 +385,47 @@
       "family": "routing",
       "name": "Search resume duplicate import and export sessions",
       "acceptance_criterion": "Search, resume, duplicate, export and import a session while preserving its original history.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/session-library.ts",
           "src/store.ts",
-          "src/runtime.ts",
-          "src/server.ts"
+          "src/server.ts",
+          "src/desktop/conversation-export.ts",
+          "src/desktop/conversation-export-ipc.ts",
+          "src/desktop/preload.cts",
+          "public/app.js",
+          "public/index.html",
+          "tests/session-library.test.mjs",
+          "tests/session-lifecycle-ui.test.mjs",
+          "tests/desktop-export.test.mjs"
         ],
         "tests": [
-          "demo writes, reads, verifies, and persists a multi-step session"
+          "session export imports into a clean instance and resumes exact history without replaying tools",
+          "duplicated sessions have fresh message identities, preserve the source and carry import provenance through branches",
+          "session search paginates owned nonempty histories and treats query syntax literally",
+          "import rejects malformed roles, protocol gaps, excess bytes and forged ownership before writing",
+          "copy operations reject active or foreign sources and roll back database write failures",
+          "session HTTP endpoints round trip Unicode archives above 64 KiB with owner authentication and bounded bodies",
+          "saved conversations search, paginate, export/import a JSON file, and resume after reload",
+          "duplicating a saved conversation preserves the source and follows up in the new ID",
+          "invalid and oversized import files report errors without changing the selected conversation",
+          "pending send blocks saved conversation switching, duplicate, and file import",
+          "failed duplicate or imported view retains each new ID and retry never creates another copy",
+          "native export validates text before choosing a file and writes only a chosen destination",
+          "native conversation export uses guarded IPC and leaves the blanket download blocker enabled"
         ],
-        "detail": "SessionId can continue persisted history; compound lifecycle criterion is incomplete."
+        "commits": [
+          "7bf11e4",
+          "fdcfc7a",
+          "cd4f76b"
+        ],
+        "detail": "Saved-conversation search returns owned nonempty histories in pages of 20 using literal NFC-normalized, case-insensitive matching. A selected conversation can be resumed with its prior messages intact, duplicated into independent message/session identities, exported as a validated JSON message archive and imported into a new or clean instance. Tests verify exact message round trips, imported follow-up after browser reload, preserved originals, no automatic replay of historical tool calls, atomic writes and import provenance retained through copies/branches. UI locks prevent switching/copy/import during an active send and failed post-copy views retain their new IDs for retry.",
+        "validation_source": "Auditor inspected current source at cd4f76b and ran node --test tests/session-library.test.mjs tests/session-lifecycle-ui.test.mjs tests/desktop-export.test.mjs: 13 passed, 0 failed, 0 skipped (6 core/API, 5 browser, 2 native-export). Parent subsequently confirmed core and UI specification/quality approval with no UI quality findings, full application suite 152 passed / 1 skipped (153 total), and rebuilt portable executable passing six desktop/settings/export tests. The full-suite, review and rebuilt-executable results are parent-reported; the 13 focused results are directly observed by this auditor.",
+        "native_validation_boundary": "Auditor directly ran Electron export tests exercising guarded renderer-to-main IPC and real destination-file writing; parent additionally reports the rebuilt portable executable passed all six desktop/settings/export tests. Save-dialog selection is stubbed in the fixture; manual OS-dialog interaction is unverified. The blanket native download blocker remains enabled. Browser export separately uses an actual browser download event and file import.",
+        "supported_acceptance_scope": "Version-1 conversation-message archives only, at most 1000 messages and 4 MiB. Only user/assistant/tool roles and complete valid tool-call/result history are accepted; system messages, forged ownership and invalid tool arguments/protocol gaps are rejected. Export/duplicate reject active or foreign source sessions. Imported/copied sessions receive fresh identities and shared local workspace files/saved memory; archives do not carry workspaces, model credentials, application settings, run/audit records or original internal IDs. Literal session-library search is distinct from the separately implemented FTS historical-message search. No backup/restore, memory import/export, cross-host migration or other feature entry is upgraded."
       },
-      "remaining": "Add session search, duplication, export and import; verify resumed history through a supported client."
+      "remaining": ""
     },
     {
       "id": "routing.temporary",
