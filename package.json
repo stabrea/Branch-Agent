@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc && node scripts/copy-fonts.mjs",
+    "pretest": "node -e \"require('electron')\"",
     "test": "npm run build && node --test tests/*.test.mjs",
     "start": "npm run build && node dist/cli.js start",
     "chat": "npm run build && node dist/cli.js chat",

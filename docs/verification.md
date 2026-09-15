@@ -20,6 +20,8 @@ The strict TypeScript build and 91 behavioral tests passed locally; one Windows 
 
 Re-run `npm test` for the current tree. Review findings produced additional regression cases; an earlier passing suite did not cover all of those failures. CI is configured for Windows and must independently pass on the pushed revision.
 
+The `pretest` hook resolves Electron's executable before parallel test workers start. Electron 44 downloads its binary lazily; concurrent first launches produced an intermittent CI failure. Preparing it in one process avoids overlapping extraction during native tests.
+
 ## Experiments
 
 All 16 standard-library Python tests passed. They check accounting of failures, retries and learning costs, matched held-out comparisons, incomplete accounting rejection, and model-adapter provenance/output preservation. Synthetic fixture comparisons do not establish live model savings.
