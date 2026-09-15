@@ -1,4 +1,4 @@
-import { lstat, realpath, mkdir, open, readdir } from "node:fs/promises";
+import { lstat, mkdir, open, readdir } from "node:fs/promises";
 import { resolve, relative, isAbsolute, dirname, join } from "node:path";
 import { constants } from "node:fs";
 import { z } from "zod";
@@ -32,8 +32,7 @@ export class WorkspaceFiles {
       rel = relative(this.root, target);
     if (rel.startsWith("..") || isAbsolute(rel))
       throw new Error("Path outside workspace");
-    const rootStat = await lstat(this.root);
-    if (rootStat.isSymbolicLink()) throw new Error("Workspace link denied");
+    await checkWorkspaceAncestors(this.root);
     let current = this.root;
     for (const part of rel.split(/[\\/]/).filter(Boolean)) {
       current = join(current, part);
@@ -45,9 +44,6 @@ export class WorkspaceFiles {
         throw e;
       }
     }
-    const canonical = await realpath(this.root);
-    if (canonical.toLowerCase() !== resolve(this.root).toLowerCase())
-      throw new Error("Workspace ancestors contain a link");
     return target;
   }
   async read(path: string): Promise<{ path: string; content: string }> {
@@ -139,6 +135,16 @@ export class WorkspaceFiles {
       }
     }
     return { matches };
+  }
+}
+async function checkWorkspaceAncestors(root: string): Promise<void> {
+  let current = resolve(root);
+  while (true) {
+    if ((await lstat(current)).isSymbolicLink())
+      throw new Error("Workspace or ancestors contain a link");
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
   }
 }
 export function registerFiles(
