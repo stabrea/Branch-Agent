@@ -43,7 +43,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
-## Batch 5 (local, unreleased): Telegram channel, pairing, activation, /skills /memory
+## Batch 6: automation (0.4.0 with batch 5)
+
+Commit 364da62. Scheduler: `deliverTo` (channel delivery with recorded message id), per-schedule
+`history` (≤50, running/finished/failed, trigger), kind `check` (previous result fed forward), `dailyAt`
++ `timezone` (`nextDailyOccurrence`, DST-safe), `webhook` → `hookToken`, unauthenticated
+`POST /hooks/:id` guarded by `x-branch-hook-token`, `POST /api/schedules/:id/trigger`, CLI `trigger`.
+Coverage 38 implemented, 47 partial, 83 missing. Full suite green.
+
+## Batch 5: Telegram channel, pairing, activation, /skills /memory
 
 `src/channels/router.ts` (per-chat conversations, pairing codes approved in Settings → Channels,
 mention/always activation, no shell permission for channel tasks) and `src/channels/telegram.ts`
