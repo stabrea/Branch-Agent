@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 19 implemented, 53 partial, 1 external and 96 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 21 implemented, 52 partial, 1 external and 95 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -70,8 +70,8 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Progressive skill loading (`extensions.progressive`) | missing | Expose only skill metadata initially and load full instructions only when that skill is selected. |
-| Skill creation editing installation and curation (`extensions.authoring`) | partial | Implement skill install/remove and full metadata/revision authoring lifecycle. |
+| Progressive skill loading (`extensions.progressive`) | implemented | Covered by the listed local fixtures. |
+| Skill creation editing installation and curation (`extensions.authoring`) | implemented | Covered by the listed local fixtures. |
 | Pin a procedure to active chat (`extensions.pinning`) | missing | Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned. |
 | MCP servers and tool selection (`extensions.mcp`) | implemented | Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability. |
 | Plugin and channel adapter registry (`extensions.registry`) | missing | Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation. |

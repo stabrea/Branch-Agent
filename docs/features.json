@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T20:05:08.774672+00:00",
+  "assessment_date": "2026-09-15T20:33:56.171290+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -849,36 +849,58 @@
       "family": "extensions",
       "name": "Progressive skill loading",
       "acceptance_criterion": "Expose only skill metadata initially and load full instructions only when that skill is selected.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/skill-document.ts",
+          "src/skills.ts",
+          "src/skill-tools.ts",
+          "src/store.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "src/index.ts",
+          "tests/skills.test.mjs",
+          "tests/skills-ui.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "initial request carries enabled skill metadata only; full documents load through skills.read",
+          "run snapshots pin advertised versions; later edits, switches and disables do not change an active run",
+          "removal prevents subsequent reads; skill metadata never expands tool permissions"
+        ],
+        "detail": "Runtime injects a metadata-only catalog of enabled skills into the system prompt and loads a full document only on an explicit skills.read for a listed id and version. Browser fixture verifies metadata-only discovery then exact v2 delivery."
       },
-      "remaining": "Expose only skill metadata initially and load full instructions only when that skill is selected."
+      "remaining": ""
     },
     {
       "id": "extensions.authoring",
       "family": "extensions",
       "name": "Skill creation editing installation and curation",
       "acceptance_criterion": "Create, edit, install and remove a skill while validating its metadata and retaining the selected revision.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "public/app.js"
+          "src/skill-document.ts",
+          "src/skills.ts",
+          "src/skill-tools.ts",
+          "src/store.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "src/index.ts",
+          "public/app.js",
+          "public/index.html",
+          "public/style.css",
+          "tests/skills.test.mjs",
+          "tests/skills-ui.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions"
+          "single-file SKILL.md install validates frontmatter, name pattern and size bounds",
+          "update creates an immutable new version; activation and rollback select retained versions with optimistic revision checks",
+          "disable and remove respect owner boundaries, capacity limits and transactional rollback",
+          "browser Skills view installs, edits, imports, activates, disables and removes with drafts preserved"
         ],
-        "detail": "Procedures and specialist definitions can be proposed/revised with retained history; these are not a complete skill package manager."
+        "detail": "Single-file SKILL.md documents only (agentskills.io frontmatter). Bundled scripts, assets and references are not installed; this is not full Agent Skills package support."
       },
-      "remaining": "Implement skill install/remove and full metadata/revision authoring lifecycle."
+      "remaining": ""
     },
     {
       "id": "extensions.pinning",

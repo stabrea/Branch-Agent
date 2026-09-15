@@ -8,6 +8,7 @@ This is a capability roadmap, not a release schedule. The initial runtime and na
 - Model adapters, durable task/tool state, scoped workspace tools and memory.
 - Restricted specialists, versioned procedures, schedules, MCP and browser tools.
 - Streaming terminal chat, full-text conversation retrieval and configured host commands.
+- Versioned single-file skills with metadata-only discovery and on-demand loading.
 - Separate neural-model experiment and total-task accounting utilities.
 
 ## Remaining breadth
