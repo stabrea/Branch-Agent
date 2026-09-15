@@ -4,9 +4,11 @@ import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser } from './browser.js';
+import { ShellConfigSchema } from './shell-config.js';
+import { BranchShell, registerShell } from './shell.js';
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
-  browser: BrowserConfigSchema.optional() }).strict();
+  browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional() }).strict();
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env) {
   const closers: (() => Promise<void>)[] = [];
@@ -29,6 +31,11 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     if (config.browser) {
       const browser = new BranchBrowser(config.browser);
       registerBrowser(registry, browser); closers.push(() => browser.close());
+    }
+    if (config.shell) {
+      const shell = new BranchShell(config.shell, env);
+      await shell.ready();
+      registerShell(registry, shell); closers.push(() => shell.close());
     }
     return { close, count: closers.length };
   } catch (error) { await close().catch(() => undefined); throw error; }
