@@ -83,6 +83,14 @@ test('saved conversations search, paginate, export/import a JSON file, and resum
   await card(f.page, imported).getByRole('button', { name: 'Open', exact: true }).click(); await ready(f.page);
   assert.equal(await f.page.locator('#conversation').getAttribute('data-session-id'), imported);
   assert.match(await f.page.locator('#session-label').innerText(), /Imported conversation/);
+  await f.page.getByLabel('Your message', { exact: true }).fill('Continue the imported conversation');
+  await f.page.locator('#send').click(); await ready(f.page);
+  assert.equal(await f.page.locator('#conversation').getAttribute('data-session-id'), imported);
+  assert.deepEqual(f.app.store.messages(imported), [...archive.messages,
+    { role: 'user', content: 'Continue the imported conversation' },
+    { role: 'assistant', content: 'Follow-up finished' },
+  ]);
+  assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original);
   assert.deepEqual(f.errors, []);
 });
 
