@@ -26,6 +26,7 @@ from **Settings → Updates**. Do not merge or release every batch.
   `%SystemRoot%\System32\{tasklist,find,ping,robocopy}.exe`, CSV listing, bounded drain, retries and
   `apply-update.log`. Rehearse with `Updater.writeScript()` + a staged copy before every release.
 - Header: "Branch Agent by KeepOak" (by tiny, KeepOak small). Sidebar: the assistant identity name.
+- Published v0.2.2: https://github.com/stabrea/Branch-Agent/releases/tag/v0.2.2 (main ea35fd1). Live check from 0.2.1 offers it. The owner's installed 0.2.1 carries the fixed hand-over script; their button click is the first real button-driven update.
 - Version `0.2.2`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.
