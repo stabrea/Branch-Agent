@@ -5,6 +5,7 @@ const paths = await packager({
   out: "release",
   name: "Branch Agent",
   executableName: "Branch Agent",
+  icon: process.platform === "win32" ? "public/assets/keepoak.ico" : "public/assets/keepoak-mark.png",
   appBundleId: "com.branchagent.desktop",
   appCategoryType: "public.app-category.productivity",
   platform: process.platform,

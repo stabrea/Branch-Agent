@@ -14,6 +14,8 @@ npm run demo
 npm start
 ```
 
+For an interactive terminal conversation, run `npm run chat`. Text streams as the provider sends it. Press Ctrl+C or type a revised request to interrupt the current task and continue the same conversation. `/new` starts a new conversation; `/exit` closes the terminal assistant.
+
 For the native desktop application:
 
 ```sh
@@ -22,6 +24,8 @@ npm run desktop
 
 It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. Installers, signing and automatic updates are pending.
 
+In desktop **Settings → Model connection**, select a provider and enter its API base URL, model identifier and key. The key is stored using the device's key protection. Quit and reopen to apply the connection. Explicit launch environment configuration takes precedence.
+
 Open the local address printed by `npm start` and paste its session token. The default provider is a deterministic demonstration that writes, reads and verifies a greeting. It does not interpret arbitrary requests. Configure a language model using [configuration.md](docs/configuration.md) for general assistance.
 
 The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, outside that workspace. Both directories are excluded from Git. Keep the session token private: it authorizes the local application's tools.
@@ -29,7 +33,9 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 ## Available now
 
 - Conversations with persisted runs, tool traces and reported/estimated usage.
+- Interactive terminal chat with provider streaming, interruption and in-place redirection.
 - A native desktop window and tray, with Forest and Daylight appearances saved across restarts.
+- Desktop model setup with a protected saved key and recovery from invalid settings.
 - OpenAI-compatible and Anthropic provider adapters.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
 - Restricted delegation with shared step/token limits and cancellation.

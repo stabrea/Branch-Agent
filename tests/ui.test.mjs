@@ -33,6 +33,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  await verifyArtwork(page);
   assert.match(
     await page.locator("#demo-notice").innerText(),
     /deterministic fixture/,
@@ -72,3 +73,28 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
     });
   assert.deepEqual(errors, []);
 });
+
+async function verifyArtwork(page) {
+  await page.waitForFunction(() => [...document.querySelectorAll(".brand-icon img")]
+    .every((image) => image.complete && image.naturalWidth === 1024));
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById("keepoak-acorn");
+    return canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height)
+      .data.some((value, index) => index % 4 === 3 && value > 0);
+  });
+  const pixels = () => page.locator("#keepoak-acorn").evaluate((canvas) => canvas.toDataURL());
+  const first = await pixels();
+  await page.waitForFunction((value) => document.getElementById("keepoak-acorn").toDataURL() !== value, first);
+  await page.getByRole("button", { name: "Pause rotation", exact: true }).click();
+  const frozen = await pixels();
+  await page.waitForTimeout(160);
+  assert.equal((await pixels()) === frozen, true, "paused acorn must stay still");
+  await page.locator("#keepoak-acorn").press("ArrowRight");
+  assert.equal((await pixels()) === frozen, false, "arrow key turns the acorn");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Resume rotation", exact: true }).waitFor();
+  const reduced = await pixels();
+  await page.waitForTimeout(160);
+  assert.equal((await pixels()) === reduced, true, "reduced motion disables automatic spin");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+}

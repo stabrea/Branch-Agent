@@ -89,6 +89,9 @@ async function staticFile(
   response: ServerResponse,
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
+    "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
+    "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
@@ -236,5 +239,6 @@ async function stopServer(app: Branch, server: Server): Promise<void> {
   const schedulesStopped = app.scheduler.stop();
   await app.runtime.shutdown();
   await schedulesStopped;
+  server.closeAllConnections();
   await closed;
 }

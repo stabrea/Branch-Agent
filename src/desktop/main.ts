@@ -7,10 +7,13 @@ import {
   type NativeImage,
 } from "electron";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createBranch } from "../index.js";
 import { providerFromEnv } from "../providers.js";
 import { startServer } from "../server.js";
 import { loadIntegrations } from "../integrations/bootstrap.js";
+import { loadDesktopSettings, registerSettingsIpc } from "./settings-ipc.js";
+import type { DesktopSettings } from "./settings.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -18,17 +21,8 @@ let stop: (() => Promise<void>) | undefined;
 let quitting = false;
 
 function branchIcon(): NativeImage {
-  const size = 32,
-    pixels = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) {
-      const stem = x >= 14 && x <= 17 && y >= 12 && y <= 28;
-      const leaf =
-        ((x - 10) / 8) ** 2 + ((y - 10) / 5) ** 2 <= 1 ||
-        ((x - 23) / 7) ** 2 + ((y - 17) / 5) ** 2 <= 1;
-      if (stem || leaf) pixels.set([51, 112, 224, 255], (y * size + x) * 4);
-    }
-  return nativeImage.createFromBitmap(pixels, { width: size, height: size });
+  const path = fileURLToPath(new URL("../../public/assets/keepoak-mark.png", import.meta.url));
+  return nativeImage.createFromPath(path).resize({ width: 32, height: 32 });
 }
 
 function protectWindow(
@@ -61,7 +55,9 @@ function protectWindow(
   });
 }
 
-async function createWindow(url: string, token: string): Promise<void> {
+async function createWindow(
+  url: string, token: string, settings: DesktopSettings,
+): Promise<void> {
   window = new BrowserWindow({
     width: 1440,
     height: 950,
@@ -73,6 +69,7 @@ async function createWindow(url: string, token: string): Promise<void> {
     icon: branchIcon(),
     autoHideMenuBar: true,
     webPreferences: {
+      preload: fileURLToPath(new URL("./preload.cjs", import.meta.url)),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -81,6 +78,7 @@ async function createWindow(url: string, token: string): Promise<void> {
     },
   });
   protectWindow(window, url, token);
+  registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -89,6 +87,10 @@ async function createWindow(url: string, token: string): Promise<void> {
   });
   window.once("ready-to-show", () => window?.show());
   await window.loadURL(`${url}/?desktop=1`);
+  createTray();
+}
+
+function createTray(): void {
   tray = new Tray(branchIcon());
   tray.setToolTip("Branch Agent");
   tray.setContextMenu(
@@ -112,12 +114,13 @@ async function createWindow(url: string, token: string): Promise<void> {
 
 async function start(): Promise<void> {
   const base = app.getPath("userData");
+  const settings = await loadDesktopSettings(join(base, "model-settings.json"));
   const dataDir = process.env.BRANCH_DATA_DIR ?? join(base, "state");
   const workspace = process.env.BRANCH_WORKSPACE ?? join(base, "workspace");
   const branch = await createBranch({
     dataDir,
     workspace,
-    provider: providerFromEnv(),
+    provider: desktopProvider(settings),
   });
   let integrationClose: (() => Promise<void>) | undefined;
   let serverClose: (() => Promise<void>) | undefined;
@@ -142,10 +145,20 @@ async function start(): Promise<void> {
     integrationClose = integrations.close;
     const server = await startServer(branch, { dataDir, port: 0 });
     serverClose = server.close;
-    await createWindow(server.url, server.token);
+    await createWindow(server.url, server.token, settings);
   } catch (error) {
     await stop();
     throw error;
+  }
+}
+
+function desktopProvider(settings: DesktopSettings) {
+  if (process.env.BRANCH_PROVIDER !== undefined) return providerFromEnv();
+  try {
+    return providerFromEnv(settings.environment());
+  } catch {
+    settings.reportConnectionIssue();
+    return providerFromEnv({ BRANCH_PROVIDER: "demo" });
   }
 }
 

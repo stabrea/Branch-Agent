@@ -472,6 +472,49 @@ $("appearance-shortcut").addEventListener("click", () => {
   if ($("workspace").hidden) toast("Connect to change settings.");
 });
 if (token || desktop) refresh().catch((e) => toast(e.message));
+function modelConnectionFields() {
+  const demonstration = $("model-provider").value === "demo";
+  $("model-connection-fields").hidden = demonstration;
+  $("model-connection-fields").querySelectorAll("input").forEach((input) => {
+    input.disabled = demonstration;
+  });
+}
+function showModelSettings(value) {
+  $("model-settings-form").hidden = false;
+  $("model-provider").value = value.provider;
+  $("model-endpoint").value = value.endpoint;
+  $("model-name").value = value.model;
+  $("model-key").value = "";
+  $("model-key").placeholder = value.hasKey ? "Saved key — leave blank to keep" : "Enter API key";
+  $("model-key-note").textContent = value.canStoreKey
+    ? "Stored with this device’s key protection. Saved keys are never displayed here."
+    : "Device key protection is unavailable. Configure the provider in the launch environment.";
+  $("model-settings-fields").disabled = Boolean(value.environmentOverride);
+  $("model-settings-note").textContent = (value.issue ? value.issue + " " : "") + (value.environmentOverride
+    ? "The launch environment controls the active model. Remove BRANCH_PROVIDER there to use these settings."
+    : "Save your connection, then quit and reopen Branch Agent to use it. Provider usage may incur charges.");
+  if (value.issue) toast(value.issue);
+  modelConnectionFields();
+}
+$("model-provider").addEventListener("change", modelConnectionFields);
+if (window.branchDesktop) {
+  window.branchDesktop.modelSettings().then(showModelSettings).catch((e) => toast(e.message));
+  form("model-settings-form", async () => {
+    const input = {
+      provider: $("model-provider").value, endpoint: $("model-endpoint").value,
+      model: $("model-name").value, apiKey: $("model-key").value,
+    };
+    $("model-key").value = "";
+    let saved;
+    try {
+      saved = await window.branchDesktop.saveModelSettings(input);
+    } finally {
+      input.apiKey = "";
+    }
+    showModelSettings(saved);
+    $("model-settings-note").textContent = "Connection saved. Quit from the tray and reopen Branch Agent to apply it.";
+  });
+}
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});
 }, 3000);

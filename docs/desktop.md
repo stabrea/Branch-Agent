@@ -16,7 +16,7 @@ Electron is a development dependency because it supplies the native window, plat
 
 ## State and configuration
 
-Desktop private state and workspace default to separate `state` and `workspace` subdirectories beneath Electron's user-data directory for Branch Agent. `BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` override them. Model and integration variables are the same as in [configuration.md](configuration.md).
+Desktop private state and workspace default to separate `state` and `workspace` subdirectories beneath Electron's user-data directory for Branch Agent. `BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` override them. Model connections can be saved in Settings with device-protected keys; explicit `BRANCH_PROVIDER` environment configuration takes precedence. See [configuration.md](configuration.md) for model, key-recovery and integration behavior.
 
 `BRANCH_DESKTOP_HOME` can select a separate Electron profile, for example for an isolated evaluation. Profiles contain UI caches and the default state location. Do not point two running applications at the same data directory.
 

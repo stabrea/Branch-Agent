@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 8 implemented, 59 partial, 1 external and 101 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 9 implemented, 58 partial, 1 external and 101 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -11,7 +11,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
 | Browser chat and settings (`surfaces.web`) | implemented | Covered by the listed local fixtures. |
-| Interactive terminal with streaming and interruption (`surfaces.terminal`) | partial | Implement an interactive streaming terminal session and interrupt/redirect it in place. |
+| Interactive terminal with streaming and interruption (`surfaces.terminal`) | implemented | Covered by the listed local fixtures. |
 | Desktop and menu-bar clients (`surfaces.desktop`) | implemented | Covered by the listed local fixtures. |
 | Voice dictation and transcription (`surfaces.voice-input`) | missing | Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn. |
 | Text-to-speech (`surfaces.voice-output`) | missing | Generate playable speech from a response using the selected provider. |
