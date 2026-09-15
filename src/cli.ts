@@ -21,6 +21,7 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
       process.env.BRANCH_INTEGRATIONS,
       process.env,
       app.secretsFor,
+      app.channelHost,
     );
     return {
       app,
@@ -68,9 +69,9 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor | login | logout | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor | login | logout | trigger <schedule-id> | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -87,7 +88,13 @@ async function main(): Promise<void> {
     return;
   }
   try {
-    if (command === "login") await loginChatGPT(app);
+    if (command === "trigger") {
+      const id = process.argv[3];
+      if (!id) throw new Error("Provide a schedule id: node dist/cli.js trigger <schedule-id>");
+      const run = await app.scheduler.trigger(app.runtime.owner, id, undefined, "local");
+      console.log(JSON.stringify({ run, events: app.store.events(run.id) }, null, 2));
+      if (run.status !== "completed") process.exitCode = 1;
+    } else if (command === "login") await loginChatGPT(app);
     else if (command === "logout") {
       await app.chatgpt!.signOut();
       syncChatGPTPresets(app.runtime.models, app.chatgpt!, false, app.userAgent);

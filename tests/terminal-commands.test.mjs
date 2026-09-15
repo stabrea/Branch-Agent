@@ -61,3 +61,17 @@ test("/models, /model and /think choose the model and thinking for the terminal 
   input.write("/help\n");
   await until(() => /Commands: \/models, \/model <id>, \/think/.test(text()));
 });
+
+test("/skills and /memory list what the workspace knows", async (t) => {
+  const { app, input, text } = await fixture(t);
+  input.write("/skills\n");
+  await until(() => /No skills installed/.test(text()));
+  input.write("/memory\n");
+  await until(() => /Nothing saved to memory yet/.test(text()));
+  app.store.save("memory", "local", "fact-1", { text: "The garden gate sticks in winter", source: "owner" });
+  app.store.skills.install("local", { document: "---\nname: garden-notes\ndescription: Notes about the garden.\n---\n\nKeep notes.\n" });
+  input.write("/memory gate\n");
+  await until(() => /- The garden gate sticks in winter \(owner\)/.test(text()));
+  input.write("/skills\n");
+  await until(() => /\* garden-notes — Notes about the garden\. \(v1\)/.test(text()));
+});

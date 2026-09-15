@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T22:42:09.174042+00:00",
+  "assessment_date": "2026-09-15T23:05:16.194345+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -259,51 +259,75 @@
       "family": "routing",
       "name": "Direct and group chat adapters",
       "acceptance_criterion": "Receive and reply to a direct message and a group message through configured channel adapters.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Telegram Bot API adapter (long polling) behind a channel router; direct and group messages are answered through per-chat conversations; channel tasks never get host command permission. Only Telegram so far."
       },
-      "remaining": "Receive and reply to a direct message and a group message through configured channel adapters."
+      "remaining": ""
     },
     {
       "id": "routing.activation",
       "family": "routing",
       "name": "Mention activation and engagement policies",
       "acceptance_criterion": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Groups answer only when the bot is mentioned or replied to (activation: mention) or always (activation: always); unaddressed group messages are ignored without a model call."
       },
-      "remaining": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches."
+      "remaining": ""
     },
     {
       "id": "routing.pairing",
       "family": "routing",
       "name": "Sender allowlists and pairing",
       "acceptance_criterion": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Unknown senders receive a six-digit code; the owner approves it in Settings \u2192 Channels (or the API); allowlisted ids skip pairing; pairing can be disabled so unknown senders are told the assistant is private."
       },
-      "remaining": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes."
+      "remaining": ""
     },
     {
       "id": "routing.shared-session",
@@ -1822,71 +1846,93 @@
       "family": "automation",
       "name": "Recurring timed tasks",
       "acceptance_criterion": "Persist a recurring schedule and execute it at the expected due time in the configured timezone.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/scheduler.ts",
-          "src/store.ts"
+          "src/channels/router.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
         "tests": [
-          "recurring schedules advance once, pause, and resume without catch-up duplication"
+          "daily schedules recur at a wall-clock time in their timezone, across a daylight-saving change"
         ],
-        "detail": "Durable interval recurrence exists; it uses UTC instants and fixed milliseconds rather than timezone-aware cron."
+        "detail": "dailyAt HH:MM in an IANA timezone; next due time computed from wall-clock parts, verified across a daylight-saving change and for a half-hour offset zone. Intervals remain available."
       },
-      "remaining": "Add configured timezone/calendar recurrence semantics and a timezone-aware due-time fixture."
+      "remaining": ""
     },
     {
       "id": "automation.heartbeat",
       "family": "automation",
       "name": "Periodic proactive checks",
       "acceptance_criterion": "Run a periodic monitoring check and retain its state across subsequent checks.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/scheduler.ts",
-          "src/store.ts"
+          "src/channels/router.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
         "tests": [
-          "recurring schedules advance once, pause, and resume without catch-up duplication"
+          "monitoring checks hand the previous result to the next run"
         ],
-        "detail": "Recurring tasks create new sessions; no explicit monitor-state/check acceptance fixture."
+        "detail": "Kind 'check' stores the last result and passes it, with its time, into the next execution so the assistant reports what changed."
       },
-      "remaining": "Verify a periodic monitoring routine carries prior observation state into subsequent checks."
+      "remaining": ""
     },
     {
       "id": "automation.events",
       "family": "automation",
       "name": "Event and webhook routines",
       "acceptance_criterion": "Trigger a saved routine from an authenticated webhook or declared event with the triggering payload.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/scheduler.ts",
-          "src/store.ts",
+          "src/channels/router.ts",
           "src/server.ts",
-          "src/cli.ts"
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an authenticated webhook triggers a schedule with its payload; manual and script triggers work too"
+        ],
+        "detail": "Schedules created with webhook: true get a per-schedule token; POST /hooks/:id with x-branch-hook-token runs the schedule with the JSON payload appended to the prompt, without moving its due time; wrong or missing tokens are refused."
       },
-      "remaining": "Trigger a saved routine from an authenticated webhook or declared event with the triggering payload."
+      "remaining": ""
     },
     {
       "id": "automation.local",
       "family": "automation",
       "name": "Local script triggers",
       "acceptance_criterion": "Invoke a saved automation from a local script and record the resulting run.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/cli.ts",
           "src/scheduler.ts",
-          "src/knowledge.ts"
+          "src/channels/router.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
-        "tests": [],
-        "detail": "CLI runs arbitrary prompts; SDK can replay saved procedures, but no complete local saved-automation invocation fixture."
+        "tests": [
+          "an authenticated webhook triggers a schedule with its payload; manual and script triggers work too",
+          "per-schedule history distinguishes finished, failed and running executions"
+        ],
+        "detail": "`branch trigger <schedule-id>` and POST /api/schedules/:id/trigger run a saved schedule now; the resulting run is recorded in the schedule's history with trigger 'local'."
       },
-      "remaining": "Add saved-automation selection/invocation from a local script with correlated run record."
+      "remaining": ""
     },
     {
       "id": "automation.pause",
@@ -1912,37 +1958,46 @@
       "family": "automation",
       "name": "Route results to chosen channels",
       "acceptance_criterion": "Deliver a completed scheduled result to the configured destination and record the destination identifier.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/scheduler.ts",
-          "src/store.ts",
+          "src/channels/router.ts",
           "src/server.ts",
-          "src/cli.ts"
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "scheduled results are delivered to a channel chat and the delivery is recorded"
+        ],
+        "detail": "Schedules carry deliverTo {channel, chatId}; finished results are sent through the channel router, the message id and destination are recorded on the schedule and as a delivery.sent/failed run event; an undeliverable result does not fail the task."
       },
-      "remaining": "Deliver a completed scheduled result to the configured destination and record the destination identifier."
+      "remaining": ""
     },
     {
       "id": "automation.history",
       "family": "automation",
       "name": "Inspectable run history",
       "acceptance_criterion": "Inspect a saved schedule and distinguish successful, failed and active runs in its history.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/scheduler.ts",
-          "src/store.ts",
-          "public/app.js"
+          "src/channels/router.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/automation.test.mjs"
         ],
         "tests": [
-          "due schedule claims persist and prevent duplicate execution"
+          "per-schedule history distinguishes finished, failed and running executions"
         ],
-        "detail": "Schedule retains current status, last runId and runCount, not a full correlated run history."
+        "detail": "Each schedule keeps the last 50 executions with run id, status (running while active), start/finish times and what triggered them; the Schedules view shows finished/failed/running counts."
       },
-      "remaining": "Store per-schedule run history and distinguish all successful, failed and active runs over repeated executions."
+      "remaining": ""
     },
     {
       "id": "automation.metrics",

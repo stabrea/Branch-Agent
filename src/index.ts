@@ -16,6 +16,7 @@ import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import { ChannelRouter } from "./channels/router.js";
 import type { ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
@@ -68,7 +69,8 @@ export async function createBranch(options: {
   registerSessions(registry, store);
   registerSkills(registry, store);
   registerKnowledge(registry, knowledge);
-  const scheduler = new Scheduler(store, runtime);
+  const channels = new ChannelRouter(store, runtime);
+  const scheduler = new Scheduler(store, runtime, (channel, chatId, text) => channels.deliver(channel, chatId, text));
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
@@ -91,14 +93,22 @@ export async function createBranch(options: {
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
-    close: () => (closing ??= closeBranch(scheduler, runtime, store)),
+    channels,
+    /** What integrations need to host messaging channels: the router and default-project secrets. */
+    channelHost: {
+      router: channels,
+      secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
+    },
+    close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
   };
 }
 async function closeBranch(
   scheduler: Scheduler,
   runtime: Runtime,
   store: Store,
+  channels?: ChannelRouter,
 ): Promise<void> {
+  await channels?.detachAll();
   const schedulingStopped = scheduler.stop();
   await runtime.shutdown();
   await schedulingStopped;
@@ -120,6 +130,8 @@ export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
 export * from "./projects.js";
 export * from "./locker.js";
+export * from "./channels/router.js";
+export * from "./channels/telegram.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

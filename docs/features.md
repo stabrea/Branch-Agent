@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 29 implemented, 51 partial, 1 external and 88 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 38 implemented, 47 partial, 1 external and 83 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -28,9 +28,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Direct and group chat adapters (`routing.channels`) | missing | Receive and reply to a direct message and a group message through configured channel adapters. |
-| Mention activation and engagement policies (`routing.activation`) | missing | Ignore a non-triggering group message and respond when the configured mention or engagement rule matches. |
-| Sender allowlists and pairing (`routing.pairing`) | missing | Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes. |
+| Direct and group chat adapters (`routing.channels`) | implemented | Covered by the listed local fixtures. |
+| Mention activation and engagement policies (`routing.activation`) | implemented | Covered by the listed local fixtures. |
+| Sender allowlists and pairing (`routing.pairing`) | implemented | Covered by the listed local fixtures. |
 | Conversation spanning channels (`routing.shared-session`) | missing | Continue one conversation from two linked channels with both surfaces observing the same ordered history. |
 | Shared agent identity with separate conversations (`routing.shared-identity`) | partial | Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate. |
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
@@ -139,13 +139,13 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Recurring timed tasks (`automation.cron`) | partial | Add configured timezone/calendar recurrence semantics and a timezone-aware due-time fixture. |
-| Periodic proactive checks (`automation.heartbeat`) | partial | Verify a periodic monitoring routine carries prior observation state into subsequent checks. |
-| Event and webhook routines (`automation.events`) | missing | Trigger a saved routine from an authenticated webhook or declared event with the triggering payload. |
-| Local script triggers (`automation.local`) | partial | Add saved-automation selection/invocation from a local script with correlated run record. |
+| Recurring timed tasks (`automation.cron`) | implemented | Covered by the listed local fixtures. |
+| Periodic proactive checks (`automation.heartbeat`) | implemented | Covered by the listed local fixtures. |
+| Event and webhook routines (`automation.events`) | implemented | Covered by the listed local fixtures. |
+| Local script triggers (`automation.local`) | implemented | Covered by the listed local fixtures. |
 | Pause and resume with state (`automation.pause`) | implemented | Covered by the listed local fixtures. |
-| Route results to chosen channels (`automation.delivery`) | missing | Deliver a completed scheduled result to the configured destination and record the destination identifier. |
-| Inspectable run history (`automation.history`) | partial | Store per-schedule run history and distinguish all successful, failed and active runs over repeated executions. |
+| Route results to chosen channels (`automation.delivery`) | implemented | Covered by the listed local fixtures. |
+| Inspectable run history (`automation.history`) | implemented | Covered by the listed local fixtures. |
 | Package requirements settings and dashboard metrics (`automation.metrics`) | missing | Load a task package and expose its required tools, configurable inputs and declared runtime metrics. |
 | One-time scheduled work (`automation.once`) | implemented | Covered by the listed local fixtures. |
 

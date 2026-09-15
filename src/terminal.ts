@@ -48,7 +48,7 @@ class TerminalConversation {
   }
   start(): Promise<void> {
     const done = new Promise<void>((resolve) => { this.resolveDone = resolve; });
-    this.write("Branch Agent terminal conversation\nLive model text when supported; tool/model/run progress for all providers. Partial text is uncommitted.\nCtrl+C or /cancel interrupts. Type a revision to redirect; /new starts a session; /exit quits.\n/models lists models; /model <id> and /think <low|medium|high|default> choose for this conversation; /help repeats this.\n");
+    this.write("Branch Agent terminal conversation\nLive model text when supported; tool/model/run progress for all providers. Partial text is uncommitted.\nCtrl+C or /cancel interrupts. Type a revision to redirect; /new starts a session; /exit quits.\n/models, /model <id>, /think <level>, /skills and /memory [search] are available; /help repeats this.\n");
     this.lines.on("line", this.receive);
     this.lines.on("SIGINT", this.interrupt);
     this.signals.on("SIGINT", this.interrupt);
@@ -80,7 +80,19 @@ class TerminalConversation {
   private command(text: string): void {
     const [name, ...rest] = text.split(/\s+/), argument = rest.join(" ");
     const owner = this.runtime.owner, models = this.runtime.models;
-    if (name === "/help") { this.write("Commands: /models, /model <id>, /think <low|medium|high|default>, /cancel, /new, /exit.\n"); return; }
+    if (name === "/help") { this.write("Commands: /models, /model <id>, /think <low|medium|high|default>, /skills, /memory [search], /cancel, /new, /exit.\n"); return; }
+    if (name === "/skills") {
+      const skills = this.runtime.store.skills.list(owner);
+      if (!skills.length) { this.write("No skills installed. Add SKILL.md documents in the app's Skills view.\n"); return; }
+      for (const skill of skills) this.write(`${skill.activeVersion ? "*" : " "} ${skill.name} — ${skill.description}${skill.activeVersion ? ` (v${skill.activeVersion})` : " (disabled)"}\n`);
+      return;
+    }
+    if (name === "/memory") {
+      const facts = argument ? this.runtime.store.searchMemory(owner, argument) : this.runtime.store.list("memory", owner).slice(0, 20);
+      if (!facts.length) { this.write(argument ? "No saved facts match that.\n" : "Nothing saved to memory yet.\n"); return; }
+      for (const fact of facts) this.write(`- ${String(fact.data.text)} (${String(fact.data.source)})\n`);
+      return;
+    }
     if (name === "/models") {
       const summary = models.summary(owner), active = this.model ?? summary.activePreset ?? summary.defaultPreset;
       for (const preset of summary.presets)
@@ -103,7 +115,7 @@ class TerminalConversation {
       this.write(`[thinking set to ${choice ?? "the model's default"} for this conversation]\n`);
       return;
     }
-    this.write("Commands: /models, /model <id>, /think <level>, /cancel, /new, /exit.\n");
+    this.write("Commands: /models, /model <id>, /think <level>, /skills, /memory [search], /cancel, /new, /exit.\n");
   }
   private interrupt = (): void => {
     this.queue = [];

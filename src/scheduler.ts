@@ -1,25 +1,73 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { ToolRegistry } from "./registry.js";
 
+const timezone = z.string().min(1).max(64).refine((zone) => {
+  try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
+}, "Unknown timezone");
 export const ScheduleSchema = z
   .object({
     prompt: z.string().min(1).max(8000),
     dueAt: z.iso.datetime(),
-    kind: z.enum(["reminder", "task"]),
+    /** reminder: a note in Activity; task: run the assistant; check: run it and hand it the previous result. */
+    kind: z.enum(["reminder", "task", "check"]),
     intervalMs: z.number().int().min(60000).max(31536000000).optional(),
+    /** Repeat every day at this local time in `timezone` (HH:MM, 24-hour). */
+    dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    timezone: timezone.optional(),
+    /** Send the finished result to a connected channel chat. */
+    deliverTo: z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().optional(),
+    /** Allow an authenticated webhook to trigger this schedule with a payload. */
+    webhook: z.boolean().optional(),
     permissions: z.array(z.string().max(100)).max(50).optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => !(value.intervalMs && value.dailyAt), "Choose either an interval or a daily time")
+  .refine((value) => !value.dailyAt || value.timezone, "A daily time needs a timezone");
+export type Delivery = (channel: string, chatId: string, text: string) => Promise<{ messageId?: string | undefined }>;
+export interface HistoryEntry { runId: string | null; status: string; startedAt: string; finishedAt?: string; trigger: string }
+const historyLimit = 50;
+
+/** The next moment `HH:MM` occurs in `zone` strictly after `after`. */
+export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Date {
+  const [hour, minute] = hhmm.split(":").map(Number) as [number, number];
+  const parts = (date: Date) => {
+    const found: Record<string, number> = {};
+    for (const part of new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(date))
+      if (part.type !== "literal") found[part.type] = Number(part.value);
+    return found;
+  };
+  const wallToUtc = (y: number, m: number, d: number) => {
+    let guess = Date.UTC(y, m - 1, d, hour, minute, 0);
+    for (let i = 0; i < 3; i++) {
+      const p = parts(new Date(guess));
+      const seen = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
+      const wanted = Date.UTC(y, m - 1, d, hour, minute, 0);
+      if (seen === wanted) break;
+      guess += wanted - seen;
+    }
+    return guess;
+  };
+  const today = parts(after);
+  let candidate = wallToUtc(today.year!, today.month!, today.day!);
+  if (candidate <= after.getTime()) {
+    const tomorrow = new Date(Date.UTC(today.year!, today.month! - 1, today.day! + 1, 12));
+    const t = parts(tomorrow);
+    candidate = wallToUtc(t.year!, t.month!, t.day!);
+  }
+  return new Date(candidate);
+}
+
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly active = new Set<Promise<Run[]>>();
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
+    private readonly deliver?: Delivery,
   ) {}
   create(context: ToolContext, input: unknown): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
@@ -32,59 +80,90 @@ export class Scheduler {
         );
     if (permissions.some((p) => !context.permissions.has(p)))
       throw new Error("Schedule permission escalation denied");
+    const { webhook, ...rest } = definition;
     return this.store.save("schedules", context.owner, randomUUID(), {
-      ...definition,
+      ...rest,
       dueAt: new Date(definition.dueAt).toISOString(),
       permissions,
       status: "pending",
+      history: [],
+      ...(webhook ? { hookToken: randomBytes(24).toString("hex") } : {}),
     });
   }
   async tick(now = new Date()): Promise<Run[]> {
     const results: Run[] = [];
-    for (const candidate of this.store.dueSchedules(
-      this.runtime.owner,
-      now.toISOString(),
-    )) {
-      const claimed = this.store.claimSchedule(
-        this.runtime.owner,
-        candidate.id,
-        now.toISOString(),
-      );
+    for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
+      const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
       if (!claimed) continue;
-      try {
-        const run =
-          claimed.data.kind === "reminder"
-            ? this.remind(claimed)
-            : await this.runtime.run({
-                prompt: String(claimed.data.prompt),
-                permissions: claimed.data.permissions as string[],
-              });
-        const repeats =
-          run.status === "completed" &&
-          typeof claimed.data.intervalMs === "number";
-        this.store.save("schedules", claimed.owner, claimed.id, {
-          ...claimed.data,
-          status: repeats ? "pending" : run.status,
-          runId: run.id,
-          runCount: Number(claimed.data.runCount ?? 0) + 1,
-          ...(repeats
-            ? {
-                dueAt: new Date(
-                  now.getTime() + Number(claimed.data.intervalMs),
-                ).toISOString(),
-              }
-            : {}),
-        });
-        results.push(run);
-      } catch (e) {
-        this.store.save("schedules", claimed.owner, claimed.id, {
-          ...claimed.data,
-          status: "failed",
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
+      const run = await this.execute(claimed, now, "schedule", undefined, true);
+      if (run) results.push(run);
     }
     return results;
+  }
+  /** Runs a saved schedule now (webhook or local script) without moving its next due time. */
+  async trigger(owner: string, id: string, payload: unknown, trigger: "webhook" | "local"): Promise<Run> {
+    const record = this.store.get("schedules", owner, id);
+    if (!record) throw new Error("Schedule not found");
+    if (!["pending", "paused", "completed", "failed"].includes(String(record.data.status)))
+      throw new Error("This schedule is running right now");
+    const run = await this.execute(record, new Date(), trigger, payload, false);
+    if (!run) throw new Error("The schedule did not produce a run");
+    return run;
+  }
+  private async execute(record: SavedRecord, now: Date, trigger: string, payload: unknown, advance: boolean): Promise<Run | undefined> {
+    const startedAt = now.toISOString(), data = record.data;
+    const history = (Array.isArray(data.history) ? data.history as HistoryEntry[] : []).slice(-(historyLimit - 1));
+    const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
+    this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
+    try {
+      const run = data.kind === "reminder" ? this.remind(record) : await this.runtime.run({
+        prompt: this.promptFor(data, payload), permissions: data.permissions as string[],
+        onStarted: (started) => { entry.runId = started.id; },
+      });
+      Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
+      const delivery = await this.deliverResult(data, run);
+      const repeats = run.status === "completed" && (typeof data.intervalMs === "number" || typeof data.dailyAt === "string");
+      const nextDue = !advance ? String(data.dueAt)
+        : typeof data.dailyAt === "string" ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
+        : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
+      this.store.save("schedules", record.owner, record.id, {
+        ...data, status: !advance ? String(data.status) === "running" ? "pending" : data.status : repeats ? "pending" : run.status,
+        runId: run.id, runCount: Number(data.runCount ?? 0) + 1, history: [...history, entry],
+        lastRunAt: startedAt, lastResult: run.status === "completed" ? run.output.slice(0, 4000) : data.lastResult ?? null,
+        ...(delivery ? { delivery } : {}), ...(advance && repeats ? { dueAt: nextDue } : {}),
+      });
+      return run;
+    } catch (e) {
+      Object.assign(entry, { status: "failed", finishedAt: new Date().toISOString() });
+      this.store.save("schedules", record.owner, record.id, {
+        ...data, status: advance ? "failed" : data.status, history: [...history, entry],
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return undefined;
+    }
+  }
+  private promptFor(data: Record<string, unknown>, payload: unknown): string {
+    let prompt = String(data.prompt);
+    if (data.kind === "check" && typeof data.lastResult === "string" && data.lastResult)
+      prompt += `\n\nYour previous check at ${String(data.lastRunAt ?? "an earlier time")} concluded: ${data.lastResult}\nCompare against it and report what changed.`;
+    if (payload !== undefined) prompt += `\n\nTriggering event payload (JSON): ${JSON.stringify(payload).slice(0, 16000)}`;
+    return prompt;
+  }
+  private async deliverResult(data: Record<string, unknown>, run: Run): Promise<Record<string, unknown> | undefined> {
+    const target = data.deliverTo as { channel: string; chatId: string } | undefined;
+    if (!target) return undefined;
+    const at = new Date().toISOString();
+    if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
+    try {
+      const text = run.status === "completed" ? run.output : `The scheduled task did not finish (${run.status}).`;
+      const { messageId } = await this.deliver(target.channel, target.chatId, text.slice(0, 3500));
+      this.store.event(run.id, "delivery.sent", { ...target, messageId: messageId ?? null });
+      return { ...target, at, messageId: messageId ?? null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.store.event(run.id, "delivery.failed", { ...target, error: message });
+      return { ...target, at, error: message };
+    }
   }
   setPaused(context: ToolContext, id: string, paused: boolean): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
@@ -133,7 +212,7 @@ export function registerSchedules(
   registry.register({
     name: "schedules.create",
     description:
-      "Persist a reminder or task with optional repeat interval. Runs when online; missed periods coalesce into one execution. Failed tasks do not auto-retry.",
+      "Persist a reminder, task or monitoring check with an optional interval or a daily time in a timezone, optional delivery to a channel chat, and optional webhook triggering. Runs when online; missed periods coalesce into one execution. Failed tasks do not auto-retry.",
     permission: "schedules.manage",
     parameters: ScheduleSchema,
     execute: async (a, c) => scheduler.create(c, a),
