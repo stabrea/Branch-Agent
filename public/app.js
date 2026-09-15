@@ -196,7 +196,8 @@ function memoryEditor(record) {
     event.preventDefault(); save.disabled = true;
     try {
       await api("action", { tool: "memory.update", args: { id: record.id, text: draft.text, source: draft.source, expectedRevision: draft.revision } });
-      memoryEditors.delete(record.id); await refresh(); toast("Memory updated.");
+      if (memoryEditors.get(record.id) === draft) memoryEditors.delete(record.id);
+      await refresh(); toast("Memory updated.");
     } catch (failure) { draft.error = failure.message; error.textContent = failure.message; }
     finally { save.disabled = false; }
   });

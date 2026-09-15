@@ -96,6 +96,31 @@ test('polling preserves the open editor, focus, selection and continued typing',
   assert.deepEqual(f.errors, []);
 });
 
+test('an older pending save cannot discard a reopened editor draft', async t => {
+  const f = await fixture(t);
+  let release, received;
+  const held = new Promise(resolve => { release = resolve; });
+  const updated = new Promise(resolve => { received = resolve; });
+  await f.page.route('**/api/action', async route => {
+    if (route.request().postDataJSON().tool !== 'memory.update') return route.continue();
+    const response = await route.fetch(); received(); await held;
+    await route.fulfill({ response });
+  });
+  await edit(f.page, 'Saved draft A', 'Source A');
+  await f.page.getByRole('button', { name: 'Save changes', exact: true }).click(); await updated;
+  await f.page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
+  await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
+  await edit(f.page, 'Unsaved draft B', 'Source B');
+  release(); await f.page.locator('#toast').filter({ hasText: 'Memory updated.' }).waitFor();
+  assert.equal(await f.page.getByLabel('Edit memory fact', { exact: true }).inputValue(), 'Unsaved draft B');
+  assert.equal(await f.page.getByLabel('Edit memory source', { exact: true }).inputValue(), 'Source B');
+  assert.equal(record(f).data.text, 'Saved draft A');
+  await f.page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
+  assert.equal(record(f).data.text, 'Unsaved draft B');
+  assert.deepEqual(f.errors, []);
+});
+
 test('memory capacity rejects additional facts and cannot drop below the saved count', async t => {
   const f = await fixture(t);
   await f.page.locator('#memory-capacity').fill('1');
