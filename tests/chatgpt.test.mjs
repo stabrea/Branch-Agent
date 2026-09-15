@@ -40,13 +40,13 @@ async function fakeOpenAI(t, behaviour = {}) {
       return json(200, { access_token: accessToken(1), refresh_token: "refresh_1", id_token: idToken, expires_in: 3600 });
     }
     if (req.url === "/codex/responses") {
-      if (behaviour.responsesStatus) return json(behaviour.responsesStatus, { error: { message: "nope" } });
-      res.writeHead(200, { "content-type": "text/event-stream" });
+      if (behaviour.responsesStatus) return json(behaviour.responsesStatus, { detail: "Unsupported parameter: max_output_tokens" });
+      res.writeHead(200, behaviour.noContentType ? {} : { "content-type": "text/event-stream" });
       const body = JSON.parse(raw);
       const events = body.input.some((item) => item.type === "function_call_output")
         ? [{ type: "response.output_text.delta", delta: "Done: " }, { type: "response.output_text.delta", delta: "greeting saved" },
            { type: "response.completed", response: { usage: { input_tokens: 12, output_tokens: 4 } } }]
-        : [{ type: "response.created" },
+        : [{ type: "response.created", response: { status: "in_progress", usage: null, error: null, incomplete_details: null } },
            { type: "response.output_item.done", item: { type: "function_call", call_id: "call_1", name: body.tools[0].name,
              arguments: JSON.stringify({ path: "hello.txt", content: "hello" }) } },
            { type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 2 } } }];
@@ -173,6 +173,24 @@ test("HTTP API exposes sign-in status, starts the device flow and signs out", as
   assert.equal(app.runtime.models.settings("local").activePreset, null, "removed preset no longer selected");
 });
 
+test("replies without a content-type header still parse; a 400 stays a plain provider failure", async (t) => {
+  const plain = await fixture(t, { noContentType: true });
+  await plain.auth.startDeviceLogin();
+  await finishChatGPTSignIn(plain.app.runtime.models, plain.auth, "local", "BranchAgent/test");
+  useFakeBackend(plain.app, plain.auth, plain.base);
+  const run = await plain.app.runtime.run({ prompt: "save a greeting" });
+  assert.equal(run.status, "completed");
+  assert.equal(run.output, "Done: greeting saved");
+  const bad = await fixture(t, { responsesStatus: 400 });
+  await bad.auth.startDeviceLogin();
+  await finishChatGPTSignIn(bad.app.runtime.models, bad.auth, "local", "BranchAgent/test");
+  useFakeBackend(bad.app, bad.auth, bad.base);
+  const failed = await bad.app.runtime.run({ prompt: "hi" });
+  assert.equal(failed.status, "failed");
+  assert.match(failed.output, /Provider HTTP 400/);
+  assert.ok(!JSON.stringify([failed.output, bad.app.store.events(failed.id)]).includes("Unsupported parameter"), "raw provider text is never persisted");
+});
+
 test("protected vault round-trips through device key protection", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-vault-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -200,7 +218,7 @@ test("Responses stream parsing rejects failed and incomplete responses", () => {
   assert.throws(() => incomplete.consume(JSON.stringify({ type: "response.incomplete", response: { incomplete_details: { reason: "max_output_tokens" } } })), /stopped early/);
   const body = responsesBody({ messages: [{ role: "system", content: "S" }, { role: "user", content: "U" }], tools: [], maxTokens: 100, signal: new AbortController().signal }, "gpt-5.5");
   assert.equal(body.instructions, "S");
-  assert.equal(body.max_output_tokens, 100);
+  assert.equal("max_output_tokens" in body, false, "the ChatGPT route rejects max_output_tokens");
   assert.equal("tools" in body, false);
 });
 
