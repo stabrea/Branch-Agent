@@ -565,6 +565,25 @@ form > button {
 .session-context p {
   margin: 0 0 8px;
 }
+.saved-conversations > p {
+  font-size: 13px;
+  color: var(--muted);
+}
+.saved-search {
+  display: grid;
+  gap: 10px;
+}
+.saved-search button {
+  justify-self: start;
+}
+.saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.saved-actions button {
+  margin: 0;
+}
 .message small {
   display: block;
   font-family: "Geist Mono", monospace;

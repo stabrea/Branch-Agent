@@ -14,6 +14,7 @@ import { startServer } from "../server.js";
 import { loadIntegrations } from "../integrations/bootstrap.js";
 import { loadDesktopSettings, registerSettingsIpc } from "./settings-ipc.js";
 import type { DesktopSettings } from "./settings.js";
+import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -79,6 +80,7 @@ async function createWindow(
   });
   protectWindow(window, url, token);
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
+  registerConversationExportIpc(window, url);
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();

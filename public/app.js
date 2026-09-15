@@ -5,6 +5,10 @@ let savedAppearance;
 let historyReadRevision = 0;
 let conversationBusy = false;
 let currentBranch = null;
+let currentImported = false;
+let savedSearchRevision = 0;
+let savedNextOffset = null;
+let savedQuery = "";
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -355,32 +359,40 @@ function setConversationBusy(busy) {
   conversationBusy = busy;
   $("send").disabled = busy;
   $("new-session").disabled = busy;
+  $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
 }
-function selectConversation(id, branch = null) {
+function selectConversation(id, branch = null, imported = false) {
   sessionId = id;
   currentBranch = branch;
+  currentImported = imported;
   $("conversation").dataset.sessionId = id || "";
-  $("session-label").textContent = branch ? "Branched conversation" : "Saved conversation";
+  $("session-label").textContent = branch ? "Branched conversation" : imported ? "Imported conversation" : "Saved conversation";
+  $("saved-conversations").open = false;
   displayView("chat");
   renderConversationContext();
 }
 function renderConversationContext() {
   const context = $("session-context");
   context.replaceChildren();
-  context.hidden = !currentBranch;
-  if (!currentBranch) return;
-  const original = currentBranch.parentSessionId;
-  context.append(el("p", "Conversation copied through the selected message. This branch shares workspace files and saved memory."),
-    conversationButton("Open original conversation", () => openConversation(original)));
+  context.hidden = !sessionId;
+  if (!sessionId) return;
+  context.append(el("p", currentBranch
+    ? "Conversation copied through the selected message. This branch shares workspace files and saved memory."
+    : "Workspace files and saved memory are shared across conversations."));
+  if (currentImported) context.append(el("p", "Imported messages are untrusted history. Importing never runs saved tool calls."));
+  if (currentBranch) {
+    const original = currentBranch.parentSessionId;
+    context.append(conversationButton("Open original conversation", () => openConversation(original)));
+  }
 }
 function renderConversation(value, status) {
-  selectConversation(value.sessionId, value.branch);
+  selectConversation(value.sessionId, value.branch, value.imported);
   $("conversation").replaceChildren();
   for (const source of value.messages) {
     if (["user", "assistant"].includes(source.role)) message(source.role, source.content, source);
   }
-  if (status) $("session-label").textContent = status + (value.branch ? " · branched conversation" : " · conversation saved");
+  if (status) $("session-label").textContent = status + (value.branch ? " · branched conversation" : value.imported ? " · imported conversation" : " · conversation saved");
 }
 async function loadConversation(id, status) {
   try {
@@ -404,6 +416,86 @@ async function branchConversation(original, messageId) {
   $("conversation").replaceChildren();
   await loadConversation(branch.sessionId);
 }
+function savedConversationCard(value) {
+  const card = recordCard(value.preview || "Empty conversation");
+  card.dataset.sessionId = value.sessionId;
+  const controls = el("div", undefined, "saved-actions");
+  controls.append(conversationButton("Open", () => openConversation(value.sessionId)),
+    conversationButton("Duplicate", () => duplicateConversation(value.sessionId)),
+    conversationButton("Export JSON", () => exportConversation(value.sessionId)));
+  card.append(el("p", `${value.messageCount} messages · ${date(value.createdAt)}`, "meta"), controls);
+  return card;
+}
+async function searchSavedConversations(offset = 0) {
+  const revision = ++savedSearchRevision;
+  const query = offset ? savedQuery : $("saved-query").value;
+  $("saved-search").disabled = true; $("saved-more").disabled = true;
+  try {
+    const value = await api("sessions/search", { query, offset });
+    if (revision !== savedSearchRevision) return;
+    if (!offset) $("saved-list").replaceChildren();
+    $("saved-list").append(...value.sessions.map(savedConversationCard));
+    if (!$("saved-list").children.length) $("saved-list").append(el("p", "No saved conversations match this search."));
+    savedNextOffset = value.nextOffset;
+    savedQuery = query;
+    $("saved-more").hidden = savedNextOffset === null;
+  } catch (error) { toast(error.message); }
+  finally {
+    if (revision === savedSearchRevision) { $("saved-search").disabled = false; $("saved-more").disabled = false; }
+  }
+}
+async function openCreatedConversation(result, imported = false) {
+  selectConversation(result.sessionId, null, imported);
+  if (!imported) $("session-label").textContent = "Copied conversation";
+  $("conversation").replaceChildren();
+  await loadConversation(result.sessionId);
+}
+async function duplicateConversation(id) {
+  const result = await api("sessions/" + id + "/duplicate", {});
+  await openCreatedConversation(result);
+}
+async function exportConversation(id) {
+  const archive = await api("sessions/" + id + "/export");
+  const text = JSON.stringify(archive);
+  if (desktop && !window.branchDesktop?.exportConversation)
+    throw new Error("Desktop export is unavailable. Reopen Branch Agent and try again.");
+  if (window.branchDesktop?.exportConversation) {
+    if (!(await window.branchDesktop.exportConversation(text)).saved) return;
+  } else {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const link = el("a"); link.href = url; link.download = `branch-conversation-${id}.json`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  toast("Conversation exported.");
+}
+async function importConversation(file) {
+  if (file.size > 4 * 1024 * 1024) throw new Error("Conversation archives must be at most 4 MiB.");
+  let archive;
+  try { archive = JSON.parse(await file.text()); }
+  catch { throw new Error("Choose a valid conversation JSON file."); }
+  const result = await api("sessions/import", archive);
+  await openCreatedConversation(result, true);
+}
+$("saved-conversations").addEventListener("toggle", () => {
+  if ($("saved-conversations").open) void searchSavedConversations();
+});
+$("saved-search-form").addEventListener("submit", event => {
+  event.preventDefault(); void searchSavedConversations();
+});
+$("saved-more").addEventListener("click", () => {
+  if (savedNextOffset !== null) void searchSavedConversations(savedNextOffset);
+});
+$("import-conversation").addEventListener("click", () => {
+  if (!conversationBusy) $("conversation-import").click();
+});
+$("conversation-import").addEventListener("change", async () => {
+  const file = $("conversation-import").files[0]; $("conversation-import").value = "";
+  if (!file || conversationBusy) return;
+  setConversationBusy(true);
+  try { await importConversation(file); } catch (error) { toast(error.message); }
+  finally { setConversationBusy(false); }
+});
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   token = $("token").value.trim();
@@ -452,6 +544,7 @@ $("new-session").addEventListener("click", () => {
   if (conversationBusy) return;
   sessionId = null;
   currentBranch = null;
+  currentImported = false;
   $("conversation").dataset.sessionId = "";
   $("conversation").replaceChildren();
   $("session-label").textContent = "New conversation";

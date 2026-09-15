@@ -72,6 +72,20 @@
       </section>
       <div id="workspace" hidden>
         <section id="chat" class="view">
+          <details id="saved-conversations" class="card saved-conversations">
+            <summary>Saved conversations</summary>
+            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+            <form id="saved-search-form" class="saved-search">
+              <label for="saved-query">Find a saved conversation</label>
+              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+              <button id="saved-search">Search saved conversations</button>
+            </form>
+            <button id="import-conversation" type="button" class="text-button conversation-switch">Import conversation JSON</button>
+            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+            <div id="saved-list" class="card-list" aria-live="polite"></div>
+            <button id="saved-more" type="button" class="text-button" hidden>Load more conversations</button>
+          </details>
           <div id="demo-notice" class="notice" hidden>
             <strong>Offline demo fixture</strong
             ><span
