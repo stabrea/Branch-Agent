@@ -4,11 +4,14 @@ import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron } from 'playwright';
-import { saveConversationExport } from '../dist/desktop/conversation-export.js';
+import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
 import { desktopOptions } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
   messages: [{ role: 'user', content: 'Export fixture' }, { role: 'assistant', content: 'Saved response' }] };
+const memoryArchive = { format: 'branch-agent-memory', version: 1, exportedAt: archive.exportedAt,
+  records: [{ id: 'memory-fixture', data: { text: 'Saved fact', source: 'Fixture', sourceRunId: '' },
+    createdAt: archive.exportedAt, updatedAt: archive.exportedAt, revision: 1 }] };
 
 test('native export validates text before choosing a file and writes only a chosen destination', async (t) => {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
@@ -24,6 +27,20 @@ test('native export validates text before choosing a file and writes only a chos
   assert.deepEqual(await saveConversationExport(JSON.stringify(archive), choose), { saved: true });
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), archive);
   assert.equal(dialogs, 1);
+});
+
+test('native memory export validates archive and raw UTF8 size before opening the save dialog', async t => {
+  const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, 'branch-memory-export-')), path = join(root, 'memory.json');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let dialogs = 0; const choose = async () => { dialogs++; return path; };
+  for (const value of [memoryArchive, '{}', JSON.stringify(archive), '☃'.repeat(5600000), JSON.stringify({ ...memoryArchive, path })])
+    await assert.rejects(saveMemoryExport(value, choose));
+  assert.equal(dialogs, 0);
+  assert.deepEqual(await saveMemoryExport(JSON.stringify(memoryArchive), async () => undefined), { saved: false });
+  await assert.rejects(stat(path), { code: 'ENOENT' });
+  assert.deepEqual(await saveMemoryExport(JSON.stringify(memoryArchive), choose), { saved: true });
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), memoryArchive);
 });
 
 test('native conversation export uses guarded IPC and leaves the blanket download blocker enabled', { timeout: 90000 }, async () => {
@@ -55,8 +72,26 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     assert.equal(dialogs.length, 1); assert.deepEqual(dialogs[0].filters[0].extensions, ['json']);
     assert.equal(await downloadBlocked(electron), true);
     await rejectOtherWindow(electron, page.url());
+    await exportNativeMemory(electron, page, path);
   } finally { await electron.close(); }
 });
+
+async function exportNativeMemory(electron, page, path) {
+  const invalid = await page.evaluate(() => window.branchDesktop.exportMemory('{}').then(() => 'allowed', error => error.message));
+  assert.notEqual(invalid, 'allowed');
+  await page.locator('[data-view="memory"]').click();
+  await page.locator('#memory-text').fill('Native exported memory');
+  await page.getByRole('button', { name: 'Save memory', exact: true }).click();
+  await page.locator('#memory-count').filter({ hasText: '1 of 500' }).waitFor();
+  await page.getByRole('button', { name: 'Export memory JSON', exact: true }).click();
+  await page.locator('#toast').filter({ hasText: 'Memory exported.' }).waitFor();
+  const saved = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(saved.format, 'branch-agent-memory');
+  assert.equal(saved.records[0].data.text, 'Native exported memory');
+  assert.equal(saved.records[0].revision, 1);
+  const dialogs = await electron.evaluate(() => globalThis.fixtureExportDialogs);
+  assert.equal(dialogs.length, 2); assert.equal(dialogs[1].defaultPath, 'branch-memory.json');
+}
 
 async function downloadBlocked(electron) {
   return electron.evaluate(({ BrowserWindow }) => {
@@ -77,5 +112,7 @@ async function rejectOtherWindow(electron, url) {
     const other = await opened;
     const result = await other.evaluate(text => window.branchDesktop.exportConversation(text).then(() => 'allowed', error => error.message), JSON.stringify(archive));
     assert.match(result, /access denied/);
+    const memory = await other.evaluate(text => window.branchDesktop.exportMemory(text).then(() => 'allowed', error => error.message), JSON.stringify(memoryArchive));
+    assert.match(memory, /access denied/);
   } finally { await electron.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), id); }
 }

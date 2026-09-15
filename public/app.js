@@ -9,6 +9,7 @@ let currentImported = false;
 let savedSearchRevision = 0;
 let savedNextOffset = null;
 let savedQuery = "";
+const memoryEditors = new Map();
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -152,20 +153,46 @@ async function showRun(id) {
   );
 }
 function renderMemory() {
+  const capacity = state.memoryCapacity;
+  $("memory-count").textContent = `${capacity.count} of ${capacity.maxFacts} saved facts`;
+  if (document.activeElement !== $("memory-capacity")) $("memory-capacity").value = capacity.maxFacts;
   list(
     "memory-list",
     state.memory,
     (record) => {
       const node = recordCard(record.data.text);
+      node.dataset.memoryId = record.id;
       node.append(
         el("p", record.data.source),
         el("p", date(record.createdAt), "meta"),
-        button("Delete", () => action("memory.delete", { id: record.id })),
+        button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); }),
+        button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }),
       );
+      if (memoryEditors.has(record.id)) node.append(memoryEditor(record));
       return node;
     },
     "Save a preference, decision, or useful fact.",
   );
+}
+function memoryEditor(record) {
+  const draft = memoryEditors.get(record.id), editor = el("form", undefined, "memory-editor");
+  const text = el("textarea"), source = el("input"), error = el("p", draft.error || "", "memory-error");
+  text.value = draft.text; text.maxLength = 4000; text.required = true;
+  text.setAttribute("aria-label", "Edit memory fact");
+  source.value = draft.source; source.maxLength = 500; source.required = true;
+  source.setAttribute("aria-label", "Edit memory source"); error.setAttribute("role", "alert");
+  text.oninput = () => { draft.text = text.value; }; source.oninput = () => { draft.source = source.value; };
+  const save = el("button", "Save changes"); save.type = "submit";
+  editor.append(text, source, error, save, button("Cancel edit", async () => { memoryEditors.delete(record.id); await refresh(); }));
+  editor.addEventListener("submit", async event => {
+    event.preventDefault(); save.disabled = true;
+    try {
+      await api("action", { tool: "memory.update", args: { id: record.id, text: draft.text, source: draft.source, expectedRevision: draft.revision } });
+      memoryEditors.delete(record.id); await refresh(); toast("Memory updated.");
+    } catch (failure) { draft.error = failure.message; error.textContent = failure.message; }
+    finally { save.disabled = false; }
+  });
+  return editor;
 }
 function specialistCard(record) {
   const d = record.data,
@@ -456,18 +483,21 @@ async function duplicateConversation(id) {
 }
 async function exportConversation(id) {
   const archive = await api("sessions/" + id + "/export");
+  if (await exportArchive(archive, "exportConversation", `branch-conversation-${id}.json`)) toast("Conversation exported.");
+}
+async function exportArchive(archive, method, filename) {
   const text = JSON.stringify(archive);
-  if (desktop && !window.branchDesktop?.exportConversation)
+  if (desktop && !window.branchDesktop?.[method])
     throw new Error("Desktop export is unavailable. Reopen Branch Agent and try again.");
-  if (window.branchDesktop?.exportConversation) {
-    if (!(await window.branchDesktop.exportConversation(text)).saved) return;
+  if (window.branchDesktop?.[method]) {
+    if (!(await window.branchDesktop[method](text)).saved) return false;
   } else {
     const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    const link = el("a"); link.href = url; link.download = `branch-conversation-${id}.json`;
+    const link = el("a"); link.href = url; link.download = filename;
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  toast("Conversation exported.");
+  return true;
 }
 async function importConversation(file) {
   if (file.size > 4 * 1024 * 1024) throw new Error("Conversation archives must be at most 4 MiB.");
@@ -576,6 +606,26 @@ form("memory-form", () =>
     source: $("memory-source").value,
   }),
 );
+form("memory-capacity-form", async () => {
+  await api("memory/capacity", { maxFacts: Number($("memory-capacity").value) }); await refresh();
+});
+$("memory-transfer").append(button("Export memory JSON", async () => {
+  if (await exportArchive(await api("memory/export"), "exportMemory", "branch-memory.json")) toast("Memory exported.");
+}), button("Import memory JSON", () => $("memory-import").click()));
+$("memory-import").addEventListener("change", async () => {
+  const input = $("memory-import"), file = input.files[0]; input.value = "";
+  if (!file || input.disabled) return;
+  input.disabled = true;
+  try {
+    if (file.size > 16 * 1024 * 1024) throw new Error("Memory archives must be at most 16 MiB.");
+    let archive;
+    try { archive = JSON.parse(await file.text()); } catch { throw new Error("Choose a valid memory JSON file."); }
+    const result = await api("memory/import", archive);
+    $("memory-import-result").textContent = `${result.imported} facts imported; ${result.unchanged} unchanged.`;
+    await refresh();
+  } catch (error) { $("memory-import-result").textContent = error.message; }
+  finally { input.disabled = false; }
+});
 $("history-search-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = event.currentTarget.querySelector("button");

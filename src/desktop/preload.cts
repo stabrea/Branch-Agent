@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
     ipcRenderer.invoke("branch:save-model-settings", settings),
   exportConversation: (text: unknown) =>
     ipcRenderer.invoke("branch:export-conversation", text),
+  exportMemory: (text: unknown) => ipcRenderer.invoke("branch:export-memory", text),
 }));

@@ -1,5 +1,5 @@
 import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import { saveConversationExport } from './conversation-export.js';
+import { saveConversationExport, saveMemoryExport } from './conversation-export.js';
 
 export function registerConversationExportIpc(window: BrowserWindow, origin: string): void {
   let saving = false;
@@ -8,15 +8,19 @@ export function registerConversationExportIpc(window: BrowserWindow, origin: str
       new URL(event.senderFrame.url).origin !== origin)
       throw new Error('Conversation export access denied');
   };
-  ipcMain.handle('branch:export-conversation', async (event, text: unknown) => {
+  const types = [
+    { channel: 'branch:export-conversation', label: 'conversation history', name: 'conversation', save: saveConversationExport },
+    { channel: 'branch:export-memory', label: 'saved memory', name: 'memory', save: saveMemoryExport },
+  ];
+  for (const type of types) ipcMain.handle(type.channel, async (event, text: unknown) => {
     authorized(event);
-    if (saving) throw new Error('A conversation export is already in progress');
+    if (saving) throw new Error('An archive export is already in progress');
     saving = true;
     try {
-      return await saveConversationExport(text, async () => {
+      return await type.save(text, async () => {
         const result = await dialog.showSaveDialog(window, {
-          title: 'Export conversation history', defaultPath: 'branch-conversation.json',
-          filters: [{ name: 'Conversation JSON', extensions: ['json'] }],
+          title: `Export ${type.label}`, defaultPath: `branch-${type.name}.json`,
+          filters: [{ name: 'JSON archive', extensions: ['json'] }],
           properties: ['showOverwriteConfirmation'],
         });
         authorized(event);
@@ -24,5 +28,5 @@ export function registerConversationExportIpc(window: BrowserWindow, origin: str
       });
     } finally { saving = false; }
   });
-  window.on('closed', () => ipcMain.removeHandler('branch:export-conversation'));
+  window.on('closed', () => { for (const type of types) ipcMain.removeHandler(type.channel); });
 }

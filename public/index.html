@@ -167,6 +167,18 @@
               required
             /><button>Save memory</button>
           </form>
+          <div class="card">
+            <p id="memory-count" role="status"></p>
+            <form id="memory-capacity-form" class="form-grid">
+              <div><label for="memory-capacity">Maximum saved facts</label>
+                <input id="memory-capacity" type="number" min="1" max="500" required /></div>
+              <button>Update memory limit</button>
+            </form>
+            <div id="memory-transfer" class="message-actions"></div>
+            <input id="memory-import" type="file" accept="application/json,.json" hidden />
+            <p>Imports merge saved facts. Identical facts are skipped; conflicting IDs reject the entire import. Review imported facts before using them.</p>
+            <p id="memory-import-result" role="status"></p>
+          </div>
           <div id="memory-list" class="card-list"></div>
         </section>
         <section id="specialists" class="view" hidden>
