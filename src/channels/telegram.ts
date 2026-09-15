@@ -50,11 +50,13 @@ export class TelegramAdapter implements ChannelAdapter {
     this.stopping.abort();
     await this.loop?.catch(() => undefined);
   }
-  async send(chatId: string, text: string, replyToMessageId?: string): Promise<void> {
-    await this.call("sendMessage", {
+  async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
+    const result = await this.call("sendMessage", {
       chat_id: Number(chatId), text,
       ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
     });
+    const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
+    return parsed.success ? String(parsed.data.message_id) : undefined;
   }
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     while (!this.stopping.signal.aborted) {

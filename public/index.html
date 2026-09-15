@@ -252,9 +252,9 @@
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro">
-            Tasks and reminders, once or on a repeat interval. Branch Agent must be
-            running to execute them. Missed periods become one run on the next
-            poll; failed or interrupted work does not retry automatically.
+            Reminders, tasks and monitoring checks: once, on an interval, or every day at a time in your timezone.
+            Branch Agent must be running to execute them. Missed periods become one run on the next
+            poll; failed or interrupted work does not retry automatically. Results can be sent to a chat that has talked to your assistant.
           </p>
           <form id="schedule-form" class="card form-grid">
             <div>
@@ -284,7 +284,23 @@
               ><select id="schedule-kind">
                 <option value="reminder">Reminder in Activity</option>
                 <option value="task">Run assistant task</option>
+                <option value="check">Monitoring check (remembers the last result)</option>
               </select>
+            </div>
+            <div>
+              <label for="schedule-daily">Or every day at</label
+              ><input id="schedule-daily" type="time" />
+            </div>
+            <div>
+              <label for="schedule-timezone">Timezone</label
+              ><input id="schedule-timezone" maxlength="64" placeholder="Europe/London" />
+            </div>
+            <div>
+              <label for="schedule-deliver">Send the result to</label
+              ><select id="schedule-deliver"><option value="">Nowhere (Activity only)</option></select>
+            </div>
+            <div>
+              <label class="check"><input id="schedule-webhook" type="checkbox" /> Allow a webhook to trigger this</label>
             </div>
             <button>Schedule</button>
           </form>

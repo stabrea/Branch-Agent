@@ -193,6 +193,7 @@ async function api(
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
+  if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -317,6 +318,33 @@ async function secretsApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Endpoint not found");
 }
+async function schedulesApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger))?$/.exec(path);
+  if (!match) throw new HttpError(404, "Endpoint not found");
+  const record = app.store.get("schedules", owner, match[1]!);
+  if (!record) throw new HttpError(404, "Schedule not found");
+  if (request.method === "GET" && !match[2]) return { ...record, hookPath: record.data.hookToken ? `/hooks/${record.id}` : null };
+  if (request.method === "POST" && match[2] === "trigger") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.scheduler.trigger(owner, record.id, undefined, "local");
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Webhook triggers carry their own per-schedule token instead of the session token. */
+async function hook(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const match = /^\/hooks\/([a-f0-9-]{36})$/.exec(path);
+  if (!match || request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const record = app.store.get("schedules", app.runtime.owner, match[1]!);
+  const expected = typeof record?.data.hookToken === "string" ? record.data.hookToken : "";
+  const supplied = String(request.headers["x-branch-hook-token"] ?? "");
+  const same = expected.length > 0 && supplied.length === expected.length &&
+    timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+  if (!record || !same) throw new HttpError(401, "Hook token rejected");
+  const payload = await readBody(request, 16 * 1024).catch(() => ({}));
+  const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
+  return { runId: run.id, status: run.status };
+}
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/channels") return app.channels.summary();
@@ -375,6 +403,10 @@ export async function startServer(
         throw new HttpError(403, "Host rejected");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
+      if (path.startsWith("/hooks/")) {
+        send(response, 200, await hook(app, request, path));
+        return;
+      }
       authorize(request, url, token);
       const executes = isExecution(request, path);
       if (executes && executions >= 8)

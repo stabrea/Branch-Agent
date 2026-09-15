@@ -322,13 +322,20 @@ function renderSchedules() {
         node = recordCard(d.prompt, d.status);
       node.append(el("p", `${d.kind} · ${date(d.dueAt)}`));
       if (d.intervalMs)
-        node.append(
-          el(
-            "p",
-            `Repeats every ${d.intervalMs / 60000} minutes · ${d.runCount ?? 0} completed executions`,
-            "meta",
-          ),
-        );
+        node.append(el("p", `Repeats every ${d.intervalMs / 60000} minutes · ${d.runCount ?? 0} executions`, "meta"));
+      if (d.dailyAt) node.append(el("p", `Every day at ${d.dailyAt} (${d.timezone}) · ${d.runCount ?? 0} executions`, "meta"));
+      const history = Array.isArray(d.history) ? d.history : [];
+      if (history.length) {
+        const count = (status) => history.filter((h) => h.status === status).length;
+        node.append(el("p", `History: ${count("completed")} finished · ${count("failed") + count("cancelled") + count("budget_exceeded")} failed · ${count("running")} running`, "meta"));
+      }
+      if (d.deliverTo) node.append(el("p", d.delivery?.error
+        ? `Delivery to ${d.deliverTo.channel} failed: ${d.delivery.error}`
+        : d.delivery ? `Delivered to ${d.deliverTo.channel} chat ${d.deliverTo.chatId}` : `Will be sent to ${d.deliverTo.channel} chat ${d.deliverTo.chatId}`, "meta"));
+      if (d.hookToken) node.append(el("p", `Webhook: POST ${location.origin}/hooks/${record.id} with header x-branch-hook-token: ${d.hookToken}`, "meta"));
+      if (d.kind === "check" && d.lastResult) node.append(el("p", `Last result: ${String(d.lastResult).slice(0, 200)}`, "meta"));
+      if (["pending", "paused", "completed", "failed"].includes(d.status))
+        node.append(button("Run now", async () => { await api(`schedules/${record.id}/trigger`, {}); await refresh(); }));
       if (["pending", "paused"].includes(d.status))
         node.append(
           button(d.status === "paused" ? "Resume" : "Pause", () =>
@@ -388,6 +395,14 @@ async function refresh() {
 async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
+  const deliver = $("schedule-deliver");
+  if (document.activeElement !== deliver) {
+    const current = deliver.value;
+    deliver.replaceChildren(el("option", "Nowhere (Activity only)"), ...summary.chats.map((chat) => {
+      const option = el("option", `${chat.channel}: ${chat.title}`); option.value = JSON.stringify({ channel: chat.channel, chatId: chat.chatId }); return option;
+    }));
+    deliver.options[0].value = ""; deliver.value = current;
+  }
   list("channels-list", summary.channels, (channel) => {
     const node = el("div", undefined, "record");
     node.append(el("strong", `${channel.kind}${channel.botName ? " · @" + channel.botName : ""}`),
@@ -1161,7 +1176,14 @@ form("schedule-form", () =>
     prompt: $("schedule-prompt").value,
     dueAt: new Date($("schedule-time").value).toISOString(),
     kind: $("schedule-kind").value,
-    ...(Number($("schedule-repeat").value)
+    ...($("schedule-daily").value
+      ? { dailyAt: $("schedule-daily").value, timezone: $("schedule-timezone").value || Intl.DateTimeFormat().resolvedOptions().timeZone }
+      : {}),
+    ...($("schedule-deliver").value
+      ? { deliverTo: JSON.parse($("schedule-deliver").value) }
+      : {}),
+    ...($("schedule-webhook").checked ? { webhook: true } : {}),
+    ...(Number($("schedule-repeat").value) && !$("schedule-daily").value
       ? { intervalMs: Number($("schedule-repeat").value) }
       : {}),
   }),
@@ -1215,6 +1237,7 @@ $("appearance-shortcut").addEventListener("click", () => {
   displayView("settings");
   if ($("workspace").hidden) toast("Connect to change settings.");
 });
+$("schedule-timezone").value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 if (token || desktop) refresh().catch((e) => toast(e.message));
 function modelConnectionFields() {
   const demonstration = $("model-provider").value === "demo";

@@ -69,11 +69,11 @@ export async function createBranch(options: {
   registerSessions(registry, store);
   registerSkills(registry, store);
   registerKnowledge(registry, knowledge);
-  const scheduler = new Scheduler(store, runtime);
+  const channels = new ChannelRouter(store, runtime);
+  const scheduler = new Scheduler(store, runtime, (channel, chatId, text) => channels.deliver(channel, chatId, text));
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
-  const channels = new ChannelRouter(store, runtime);
   const chatgpt = options.chatgpt;
   if (chatgpt) {
     await chatgpt.load();

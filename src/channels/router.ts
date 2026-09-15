@@ -25,7 +25,7 @@ export interface ChannelAdapter {
   readonly kind: string;
   botName(): string | null;
   start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void>;
-  send(chatId: string, text: string, replyToMessageId?: string): Promise<void>;
+  send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
   stop(): Promise<void>;
 }
 export const ChannelPolicySchema = z.object({
@@ -61,7 +61,23 @@ export class ChannelRouter {
       channels: [...this.adapters.values()].map(({ adapter, policy }) => ({ id: adapter.id, kind: adapter.kind, botName: adapter.botName(), ...policy })),
       pending: this.pairs(owner).filter((p) => p.status === "pending"),
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
+      chats: this.chats(owner),
     };
+  }
+  /** Sends text to a chat on a connected channel, for scheduled deliveries. */
+  async deliver(channel: string, chatId: string, text: string): Promise<{ messageId?: string | undefined }> {
+    const entry = this.adapters.get(channel);
+    if (!entry) throw new Error(`Channel ${channel} is not connected`);
+    const messageId = await entry.adapter.send(chatId, text);
+    return { messageId };
+  }
+  /** Chats that have talked to the assistant, usable as delivery targets. */
+  chats(owner: string) {
+    return this.store.list("settings", owner).flatMap((record) => {
+      if (!record.id.startsWith("channel-session:")) return [];
+      const data = record.data as { channel?: string; chatId?: string; title?: string; updatedAt?: string };
+      return data.channel && data.chatId ? [{ channel: data.channel, chatId: data.chatId, title: data.title ?? data.chatId, updatedAt: data.updatedAt ?? record.updatedAt }] : [];
+    });
   }
   async handle(message: InboundMessage): Promise<Outcome> {
     const entry = this.adapters.get(message.channel);
@@ -88,7 +104,8 @@ export class ChannelRouter {
         prompt, ...(sessionId ? { sessionId } : {}),
         permissions: this.runtime.registry.permissions().filter((p) => p !== "shell.execute"),
       });
-      this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId, updatedAt: run.updatedAt });
+      this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
+        title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });
       const text = run.status === "completed" ? run.output || "(no reply)" : `I could not finish that (${run.status}).`;
       await adapter.send(message.chatId, text.length > replyLimit ? text.slice(0, replyLimit - 1) + "…" : text, message.messageId);
       return run.status === "completed" ? "replied" : "failed";
