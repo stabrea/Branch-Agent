@@ -163,20 +163,27 @@ export class Updater {
   }
   private async writeScript(stagedDir: string): Promise<string> {
     const script = join(this.options.scratchDir, "apply-update.cmd");
-    const install = this.options.installDir!;
-    const exe = join(install, this.options.executableName), previous = `${install}.previous`;
-    const mirror = (from: string, to: string) => `robocopy "${from}" "${to}" /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS >NUL`;
+    const install = this.options.installDir!, image = this.options.executableName;
+    const exe = join(install, image), previous = `${install}.previous`, log = join(this.options.scratchDir, "apply-update.log");
+    // System32 paths: the script may inherit a PATH where "find" is a Unix tool. tasklist's image
+    // filter misses names with spaces, so the CSV listing is searched instead.
+    const sys = "%SystemRoot%\\System32\\";
+    const mirror = (from: string, to: string) => `${sys}robocopy.exe "${from}" "${to}" /MIR /R:10 /W:1 /NP /NFL /NDL >>"${log}" 2>&1`;
+    const running = `${sys}tasklist.exe /NH /FO CSV 2>NUL | ${sys}find.exe /I "${image}" >NUL`;
+    // `ping` is used as a sleep because `timeout` exits at once when standard input is not a console.
+    const sleep = (seconds: number) => `${sys}ping.exe -n ${seconds + 1} 127.0.0.1 >NUL`;
     await writeFile(script, [
-      "@echo off", "setlocal", 'set "PID=%~1"', ":wait",
-      'tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL',
-      "if not errorlevel 1 ( timeout /t 1 /nobreak >NUL & goto wait )",
-      mirror(install, previous), "if errorlevel 8 exit /b 1",
-      mirror(stagedDir, install), "if errorlevel 8 goto restore",
+      "@echo off", "setlocal", 'set "PID=%~1"', "set TRIES=0", `echo [%date% %time%] update started for pid %PID% >>"${log}"`,
+      ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`, `if not errorlevel 1 ( ${sleep(1)} & goto wait )`,
+      "set DRAIN=0", ":drain", running, `if not errorlevel 1 if %DRAIN% lss 15 ( set /a DRAIN+=1 & ${sleep(1)} & goto drain )`, sleep(2),
+      `echo [%time%] keeping previous version >>"${log}"`, mirror(install, previous), "if errorlevel 8 exit /b 1",
+      ":copy", "set /a TRIES+=1", `echo [%time%] copying new version, attempt %TRIES% >>"${log}"`, mirror(stagedDir, install),
+      `if errorlevel 8 ( if %TRIES% lss 3 ( ${sleep(3)} & goto copy ) else goto restore )`,
       'if "%~2"=="stay" exit /b 0',
-      `start "" "${exe}"`, "timeout /t 15 /nobreak >NUL",
-      `tasklist /FI "IMAGENAME eq ${this.options.executableName}" 2>NUL | find /I "${this.options.executableName}" >NUL`,
-      "if not errorlevel 1 exit /b 0",
-      ":restore", mirror(previous, install), `start "" "${exe}"`, "exit /b 1", "",
+      `echo [%time%] starting new version >>"${log}"`, `start "" "${exe}"`, sleep(20), running, "if not errorlevel 1 exit /b 0",
+      sleep(15), running, "if not errorlevel 1 exit /b 0",
+      ":restore", `echo [%time%] new version did not start; restoring previous >>"${log}"`,
+      mirror(previous, install), `start "" "${exe}"`, "exit /b 1", "",
     ].join("\r\n"), "utf8");
     return script;
   }
