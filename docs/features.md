@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 16 implemented, 55 partial, 1 external and 97 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 18 implemented, 54 partial, 1 external and 96 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -87,8 +87,8 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Editable user profile and assistant identity (`memory.profile`) | partial | Add profile fact correction and verify corrected value is used in the next eligible session. |
-| Bounded durable facts (`memory.facts`) | partial | Enforce total fact-store capacity and reject or consolidate excess additions. |
+| Editable user profile and assistant identity (`memory.profile`) | partial | Implement configurable assistant identity and verify that eligible sessions use the configured identity. Fact correction and subsequent eligible-session retrieval are verified. |
+| Bounded durable facts (`memory.facts`) | implemented | Covered by the listed local fixtures. |
 | Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
 | Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |
 | External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
@@ -97,7 +97,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Preview removal of tracked derived memory (`memory.forget`) | partial | Implement session-derived deletion preview, exclusions, and durable suppression of automatic re-ingestion. |
 | Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
 | Automatic archival and expiry of stale memory (`memory.hygiene`) | missing | Apply a configured retention policy to seeded stale memories and report which entries were archived or purged. |
-| Export and restore complete memory state (`memory.export-import`) | missing | Export a memory store, import it into a clean instance and verify the expected entries and metadata. |
+| Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
 | Time-aware entity and relationship memory (`memory.temporal-graph`) | missing | Store changing facts about an entity and answer a time-qualified query using the fact valid at that time. |
 | Editable linked knowledge pages (`memory.linked-wiki`) | missing | Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval. |
 | Shared memory through independent host adapters (`memory.cross-agent`) | missing | Ingest a supported host's session log and retrieve its permitted memory through a second host adapter. |

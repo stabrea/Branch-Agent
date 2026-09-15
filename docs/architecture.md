@@ -22,6 +22,8 @@ Conversation branching atomically copies a valid prefix into a new session with 
 
 The conversation library lists owned histories and transfers versioned JSON archives. Import validates message roles, tool request/result pairing and size before an atomic copy. Archives contain conversation messages, not owner identities, permissions, tasks, workspace files or memory. Imports receive new local identifiers and durable import provenance; duplication and subsequent branches preserve that provenance. Export and duplication wait until the source has no active task.
 
+Memory facts carry edit revisions. Updates compare the expected revision before replacing a fact, and every store-level write observes the owner's configured capacity. Imports preserve fact identifiers and metadata in one transaction; matching records are unchanged and conflicting identifiers reject the entire merge. Legacy facts receive revision 1 and retain their original text/source. Model retrieval selects bounded matches rather than inserting the whole fact store into every request.
+
 Interrupted work is marked as interrupted. A crash after a side effect has an uncertain outcome; resuming the reasoning is not permission to repeat the effect. Automatic recovery must reconcile external state or use a destination's idempotency support before replaying it.
 
 ## Learning and specialists

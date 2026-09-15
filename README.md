@@ -42,6 +42,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Full-text conversation search with bounded excerpts and links to source messages.
 - Conversation branches from earlier messages, with separate subsequent histories.
 - Searchable saved conversations with resume, duplication and JSON export/import.
+- Editable memory facts with revision checks, per-owner capacity and JSON export/import.
 - Opt-in host commands with executable aliases, captured results and cancellation.
 - Restricted delegation with shared step/token limits and cancellation.
 - One-time and interval schedules while Branch Agent is running.

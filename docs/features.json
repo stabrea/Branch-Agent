@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T19:35:47.773785+00:00",
+  "assessment_date": "2026-09-15T19:56:24.427342+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1072,33 +1072,56 @@
       "status": "partial",
       "evidence": {
         "paths": [
+          "src/memory.ts",
           "src/knowledge.ts",
-          "public/app.js"
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "corrected profile fact is retrieved by the next eligible session without changing the earlier conversation",
+          "memory edits persist after reload and a new chat retrieves the corrected fact",
+          "stale edits retain the draft and do not overwrite a newer fact; cancel discards the draft",
+          "polling preserves the open editor, focus, selection and continued typing",
+          "an older pending save cannot discard a reopened editor draft",
+          "failed pending memory save restores both fields with the original draft intact"
         ],
-        "detail": "Explicit add/search/delete memory exists; no editable profile or automatic injection."
+        "detail": "Revision-checked fact editing persists corrected profile information and source metadata. Core and browser fixtures prove a new eligible model-driven session calls memory.search and retrieves the corrected value while the earlier conversation remains unchanged. Reload retains the correction; stale edits do not overwrite a newer revision and retain the draft. This satisfies the fact-correction criterion, but the broader entry also names configurable assistant identity. UI regressions now cover actual polling with focus/selection intact, delayed completion of an older save after reopening an editor, disabled fields during a pending save, and restoration/retry of both draft fields after failure.",
+        "supported_acceptance_scope": "Explicit model memory-tool retrieval is verified; automatic injection into every session and configurable assistant identity are not implemented.",
+        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
       },
-      "remaining": "Add profile fact correction and verify corrected value is used in the next eligible session."
+      "remaining": "Implement configurable assistant identity and verify that eligible sessions use the configured identity. Fact correction and subsequent eligible-session retrieval are verified."
     },
     {
       "id": "memory.facts",
       "family": "memory",
       "name": "Bounded durable facts",
       "acceptance_criterion": "Persist a bounded fact store and reject or explicitly consolidate an addition exceeding its configured capacity.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/memory.ts",
+          "src/store.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "configured fact capacity rejects excess writes, permits corrections and deletions, and persists per owner",
+          "legacy facts migrate to edit revisions without losing source metadata or silently deleting overflow",
+          "memory capacity rejects additional facts and cannot drop below the saved count",
+          "archive conflicts, insufficient capacity and write faults leave the complete target state unchanged",
+          "capacity draft survives blur and polling, and a pending save preserves newer input"
         ],
-        "detail": "Each memory text is capped at 4,000 characters; listing limit 500 does not bound stored records."
+        "detail": "An owner-scoped durable fact store persists a configured capacity from 1 to 500. SDK saves, memory tools, HTTP writes and archive imports enforce it; a new fact exceeding capacity is rejected while corrections and deletion remain available. Capacity cannot be reduced below the stored count. Existing facts retain IDs, source metadata, timestamps and revision through persistence; legacy whitespace and overflow facts are preserved rather than silently truncated. UI capacity drafts survive blur and actual polling, and pending capacity-save completion preserves newer typed input.",
+        "supported_acceptance_scope": "Bounded durable facts and explicit excess-addition rejection. Search separately returns at most 20 records and 48,000 UTF-8 bytes. This is not automatic consolidation or an OS storage quota.",
+        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
       },
-      "remaining": "Enforce total fact-store capacity and reject or consolidate excess additions."
+      "remaining": ""
     },
     {
       "id": "memory.search",
@@ -1251,16 +1274,33 @@
       "family": "memory",
       "name": "Export and restore complete memory state",
       "acceptance_criterion": "Export a memory store, import it into a clean instance and verify the expected entries and metadata.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "src/desktop/conversation-export.ts",
+          "src/desktop/conversation-export-ipc.ts",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs",
+          "tests/desktop-export.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "memory archives restore all fact metadata into a clean owner scope and repeated imports are idempotent",
+          "archive conflicts, insufficient capacity and write faults leave the complete target state unchanged",
+          "memory archive schema rejects unsupported, duplicate, forged and oversized content before changes",
+          "memory retrieval is bounded in UTF-8 bytes and HTTP transfer restores metadata under the current owner",
+          "memory file export/import preserves metadata in an empty store and conflicts merge atomically",
+          "native memory export validates archive and raw UTF8 size before opening the save dialog",
+          "native conversation export uses guarded IPC and leaves the blanket download blocker enabled"
+        ],
+        "detail": "Versioned memory archives round-trip all fact IDs, text/data, source, sourceRunId, created/updated timestamps and revisions into a clean recipient store. Archives omit the owner and imports assign the current owner. Identical reimports are idempotent; conflicting IDs, insufficient capacity, malformed/forged metadata and write failures leave the target unchanged. Strict archives are bounded to 500 records and 16 MiB. Browser tests download a real JSON archive and upload it into an empty store, comparing the complete metadata.",
+        "supported_acceptance_scope": "Complete fact records and their metadata transfer. Capacity settings, credentials, conversation/run records and referenced sourceRunId targets are not archived. The native fixture uses a stubbed save chooser with actual guarded Electron IPC and file writing; manual OS dialog interaction is not verified.",
+        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
       },
-      "remaining": "Export a memory store, import it into a clean instance and verify the expected entries and metadata."
+      "remaining": ""
     },
     {
       "id": "memory.temporal-graph",
