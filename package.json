@@ -1,0 +1,30 @@
+{
+  "name": "branch-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local, inspectable personal assistant runtime",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "start": "npm run build && node dist/cli.js start",
+    "demo": "npm run build && node dist/cli.js demo",
+    "doctor": "npm run build && node dist/cli.js doctor"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "playwright": "1.63.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}

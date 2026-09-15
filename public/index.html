@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Branch — Your local assistant</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <aside>
+      <a class="brand" href="/" aria-label="Branch home"
+        ><span class="brand-icon">⌘</span> Branch</a
+      >
+      <p class="tagline">A little help.<br />A clear record.</p>
+      <nav aria-label="Main navigation">
+        <button class="nav active" data-view="chat">Conversation</button
+        ><button class="nav" data-view="runs">Activity</button
+        ><button class="nav" data-view="memory">Memory</button
+        ><button class="nav" data-view="specialists">Specialists</button
+        ><button class="nav" data-view="procedures">Procedures</button
+        ><button class="nav" data-view="schedules">Schedules</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> Local workspace
+        <p id="provider">Connect to begin</p>
+        <button id="lock" class="text-button" hidden>Lock session</button>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">YOUR WORKSPACE</span>
+          <h1 id="page-title">Conversation</h1>
+        </div>
+        <span class="status-pill" id="connection">Locked</span>
+      </header>
+      <section id="login" class="card login">
+        <span class="eyebrow">WELCOME TO BRANCH</span>
+        <h2>Make room for your next idea.</h2>
+        <p>
+          Paste the local session token printed by <code>npm start</code> to
+          connect this browser to your assistant.
+        </p>
+        <form id="login-form">
+          <label for="token">Session token</label>
+          <div class="input-row">
+            <input
+              id="token"
+              type="password"
+              autocomplete="off"
+              required
+              placeholder="Your local session token"
+            /><button>Connect</button>
+          </div>
+        </form>
+        <p class="subtle">
+          Your token stays in this tab’s session storage. Branch listens only on
+          this computer.
+        </p>
+      </section>
+      <div id="workspace" hidden>
+        <section id="chat" class="view">
+          <div id="demo-notice" class="notice" hidden>
+            <strong>Offline demo fixture</strong
+            ><span
+              >Try the complete file workflow. This deterministic fixture
+              writes, reads, and verifies a greeting; it does not understand
+              arbitrary requests. Configure a real provider for general
+              assistance.</span
+            >
+          </div>
+          <div id="conversation" aria-live="polite">
+            <div class="welcome">
+              <div class="leaf">↗</div>
+              <h2>What would you like to work on?</h2>
+              <p>
+                Plan a task, save something worth remembering,<br />or let your
+                assistant help with workspace files.
+              </p>
+              <button id="demo-prompt" class="secondary">
+                Try the file workflow ↗
+              </button>
+            </div>
+          </div>
+          <form id="chat-form" class="composer">
+            <label class="sr-only" for="prompt">Your message</label
+            ><textarea
+              id="prompt"
+              required
+              maxlength="16000"
+              placeholder="Describe what you want to do…"
+              rows="3"
+            ></textarea>
+            <div>
+              <span id="session-label"
+                >New conversation · tools leave a record</span
+              ><button id="new-session" type="button" class="text-button">
+                New conversation</button
+              ><button id="send">Send ↗</button>
+            </div>
+          </form>
+        </section>
+        <section id="runs" class="view" hidden>
+          <p class="section-intro">
+            Every run has a trace. Inspect tool results, failures, and usage
+            estimates.
+          </p>
+          <div id="runs-list" class="card-list"></div>
+          <article id="run-detail" class="card" hidden></article>
+        </section>
+        <section id="memory" class="view" hidden>
+          <p class="section-intro">
+            Notes your assistant can retrieve. Every note carries its source and
+            time.
+          </p>
+          <form id="memory-form" class="card">
+            <label for="memory-text">Remember something</label
+            ><textarea
+              id="memory-text"
+              maxlength="4000"
+              required
+              placeholder="I prefer short, actionable summaries."
+            ></textarea
+            ><label for="memory-source">Source</label
+            ><input
+              id="memory-source"
+              maxlength="500"
+              value="Saved by workspace owner"
+              required
+            /><button>Save memory</button>
+          </form>
+          <div id="memory-list" class="card-list"></div>
+        </section>
+        <section id="specialists" class="view" hidden>
+          <p class="section-intro">
+            Focused assistants with limited permissions. A candidate must pass
+            its explicit file checks before you activate it.
+          </p>
+          <details class="card">
+            <summary>Propose a specialist</summary>
+            <form id="specialist-form">
+              <label for="specialist-json">Definition (JSON)</label
+              ><textarea
+                id="specialist-json"
+                class="code-input"
+                rows="12"
+                spellcheck="false"
+              ></textarea
+              ><button>Save candidate</button>
+            </form>
+          </details>
+          <div id="specialists-list" class="card-list"></div>
+        </section>
+        <section id="procedures" class="view" hidden>
+          <p class="section-intro">
+            Reusable tool recipes with exact expected results. Verification
+            executes the recipe; replay checks its preconditions again.
+          </p>
+          <details class="card">
+            <summary>Propose a procedure</summary>
+            <form id="procedure-form">
+              <label for="procedure-json">Definition (JSON)</label
+              ><textarea
+                id="procedure-json"
+                class="code-input"
+                rows="12"
+                spellcheck="false"
+              ></textarea
+              ><button>Save proposal</button>
+            </form>
+          </details>
+          <div id="procedures-list" class="card-list"></div>
+        </section>
+        <section id="schedules" class="view" hidden>
+          <p class="section-intro">
+            Tasks and reminders, once or on a repeat interval. Branch must be
+            running to execute them. Missed periods become one run on the next
+            poll; failed or interrupted work does not retry automatically.
+          </p>
+          <form id="schedule-form" class="card form-grid">
+            <div>
+              <label for="schedule-repeat">Repeat</label
+              ><select id="schedule-repeat">
+                <option value="0">Once</option>
+                <option value="3600000">Every hour</option>
+                <option value="86400000">Every 24 hours</option>
+                <option value="604800000">Every 7 days</option>
+              </select>
+            </div>
+            <div>
+              <label for="schedule-prompt">Task or reminder</label
+              ><input
+                id="schedule-prompt"
+                required
+                maxlength="8000"
+                placeholder="Review this week’s notes"
+              />
+            </div>
+            <div>
+              <label for="schedule-time">Due (your local time)</label
+              ><input id="schedule-time" type="datetime-local" required />
+            </div>
+            <div>
+              <label for="schedule-kind">Action</label
+              ><select id="schedule-kind">
+                <option value="reminder">Reminder in Activity</option>
+                <option value="task">Run assistant task</option>
+              </select>
+            </div>
+            <button>Schedule</button>
+          </form>
+          <div id="schedules-list" class="card-list"></div>
+        </section>
+      </div>
+      <div id="toast" role="status" aria-live="polite" hidden></div>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
