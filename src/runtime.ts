@@ -68,6 +68,46 @@ export class Runtime {
   async executeTool(name: string, args: unknown): Promise<unknown> {
     return this.track(() => this.performTool(name, args));
   }
+  async auditOperation<T>(
+    context: ToolContext,
+    label: string,
+    operation: (context: ToolContext) => Promise<T>,
+  ): Promise<T> {
+    if (context.runId) return operation(context);
+    return this.track(async () => {
+      const run = this.store.createRun(context.owner, label),
+        controller = new AbortController();
+      this.controllers.set(run.id, controller);
+      const scoped = {
+        ...context,
+        runId: run.id,
+        signal: AbortSignal.any([
+          context.signal,
+          controller.signal,
+          AbortSignal.timeout(120000),
+        ]),
+      };
+      this.store.event(run.id, "run.started", { source: "knowledge", label });
+      let value: T | undefined,
+        failure: unknown,
+        status: Run["status"] = "completed";
+      try {
+        value = await operation(scoped);
+      } catch (error) {
+        failure = error;
+        status = this.failureStatus(scoped, error);
+      }
+      const settled = await this.settleRun(
+        run,
+        scoped,
+        status,
+        status === "completed" ? JSON.stringify(value) : errorText(failure),
+      );
+      if (status !== "completed") throw failure;
+      if (settled.status !== "completed") throw new Error(settled.output);
+      return value as T;
+    });
+  }
   async shutdown(): Promise<void> {
     this.accepting = false;
     for (const controller of this.controllers.values())

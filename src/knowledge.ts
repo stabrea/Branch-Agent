@@ -5,6 +5,7 @@ import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
+import { executeTracedTool, type ToolSource } from "./tool-trace.js";
 
 export const CheckSchema = z
   .object({ path: z.string().min(1).max(500), expected: z.string().max(32768) })
@@ -62,7 +63,7 @@ interface SpecialistVersion {
   version: number;
   definition: Specialist;
   evaluationPassed: boolean;
-  evidence?: { runId: string; checkedAt: string };
+  evidence?: { runId: string; sourceRunId: string; checkedAt: string };
 }
 interface SpecialistState extends SpecialistVersion {
   activeVersion: number | null;
@@ -115,9 +116,22 @@ export class Knowledge {
     id: string,
   ): Promise<SavedRecord> {
     this.require(context, "procedures.manage");
+    return this.runtime.auditOperation(context, "Verify procedure", (scoped) =>
+      this.verifyCandidateProcedure(scoped, id),
+    );
+  }
+  private async verifyCandidateProcedure(
+    context: ToolContext,
+    id: string,
+  ): Promise<SavedRecord> {
     const record = this.required("procedures", context.owner, id),
       state = record.data as unknown as ProcedureState;
-    await this.executeProcedure(context, state.definition);
+    await this.executeProcedure(context, state.definition, {
+      kind: "procedure",
+      id,
+      version: state.version,
+      phase: "step",
+    });
     if (
       this.required("procedures", context.owner, id).data.version !==
       state.version
@@ -134,32 +148,60 @@ export class Knowledge {
     id: string,
   ): Promise<{ version: number; results: unknown[] }> {
     this.require(context, "procedures.use");
+    return this.runtime.auditOperation(context, "Replay procedure", (scoped) =>
+      this.replayVerifiedProcedure(scoped, id),
+    );
+  }
+  private async replayVerifiedProcedure(
+    context: ToolContext,
+    id: string,
+  ): Promise<{ version: number; results: unknown[] }> {
     const state = this.required("procedures", context.owner, id)
       .data as unknown as ProcedureState;
     if (state.status !== "verified")
       throw new Error("Only verified procedures can replay");
     return {
       version: state.version,
-      results: await this.executeProcedure(context, state.definition),
+      results: await this.executeProcedure(context, state.definition, {
+        kind: "procedure",
+        id,
+        version: state.version,
+        phase: "step",
+      }),
     };
   }
   private async executeProcedure(
     context: ToolContext,
     definition: Procedure,
+    source: ToolSource,
   ): Promise<unknown[]> {
     await this.checkFiles(
       context,
       definition.preconditions,
       "Procedure precondition",
+      { ...source, phase: "precondition" },
     );
     const results: unknown[] = [];
-    for (const step of definition.steps) {
-      const result = await this.registry.execute(step.tool, step.args, context);
+    for (const [index, step] of definition.steps.entries()) {
+      const result = await executeTracedTool(
+        this.registry,
+        this.store,
+        context,
+        step.tool,
+        step.args,
+        { ...source, index },
+      );
       results.push(result);
-      if (!isDeepStrictEqual(result, step.expected))
+      if (!isDeepStrictEqual(result, step.expected)) {
+        this.store.event(context.runId, "procedure.expectation_failed", {
+          source: { ...source, index },
+          expected: step.expected,
+          actual: result,
+        });
         throw new Error(
           `Procedure expected output mismatch for ${step.tool}; previous side effects were not undone`,
         );
+      }
     }
     return results;
   }
@@ -196,6 +238,16 @@ export class Knowledge {
     id: string,
   ): Promise<SavedRecord> {
     this.require(context, "specialists.manage");
+    return this.runtime.auditOperation(
+      context,
+      "Evaluate specialist",
+      (scoped) => this.evaluateCandidateSpecialist(scoped, id),
+    );
+  }
+  private async evaluateCandidateSpecialist(
+    context: ToolContext,
+    id: string,
+  ): Promise<SavedRecord> {
     const state = this.required("specialists", context.owner, id)
       .data as unknown as SpecialistState;
     const run = await this.runtime.delegate(
@@ -210,19 +262,32 @@ export class Knowledge {
         context,
         state.definition.evaluation.checks,
         "Specialist evaluation",
+        {
+          kind: "specialist",
+          id,
+          version: state.version,
+          phase: "evaluation",
+          childRunId: run.id,
+        },
       );
     } catch {
       passed = false;
     }
+    const current = this.required("specialists", context.owner, id)
+      .data as unknown as SpecialistState;
     if (
-      this.required("specialists", context.owner, id).data.version !==
-      state.version
+      current.version !== state.version ||
+      !isDeepStrictEqual(current.definition, state.definition)
     )
       throw new Error("Specialist changed during evaluation");
     return this.store.save("specialists", context.owner, id, {
-      ...state,
+      ...current,
       evaluationPassed: passed,
-      evidence: { runId: run.id, checkedAt: new Date().toISOString() },
+      evidence: {
+        runId: run.id,
+        sourceRunId: context.runId,
+        checkedAt: new Date().toISOString(),
+      },
     });
   }
   promoteSpecialist(context: ToolContext, id: string): SavedRecord {
@@ -275,12 +340,16 @@ export class Knowledge {
     context: ToolContext,
     checks: z.infer<typeof CheckSchema>[],
     label: string,
+    source: ToolSource,
   ): Promise<void> {
-    for (const check of checks) {
-      const result = (await this.registry.execute(
+    for (const [index, check] of checks.entries()) {
+      const result = (await executeTracedTool(
+        this.registry,
+        this.store,
+        context,
         "files.verify",
         check,
-        context,
+        { ...source, index },
       )) as { verified: boolean };
       if (!result.verified) throw new Error(`${label} failed: ${check.path}`);
     }

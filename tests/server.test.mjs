@@ -19,7 +19,7 @@ async function fixture(t) {
   });
   t.after(async () => {
     await server.close();
-    app.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
   return { app, ...server };

@@ -44,6 +44,7 @@ export async function createBranch(options: {
   registerKnowledge(registry, knowledge);
   const scheduler = new Scheduler(store, runtime);
   registerSchedules(registry, scheduler);
+  let closing: Promise<void> | undefined;
   return {
     store,
     registry,
@@ -51,8 +52,18 @@ export async function createBranch(options: {
     files,
     knowledge,
     scheduler,
-    close: () => store.close(),
+    close: () => (closing ??= closeBranch(scheduler, runtime, store)),
   };
+}
+async function closeBranch(
+  scheduler: Scheduler,
+  runtime: Runtime,
+  store: Store,
+): Promise<void> {
+  const schedulingStopped = scheduler.stop();
+  await runtime.shutdown();
+  await schedulingStopped;
+  store.close();
 }
 export * from "./contracts.js";
 export * from "./store.js";

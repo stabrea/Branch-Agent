@@ -11,7 +11,7 @@ async function fixture(t) {
     dataDir: join(root, "data"),
   });
   t.after(async () => {
-    app.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
   return app;

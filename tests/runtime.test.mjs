@@ -19,7 +19,7 @@ async function fixture(t, provider = new DemoProvider()) {
   const dataDir = join(root, "private");
   const app = await createBranch({ workspace, dataDir, provider });
   t.after(async () => {
-    app.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
   return { app, root, workspace, dataDir };
@@ -50,10 +50,10 @@ test("demo writes, reads, verifies, and persists a multi-step session", async (t
   );
   assert.ok(app.store.messages(run.sessionId).some((m) => m.role === "tool"));
   assert.ok(app.store.usage(run.id).estimatedInput > 0);
-  app.close();
+  await app.close();
   const reopened = await createBranch({ workspace, dataDir });
   assert.equal(reopened.store.run(run.id).status, "completed");
-  reopened.close();
+  await reopened.close();
 });
 
 test("malformed arguments produce a recorded tool error without side effects", async (t) => {
@@ -132,10 +132,10 @@ test("cancellation and exhausted shared budget stop runs", async (t) => {
 test("startup marks previously running work interrupted without replay", async (t) => {
   const { app, workspace, dataDir } = await fixture(t);
   const run = app.store.createRun("local", "pending");
-  app.close();
+  await app.close();
   const next = await createBranch({ workspace, dataDir });
   assert.equal(next.store.run(run.id).status, "interrupted");
-  next.close();
+  await next.close();
 });
 
 test("failed and cancelled provider attempts retain estimated cost and unknown usage", async (t) => {

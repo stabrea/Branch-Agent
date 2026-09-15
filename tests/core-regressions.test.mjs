@@ -16,7 +16,7 @@ async function fixture(t, provider) {
   };
   const app = await createBranch(options);
   t.after(async () => {
-    app.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
   return { app, options };
@@ -107,7 +107,7 @@ test("startup reconciles crash-interrupted batches once without replaying side e
     role: "user",
     content: "A previous version allowed this unmatched continuation",
   });
-  app.close();
+  await app.close();
   const reopened = await createBranch(options);
   assertValidTranscript(reopened.store.messages(run.sessionId));
   const recovered = await reopened.runtime.run({
@@ -116,11 +116,11 @@ test("startup reconciles crash-interrupted batches once without replaying side e
   });
   assert.equal(recovered.status, "completed");
   const count = reopened.store.messages(run.sessionId).length;
-  reopened.close();
+  await reopened.close();
   const again = await createBranch(options);
   assert.equal(again.store.messages(run.sessionId).length, count);
   await assert.rejects(again.files.read("should-not-replay.txt"), /ENOENT/);
-  again.close();
+  await again.close();
 });
 
 test("repeated promotion preserves the previous active specialist for rollback", async (t) => {

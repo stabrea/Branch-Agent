@@ -21,7 +21,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   t.after(async () => {
     await browser.close();
     await server.close();
-    app.close();
+    await app.close();
     await rm(root, { recursive: true, force: true });
   });
   const page = await browser.newPage({

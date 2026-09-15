@@ -18,12 +18,12 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
         try {
           await integrations.close();
         } finally {
-          app.close();
+          await app.close();
         }
       },
     };
   } catch (error) {
-    app.close();
+    await app.close();
     throw error;
   }
 }
