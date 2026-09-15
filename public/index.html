@@ -27,6 +27,7 @@
         <button class="nav active" data-view="chat">Conversation</button
         ><button class="nav" data-view="runs">Activity</button
         ><button class="nav" data-view="memory">Memory</button
+        ><button class="nav" data-view="skills">Skills</button
         ><button class="nav" data-view="specialists">Specialists</button
         ><button class="nav" data-view="procedures">Procedures</button
         ><button class="nav" data-view="schedules">Schedules</button
@@ -260,6 +261,36 @@
             <button>Schedule</button>
           </form>
           <div id="schedules-list" class="card-list"></div>
+        </section>
+        <section id="skills" class="view" hidden>
+          <p class="section-intro">Install a single SKILL.md file. Bundled scripts and assets are not imported. Skills do not grant tool permissions; allowed-tools metadata is informational.</p>
+          <p>Enabled skills share their names and descriptions with the assistant. The assistant reads a selected skill's instructions when needed.</p>
+          <div id="skills-list" class="card-list"></div>
+          <form id="skill-form" class="card">
+            <h2 id="skill-editor-title">Install a skill</h2>
+            <p>Saving an edit creates a new version and keeps the currently active version. Choose a version and activate it when ready.</p>
+            <div class="skill-actions">
+              <button id="skill-new" type="button">New skill</button>
+              <button id="skill-import-button" type="button">Import SKILL.md into editor</button>
+              <button id="skill-reload" type="button" hidden>Reload saved skill</button>
+            </div>
+            <input id="skill-import" type="file" accept=".md,text/markdown,text/plain" hidden />
+            <label for="skill-document">SKILL.md document</label>
+            <textarea id="skill-document" rows="15" maxlength="16000" required spellcheck="false"></textarea>
+            <button id="skill-save">Install skill</button>
+            <div id="skill-version-controls" hidden>
+              <label for="skill-version">Retained version</label>
+              <select id="skill-version"></select>
+              <div class="skill-actions">
+                <button id="skill-read" type="button">Load version into editor</button>
+                <button id="skill-activate" type="button">Activate selected version</button>
+                <button id="skill-disable" type="button">Disable skill</button>
+                <button id="skill-remove" type="button">Remove skill and all versions</button>
+              </div>
+            </div>
+            <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
+            <p id="skill-status" role="status"></p>
+          </form>
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>

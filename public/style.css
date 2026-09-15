@@ -887,3 +887,6 @@ summary {
 #memory-transfer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .identity-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 #identity-fields { border: 0; padding: 0; margin: 0; }
+.skill-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+#skill-document { font-family: var(--font-mono, monospace); }
+#skills-list { margin-bottom: 20px; }

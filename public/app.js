@@ -12,6 +12,7 @@ let savedQuery = "";
 const memoryEditors = new Map();
 let memoryCapacityDraft = null;
 let identityDraft = null, identityDirty = false, identityBusy = false;
+let skillView = null, skillBusy = false;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -24,6 +25,7 @@ const titles = {
   procedures: "Procedures",
   schedules: "Schedules",
   settings: "Settings",
+  skills: "Skills",
 };
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -373,7 +375,76 @@ async function refresh() {
   renderProcedures();
   renderSchedules();
   renderIdentity();
+  renderSkills();
 }
+function renderSkills() {
+  list("skills-list", state.skills || [], value => {
+    const node = recordCard(value.name, value.activeVersion === null ? "disabled" : "enabled");
+    node.dataset.skillId = value.id;
+    node.append(el("p", value.description), el("p", `Latest v${value.headVersion} · ${value.activeVersion === null ? "No active version" : `Active v${value.activeVersion}: ${value.activeName}`}`, "meta"));
+    const open = button("Open skill", () => skillOperation(async () => {
+      selectSkill(await api("skills/" + value.id));
+    }));
+    open.disabled = skillBusy; node.append(open); return node;
+  }, "No skills installed. Create a SKILL.md document or import a local file.");
+}
+function selectSkill(value) {
+  skillView = value;
+  $("skill-editor-title").textContent = value ? value.name : "Install a skill";
+  $("skill-document").value = value?.document ?? "---\nname: my-skill\ndescription: Describe when this skill should be used.\n---\n\nWrite the skill instructions here.\n";
+  $("skill-save").textContent = value ? "Save new version" : "Install skill";
+  $("skill-reload").hidden = !value; $("skill-version-controls").hidden = !value;
+  $("skill-version").replaceChildren(...(value?.versions || []).map(item => {
+    const option = el("option", `v${item.version}: ${item.name}`); option.value = item.version; return option;
+  }));
+  if (value) $("skill-version").value = value.activeVersion ?? value.headVersion;
+}
+async function skillOperation(work) {
+  if (skillBusy) return;
+  skillBusy = true; setSkillControls(true); $("skill-status").textContent = "Working…";
+  try { await work(); $("skill-status").textContent = "Skill changes ready."; }
+  catch (error) { $("skill-status").textContent = error.message; }
+  finally { skillBusy = false; setSkillControls(false); }
+}
+function setSkillControls(disabled) {
+  $("skills").querySelectorAll("button,input,textarea,select").forEach(node => { node.disabled = disabled; });
+}
+async function mutateSkill(operation, extra = {}) {
+  if (!skillView) return;
+  const draft = $("skill-document").value;
+  const result = await api(`skills/${skillView.id}/${operation}`, { expectedRevision: skillView.revision, ...extra });
+  selectSkill(operation === "remove" ? null : result);
+  if (operation === "activate" || operation === "disable") $("skill-document").value = draft;
+  await refresh();
+}
+$("skill-form").addEventListener("submit", event => {
+  event.preventDefault(); void skillOperation(async () => {
+    const document = $("skill-document").value;
+    if (document.length > 16000 || new TextEncoder().encode(document).length > 48 * 1024)
+      throw new Error("SKILL.md must be at most 16,000 characters and 48 KiB.");
+    if (skillView) await mutateSkill("update", { document });
+    else { selectSkill(await api("skills/install", { document })); await refresh(); }
+  });
+});
+$("skill-new").onclick = () => { if (!skillBusy) { selectSkill(null); $("skill-status").textContent = "New skill draft."; } };
+$("skill-reload").onclick = () => { void skillOperation(async () => { if (skillView) selectSkill(await api("skills/" + skillView.id)); }); };
+$("skill-import-button").onclick = () => { if (!skillBusy) $("skill-import").click(); };
+$("skill-import").onchange = () => {
+  const file = $("skill-import").files[0]; $("skill-import").value = "";
+  if (file) void skillOperation(async () => {
+    if (file.size > 48 * 1024) throw new Error("SKILL.md must be at most 48 KiB.");
+    const document = await file.text();
+    if (document.length > 16000) throw new Error("SKILL.md must be at most 16,000 characters.");
+    selectSkill(null); $("skill-document").value = document;
+  });
+};
+$("skill-read").onclick = () => { void skillOperation(async () => {
+  if (skillView) $("skill-document").value = (await api(`skills/${skillView.id}/read`, { version: Number($("skill-version").value) })).document;
+}); };
+for (const operation of ["activate", "disable", "remove"]) $("skill-" + operation).onclick = () => {
+  void skillOperation(() => mutateSkill(operation, operation === "activate" ? { version: Number($("skill-version").value) } : {}));
+};
+selectSkill(null);
 function renderIdentity() {
   if (identityDirty || identityBusy || !state.identity) return;
   if (identityDraft && state.identity.revision < identityDraft.revision) return;
