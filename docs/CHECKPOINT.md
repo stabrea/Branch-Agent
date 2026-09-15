@@ -8,6 +8,7 @@ from **Settings → Updates**. Do not merge or release every batch.
 
 - Worktree: `C:/Users/bishi/Documents/Codex/Branch-build`, branch `feat/assistant-runtime`.
 - Remote: `https://github.com/stabrea/Branch-Agent.git`; PR #1 targets `main`.
+- Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.2.0 (main merge b508f57; live updater check verified from 0.1.0 → available and 0.2.0 → current).
 - Version `0.2.0`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.
@@ -56,7 +57,7 @@ Coverage after this session: 26 implemented, 52 partial, 90 missing, 1 external 
 
 ## Next work (local until a checkpoint worth publishing)
 
-1. Verify the live release: `gh release view`, then run the Updater check against the real API.
+1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
 2. Onboarding polish (`operations.setup`): first-run screen that offers ChatGPT sign-in, API key
    or offline demonstration, with a real test call.
 3. Continue the inventory: `routing.temporary`, `memory.forget`, `workspace.secrets`,

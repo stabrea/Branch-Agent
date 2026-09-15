@@ -355,7 +355,7 @@ async function refresh() {
   $("workspace").hidden = false;
   $("lock").hidden = desktop;
   $("connection").textContent = "Connected";
-  $("provider").textContent = state.provider;
+  $("provider").textContent = state.provider === "offline-demo-fixture" ? "Offline demonstration" : state.provider;
   if (savedAppearance !== state.preferences.appearance) {
     savedAppearance = state.preferences.appearance;
     applyAppearance(savedAppearance);

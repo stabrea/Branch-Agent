@@ -41,7 +41,8 @@ export class ModelRouter {
   constructor(
     private readonly store: Store,
     presets: ModelPreset[],
-    private readonly now: () => number = Date.now,
+    /** Clock used for cooldowns; tests may replace it. */
+    public now: () => number = Date.now,
   ) {
     if (!presets.length) throw new Error("At least one model preset is required");
     for (const preset of presets) this.register(preset);

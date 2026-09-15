@@ -4,7 +4,6 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { createBranch, OpenAIProvider, AnthropicProvider, presetsFromEnv, ModelRouter } from "../dist/index.js";
 import { ProviderHttpError } from "../dist/provider-retry.js";
 import { startServer } from "../dist/server.js";
@@ -93,7 +92,9 @@ test("eligible failures rest the failed preset and fall back in the configured o
     { id: "backup", name: "Backup", provider: backup, model: "b" },
     { id: "last", name: "Last", provider: last, model: "l" },
   ], { retryPolicy: { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 5 } });
-  app.runtime.models.configure("local", { fallbackOrder: ["last", "backup"], cooldownMs: 300 });
+  app.runtime.models.configure("local", { fallbackOrder: ["last", "backup"], cooldownMs: 60_000 });
+  let clock = Date.now();
+  app.runtime.models.now = () => clock;
   const run = await app.runtime.run({ prompt: "go" });
   assert.equal(run.status, "completed");
   assert.equal(run.output, "last answered");
@@ -108,7 +109,7 @@ test("eligible failures rest the failed preset and fall back in the configured o
   const during = await app.runtime.run({ prompt: "while resting" });
   assert.equal(kinds(app, during, "model.selected")[0].source, "cooldown");
   assert.equal(failing.calls, 2, "resting preset is not called");
-  await sleep(350);
+  clock += 61_000;
   const after = await app.runtime.run({ prompt: "after rest" });
   assert.equal(kinds(app, after, "model.selected")[0].presetId, "main");
   assert.equal(failing.calls, 4, "preset is tried again after the cooldown");
