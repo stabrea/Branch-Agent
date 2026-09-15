@@ -4,7 +4,7 @@ Date: 2026-09-15. Local platform: Windows x64, Node.js 24.15.0, Python 3.12.10. 
 
 ## Application
 
-The strict TypeScript build and 75 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
+The strict TypeScript build and 91 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
 
 - OpenAI-compatible and Anthropic adapters use protocol fixtures; no paid provider account has been exercised by this record.
 - Real Chromium tests verify forms, denied origins/redirects/password fields, overlapping run isolation, cancellation, resource limits and shutdown during pending launch.
@@ -14,6 +14,8 @@ The strict TypeScript build and 75 behavioral tests passed locally; one Windows 
 - The native desktop test executes a task, checks renderer isolation and token non-exposure, attempts navigation to an unapproved local server, tests popup rejection, persists appearance across process restart, hides to tray, follows the home link and verifies shutdown closes the process and listener.
 - Desktop connection tests save a synthetic API key with actual Windows device protection, reject another native window at the IPC boundary, restart into a local fixture provider, and recover from damaged JSON, keys and endpoints.
 - A raw TCP preconnection regression verifies quit cannot hang on speculative browser connections after runtime work is drained.
+- Conversation-history tests verify full-text matching, owner and role filters, exact source retrieval, Unicode pagination, current-session exclusion, separate permissions, legacy backfill and stable references across transcript repair. The browser test searches and reads an actual completed reply.
+- Host command tests execute real Node fixtures with argument arrays, checked cwd, selected environment, captured results and persisted tool evidence. Windows parent/child cancellation and shutdown pass; an escaped child with retained pipes returns promptly with incomplete cleanup. Invalid UTF-8 and split-character cases respect the combined output byte limit. POSIX process-group behavior is implemented but has not been executed on this Windows host.
 - The generated Windows executable has been run through all four native desktop/settings tests, including its bundled logo, acorn, preload and provider configuration. Package contents contain runtime/public files, production dependencies and license notices; private state and workspace are excluded.
 
 Re-run `npm test` for the current tree. Review findings produced additional regression cases; an earlier passing suite did not cover all of those failures. CI is configured for Windows and must independently pass on the pushed revision.
@@ -33,6 +35,6 @@ No reset correction was applied. The run used zero language-model tokens but con
 
 ## Completion boundary
 
-The 169-entry inventory currently has 9 implemented entries, 58 partial, 1 external and 101 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
+The 169-entry inventory currently has 11 implemented entries, 57 partial, 1 external and 100 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
 
 Outstanding work includes remaining capability families, actual configured-service checks, broader failure scenarios, supported-platform packaging, installers/signing/updates, and measured learning/efficiency comparisons. No AGI, sentience or complete feature-parity claim is supported by these checks.

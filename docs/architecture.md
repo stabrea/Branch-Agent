@@ -14,6 +14,8 @@ The data directory holds private SQLite state. The tool workspace is a separate 
 
 Sessions contain messages. Runs contain execution status and events. Owner-scoped records hold memory, procedures, specialists and schedules. This separation lets a user inspect results without loading all historical content into a model request.
 
+Conversation retrieval uses a local FTS5 index over user and assistant text. Stable source identifiers survive transcript reconciliation even when physical rows are rewritten to insert interrupted tool results. Search/read check the owner and exclude the model's current session; bounded excerpts and pages carry their originating session. The separate `history.read` permission controls access to this history.
+
 Interrupted work is marked as interrupted. A crash after a side effect has an uncertain outcome; resuming the reasoning is not permission to repeat the effect. Automatic recovery must reconcile external state or use a destination's idempotency support before replaying it.
 
 ## Learning and specialists

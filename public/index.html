@@ -121,6 +121,17 @@
           <article id="run-detail" class="card" hidden></article>
         </section>
         <section id="memory" class="view" hidden>
+          <form id="history-search-form" class="card form-grid">
+            <div><label for="history-query">Search past conversations</label>
+              <input id="history-query" required maxlength="500" placeholder="Project name or a few keywords" />
+            </div>
+            <div><label for="history-match">Match keywords</label>
+              <select id="history-match"><option value="all">All keywords</option><option value="any">Any keyword</option></select>
+            </div>
+            <button>Search conversations</button>
+          </form>
+          <div id="history-results" class="card-list" role="region" aria-live="polite" aria-label="Conversation search results"></div>
+          <article id="history-message" class="card" hidden></article>
           <p class="section-intro">
             Notes your assistant can retrieve. Every note carries its source and
             time.

@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 const desktop = new URLSearchParams(location.search).get("desktop") === "1";
 if (desktop) document.querySelector(".brand").href = "/?desktop=1";
 let savedAppearance;
+let historyReadRevision = 0;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -406,6 +407,45 @@ form("memory-form", () =>
     source: $("memory-source").value,
   }),
 );
+$("history-search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = event.currentTarget.querySelector("button");
+  submit.disabled = true;
+  $("history-message").hidden = true;
+  $("history-results").replaceChildren(el("p", "Searching conversations…"));
+  historyReadRevision++;
+  try {
+    const value = await api("action", { tool: "history.search", args: {
+      query: $("history-query").value, match: $("history-match").value,
+    } });
+    list("history-results", value.results, (match) => {
+      const card = recordCard(match.role === "user" ? "You said" : "Branch Agent replied");
+      card.append(el("small", "Conversation started " + date(match.sessionCreatedAt)),
+        el("p", match.excerpt), button("Read message", () => readHistoricalMessage(match)));
+      return card;
+    }, "No matching conversations. Try fewer keywords or match any keyword.");
+  } catch (error) {
+    $("history-results").replaceChildren(el("p", "Conversation search failed. Please try again."));
+    toast(error.message);
+  }
+  finally { submit.disabled = false; }
+});
+async function readHistoricalMessage(match, offset = 0) {
+  const revision = ++historyReadRevision;
+  const value = await api("action", { tool: "history.read", args: {
+    sessionId: match.sessionId, messageId: match.messageId, offset,
+  } });
+  if (revision !== historyReadRevision) return;
+  const detail = $("history-message");
+  if (!offset) detail.replaceChildren(
+    el("h3", value.role === "user" ? "Your message" : "Branch Agent’s reply"),
+    el("small", "Conversation started " + date(value.sessionCreatedAt)), el("pre", ""));
+  detail.querySelector("pre").append(document.createTextNode(value.content));
+  detail.querySelector("button")?.remove();
+  if (value.nextOffset !== null)
+    detail.append(button("Read more", () => readHistoricalMessage(match, value.nextOffset)));
+  detail.hidden = false;
+}
 form("specialist-form", () =>
   action("specialists.propose", JSON.parse($("specialist-json").value)),
 );

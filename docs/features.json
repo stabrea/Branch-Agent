@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T18:20:26.958211+00:00",
+  "assessment_date": "2026-09-15T18:41:19.889770+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -589,18 +589,40 @@
       "family": "execution",
       "name": "File editing and shell execution",
       "acceptance_criterion": "Read, edit and verify a workspace file and execute a scoped shell command with captured exit status.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/files.ts",
-          "src/runtime.ts"
+          "src/runtime.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/shell-config.ts",
+          "src/integrations/shell.ts",
+          "src/integrations/shell-process.ts",
+          "tests/runtime.test.mjs",
+          "tests/shell.test.mjs",
+          "tests/fixtures/shell-worker.mjs"
         ],
         "tests": [
-          "demo writes, reads, verifies, and persists a multi-step session"
+          "demo writes, reads, verifies, and persists a multi-step session",
+          "opt-in shell executes real workspace project commands with literal argument arrays",
+          "a tool-backed runtime run persists actual host execution evidence",
+          "shell environment excludes model/vault keys and rejects unselected env configuration",
+          "shell rejects denied aliases, permissions, traversal, and linked cwd",
+          "shell captures nonzero exit, bounds output, and enforces timeout",
+          "returned output obeys its combined UTF-8 byte limit for invalid bytes and split Unicode",
+          "cancellation terminates a running parent and its child before returning",
+          "parent exit with a descendant holding pipes returns bounded cleanup status",
+          "runtime shutdown cancels command execution and waits for its child processes",
+          "shell integrates only when explicitly configured and survives invalid input before execution"
         ],
-        "detail": "Read/write/verify fixture exists; no shell tool registered."
+        "commits": [
+          "637a518"
+        ],
+        "detail": "Workspace file tools read/write/verify actual contents. Opt-in shell.execute runs an explicitly configured absolute native-executable alias with literal argument arrays, a checked workspace cwd, selected non-secret environment keys and a separate permission. It returns captured stdout/stderr, actual exit code/signal, duration, target identity and cleanup status. Fixtures create and verify real output files, capture nonzero exits, reject unconfigured aliases/paths/permissions, bound combined decoded UTF-8 output, enforce timeouts and exercise cancellation/shutdown.",
+        "validation_source": "Auditor ran node --test tests/history.test.mjs tests/shell.test.mjs against the rebuilt current tree: all 16 tests passed, including all 11 shell tests and decoded-output correction 637a518. File read/write/verify fixture was previously inspected; parent reports current full npm suite 91 passed / 1 skipped and Python 16 passed.",
+        "supported_acceptance_scope": "Trusted host execution scoped by configured alias, startup cwd, explicit permission and environment selection. Configurable timeout is at most 120 seconds; combined returned stdout/stderr at most 8192 UTF-8 bytes; one active command per integration. This is not OS/filesystem/network isolation: authorized programs can access host paths or launch other programs. Escaped descendants or children after parent exit may survive, and incomplete cleanup is reported. No container, OS-sandbox, remote-execution or universal resource-isolation entry is upgraded."
       },
-      "remaining": "Add scoped shell execution with captured exit status."
+      "remaining": ""
     },
     {
       "id": "execution.web",
@@ -1000,16 +1022,28 @@
       "family": "memory",
       "name": "Full-text prior-session retrieval",
       "acceptance_criterion": "Find a seeded historical message through full-text search and return its originating session.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/history.ts",
+          "src/store.ts",
+          "src/index.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "history full-text search returns originating sessions and enforces owner/role bounds",
+          "history read is paged by Unicode characters and permission is explicit",
+          "assistant retrieves a previous conversation without mistaking its current prompt for evidence",
+          "history tools exclude current-session evidence while manual source reads still work",
+          "history migration indexes pre-existing messages once and follows transcript rewrites"
+        ],
+        "detail": "SQLite FTS5 indexes historical user/assistant message content and returns BM25-ranked excerpts with originating sessionId and stable message source IDs. history.search/history.read have a distinct history.read permission, owner filtering, bounded queries/results/pages and automatic current-session exclusion when invoked from a task. Source IDs survive transcript reconciliation and database reopen; migration indexes existing messages. The browser adds search and source-message reading controls.",
+        "validation_source": "Auditor ran node --test tests/history.test.mjs tests/shell.test.mjs against the rebuilt current tree: all 16 tests passed, including all 5 history tests and the stable-source migration/reconciliation correction. Parent additionally reports full npm suite 91 passed / 1 skipped and Python 16 passed; those broad results are parent-reported.",
+        "supported_acceptance_scope": "Lexical keyword search of prior messages for one owner. Only user/assistant content is indexed; tool/system messages are excluded. Maximum 32 keywords, 20 results, bounded excerpts and paged source reads. This is not semantic/hybrid retrieval, document indexing, cross-owner sharing, or session export/import."
       },
-      "remaining": "Find a seeded historical message through full-text search and return its originating session."
+      "remaining": ""
     },
     {
       "id": "memory.hybrid",

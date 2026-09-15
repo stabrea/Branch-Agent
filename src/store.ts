@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
+import { SessionHistory } from "./history.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -14,6 +15,7 @@ export interface SavedRecord {
 }
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly history: SessionHistory;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -39,6 +41,12 @@ export class Store {
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
+    this.migrateUsage();
+    this.history = new SessionHistory(this.db);
+    this.recoverInterruptedRuns();
+    this.interruptSchedules();
+  }
+  private migrateUsage(): void {
     const usageColumns = this.db
       .prepare("PRAGMA table_info(usage)")
       .all()
@@ -48,8 +56,12 @@ export class Store {
         this.db.exec(
           `ALTER TABLE usage ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`,
         );
-    this.recoverInterruptedRuns();
-    this.interruptSchedules();
+  }
+  searchHistory(owner: string, input: Parameters<SessionHistory["search"]>[1], excludeSessionId?: string) {
+    return this.history.search(owner, input, excludeSessionId);
+  }
+  readHistory(owner: string, input: Parameters<SessionHistory["read"]>[1], excludeSessionId?: string) {
+    return this.history.read(owner, input, excludeSessionId);
   }
   close(): void {
     if (!this.closed) {
@@ -110,10 +122,10 @@ export class Store {
       .run(status, output, new Date().toISOString(), id);
     return this.run(id)!;
   }
-  message(sessionId: string, message: Message): void {
+  message(sessionId: string, message: Message, sourceId?: number): void {
     this.db
-      .prepare("INSERT INTO messages(session_id,body) VALUES(?,?)")
-      .run(sessionId, JSON.stringify(message));
+      .prepare("INSERT INTO messages(session_id,body,source_id) VALUES(?,?,?)")
+      .run(sessionId, JSON.stringify(message), sourceId ?? null);
   }
   messages(sessionId: string): Message[] {
     return this.db
@@ -122,12 +134,14 @@ export class Store {
       .map((row) => JSON.parse(String(row.body)) as Message);
   }
   reconcileMessages(sessionId: string, reason: string): number {
-    const repaired = reconcileTranscript(this.messages(sessionId), reason);
+    const rows = this.db.prepare("SELECT body,source_id FROM messages WHERE session_id=? ORDER BY id").all(sessionId);
+    const sources = new Map(rows.map((row) => [JSON.parse(String(row.body)) as Message, Number(row.source_id)]));
+    const repaired = reconcileTranscript([...sources.keys()], reason);
     if (!repaired.added) return 0;
     this.db.exec("BEGIN");
     try {
       this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId);
-      for (const message of repaired.messages) this.message(sessionId, message);
+      for (const message of repaired.messages) this.message(sessionId, message, sources.get(message));
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");

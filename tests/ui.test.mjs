@@ -46,6 +46,11 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
     /wrote, read, and verified/,
   );
   await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await page.getByLabel("Search past conversations", { exact: true }).fill("verified");
+  await page.getByRole("button", { name: "Search conversations", exact: true }).click();
+  await page.locator("#history-results").getByRole("button", { name: "Read message", exact: true }).first().click();
+  await page.locator("#history-message").waitFor({ state: "visible" });
+  assert.match(await page.locator("#history-message pre").innerText(), /wrote, read, and verified/);
   await page.getByLabel("Remember something").fill("Browser-created memory");
   await page.getByRole("button", { name: "Save memory", exact: true }).click();
   await page

@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 9 implemented, 58 partial, 1 external and 101 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 11 implemented, 57 partial, 1 external and 100 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -56,7 +56,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| File editing and shell execution (`execution.files-shell`) | partial | Add scoped shell execution with captured exit status. |
+| File editing and shell execution (`execution.files-shell`) | implemented | Covered by the listed local fixtures. |
 | Web search and fetch (`execution.web`) | missing | Search for a query and fetch a selected page with readable content and its source URL. |
 | Browser automation screenshots and persistent sessions (`execution.browser`) | partial | Add actual screenshot output and a multi-page fixture proving same authorized browser session across pages. |
 | Live shared Linux desktop (`execution.desktop`) | missing | Operate a desktop-only test application and allow the user to take over the same live desktop. |
@@ -89,7 +89,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Editable user profile and assistant identity (`memory.profile`) | partial | Add profile fact correction and verify corrected value is used in the next eligible session. |
 | Bounded durable facts (`memory.facts`) | partial | Enforce total fact-store capacity and reject or consolidate excess additions. |
-| Full-text prior-session retrieval (`memory.search`) | missing | Find a seeded historical message through full-text search and return its originating session. |
+| Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
 | Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |
 | External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
 | Explicit agent and project memory boundaries (`memory.scope`) | partial | Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes. |
