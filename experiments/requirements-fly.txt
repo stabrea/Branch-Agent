@@ -1,0 +1,6 @@
+# Separate optional environment. These libraries execute and read the external model.
+brian2==2.10.1
+numpy==2.3.3
+pandas==3.0.2
+pyarrow==25.0.1
+joblib==1.5.3

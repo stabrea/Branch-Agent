@@ -1,0 +1,14 @@
+import { contextBridge, ipcRenderer } from "electron";
+
+contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
+  modelSettings: () => ipcRenderer.invoke("branch:model-settings"),
+  saveModelSettings: (settings: unknown) =>
+    ipcRenderer.invoke("branch:save-model-settings", settings),
+  exportConversation: (text: unknown) =>
+    ipcRenderer.invoke("branch:export-conversation", text),
+  exportMemory: (text: unknown) => ipcRenderer.invoke("branch:export-memory", text),
+  updateStatus: () => ipcRenderer.invoke("branch:update-status"),
+  checkForUpdates: () => ipcRenderer.invoke("branch:update-check"),
+  installUpdate: () => ipcRenderer.invoke("branch:update-install"),
+  openExternal: (url: unknown) => ipcRenderer.invoke("branch:open-external", url),
+}));

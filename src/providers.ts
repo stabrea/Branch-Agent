@@ -1,0 +1,358 @@
+import { createHash } from "node:crypto";
+import { z } from "zod";
+import type {
+  Completion,
+  CompletionRequest,
+  Message,
+  Provider,
+  ToolCall,
+} from "./contracts.js";
+import { DemoProvider } from "./demo.js";
+import { rejectedHttpResponse } from "./provider-retry.js";
+import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
+import type { ModelPreset } from "./models.js";
+
+export interface ProviderOptions {
+  endpoint: string;
+  model: string;
+  apiKey: string;
+}
+const usageNumber = z.number().int().nonnegative();
+const openaiResponse = z.object({
+  choices: z
+    .array(
+      z.object({
+        message: z.object({
+          content: z.string().nullable().optional(),
+          tool_calls: z
+            .array(
+              z.object({
+                id: z.string(),
+                function: z.object({ name: z.string(), arguments: z.string() }),
+              }),
+            )
+            .optional(),
+        }),
+      }),
+    )
+    .min(1),
+  usage: z
+    .object({ prompt_tokens: usageNumber, completion_tokens: usageNumber })
+    .optional(),
+});
+const anthropicResponse = z.object({
+  content: z.array(
+    z.discriminatedUnion("type", [
+      z.object({ type: z.literal("text"), text: z.string() }),
+      z.object({
+        type: z.literal("tool_use"),
+        id: z.string(),
+        name: z.string(),
+        input: z.record(z.string(), z.unknown()),
+      }),
+    ]),
+  ),
+  usage: z
+    .object({ input_tokens: usageNumber, output_tokens: usageNumber })
+    .optional(),
+});
+export const wireName = (name: string): string =>
+  "branch_" + createHash("sha256").update(name).digest("hex").slice(0, 24);
+function originalName(wire: string, request: CompletionRequest): string {
+  const tool = request.tools.find((t) => wireName(t.name) === wire);
+  if (!tool) throw new Error("Provider returned an unknown tool");
+  return tool.name;
+}
+function validateOptions(options: ProviderOptions): void {
+  const url = new URL(options.endpoint);
+  if (
+    url.protocol !== "https:" &&
+    !(
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    )
+  )
+    throw new Error(
+      "Provider endpoint requires HTTPS (HTTP is allowed only on loopback)",
+    );
+  if (url.username || url.password || url.search || url.hash)
+    throw new Error(
+      "Provider endpoint must not contain credentials, query, or fragment",
+    );
+  if (!options.model || !options.apiKey)
+    throw new Error("Provider model and API key are required");
+}
+async function post(
+  options: ProviderOptions,
+  path: string,
+  body: unknown,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  consume?: (data: string) => void,
+): Promise<unknown> {
+  const response = await fetch(options.endpoint.replace(/\/$/, "") + path, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+    signal,
+    redirect: "error",
+  });
+  if (!response.ok) {
+    throw await rejectedHttpResponse(response, signal);
+  }
+  if (!response.body) throw new Error("Provider returned empty body");
+  if (consume) return readEventStream(response, consume);
+  const reader = response.body.getReader(),
+    chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > 1048576) throw new Error("Provider response exceeds 1 MiB");
+      chunks.push(part.value);
+    }
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+function openaiMessage(message: Message): Record<string, unknown> {
+  if (message.role === "tool")
+    return {
+      role: "tool",
+      content: message.content,
+      tool_call_id: message.toolCallId,
+    };
+  return {
+    role: message.role,
+    content: message.content,
+    ...(message.toolCalls
+      ? {
+          tool_calls: message.toolCalls.map((c) => ({
+            id: c.id,
+            type: "function",
+            function: { name: wireName(c.name), arguments: c.arguments },
+          })),
+        }
+      : {}),
+  };
+}
+export class OpenAIProvider implements Provider {
+  readonly name = "openai-compatible";
+  constructor(private readonly options: ProviderOptions) {
+    validateOptions(options);
+  }
+  async complete(request: CompletionRequest): Promise<Completion> {
+    const body = openaiBody(request, this.options.model);
+    if (request.onTextDelta) {
+      const stream = new OpenAIStream(request.onTextDelta);
+      try {
+        await post(this.options, "/chat/completions",
+          { ...body, stream: true, stream_options: { include_usage: true } },
+          { authorization: `Bearer ${this.options.apiKey}` }, request.signal,
+          (data) => stream.consume(data));
+        return restoreToolNames(stream.result(), request);
+      } catch (error) { throw stream.failure(error); }
+    }
+    const response = openaiResponse.parse(
+      await post(
+        this.options,
+        "/chat/completions",
+        body,
+        { authorization: `Bearer ${this.options.apiKey}` },
+        request.signal,
+      ),
+    );
+    const message = response.choices[0]!.message;
+    return {
+      content: message.content ?? "",
+      toolCalls: (message.tool_calls ?? []).map((c) => ({
+        id: c.id,
+        name: originalName(c.function.name, request),
+        arguments: c.function.arguments,
+      })),
+      ...(response.usage
+        ? {
+            usage: {
+              input: response.usage.prompt_tokens,
+              output: response.usage.completion_tokens,
+            },
+          }
+        : {}),
+    };
+  }
+}
+function openaiBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: request.maxTokens,
+    ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
+    messages: request.messages.map(openaiMessage),
+    ...(request.tools.length ? {
+      tools: request.tools.map((t) => ({
+        type: "function",
+        function: { name: wireName(t.name), description: t.description, parameters: t.parameters },
+      })),
+    } : {}),
+  };
+}
+function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
+  const result: { role: string; content: Record<string, unknown>[] }[] = [];
+  for (const message of messages.filter((m) => m.role !== "system")) {
+    const role = message.role === "tool" ? "user" : message.role;
+    const content: Record<string, unknown>[] =
+      message.role === "tool"
+        ? [
+            {
+              type: "tool_result",
+              tool_use_id: message.toolCallId,
+              content: message.content,
+            },
+          ]
+        : [
+            ...(message.content
+              ? [{ type: "text", text: message.content }]
+              : []),
+            ...(message.toolCalls ?? []).map((c: ToolCall) => ({
+              type: "tool_use",
+              id: c.id,
+              name: wireName(c.name),
+              input: JSON.parse(c.arguments) as unknown,
+            })),
+          ];
+    const previous = result.at(-1);
+    if (previous?.role === role) previous.content.push(...content);
+    else result.push({ role, content });
+  }
+  return result;
+}
+export class AnthropicProvider implements Provider {
+  readonly name = "anthropic";
+  constructor(private readonly options: ProviderOptions) {
+    validateOptions(options);
+  }
+  async complete(request: CompletionRequest): Promise<Completion> {
+    const body = anthropicBody(request, this.options.model);
+    if (request.onTextDelta) {
+      const stream = new AnthropicStream(request.onTextDelta);
+      try {
+        await post(this.options, "/messages", { ...body, stream: true },
+          { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
+          request.signal, (data) => stream.consume(data));
+        return restoreToolNames(stream.result(), request);
+      } catch (error) { throw stream.failure(error); }
+    }
+    const response = anthropicResponse.parse(
+      await post(
+        this.options,
+        "/messages",
+        body,
+        { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
+        request.signal,
+      ),
+    );
+    return {
+      content: response.content
+        .filter((c) => c.type === "text")
+        .map((c) => c.text)
+        .join("\n"),
+      toolCalls: response.content
+        .filter((c) => c.type === "tool_use")
+        .map((c) => ({
+          id: c.id,
+          name: originalName(c.name, request),
+          arguments: JSON.stringify(c.input),
+        })),
+      ...(response.usage
+        ? {
+            usage: {
+              input: response.usage.input_tokens,
+              output: response.usage.output_tokens,
+            },
+          }
+        : {}),
+    };
+  }
+}
+const thinkingBudgets = { low: 1024, medium: 4096, high: 8192 } as const;
+/** Anthropic extended thinking needs a budget of at least 1024 tokens below max_tokens; otherwise it is omitted. */
+function anthropicThinking(request: CompletionRequest): Record<string, unknown> {
+  if (!request.reasoning) return {};
+  const budget = Math.min(thinkingBudgets[request.reasoning], request.maxTokens - 256);
+  return budget >= 1024 ? { thinking: { type: "enabled", budget_tokens: budget } } : {};
+}
+function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: request.maxTokens,
+    ...anthropicThinking(request),
+    system: request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
+    messages: anthropicMessages(request.messages),
+    tools: request.tools.map((t) => ({ name: wireName(t.name), description: t.description, input_schema: t.parameters })),
+  };
+}
+export function restoreToolNames(completion: Completion, request: CompletionRequest): Completion {
+  return {
+    ...completion,
+    toolCalls: completion.toolCalls.map((call) => ({ ...call, name: originalName(call.name, request) })),
+  };
+}
+export function providerFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Provider {
+  const kind = env.BRANCH_PROVIDER ?? "demo";
+  if (kind === "demo") return new DemoProvider();
+  if (kind !== "openai" && kind !== "anthropic")
+    throw new Error("BRANCH_PROVIDER must be demo, openai, or anthropic");
+  const required = [
+    "BRANCH_ENDPOINT",
+    "BRANCH_MODEL",
+    "BRANCH_API_KEY",
+  ] as const;
+  for (const key of required)
+    if (!env[key]) throw new Error(`${key} is required for a real provider`);
+  const options = {
+    endpoint: env.BRANCH_ENDPOINT!,
+    model: env.BRANCH_MODEL!,
+    apiKey: env.BRANCH_API_KEY!,
+  };
+  return kind === "openai"
+    ? new OpenAIProvider(options)
+    : new AnthropicProvider(options);
+}
+
+const presetEnvSchema = z.array(z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().trim().min(1).max(80),
+  provider: z.enum(["demo", "openai", "anthropic"]),
+  endpoint: z.string().max(2048).optional(),
+  model: z.string().max(256).optional(),
+  apiKeyEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/).optional(),
+  reasoning: z.enum(["low", "medium", "high"]).optional(),
+}).strict()).min(1).max(16);
+/**
+ * Named presets from BRANCH_MODEL_PRESETS (JSON). Keys are read from the named environment variable
+ * and never stored. The first entry is the default. Without the variable, the single configured
+ * provider becomes the only preset.
+ */
+export function presetsFromEnv(env: NodeJS.ProcessEnv = process.env): ModelPreset[] {
+  if (!env.BRANCH_MODEL_PRESETS) return [defaultPreset(providerFromEnv(env), env.BRANCH_MODEL)];
+  let parsed: unknown;
+  try { parsed = JSON.parse(env.BRANCH_MODEL_PRESETS); } catch { throw new Error("BRANCH_MODEL_PRESETS must be JSON"); }
+  return presetEnvSchema.parse(parsed).map((entry) => {
+    const provider = providerFromEnv({
+      BRANCH_PROVIDER: entry.provider, BRANCH_ENDPOINT: entry.endpoint, BRANCH_MODEL: entry.model,
+      BRANCH_API_KEY: entry.apiKeyEnv ? env[entry.apiKeyEnv] : undefined,
+    });
+    return { id: entry.id, name: entry.name, provider, model: entry.model ?? "demo",
+      ...(entry.reasoning ? { reasoning: entry.reasoning } : {}) };
+  });
+}
+export function defaultPreset(provider: Provider, model?: string): ModelPreset {
+  const demo = provider.name === "offline-demo-fixture";
+  return { id: "default", name: demo ? "Offline demonstration" : "Default connection",
+    provider, model: model ?? (demo ? "demo" : "configured") };
+}

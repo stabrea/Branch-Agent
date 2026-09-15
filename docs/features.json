@@ -1,0 +1,3293 @@
+{
+  "schema_version": 1,
+  "inventory_date": "2026-09-15",
+  "assessment_date": "2026-09-15T20:59:51.647248+00:00",
+  "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
+  "status_definitions": {
+    "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
+    "partial": "Relevant implementation exists, but a requirement or complete acceptance fixture is absent.",
+    "external": "Connector exists while configured external/local service acceptance remains unverified.",
+    "missing": "No implementation of the entry was found; generic SDK or adjacent capabilities are insufficient."
+  },
+  "features": [
+    {
+      "id": "surfaces.web",
+      "family": "surfaces",
+      "name": "Browser chat and settings",
+      "acceptance_criterion": "Open the browser workbench, send a message, receive a response, and persist a changed setting across reload.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/preferences.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/index.html",
+          "public/app.js",
+          "tests/desktop.test.mjs"
+        ],
+        "tests": [
+          "native desktop authenticates locally, completes work, persists appearance, and hides to tray"
+        ],
+        "detail": "The shared browser workbench submits a conversation, renders its response, saves appearance through authenticated POST /api/preferences into owner-scoped SQLite settings, and restores it from /api/state. The current desktop fixture exercises this exact HTTP-served renderer: file-backed conversation, appearance change, page reload, and full process restart. Parent reports the packaged Windows executable fixture passed; auditor inspected current source and test without rerunning.",
+        "validation_source": "Parent-reported current packaged Windows test pass; current source and executable fixture inspected. Separate standalone-browser test was not rerun."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "surfaces.terminal",
+      "family": "surfaces",
+      "name": "Interactive terminal with streaming and interruption",
+      "acceptance_criterion": "Stream a tool-backed terminal conversation and interrupt then redirect the active task without starting an unrelated session.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/terminal.ts",
+          "src/runtime.ts",
+          "src/contracts.ts",
+          "src/providers.ts",
+          "src/provider-stream.ts",
+          "tests/terminal.test.mjs",
+          "tests/provider-stream.test.mjs"
+        ],
+        "tests": [
+          "terminal streams live text/progress, interrupts a tool, and redirects the same persisted session",
+          "typing a revision cancels an active model and /exit cleans up signal handlers",
+          "readline Ctrl+C keeps the terminal open for a same-session revision",
+          "progress excludes raw tool results and provider errors; EOF settles work",
+          "OpenAI SSE delivers genuine text before completion and assembles fragmented tool calls/usage",
+          "Anthropic SSE streams text blocks and assembles tool input with final usage",
+          "cancelling a real SSE response leaves partial text uncommitted and usage attempt incomplete"
+        ],
+        "parameterized_tests": [
+          "openai / anthropic accepts CR-only SSE delimiters with the final CR at EOF",
+          "openai / anthropic preserves received usage and observed output after token limit / cancellation before end marker"
+        ],
+        "commits": [
+          "c282d7d",
+          "517479f",
+          "0822722"
+        ],
+        "detail": "CLI chat runs an interactive terminal conversation. Actual provider SSE text deltas arrive before completion; model/tool/run progress reflects persisted activity. Ctrl+C, /cancel or typed revision aborts the active model/tool, waits for cleanup, and runs the revision with the same persisted sessionId; only /new requests a new session. Focused fixtures verify interrupted-tool reconciliation and same-session message history, genuine pre-completion deltas, fragmented UTF-8/tool JSON/usage assembly, CR-only EOF framing, and retained observed usage on failed or cancelled streams. Partial text remains uncommitted and is not reported as a final answer.",
+        "validation_source": "Auditor inspected current committed source and fixtures at 0822722. Parent reports 19 focused tests passed and specification/quality review approved these deltas. No tests rerun by this auditor.",
+        "supported_acceptance_scope": "Interactive terminal with local deterministic and loopback provider fixtures. Configured hosted provider performance and compatibility beyond the tested protocol subset remain unverified."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "surfaces.desktop",
+      "family": "surfaces",
+      "name": "Desktop and menu-bar clients",
+      "acceptance_criterion": "Launch a supported native client and complete a conversation through the same configured service.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/desktop/main.ts",
+          "src/server.ts",
+          "src/preferences.ts",
+          "src/store.ts",
+          "public/app.js",
+          "tests/desktop.test.mjs",
+          "src/desktop/settings.ts",
+          "src/desktop/settings-ipc.ts",
+          "src/desktop/preload.cts",
+          "tests/desktop-settings.test.mjs"
+        ],
+        "tests": [
+          "native desktop authenticates locally, completes work, persists appearance, and hides to tray",
+          "desktop settings reject key reuse across destinations and unavailable encryption",
+          "native settings encrypt a key, keep IPC narrow, and connect after restart",
+          "native settings remain usable after a corrupt file or undecryptable key"
+        ],
+        "detail": "Native Electron client starts the same createBranch runtime, configured provider, integrations and loopback service, then completes the conversation-backed file workflow. Desktop fixture checks node-disabled/context-isolated/sandboxed renderer, token containment, origin/network boundary, appearance after process restart, brand navigation, close-to-tray and quit stopping the server. Parent reports the packaged Windows executable fixture passed; auditor inspected current source and test without rerunning.",
+        "validation_source": "Parent-reported packaged Windows executable test pass, with current source/test inspection.",
+        "supported_acceptance_scope": "Windows native client, offline fixture provider, and inspected saved-connection loopback provider fixture. This does not assert other native OS targets, configured hosted-provider readiness, or upgrade separate model/security acceptance entries.",
+        "model_settings_addendum": "Current native client provides provider/endpoint/model settings and device-protected key storage through narrowly authorized main-frame IPC. The inspected native settings fixture saves a key, verifies absence from disk plaintext and exposed summaries, rejects another window, restarts, and completes a conversation through the saved loopback model endpoint. Further fixtures reject key reuse across destinations and unavailable encryption, and recover from corrupt settings or an undecryptable key. These are added source/fixture evidence only; no new desktop-settings test execution is claimed by this auditor."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "surfaces.voice-input",
+      "family": "surfaces",
+      "name": "Voice dictation and transcription",
+      "acceptance_criterion": "Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn."
+    },
+    {
+      "id": "surfaces.voice-output",
+      "family": "surfaces",
+      "name": "Text-to-speech",
+      "acceptance_criterion": "Generate playable speech from a response using the selected provider.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate playable speech from a response using the selected provider."
+    },
+    {
+      "id": "surfaces.attachments",
+      "family": "surfaces",
+      "name": "Images audio video and document attachments",
+      "acceptance_criterion": "Attach representative image, audio, video and document files and preserve their content types and accessible references in the conversation.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Attach representative image, audio, video and document files and preserve their content types and accessible references in the conversation."
+    },
+    {
+      "id": "surfaces.generation",
+      "family": "surfaces",
+      "name": "Image and video generation",
+      "acceptance_criterion": "Generate one image and one video through configured adapters and verify that both output files can be decoded.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate one image and one video through configured adapters and verify that both output files can be decoded."
+    },
+    {
+      "id": "surfaces.playback",
+      "family": "surfaces",
+      "name": "Inline media playback",
+      "acceptance_criterion": "Play an attached audio file and video file inside the supported conversation client.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Play an attached audio file and video file inside the supported conversation client."
+    },
+    {
+      "id": "surfaces.panes",
+      "family": "surfaces",
+      "name": "Grouped side-by-side conversations",
+      "acceptance_criterion": "Arrange multiple topics side by side and verify that messages remain assigned to the correct topic.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Arrange multiple topics side by side and verify that messages remain assigned to the correct topic."
+    },
+    {
+      "id": "surfaces.mobile-push",
+      "family": "surfaces",
+      "name": "Mobile installable web app and push notifications",
+      "acceptance_criterion": "Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded."
+    },
+    {
+      "id": "surfaces.i18n",
+      "family": "surfaces",
+      "name": "Localized application interface",
+      "acceptance_criterion": "Switch between two supported interface languages and verify that navigation and task controls remain usable.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Switch between two supported interface languages and verify that navigation and task controls remain usable."
+    },
+    {
+      "id": "surfaces.attention",
+      "family": "surfaces",
+      "name": "Background task attention notifications",
+      "acceptance_criterion": "Run a background task that needs user input and surface a notification linking to that exact pending task.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/runtime.ts"
+        ],
+        "tests": [],
+        "detail": "Activity polling and cancel controls exist, but no attention notification flow."
+      },
+      "remaining": "Implement pending-user-input task state and background notification linked to the exact task."
+    },
+    {
+      "id": "surfaces.editor-clients",
+      "family": "surfaces",
+      "name": "Personal knowledge access from note editors",
+      "acceptance_criterion": "Query indexed personal knowledge from a supported note-editor client and open the cited document.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Query indexed personal knowledge from a supported note-editor client and open the cited document."
+    },
+    {
+      "id": "routing.channels",
+      "family": "routing",
+      "name": "Direct and group chat adapters",
+      "acceptance_criterion": "Receive and reply to a direct message and a group message through configured channel adapters.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Receive and reply to a direct message and a group message through configured channel adapters."
+    },
+    {
+      "id": "routing.activation",
+      "family": "routing",
+      "name": "Mention activation and engagement policies",
+      "acceptance_criterion": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches."
+    },
+    {
+      "id": "routing.pairing",
+      "family": "routing",
+      "name": "Sender allowlists and pairing",
+      "acceptance_criterion": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes."
+    },
+    {
+      "id": "routing.shared-session",
+      "family": "routing",
+      "name": "Conversation spanning channels",
+      "acceptance_criterion": "Continue one conversation from two linked channels with both surfaces observing the same ordered history.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Continue one conversation from two linked channels with both surfaces observing the same ordered history."
+    },
+    {
+      "id": "routing.shared-identity",
+      "family": "routing",
+      "name": "Shared agent identity with separate conversations",
+      "acceptance_criterion": "Recall a shared permitted memory in two sessions while keeping their message histories separate.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "memory is source/time attributed and isolated by owner"
+        ],
+        "detail": "Memory is owner-scoped, sessions have separate message rows, and tools allow lookup; no cross-session acceptance fixture."
+      },
+      "remaining": "Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate."
+    },
+    {
+      "id": "routing.isolated-agents",
+      "family": "routing",
+      "name": "Separate memory and workspaces across audiences",
+      "acceptance_criterion": "Write a private memory and file in one agent scope and prove another isolated agent cannot retrieve either.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/files.ts",
+          "src/runtime.ts"
+        ],
+        "tests": [
+          "memory is source/time attributed and isolated by owner"
+        ],
+        "detail": "Owner isolation applies to stored memory; delegated specialists currently share parent owner and workspace."
+      },
+      "remaining": "Provide per-agent file roots and prove file plus memory isolation between isolated agents."
+    },
+    {
+      "id": "routing.lifecycle",
+      "family": "routing",
+      "name": "Search resume duplicate import and export sessions",
+      "acceptance_criterion": "Search, resume, duplicate, export and import a session while preserving its original history.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/session-library.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "src/desktop/conversation-export.ts",
+          "src/desktop/conversation-export-ipc.ts",
+          "src/desktop/preload.cts",
+          "public/app.js",
+          "public/index.html",
+          "tests/session-library.test.mjs",
+          "tests/session-lifecycle-ui.test.mjs",
+          "tests/desktop-export.test.mjs"
+        ],
+        "tests": [
+          "session export imports into a clean instance and resumes exact history without replaying tools",
+          "duplicated sessions have fresh message identities, preserve the source and carry import provenance through branches",
+          "session search paginates owned nonempty histories and treats query syntax literally",
+          "import rejects malformed roles, protocol gaps, excess bytes and forged ownership before writing",
+          "copy operations reject active or foreign sources and roll back database write failures",
+          "session HTTP endpoints round trip Unicode archives above 64 KiB with owner authentication and bounded bodies",
+          "saved conversations search, paginate, export/import a JSON file, and resume after reload",
+          "duplicating a saved conversation preserves the source and follows up in the new ID",
+          "invalid and oversized import files report errors without changing the selected conversation",
+          "pending send blocks saved conversation switching, duplicate, and file import",
+          "failed duplicate or imported view retains each new ID and retry never creates another copy",
+          "native export validates text before choosing a file and writes only a chosen destination",
+          "native conversation export uses guarded IPC and leaves the blanket download blocker enabled"
+        ],
+        "commits": [
+          "7bf11e4",
+          "fdcfc7a",
+          "cd4f76b"
+        ],
+        "detail": "Saved-conversation search returns owned nonempty histories in pages of 20 using literal NFC-normalized, case-insensitive matching. A selected conversation can be resumed with its prior messages intact, duplicated into independent message/session identities, exported as a validated JSON message archive and imported into a new or clean instance. Tests verify exact message round trips, imported follow-up after browser reload, preserved originals, no automatic replay of historical tool calls, atomic writes and import provenance retained through copies/branches. UI locks prevent switching/copy/import during an active send and failed post-copy views retain their new IDs for retry.",
+        "validation_source": "Auditor inspected current source at cd4f76b and ran node --test tests/session-library.test.mjs tests/session-lifecycle-ui.test.mjs tests/desktop-export.test.mjs: 13 passed, 0 failed, 0 skipped (6 core/API, 5 browser, 2 native-export). Parent subsequently confirmed core and UI specification/quality approval with no UI quality findings, full application suite 152 passed / 1 skipped (153 total), and rebuilt portable executable passing six desktop/settings/export tests. The full-suite, review and rebuilt-executable results are parent-reported; the 13 focused results are directly observed by this auditor.",
+        "native_validation_boundary": "Auditor directly ran Electron export tests exercising guarded renderer-to-main IPC and real destination-file writing; parent additionally reports the rebuilt portable executable passed all six desktop/settings/export tests. Save-dialog selection is stubbed in the fixture; manual OS-dialog interaction is unverified. The blanket native download blocker remains enabled. Browser export separately uses an actual browser download event and file import.",
+        "supported_acceptance_scope": "Version-1 conversation-message archives only, at most 1000 messages and 4 MiB. Only user/assistant/tool roles and complete valid tool-call/result history are accepted; system messages, forged ownership and invalid tool arguments/protocol gaps are rejected. Export/duplicate reject active or foreign source sessions. Imported/copied sessions receive fresh identities and shared local workspace files/saved memory; archives do not carry workspaces, model credentials, application settings, run/audit records or original internal IDs. Literal session-library search is distinct from the separately implemented FTS historical-message search. No backup/restore, memory import/export, cross-host migration or other feature entry is upgraded."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "routing.temporary",
+      "family": "routing",
+      "name": "Temporary chats excluded from history and memory",
+      "acceptance_criterion": "Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory."
+    },
+    {
+      "id": "routing.branch",
+      "family": "routing",
+      "name": "Branch a conversation from a selected prior state",
+      "acceptance_criterion": "Create a session branch at a selected point and verify that subsequent messages leave the original branch unchanged.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/sessions.ts",
+          "src/store.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/sessions.test.mjs",
+          "tests/session-ui.test.mjs"
+        ],
+        "tests": [
+          "conversation branch preserves exact prefix, tool evidence and original while continuing independently",
+          "branching requires both grants and refuses other owners or mismatched message identities",
+          "unsafe branch boundaries are rejected without repairing or mutating the source",
+          "branch copying is atomic on write failure and checks size only through its chosen point",
+          "authenticated session API exposes branch history and rejects other owners",
+          "browser branches a historical prefix and follows up without changing the original",
+          "pending chat disables branching and conversation switching until its response settles",
+          "failed branch view keeps its created ID and retry opens it without another branch",
+          "a rejected historical tool-request branch leaves the current conversation unchanged"
+        ],
+        "commits": [
+          "049b328"
+        ],
+        "detail": "sessions.branch copies the exact conversation prefix through a selected eligible message into a new session with new message source IDs. The copy and durable parent/branch-point lineage are committed atomically. Owner checks and both sessions.branch/history.read grants protect access. The branch continues from copied history without including later original messages or replaying prior tool effects; original messages and lineage remain unchanged after continuation and restart. Browser controls select branch points, follow up in the branch and reopen the original; a failed branch-view fetch retains its created ID and retries viewing without duplicating the branch.",
+        "validation_source": "Auditor inspected current source and ran node --test tests/sessions.test.mjs tests/session-ui.test.mjs against the built working tree: 9 passed, 0 failed, 0 skipped (5 core/API and 4 browser tests). The full application suite passed 139 tests with 1 skipped. Core and interface specification and quality reviews approved the implementation.",
+        "supported_acceptance_scope": "Conversation branching only. Eligible boundaries are user messages or assistant replies without tool requests, and the selected prefix must contain no unfinished tool requests. Copy/view bounds are 1000 messages or 4 MiB; the copy limit applies through the chosen point. Workspace files and saved memory remain shared and are explicitly disclosed in the UI. This does not create isolated workspaces, sandbox branches, session import/export, general lifecycle completeness, or a guarantee that future model-directed tool calls cannot repeat an effect."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.hosted-local",
+      "family": "models",
+      "name": "Hosted and local model endpoints",
+      "acceptance_criterion": "Complete the same fixture through a configured hosted endpoint and a configured local endpoint.",
+      "status": "external",
+      "evidence": {
+        "paths": [
+          "src/providers.ts",
+          "tests/providers.test.mjs"
+        ],
+        "tests": [
+          "OpenAI protocol maps tool names/results and records reported usage",
+          "Anthropic protocol translates tool_use and tool_result blocks"
+        ],
+        "detail": "Adapters accept HTTPS hosted endpoints and HTTP loopback endpoints; current fixtures emulate protocols locally."
+      },
+      "remaining": "Configure actual hosted and local model endpoints and complete the same fixture on both."
+    },
+    {
+      "id": "models.oauth",
+      "family": "models",
+      "name": "API-key and supported OAuth routes",
+      "acceptance_criterion": "Authenticate through API-key and one supported OAuth route without putting secret values into model-visible messages.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/chatgpt-auth.ts",
+          "src/chatgpt-provider.ts",
+          "src/chatgpt-presets.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "src/desktop/main.ts",
+          "tests/chatgpt.test.mjs"
+        ],
+        "tests": [
+          "device sign-in stores tokens, registers ChatGPT presets and completes a tool-using task",
+          "expiring access tokens refresh once for concurrent callers; a rejected refresh signs out",
+          "HTTP API exposes sign-in status, starts the device flow and signs out"
+        ],
+        "detail": "API-key route plus the ChatGPT device-code OAuth route. Tokens live in a device-protected vault; status responses and model messages never carry secret values."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.presets",
+      "family": "models",
+      "name": "Model and provider presets",
+      "acceptance_criterion": "Select two named model presets and verify that each task uses the selected provider and model.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
+          "src/providers.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
+        ],
+        "tests": [
+          "named presets: each task uses the selected preset's provider and model",
+          "presets come from BRANCH_MODEL_PRESETS with keys read from named variables"
+        ],
+        "detail": "Named presets with per-owner default; keys come from named environment variables or the ChatGPT sign-in and are never stored in settings."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.retry",
+      "family": "models",
+      "name": "Bounded retries preserving completed work",
+      "acceptance_criterion": "Inject a transient provider failure and resume within the retry bound without repeating a completed tool effect.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/provider-retry.ts",
+          "src/providers.ts",
+          "src/runtime.ts",
+          "src/index.ts",
+          "src/terminal.ts",
+          "tests/provider-retry.test.mjs",
+          "tests/terminal.test.mjs"
+        ],
+        "tests": [
+          "failure after a completed tool retries only the next completion",
+          "transient retries stop after two retries",
+          "explicit rate-limit code and Retry-After minimum are respected",
+          "Retry-After beyond wait ceiling fails instead of retrying early",
+          "cancellation during backoff stops before another provider attempt",
+          "exhausted step or token budget prevents another HTTP attempt",
+          "stream wrapper with observed usage cannot retry even when cause is typed HTTP error",
+          "a headers-only transient response cannot stall error handling indefinitely",
+          "abort while reading a rejected HTTP body stops without a retry",
+          "terminal shows real provider retry progress without printing private error bodies"
+        ],
+        "parameterized_tests": [
+          "openai / anthropic retries transient HTTP failures with unchanged model and per-attempt usage",
+          "openai / anthropic stream wrapper permits pre-body HTTP retries but not partial output",
+          "429 dripping / oversized error bodies cannot hide quota behind Retry-After",
+          "unsupported Retry-After hints prevent an early retry"
+        ],
+        "detail": "Runtime retries only the failed provider completion with unchanged message/tool context; completed tool effects remain outside the retry loop. Local HTTP fixtures inject transient failures and prove recovery, bounded attempts, unchanged provider/model, per-attempt accounting and exactly one completed tool effect. Retry errors are classified from bounded response bodies; a scheduled-retry event is visible in terminal progress without raw private error text.",
+        "validation_source": "Auditor ran node --test tests/provider-retry.test.mjs tests/terminal.test.mjs against the rebuilt corrected tree: 41 passed, 0 failed, 0 skipped (36 retry tests and 5 terminal tests). Parent reports specification reviewer independently approved the 36 retry tests. No configured external model account was used.",
+        "supported_acceptance_scope": "At most two retries per completion, configurable downward including zero; default backoff 250 ms and maximum wait 5000 ms. Eligible rejected HTTP responses are 408/429/500/502/503/504/529 subject to classification and retry-hint policy. Quota/billing errors, unclear 429 classifications, unsupported or over-ceiling Retry-After, observed stream text/output/usage, malformed successful responses, cancellation and exhausted budgets do not auto-retry. This does not establish transport-error recovery, tool-effect replay safety across process restart, fallback models, or live account readiness."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.fallback",
+      "family": "models",
+      "name": "Auth rotation cooldowns and model fallback",
+      "acceptance_criterion": "Inject an eligible provider failure and verify the configured cooldown and fallback order.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
+          "src/providers.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs",
+          "src/provider-retry.ts"
+        ],
+        "tests": [
+          "eligible failures rest the failed preset and fall back in the configured order",
+          "failures that are not provider outages do not fall back"
+        ],
+        "detail": "Retryable HTTP classes and connection failures place the preset in a configurable cooldown and continue with the configured order; auth and quota failures do not fall back."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.strict-choice",
+      "family": "models",
+      "name": "Respect explicit selected-model policy",
+      "acceptance_criterion": "Select a strict model and verify that failure does not silently switch to an unapproved model.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/providers.ts",
+          "src/provider-retry.ts",
+          "src/runtime.ts",
+          "src/index.ts",
+          "tests/provider-retry.test.mjs",
+          "tests/providers.test.mjs"
+        ],
+        "tests": [
+          "transient retries stop after two retries",
+          "SDK policy can disable retries",
+          "real provider configuration is explicit and has no credential fallback"
+        ],
+        "parameterized_tests": [
+          "openai / anthropic retries transient HTTP failures with unchanged model and per-attempt usage"
+        ],
+        "detail": "A runtime uses its selected provider instance and configured model for every completion and retry. Both provider HTTP fixtures assert that all attempts carry the same selected model and credential route during injected failures; exhausted retries fail instead of selecting a replacement model. There is no runtime model-fallback chain.",
+        "validation_source": "Auditor ran node --test tests/provider-retry.test.mjs tests/terminal.test.mjs against the rebuilt corrected tree: 41 passed, 0 failed, 0 skipped (36 retry tests and 5 terminal tests). Parent reports specification reviewer independently approved the 36 retry tests. No configured external model account was used.",
+        "supported_acceptance_scope": "Strict active provider/model behavior in runtime conversations and bounded retries. This does not claim named preset switching, OAuth, provider cooldown/fallback ordering, or successful live model-account use. Desktop startup recovery from unreadable/undecryptable saved connection settings is a separately disclosed offline-demo recovery path, not a runtime provider-failure retry."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.switching",
+      "family": "models",
+      "name": "Live switching with visible fallback notices",
+      "acceptance_criterion": "Switch the active model and expose the actual model used on the next turn.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
+          "src/providers.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
+        ],
+        "tests": [
+          "session override switches the model for one conversation and reports the model actually used"
+        ],
+        "detail": "Per-conversation model override; run records and the Activity view show the preset that actually served each run, including fallbacks."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "models.local-download",
+      "family": "models",
+      "name": "Hardware-aware local model acquisition",
+      "acceptance_criterion": "Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/providers.ts",
+          "src/contracts.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint."
+    },
+    {
+      "id": "models.reasoning-default",
+      "family": "models",
+      "name": "Per-session reasoning effort controls",
+      "acceptance_criterion": "Set a default reasoning effort and override it for one session while preserving the default for a new session.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
+          "src/providers.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
+        ],
+        "tests": [
+          "reasoning effort reaches provider requests in each protocol's own parameter"
+        ],
+        "detail": "Owner default, per-preset default and per-conversation override; OpenAI reasoning_effort, Anthropic thinking budget, ChatGPT reasoning.effort."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "execution.files-shell",
+      "family": "execution",
+      "name": "File editing and shell execution",
+      "acceptance_criterion": "Read, edit and verify a workspace file and execute a scoped shell command with captured exit status.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/runtime.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/shell-config.ts",
+          "src/integrations/shell.ts",
+          "src/integrations/shell-process.ts",
+          "tests/runtime.test.mjs",
+          "tests/shell.test.mjs",
+          "tests/fixtures/shell-worker.mjs"
+        ],
+        "tests": [
+          "demo writes, reads, verifies, and persists a multi-step session",
+          "opt-in shell executes real workspace project commands with literal argument arrays",
+          "a tool-backed runtime run persists actual host execution evidence",
+          "shell environment excludes model/vault keys and rejects unselected env configuration",
+          "shell rejects denied aliases, permissions, traversal, and linked cwd",
+          "shell captures nonzero exit, bounds output, and enforces timeout",
+          "returned output obeys its combined UTF-8 byte limit for invalid bytes and split Unicode",
+          "cancellation terminates a running parent and its child before returning",
+          "parent exit with a descendant holding pipes returns bounded cleanup status",
+          "runtime shutdown cancels command execution and waits for its child processes",
+          "shell integrates only when explicitly configured and survives invalid input before execution"
+        ],
+        "commits": [
+          "637a518"
+        ],
+        "detail": "Workspace file tools read/write/verify actual contents. Opt-in shell.execute runs an explicitly configured absolute native-executable alias with literal argument arrays, a checked workspace cwd, selected non-secret environment keys and a separate permission. It returns captured stdout/stderr, actual exit code/signal, duration, target identity and cleanup status. Fixtures create and verify real output files, capture nonzero exits, reject unconfigured aliases/paths/permissions, bound combined decoded UTF-8 output, enforce timeouts and exercise cancellation/shutdown.",
+        "validation_source": "Auditor ran node --test tests/history.test.mjs tests/shell.test.mjs against the rebuilt current tree: all 16 tests passed, including all 11 shell tests and decoded-output correction 637a518. File read/write/verify fixture was previously inspected; parent reports current full npm suite 91 passed / 1 skipped and Python 16 passed.",
+        "supported_acceptance_scope": "Trusted host execution scoped by configured alias, startup cwd, explicit permission and environment selection. Configurable timeout is at most 120 seconds; combined returned stdout/stderr at most 8192 UTF-8 bytes; one active command per integration. This is not OS/filesystem/network isolation: authorized programs can access host paths or launch other programs. Escaped descendants or children after parent exit may survive, and incomplete cleanup is reported. No container, OS-sandbox, remote-execution or universal resource-isolation entry is upgraded."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "execution.web",
+      "family": "execution",
+      "name": "Web search and fetch",
+      "acceptance_criterion": "Search for a query and fetch a selected page with readable content and its source URL.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Search for a query and fetch a selected page with readable content and its source URL."
+    },
+    {
+      "id": "execution.browser",
+      "family": "execution",
+      "name": "Browser automation screenshots and persistent sessions",
+      "acceptance_criterion": "Complete a multi-page browser fixture with screenshots and preserve the authorized browser session between steps.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/integrations/browser.ts",
+          "tests/browser.test.mjs"
+        ],
+        "tests": [
+          "isolated browser completes form workflow and refuses destinations outside configured origins"
+        ],
+        "detail": "A live browser context is reused for navigation, accessibility snapshots, fill and click; accessibility text is not a screenshot."
+      },
+      "remaining": "Add actual screenshot output and a multi-page fixture proving same authorized browser session across pages."
+    },
+    {
+      "id": "execution.desktop",
+      "family": "execution",
+      "name": "Live shared Linux desktop",
+      "acceptance_criterion": "Operate a desktop-only test application and allow the user to take over the same live desktop.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Operate a desktop-only test application and allow the user to take over the same live desktop."
+    },
+    {
+      "id": "execution.annotations",
+      "family": "execution",
+      "name": "DOM inspection and element-attached comments",
+      "acceptance_criterion": "Attach a comment to a DOM element and include the element identity and inspection context in the resulting task.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Attach a comment to a DOM element and include the element identity and inspection context in the resulting task."
+    },
+    {
+      "id": "execution.host-bridge",
+      "family": "execution",
+      "name": "Host file browser and command bridge",
+      "acceptance_criterion": "Perform an authorized operation on an explicitly selected host and return the host identity with its result.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Perform an authorized operation on an explicitly selected host and return the host identity with its result."
+    },
+    {
+      "id": "execution.remote",
+      "family": "execution",
+      "name": "SSH and serverless execution adapters",
+      "acceptance_criterion": "Run the same bounded command through configured SSH and serverless adapters and record the execution target.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Run the same bounded command through configured SSH and serverless adapters and record the execution target."
+    },
+    {
+      "id": "execution.nodes",
+      "family": "execution",
+      "name": "Paired camera screen location and notification commands",
+      "acceptance_criterion": "Pair a device, discover its granted commands and execute a permitted device command while rejecting an unavailable one.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Pair a device, discover its granted commands and execute a permitted device command while rejecting an unavailable one."
+    },
+    {
+      "id": "execution.hardware",
+      "family": "execution",
+      "name": "MQTT and embedded hardware integrations",
+      "acceptance_criterion": "Exchange an MQTT fixture and exercise declared serial, GPIO, I2C or SPI adapters against device fixtures while reporting unsupported protocols or disconnects explicitly.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Exchange an MQTT fixture and exercise declared serial, GPIO, I2C or SPI adapters against device fixtures while reporting unsupported protocols or disconnects explicitly."
+    },
+    {
+      "id": "extensions.progressive",
+      "family": "extensions",
+      "name": "Progressive skill loading",
+      "acceptance_criterion": "Expose only skill metadata initially and load full instructions only when that skill is selected.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/skill-document.ts",
+          "src/skills.ts",
+          "src/skill-tools.ts",
+          "src/store.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "src/index.ts",
+          "tests/skills.test.mjs",
+          "tests/skills-ui.test.mjs"
+        ],
+        "tests": [
+          "initial request carries enabled skill metadata only; full documents load through skills.read",
+          "run snapshots pin advertised versions; later edits, switches and disables do not change an active run",
+          "removal prevents subsequent reads; skill metadata never expands tool permissions"
+        ],
+        "detail": "Runtime injects a metadata-only catalog of enabled skills into the system prompt and loads a full document only on an explicit skills.read for a listed id and version. Browser fixture verifies metadata-only discovery then exact v2 delivery."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "extensions.authoring",
+      "family": "extensions",
+      "name": "Skill creation editing installation and curation",
+      "acceptance_criterion": "Create, edit, install and remove a skill while validating its metadata and retaining the selected revision.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/skill-document.ts",
+          "src/skills.ts",
+          "src/skill-tools.ts",
+          "src/store.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "src/index.ts",
+          "public/app.js",
+          "public/index.html",
+          "public/style.css",
+          "tests/skills.test.mjs",
+          "tests/skills-ui.test.mjs"
+        ],
+        "tests": [
+          "single-file SKILL.md install validates frontmatter, name pattern and size bounds",
+          "update creates an immutable new version; activation and rollback select retained versions with optimistic revision checks",
+          "disable and remove respect owner boundaries, capacity limits and transactional rollback",
+          "browser Skills view installs, edits, imports, activates, disables and removes with drafts preserved"
+        ],
+        "detail": "Single-file SKILL.md documents only (agentskills.io frontmatter). Bundled scripts, assets and references are not installed; this is not full Agent Skills package support."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "extensions.pinning",
+      "family": "extensions",
+      "name": "Pin a procedure to active chat",
+      "acceptance_criterion": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned."
+    },
+    {
+      "id": "extensions.mcp",
+      "family": "extensions",
+      "name": "MCP servers and tool selection",
+      "acceptance_criterion": "Connect an MCP server, enumerate its tools and invoke only the subset enabled for the task.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/integrations/mcp.ts",
+          "src/integrations/mcp-config.ts",
+          "tests/integrations.test.mjs",
+          "tests/mcp-http.test.mjs"
+        ],
+        "tests": [
+          "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
+          "MCP HTTP performs authenticated initialization/discovery/tool call",
+          "MCP version changes and absent allowlisted tools fail before registration"
+        ],
+        "detail": "Connect, discover, allowlist, schema validation, per-tool permissions and invocation are directly implemented and exercised in local protocol fixtures."
+      },
+      "remaining": "Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability."
+    },
+    {
+      "id": "extensions.registry",
+      "family": "extensions",
+      "name": "Plugin and channel adapter registry",
+      "acceptance_criterion": "Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation."
+    },
+    {
+      "id": "extensions.templates",
+      "family": "extensions",
+      "name": "Agent templates without secrets",
+      "acceptance_criterion": "Create an agent from a template and verify that instructions and tool requirements transfer without secrets.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Specialist definitions persist instructions and permission subsets; browser offers one editable example."
+      },
+      "remaining": "Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets."
+    },
+    {
+      "id": "extensions.recipes",
+      "family": "extensions",
+      "name": "Parameterized recipes and requirements",
+      "acceptance_criterion": "Instantiate a parameterized recipe and reject missing or invalid required input before execution.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "tests/knowledge.test.mjs"
+        ],
+        "tests": [
+          "procedure verification uses actual results; replay enforces preconditions and versions"
+        ],
+        "detail": "Recipes contain concrete tool args with Zod definition validation and preconditions; no parameterized instantiation."
+      },
+      "remaining": "Add parameter definitions, required-input binding and invalid-input rejection before recipe execution."
+    },
+    {
+      "id": "extensions.structured",
+      "family": "extensions",
+      "name": "JSON Schema outputs",
+      "acceptance_criterion": "Validate a recipe result against its JSON Schema and reject a nonconforming result.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [
+          "procedure with wrong expected output is never verified"
+        ],
+        "detail": "Procedure verification compares exact expected tool values; MCP input schema validation is not recipe output-schema validation."
+      },
+      "remaining": "Validate recipe result against a declared JSON Schema and reject a nonconforming fixture."
+    },
+    {
+      "id": "extensions.tool-building",
+      "family": "extensions",
+      "name": "Generate capability-limited WASM tools",
+      "acceptance_criterion": "Build a requested WASM tool and execute it with only declared host capabilities.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Build a requested WASM tool and execute it with only declared host capabilities."
+    },
+    {
+      "id": "extensions.lifecycle-hooks",
+      "family": "extensions",
+      "name": "Lifecycle event hooks with failure isolation",
+      "acceptance_criterion": "Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold."
+    },
+    {
+      "id": "extensions.platform-bridge",
+      "family": "extensions",
+      "name": "Connect external hosted agent platforms",
+      "acceptance_criterion": "Invoke a configured external agent-platform workflow and return its correlated result through the assistant.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Invoke a configured external agent-platform workflow and return its correlated result through the assistant."
+    },
+    {
+      "id": "extensions.visual-workflows",
+      "family": "extensions",
+      "name": "Visual branching workflow editor",
+      "acceptance_criterion": "Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch."
+    },
+    {
+      "id": "memory.profile",
+      "family": "memory",
+      "name": "Editable user profile and assistant identity",
+      "acceptance_criterion": "Edit a profile fact and verify that the next eligible session uses the corrected value.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/memory.ts",
+          "src/knowledge.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs",
+          "src/identity.ts",
+          "src/runtime.ts",
+          "src/index.ts",
+          "public/index.html",
+          "tests/identity.test.mjs",
+          "tests/identity-ui.test.mjs",
+          "tests/desktop-identity.test.mjs"
+        ],
+        "tests": [
+          "corrected profile fact is retrieved by the next eligible session without changing the earlier conversation",
+          "memory edits persist after reload and a new chat retrieves the corrected fact",
+          "stale edits retain the draft and do not overwrite a newer fact; cancel discards the draft",
+          "polling preserves the open editor, focus, selection and continued typing",
+          "an older pending save cannot discard a reopened editor draft",
+          "failed pending memory save restores both fields with the original draft intact",
+          "assistant identity persists per owner and rejects stale, malformed or oversized writes",
+          "new and resumed sessions receive current identity with an inspectable applied revision",
+          "active tasks retain their identity snapshot and custom instructions cannot grant a denied tool",
+          "identity HTTP settings require local authorization, reject forged owners and expose saved revisions",
+          "identity saves across reload and the next task receives its name and instructions",
+          "identity draft and focus survive actual polling, including a blurred name field",
+          "identity conflict retains draft until explicit reload discards it for saved values",
+          "pending identity saves freeze every control and failure restores the intact draft",
+          "explicit identity reload freezes controls until saved values arrive",
+          "native identity settings survive restart and apply to a new task without exposing the local token"
+        ],
+        "detail": "Revision-checked fact editing persists corrected profile information and source metadata; previous core/browser fixtures prove a new eligible model-driven session retrieves the correction through memory.search while the earlier conversation stays unchanged. Configurable assistant name and working instructions now persist separately per owner with default revision 0, strict input validation and expected-revision checks. Runtime applies the saved identity to the system context at task start and records identity.applied with name/revision. New tasks and resumed conversations receive the current identity; active tasks retain their snapshot. Browser settings persist across reload, preserve drafts/focus during polling and conflicts, freeze controls during save/reload, and restore drafts after failure.",
+        "supported_acceptance_scope": "Both editable profile facts and configured assistant identity are covered. Fact use is verified through explicit model memory-tool retrieval, not automatic fact injection into every task. Identity instructions do not grant permissions: a fixture asking for every tool still cannot write a denied file. Fixture models verify supplied context, not guaranteed obedience by arbitrary external models. The packaged native application also preserves saved identity across restart and records the applied identity in its subsequent task.",
+        "validation_source": "Direct assessor source review and nine core/browser identity tests passed. Parent verified final core/UI specification and quality approvals, full suite 178 passed and 1 skipped (179 total), and eight desktop/settings/export/identity tests with the rebuilt executable selected for native fixtures. The native identity test saved settings through the UI, restarted the executable and verified the applied revision in a completed task. Core commit 4bc689a; UI commit 917db7a."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "memory.facts",
+      "family": "memory",
+      "name": "Bounded durable facts",
+      "acceptance_criterion": "Persist a bounded fact store and reject or explicitly consolidate an addition exceeding its configured capacity.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/memory.ts",
+          "src/store.ts",
+          "src/knowledge.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs"
+        ],
+        "tests": [
+          "configured fact capacity rejects excess writes, permits corrections and deletions, and persists per owner",
+          "legacy facts migrate to edit revisions without losing source metadata or silently deleting overflow",
+          "memory capacity rejects additional facts and cannot drop below the saved count",
+          "archive conflicts, insufficient capacity and write faults leave the complete target state unchanged",
+          "capacity draft survives blur and polling, and a pending save preserves newer input"
+        ],
+        "detail": "An owner-scoped durable fact store persists a configured capacity from 1 to 500. SDK saves, memory tools, HTTP writes and archive imports enforce it; a new fact exceeding capacity is rejected while corrections and deletion remain available. Capacity cannot be reduced below the stored count. Existing facts retain IDs, source metadata, timestamps and revision through persistence; legacy whitespace and overflow facts are preserved rather than silently truncated. UI capacity drafts survive blur and actual polling, and pending capacity-save completion preserves newer typed input.",
+        "supported_acceptance_scope": "Bounded durable facts and explicit excess-addition rejection. Search separately returns at most 20 records and 48,000 UTF-8 bytes. This is not automatic consolidation or an OS storage quota.",
+        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "memory.search",
+      "family": "memory",
+      "name": "Full-text prior-session retrieval",
+      "acceptance_criterion": "Find a seeded historical message through full-text search and return its originating session.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/history.ts",
+          "src/store.ts",
+          "src/index.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/history.test.mjs"
+        ],
+        "tests": [
+          "history full-text search returns originating sessions and enforces owner/role bounds",
+          "history read is paged by Unicode characters and permission is explicit",
+          "assistant retrieves a previous conversation without mistaking its current prompt for evidence",
+          "history tools exclude current-session evidence while manual source reads still work",
+          "history migration indexes pre-existing messages once and follows transcript rewrites"
+        ],
+        "detail": "SQLite FTS5 indexes historical user/assistant message content and returns BM25-ranked excerpts with originating sessionId and stable message source IDs. history.search/history.read have a distinct history.read permission, owner filtering, bounded queries/results/pages and automatic current-session exclusion when invoked from a task. Source IDs survive transcript reconciliation and database reopen; migration indexes existing messages. The browser adds search and source-message reading controls.",
+        "validation_source": "Auditor ran node --test tests/history.test.mjs tests/shell.test.mjs against the rebuilt current tree: all 16 tests passed, including all 5 history tests and the stable-source migration/reconciliation correction. Parent additionally reports full npm suite 91 passed / 1 skipped and Python 16 passed; those broad results are parent-reported.",
+        "supported_acceptance_scope": "Lexical keyword search of prior messages for one owner. Only user/assistant content is indexed; tool/system messages are excluded. Maximum 32 keywords, 20 results, bounded excerpts and paged source reads. This is not semantic/hybrid retrieval, document indexing, cross-owner sharing, or session export/import."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "memory.hybrid",
+      "family": "memory",
+      "name": "Vector plus full-text rank fusion",
+      "acceptance_criterion": "Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking."
+    },
+    {
+      "id": "memory.providers",
+      "family": "memory",
+      "name": "External memory provider support",
+      "acceptance_criterion": "Replace the memory backend through configuration and verify that read and write operations use the selected backend.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Replace the memory backend through configuration and verify that read and write operations use the selected backend."
+    },
+    {
+      "id": "memory.scope",
+      "family": "memory",
+      "name": "Explicit agent and project memory boundaries",
+      "acceptance_criterion": "Verify that memory queries return only entries in the agent and explicitly shared scopes.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "memory is source/time attributed and isolated by owner"
+        ],
+        "detail": "Owner query isolation exists; agent scope and configurable shared scope are absent."
+      },
+      "remaining": "Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes."
+    },
+    {
+      "id": "memory.lineage",
+      "family": "memory",
+      "name": "Source lineage and admission controls",
+      "acceptance_criterion": "Record source-session lineage for an admitted memory and exclude a denied session from automatic ingestion.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/server.ts"
+        ],
+        "tests": [
+          "authenticated API executes real demo and exposes events and usage"
+        ],
+        "detail": "Explicit writes store source, timestamp and sourceRunId; no automatic ingestion or source-session admission mechanism."
+      },
+      "remaining": "Add session admission/denial policy and automatic-ingestion exclusion fixtures."
+    },
+    {
+      "id": "memory.forget",
+      "family": "memory",
+      "name": "Preview removal of tracked derived memory",
+      "acceptance_criterion": "Preview and remove tracked session-derived memory while reporting exclusions and preventing automatic re-ingestion.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "memory is source/time attributed and isolated by owner"
+        ],
+        "detail": "Individual owner memory deletion exists."
+      },
+      "remaining": "Implement session-derived deletion preview, exclusions, and durable suppression of automatic re-ingestion."
+    },
+    {
+      "id": "memory.documents",
+      "family": "memory",
+      "name": "Semantic retrieval over personal document formats",
+      "acceptance_criterion": "Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents."
+    },
+    {
+      "id": "memory.hygiene",
+      "family": "memory",
+      "name": "Automatic archival and expiry of stale memory",
+      "acceptance_criterion": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged."
+    },
+    {
+      "id": "memory.export-import",
+      "family": "memory",
+      "name": "Export and restore complete memory state",
+      "acceptance_criterion": "Export a memory store, import it into a clean instance and verify the expected entries and metadata.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/memory.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "src/desktop/conversation-export.ts",
+          "src/desktop/conversation-export-ipc.ts",
+          "tests/memory.test.mjs",
+          "tests/memory-ui.test.mjs",
+          "tests/desktop-export.test.mjs"
+        ],
+        "tests": [
+          "memory archives restore all fact metadata into a clean owner scope and repeated imports are idempotent",
+          "archive conflicts, insufficient capacity and write faults leave the complete target state unchanged",
+          "memory archive schema rejects unsupported, duplicate, forged and oversized content before changes",
+          "memory retrieval is bounded in UTF-8 bytes and HTTP transfer restores metadata under the current owner",
+          "memory file export/import preserves metadata in an empty store and conflicts merge atomically",
+          "native memory export validates archive and raw UTF8 size before opening the save dialog",
+          "native conversation export uses guarded IPC and leaves the blanket download blocker enabled"
+        ],
+        "detail": "Versioned memory archives round-trip all fact IDs, text/data, source, sourceRunId, created/updated timestamps and revisions into a clean recipient store. Archives omit the owner and imports assign the current owner. Identical reimports are idempotent; conflicting IDs, insufficient capacity, malformed/forged metadata and write failures leave the target unchanged. Strict archives are bounded to 500 records and 16 MiB. Browser tests download a real JSON archive and upload it into an empty store, comparing the complete metadata.",
+        "supported_acceptance_scope": "Complete fact records and their metadata transfer. Capacity settings, credentials, conversation/run records and referenced sourceRunId targets are not archived. The native fixture uses a stubbed save chooser with actual guarded Electron IPC and file writing; manual OS dialog interaction is not verified.",
+        "validation_source": "Source and regression-test inspection through b418ba8, with f01a974 core. Earlier direct focused run: 15 passed, 0 failed, 0 skipped (7046.3978 ms), before final UI corrections. Parent reports final core and UI specification/quality approval after legacy-whitespace, polling-focus, dirty-capacity and pending-draft corrections, and final full suite: 168 passed, 1 skipped, 169 total (local short-name case skipped). Current memory UI suite contains 8 tests and native export suite contains 3. The parent also verified all 7 desktop/settings/export tests with the rebuilt portable executable selected for native fixtures. The native chooser result was substituted; real IPC and file writing were exercised. No full-suite rerun by this assessor."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "memory.temporal-graph",
+      "family": "memory",
+      "name": "Time-aware entity and relationship memory",
+      "acceptance_criterion": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time."
+    },
+    {
+      "id": "memory.linked-wiki",
+      "family": "memory",
+      "name": "Editable linked knowledge pages",
+      "acceptance_criterion": "Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval."
+    },
+    {
+      "id": "memory.cross-agent",
+      "family": "memory",
+      "name": "Shared memory through independent host adapters",
+      "acceptance_criterion": "Ingest a supported host's session log and retrieve its permitted memory through a second host adapter.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Ingest a supported host's session log and retrieve its permitted memory through a second host adapter."
+    },
+    {
+      "id": "memory.connector-datasets",
+      "family": "memory",
+      "name": "Locally searchable email calendar and message datasets",
+      "acceptance_criterion": "Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers."
+    },
+    {
+      "id": "learning.compaction",
+      "family": "learning",
+      "name": "Context compaction preserving task handoff",
+      "acceptance_criterion": "Compact an oversized conversation while preserving recent turns and the active task handoff.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Compact an oversized conversation while preserving recent turns and the active task handoff."
+    },
+    {
+      "id": "learning.dream",
+      "family": "learning",
+      "name": "Scheduled consolidation from append-only history",
+      "acceptance_criterion": "Process only new archive entries during scheduled consolidation and advance the consumption cursor after success.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Process only new archive entries during scheduled consolidation and advance the consumption cursor after success."
+    },
+    {
+      "id": "learning.versioning",
+      "family": "learning",
+      "name": "Versioned durable memory",
+      "acceptance_criterion": "Inspect two durable-memory revisions and recover the prior content after a faulty edit.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "procedure verification uses actual results; replay enforces preconditions and versions",
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Version history applies to procedures/specialists, not memory records."
+      },
+      "remaining": "Version and restore durable-memory content itself."
+    },
+    {
+      "id": "learning.review",
+      "family": "learning",
+      "name": "Post-task memory and skill review",
+      "acceptance_criterion": "Run a post-task review that can propose a memory or skill change with a link to the originating task.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Run a post-task review that can propose a memory or skill change with a link to the originating task."
+    },
+    {
+      "id": "learning.approval",
+      "family": "learning",
+      "name": "Pending memory write review",
+      "acceptance_criterion": "Stage a memory write when review is enabled and apply it only after acceptance.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Stage a memory write when review is enabled and apply it only after acceptance."
+    },
+    {
+      "id": "learning.journey",
+      "family": "learning",
+      "name": "Inspect edit prune and archive learning",
+      "acceptance_criterion": "List learned memories and skills, edit one, and remove or archive one through the learning view.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "public/app.js",
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "browser UI connects, runs demo, saves memory, and fits mobile viewport"
+        ],
+        "detail": "Memory list/add/delete and specialist/procedure list/revise exist, but memory editing and skill removal/archive are absent."
+      },
+      "remaining": "Complete learning-view edit/remove/archive operations for memories and skills."
+    },
+    {
+      "id": "learning.cache",
+      "family": "learning",
+      "name": "Bounded session-start memory snapshots",
+      "acceptance_criterion": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary."
+    },
+    {
+      "id": "learning.pre-edit-checkpoint",
+      "family": "learning",
+      "name": "Automatic recovery point before memory or skill edits",
+      "acceptance_criterion": "Create a checkpoint before an automated memory or skill mutation and restore the exact previous content.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "procedure verification uses actual results; replay enforces preconditions and versions"
+        ],
+        "detail": "Procedure/specialist revisions retain prior definitions; memory checkpoints and general restore are absent."
+      },
+      "remaining": "Create and restore exact pre-mutation memory/skill checkpoints with acceptance fixtures."
+    },
+    {
+      "id": "learning.governance",
+      "family": "learning",
+      "name": "Evidence-governed skill lifecycle and rollback",
+      "acceptance_criterion": "Promote or degrade a skill only from eligible recorded evidence and restore a known prior version on rollback.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Specialist promotion requires measured file checks and supports prior active-version rollback; not full skill governance/degradation."
+      },
+      "remaining": "Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics."
+    },
+    {
+      "id": "learning.trace-optimization",
+      "family": "learning",
+      "name": "Optimize skill candidates from recorded traces",
+      "acceptance_criterion": "Generate a skill candidate from trace data and retain both candidate and original for comparison.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate a skill candidate from trace data and retain both candidate and original for comparison."
+    },
+    {
+      "id": "learning.skill-benchmark",
+      "family": "learning",
+      "name": "Compare skill versions on reproducible evaluation tasks",
+      "acceptance_criterion": "Run baseline and candidate skills on the same fixtures and seeds and save per-task outcomes and resource costs.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "experiments/accounting.py",
+          "experiments/test_accounting.py"
+        ],
+        "tests": [
+          "AccountingTests.test_reject_unpaired_tasks_and_training_leakage",
+          "AccountingTests.test_all_stages_count"
+        ],
+        "detail": "Accounting validates and compares supplied paired ledgers; it does not execute skill benchmarks."
+      },
+      "remaining": "Add a runner executing baseline/candidate skills against identical fixtures and seeds and persisting per-task outcomes/costs."
+    },
+    {
+      "id": "learning.failure-aware",
+      "family": "learning",
+      "name": "Environment-specific skill failure avoidance",
+      "acceptance_criterion": "Exclude a skill with an active matching failure pattern and record the reason and allowed recovery trial.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Exclude a skill with an active matching failure pattern and record the reason and allowed recovery trial."
+    },
+    {
+      "id": "delegation.children",
+      "family": "delegation",
+      "name": "Focused child agents",
+      "acceptance_criterion": "Create a focused child task and return its result without inserting its full working context into the parent.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/knowledge.ts",
+          "tests/knowledge.test.mjs"
+        ],
+        "tests": [
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Runtime.delegate creates a separate session, records parentRunId and returns a bounded Run result without child messages."
+      },
+      "remaining": "External model behavior remains configuration-dependent; local fixture establishes child/result isolation only."
+    },
+    {
+      "id": "delegation.parallel",
+      "family": "delegation",
+      "name": "Sequential and parallel tasks",
+      "acceptance_criterion": "Run independent children concurrently and enforce order for a dependent sequence.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts"
+        ],
+        "tests": [],
+        "detail": "Independent runtime.run calls can coexist across sessions; the model tool loop awaits calls sequentially and has no fan-out orchestration."
+      },
+      "remaining": "Add explicit concurrent child orchestration and dependent-sequence acceptance fixtures."
+    },
+    {
+      "id": "delegation.tools",
+      "family": "delegation",
+      "name": "Restrict child tool access",
+      "acceptance_criterion": "Grant a child one extension and prove it cannot invoke a tool outside that grant.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/registry.ts",
+          "tests/integrations.test.mjs",
+          "tests/knowledge.test.mjs"
+        ],
+        "tests": [
+          "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Delegation cannot expand parent permissions; registry rejects unauthorized tools before execution; MCP tools each receive an individual permission."
+      },
+      "remaining": "Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately."
+    },
+    {
+      "id": "delegation.limits",
+      "family": "delegation",
+      "name": "Depth concurrency timeout and turn bounds",
+      "acceptance_criterion": "Reject delegation beyond configured depth or concurrency and terminate a child exceeding its timeout.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/contracts.ts"
+        ],
+        "tests": [
+          "delegated work charges its parent budget and cannot reset depth",
+          "cancellation and exhausted shared budget stop runs"
+        ],
+        "detail": "Fixed depth limit 3, shared budgets and 120-second AbortSignal exist, without concurrency scheduling or child timeout acceptance."
+      },
+      "remaining": "Enforce configured child concurrency and configurable depth/timeouts; test a child exceeding its timeout."
+    },
+    {
+      "id": "delegation.results",
+      "family": "delegation",
+      "name": "Structured child result contracts",
+      "acceptance_criterion": "Validate a child result against its requested schema and report an invalid result as unresolved.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Validate a child result against its requested schema and report an invalid result as unresolved."
+    },
+    {
+      "id": "delegation.steering",
+      "family": "delegation",
+      "name": "Queue follow-ups while tasks run",
+      "acceptance_criterion": "Queue a follow-up into an active session while another session continues independently.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts"
+        ],
+        "tests": [],
+        "detail": "ActiveSessions explicitly rejects a second active run in the same session."
+      },
+      "remaining": "Implement queued follow-ups to an active session while another session continues."
+    },
+    {
+      "id": "delegation.cancellation",
+      "family": "delegation",
+      "name": "Cascading child cancellation",
+      "acceptance_criterion": "Cancel a parent task and verify that running children and grandchildren receive cancellation.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "aborting an in-flight provider cancels work and preserves attempt record"
+        ],
+        "detail": "Parent AbortSignal propagates to child, but current fixtures only prove direct run cancellation."
+      },
+      "remaining": "Exercise cancellation through a running parent, child and grandchild chain."
+    },
+    {
+      "id": "delegation.orphans",
+      "family": "delegation",
+      "name": "Preserve critical child results after parent finishes",
+      "acceptance_criterion": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery."
+    },
+    {
+      "id": "delegation.persistent-teams",
+      "family": "delegation",
+      "name": "Persistent specialist roles and team rooms",
+      "acceptance_criterion": "Create a team with specialized agents and retain their roles and shared room history after restarting.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Specialist definitions persist; there is no team or shared-room data model."
+      },
+      "remaining": "Add durable team membership/roles and shared room history with restart fixture."
+    },
+    {
+      "id": "delegation.handoff",
+      "family": "delegation",
+      "name": "Route task chains and fan-out across named teammates",
+      "acceptance_criterion": "Hand a task through a named agent chain and merge independent fan-out results under the original task.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/knowledge.ts",
+          "src/store.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Hand a task through a named agent chain and merge independent fan-out results under the original task."
+    },
+    {
+      "id": "automation.cron",
+      "family": "automation",
+      "name": "Recurring timed tasks",
+      "acceptance_criterion": "Persist a recurring schedule and execute it at the expected due time in the configured timezone.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "recurring schedules advance once, pause, and resume without catch-up duplication"
+        ],
+        "detail": "Durable interval recurrence exists; it uses UTC instants and fixed milliseconds rather than timezone-aware cron."
+      },
+      "remaining": "Add configured timezone/calendar recurrence semantics and a timezone-aware due-time fixture."
+    },
+    {
+      "id": "automation.heartbeat",
+      "family": "automation",
+      "name": "Periodic proactive checks",
+      "acceptance_criterion": "Run a periodic monitoring check and retain its state across subsequent checks.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "recurring schedules advance once, pause, and resume without catch-up duplication"
+        ],
+        "detail": "Recurring tasks create new sessions; no explicit monitor-state/check acceptance fixture."
+      },
+      "remaining": "Verify a periodic monitoring routine carries prior observation state into subsequent checks."
+    },
+    {
+      "id": "automation.events",
+      "family": "automation",
+      "name": "Event and webhook routines",
+      "acceptance_criterion": "Trigger a saved routine from an authenticated webhook or declared event with the triggering payload.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Trigger a saved routine from an authenticated webhook or declared event with the triggering payload."
+    },
+    {
+      "id": "automation.local",
+      "family": "automation",
+      "name": "Local script triggers",
+      "acceptance_criterion": "Invoke a saved automation from a local script and record the resulting run.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/scheduler.ts",
+          "src/knowledge.ts"
+        ],
+        "tests": [],
+        "detail": "CLI runs arbitrary prompts; SDK can replay saved procedures, but no complete local saved-automation invocation fixture."
+      },
+      "remaining": "Add saved-automation selection/invocation from a local script with correlated run record."
+    },
+    {
+      "id": "automation.pause",
+      "family": "automation",
+      "name": "Pause and resume with state",
+      "acceptance_criterion": "Pause a scheduled task, observe no due execution, then resume it with its prior state intact.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "public/app.js",
+          "tests/knowledge.test.mjs"
+        ],
+        "tests": [
+          "recurring schedules advance once, pause, and resume without catch-up duplication"
+        ],
+        "detail": "Pause retains data, excludes due execution and resumes without losing prior state in the local fixture."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "automation.delivery",
+      "family": "automation",
+      "name": "Route results to chosen channels",
+      "acceptance_criterion": "Deliver a completed scheduled result to the configured destination and record the destination identifier.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Deliver a completed scheduled result to the configured destination and record the destination identifier."
+    },
+    {
+      "id": "automation.history",
+      "family": "automation",
+      "name": "Inspectable run history",
+      "acceptance_criterion": "Inspect a saved schedule and distinguish successful, failed and active runs in its history.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "due schedule claims persist and prevent duplicate execution"
+        ],
+        "detail": "Schedule retains current status, last runId and runCount, not a full correlated run history."
+      },
+      "remaining": "Store per-schedule run history and distinguish all successful, failed and active runs over repeated executions."
+    },
+    {
+      "id": "automation.metrics",
+      "family": "automation",
+      "name": "Package requirements settings and dashboard metrics",
+      "acceptance_criterion": "Load a task package and expose its required tools, configurable inputs and declared runtime metrics.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Load a task package and expose its required tools, configurable inputs and declared runtime metrics."
+    },
+    {
+      "id": "automation.once",
+      "family": "automation",
+      "name": "One-time scheduled work",
+      "acceptance_criterion": "Schedule a task for one future instant and verify that it runs once without becoming recurring.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/scheduler.ts",
+          "src/store.ts",
+          "tests/knowledge.test.mjs"
+        ],
+        "tests": [
+          "due schedule claims persist and prevent duplicate execution"
+        ],
+        "detail": "Without intervalMs, atomic due-time claim executes once and leaves a terminal status; fixture concurrently ticks to check no duplicate."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "workspace.projects",
+      "family": "workspace",
+      "name": "Project files instructions repositories and presets",
+      "acceptance_criterion": "Switch projects and verify the selected files, instructions, repository and model preset.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/cli.ts"
+        ],
+        "tests": [],
+        "detail": "One workspace root/provider can be configured at startup."
+      },
+      "remaining": "Implement project switching across files, instructions, repository and model presets."
+    },
+    {
+      "id": "workspace.secrets",
+      "family": "workspace",
+      "name": "Project-scoped secrets and knowledge",
+      "acceptance_criterion": "Use a secret from the active project while rejecting access to another project's secret.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Use a secret from the active project while rejecting access to another project's secret."
+    },
+    {
+      "id": "workspace.markdown",
+      "family": "workspace",
+      "name": "Live editable Markdown artifacts",
+      "acceptance_criterion": "Edit the same Markdown artifact from user and agent surfaces and preserve both nonconflicting changes.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/files.ts"
+        ],
+        "tests": [],
+        "detail": "Agent can read/write UTF-8 Markdown bytes, but whole-file overwrite lacks shared editor or merge support."
+      },
+      "remaining": "Provide user editor and conflict-aware nonconflicting agent/user merge fixture."
+    },
+    {
+      "id": "workspace.office",
+      "family": "workspace",
+      "name": "Document spreadsheet and presentation cowork",
+      "acceptance_criterion": "Create and reopen a document, spreadsheet and presentation in the supported office integration.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Create and reopen a document, spreadsheet and presentation in the supported office integration."
+    },
+    {
+      "id": "workspace.diffs",
+      "family": "workspace",
+      "name": "Visible file diffs and artifacts",
+      "acceptance_criterion": "Show the actual before-and-after file diff and link the resulting artifact after an edit.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Show the actual before-and-after file diff and link the resulting artifact after an edit."
+    },
+    {
+      "id": "workspace.snapshots",
+      "family": "workspace",
+      "name": "Workspace snapshots and revert",
+      "acceptance_criterion": "Capture a workspace snapshot, modify a file and restore its exact previous bytes.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Capture a workspace snapshot, modify a file and restore its exact previous bytes."
+    },
+    {
+      "id": "workspace.cross-topic",
+      "family": "workspace",
+      "name": "Explicit topic context sharing",
+      "acceptance_criterion": "Attach another topic as context and record which topic was accessed for the task.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Attach another topic as context and record which topic was accessed for the task."
+    },
+    {
+      "id": "workspace.managed-files",
+      "family": "workspace",
+      "name": "Authenticated managed files with read-only sandbox mounts",
+      "acceptance_criterion": "Upload a managed file and expose it to a task through a read-only mount that rejects writes.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Upload a managed file and expose it to a task through a read-only mount that rejects writes."
+    },
+    {
+      "id": "workspace.task-board",
+      "family": "workspace",
+      "name": "Tasks assigned to agents and teams on a board",
+      "acceptance_criterion": "Create a task, assign it to an agent or team and move it through board stages with persisted state.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/files.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Create a task, assign it to an agent or team and move it through board stages with persisted state."
+    },
+    {
+      "id": "security.permissions",
+      "family": "security",
+      "name": "Approval and command policies",
+      "acceptance_criterion": "Allow an approved low-risk action and reject or request approval for actions outside the configured policy.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/runtime.ts",
+          "tests/runtime.test.mjs"
+        ],
+        "tests": [
+          "permission check occurs before tool execution",
+          "demo writes, reads, verifies, and persists a multi-step session"
+        ],
+        "detail": "Registry permits granted tools and rejects missing permissions before execution; local positive/negative fixtures cover the policy criterion."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "security.containers",
+      "family": "security",
+      "name": "Per-agent containers and mounts",
+      "acceptance_criterion": "Execute in an agent container and prove unmounted host and other-agent paths are inaccessible.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Execute in an agent container and prove unmounted host and other-agent paths are inaccessible."
+    },
+    {
+      "id": "security.os",
+      "family": "security",
+      "name": "Platform-specific OS sandboxes",
+      "acceptance_criterion": "Enforce a filesystem restriction in each declared supported OS sandbox backend.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/files.ts",
+          "tests/runtime.test.mjs"
+        ],
+        "tests": [
+          "files reject traversal, secrets, and symlink paths",
+          "hardlinks cannot expose or overwrite files outside workspace"
+        ],
+        "detail": "Application-level path guards are present; they are not OS sandbox enforcement."
+      },
+      "remaining": "Add actual supported OS sandbox backends and enforcement fixtures."
+    },
+    {
+      "id": "security.wasm",
+      "family": "security",
+      "name": "Capability-limited WASM",
+      "acceptance_criterion": "Run a WASM tool and reject a host operation absent from its capability manifest.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Run a WASM tool and reject a host operation absent from its capability manifest."
+    },
+    {
+      "id": "security.credentials",
+      "family": "security",
+      "name": "Host-side credential injection",
+      "acceptance_criterion": "Inject a credential only at the host request boundary and prove it is absent from WASM input and output.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/providers.ts",
+          "src/integrations/mcp-config.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [
+          "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
+          "MCP startup errors and metadata do not expose configured bearer values"
+        ],
+        "detail": "Provider/MCP credentials use host headers or explicitly selected process environment and MCP result redaction; no WASM."
+      },
+      "remaining": "Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output."
+    },
+    {
+      "id": "security.network",
+      "family": "security",
+      "name": "Host/path allowlists and rate limits",
+      "acceptance_criterion": "Permit an allowlisted endpoint and reject a disallowed host or path before sending a request.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/integrations/browser.ts",
+          "src/providers.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [
+          "an allowed site cannot redirect the browser to an unlisted origin"
+        ],
+        "detail": "Browser enforces exact origins and blocks redirects before forwarding; no path allowlist or universal egress policy."
+      },
+      "remaining": "Add path-specific policy and cover every outbound tool transport."
+    },
+    {
+      "id": "security.resources",
+      "family": "security",
+      "name": "CPU memory and execution limits",
+      "acceptance_criterion": "Terminate a tool that exceeds its configured CPU, memory or execution-time allowance.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/contracts.ts",
+          "src/runtime.ts",
+          "src/registry.ts",
+          "src/integrations/bounded-fetch.ts"
+        ],
+        "tests": [
+          "cancellation and exhausted shared budget stop runs",
+          "MCP HTTP byte cap rejects oversized bodies before JSON parsing"
+        ],
+        "detail": "Step/token/output budgets and cooperative abort/timeouts exist; arbitrary tool promises can ignore signals."
+      },
+      "remaining": "Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes."
+    },
+    {
+      "id": "security.secrets",
+      "family": "security",
+      "name": "Encrypted credential store and hidden prompts",
+      "acceptance_criterion": "Persist a credential encrypted at rest and enter it through a non-echoing setup flow.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/desktop/settings.ts",
+          "src/desktop/settings-ipc.ts",
+          "src/desktop/preload.cts",
+          "public/index.html",
+          "public/app.js",
+          "tests/desktop-settings.test.mjs"
+        ],
+        "tests": [
+          "desktop settings reject key reuse across destinations and unavailable encryption",
+          "native settings encrypt a key, keep IPC narrow, and connect after restart",
+          "native settings remain usable after a corrupt file or undecryptable key"
+        ],
+        "detail": "Native desktop model setup enters the API key through a masked password input and clears it on save. The main process uses Electron safeStorage encryption, persists encrypted key bytes, excludes plaintext/ciphertext from returned summaries, and rejects unavailable or insecure fallback storage. The native fixture checks absence of plaintext on disk, empty key input, restricted IPC and successful saved-key reuse after process restart.",
+        "validation_source": "Auditor independently inspected the current native credential implementation and desktop-settings fixtures in the preceding narrow review. Earlier desktop evidence and parent-reported suite validation support this native path; desktop settings were not rerun as part of the 41 retry/terminal checks.",
+        "supported_acceptance_scope": "Native desktop provider credentials with available device-protected storage. The input masks visible characters but necessarily holds plaintext during entry and IPC. This does not establish encryption for all application secrets, a terminal hidden-prompt flow, other OS backend acceptance, WASM credential confinement, or protection against a compromised desktop user session."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "security.content",
+      "family": "security",
+      "name": "Untrusted-output wrapping and detection",
+      "acceptance_criterion": "Wrap untrusted tool output with provenance and apply configured detection policy to an injection fixture.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/integrations/browser.ts"
+        ],
+        "tests": [],
+        "detail": "System prompt treats tool/memory data as untrusted, but does not implement detection/enforcement."
+      },
+      "remaining": "Add provenance envelopes and configured detection policy tested against injected instructions."
+    },
+    {
+      "id": "security.audit",
+      "family": "security",
+      "name": "Execution audit and authenticated successful-call receipts",
+      "acceptance_criterion": "Record a tool call and verify its successful-result receipt while detecting a modified result.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "authenticated API executes real demo and exposes events and usage"
+        ],
+        "detail": "Persisted tool.started/completed/failed events are unsigned and have no tamper verification."
+      },
+      "remaining": "Add verifiable successful-result receipts and detect modified results."
+    },
+    {
+      "id": "security.passkeys",
+      "family": "security",
+      "name": "Passkey authentication for the assistant service",
+      "acceptance_criterion": "Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt."
+    },
+    {
+      "id": "security.ssrf",
+      "family": "security",
+      "name": "Block internal-network request forgery",
+      "acceptance_criterion": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses."
+    },
+    {
+      "id": "security.origin",
+      "family": "security",
+      "name": "Cross-origin WebSocket admission control",
+      "acceptance_criterion": "Reject a WebSocket upgrade from an untrusted origin while allowing the configured application origin.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/server.ts",
+          "tests/server.test.mjs"
+        ],
+        "tests": [
+          "private API requires token, validates origin and host, and rejects URL token"
+        ],
+        "detail": "HTTP API validates Origin/Host; no WebSocket upgrade handling."
+      },
+      "remaining": "Implement the WebSocket surface and test rejection/acceptance of upgrade origins."
+    },
+    {
+      "id": "security.release-verification",
+      "family": "security",
+      "name": "Verify downloaded release provenance and hashes",
+      "acceptance_criterion": "Verify an official artifact's attestation and checksum and reject a tampered copy.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/desktop/updater.ts",
+          "src/desktop/updater-ipc.ts",
+          "tests/updater.test.mjs"
+        ],
+        "tests": [
+          "install downloads, verifies, unpacks beside the install and writes the hand-over script",
+          "a checksum mismatch refuses to install"
+        ],
+        "detail": "In-app updates verify the published SHA-256 and refuse a tampered archive. No signed attestation yet."
+      },
+      "remaining": "Publish and verify a signed attestation alongside the checksum."
+    },
+    {
+      "id": "security.encrypted-relay",
+      "family": "security",
+      "name": "End-to-end encrypted relay transport",
+      "acceptance_criterion": "Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext."
+    },
+    {
+      "id": "security.host-pinning",
+      "family": "security",
+      "name": "Pinned SSH host identity for remote execution",
+      "acceptance_criterion": "Execute against a recorded SSH host key and reject a connection whose host identity has changed.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Execute against a recorded SSH host key and reject a connection whose host identity has changed."
+    },
+    {
+      "id": "security.skill-scanning",
+      "family": "security",
+      "name": "Scan skills before activation",
+      "acceptance_criterion": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/files.ts",
+          "src/server.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp-config.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation."
+    },
+    {
+      "id": "interop.openai",
+      "family": "interop",
+      "name": "OpenAI-compatible API",
+      "acceptance_criterion": "Complete a compatible conversation request through the exposed OpenAI-style endpoint.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/server.ts",
+          "src/providers.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Complete a compatible conversation request through the exposed OpenAI-style endpoint."
+    },
+    {
+      "id": "interop.sdk",
+      "family": "interop",
+      "name": "Embedding SDK",
+      "acceptance_criterion": "Embed the assistant in a small client through the supported SDK and receive typed task results.",
+      "status": "implemented",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/contracts.ts",
+          "package.json",
+          "tsconfig.json",
+          "tests/runtime.test.mjs"
+        ],
+        "tests": [
+          "demo writes, reads, verifies, and persists a multi-step session"
+        ],
+        "detail": "createBranch is exported, declaration output enabled, and the fixture embeds it to receive typed Run-shaped results."
+      },
+      "remaining": ""
+    },
+    {
+      "id": "interop.streaming",
+      "family": "interop",
+      "name": "REST WebSocket and SSE",
+      "acceptance_criterion": "Observe ordered task activity through the declared REST, WebSocket and SSE surfaces.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/server.ts",
+          "src/store.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "authenticated API executes real demo and exposes events and usage"
+        ],
+        "detail": "REST returns persisted ordered events; browser polls state. No WebSocket or SSE."
+      },
+      "remaining": "Expose and verify ordered activity over REST, WebSocket and SSE."
+    },
+    {
+      "id": "interop.acp",
+      "family": "interop",
+      "name": "ACP integration",
+      "acceptance_criterion": "Complete a task through a supported ACP client or agent adapter using its documented subset.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/server.ts",
+          "src/providers.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Complete a task through a supported ACP client or agent adapter using its documented subset."
+    },
+    {
+      "id": "interop.a2a",
+      "family": "interop",
+      "name": "Agent-to-agent surface",
+      "acceptance_criterion": "Exchange a task and result with a compatible A2A peer using declared capabilities.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/server.ts",
+          "src/providers.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Exchange a task and result with a compatible A2A peer using declared capabilities."
+    },
+    {
+      "id": "interop.node-discovery",
+      "family": "interop",
+      "name": "Remote tool skill and inference discovery",
+      "acceptance_criterion": "Discover tools, skills and inference advertised by a node and identify their owning host.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/server.ts",
+          "src/providers.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Discover tools, skills and inference advertised by a node and identify their owning host."
+    },
+    {
+      "id": "interop.personal-connectors",
+      "family": "interop",
+      "name": "Personal email calendar and task account connection",
+      "acceptance_criterion": "Connect a supported account and read permitted email, calendar and task data without exposing its credentials.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/index.ts",
+          "src/server.ts",
+          "src/providers.ts",
+          "src/integrations/mcp.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Connect a supported account and read permitted email, calendar and task data without exposing its credentials."
+    },
+    {
+      "id": "operations.setup",
+      "family": "operations",
+      "name": "Guided provider and channel setup",
+      "acceptance_criterion": "Complete localhost-first onboarding and verify a configured model and channel with actual test calls.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/providers.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "CLI loads explicitly configured integrations before doctor",
+          "browser UI connects, runs demo, saves memory, and fits mobile viewport"
+        ],
+        "detail": "Local service/session-token connection and environment configuration exist; doctor explicitly reports networkProviderTested false."
+      },
+      "remaining": "Provide onboarding with actual configured model and channel test calls."
+    },
+    {
+      "id": "operations.daemon",
+      "family": "operations",
+      "name": "Background gateway and foreground modes",
+      "acceptance_criterion": "Start the background service, close the launcher and verify continued task handling before a controlled stop.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Foreground HTTP server persists while process stays alive and handles SIGINT/SIGTERM."
+      },
+      "remaining": "Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop."
+    },
+    {
+      "id": "operations.portable",
+      "family": "operations",
+      "name": "Single-binary constrained deployment",
+      "acceptance_criterion": "Launch a packaged binary on a declared supported target and report measured gateway resource usage.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Launch a packaged binary on a declared supported target and report measured gateway resource usage."
+    },
+    {
+      "id": "operations.hibernation",
+      "family": "operations",
+      "name": "Serverless idle suspension",
+      "acceptance_criterion": "Suspend the configured serverless environment and resume an operation with its persisted workspace intact.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Suspend the configured serverless environment and resume an operation with its persisted workspace intact."
+    },
+    {
+      "id": "operations.health",
+      "family": "operations",
+      "name": "Status diagnostics and recovery",
+      "acceptance_criterion": "Report service and adapter health and identify a deliberately broken prerequisite with an actionable diagnostic.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/integrations/bootstrap.ts",
+          "src/providers.ts"
+        ],
+        "tests": [
+          "CLI loads explicitly configured integrations before doctor",
+          "real provider configuration is explicit and has no credential fallback"
+        ],
+        "detail": "Doctor opens SQLite and reports configuration; integration startup errors provide some diagnostics, no comprehensive liveness tests."
+      },
+      "remaining": "Probe configured provider/adapters and identify a deliberately broken prerequisite with actionable health state."
+    },
+    {
+      "id": "operations.migration",
+      "family": "operations",
+      "name": "Import configuration skills memories and sessions",
+      "acceptance_criterion": "Preview and import supported configuration, memory and skills while preserving original source state.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Preview and import supported configuration, memory and skills while preserving original source state."
+    },
+    {
+      "id": "operations.distribution",
+      "family": "operations",
+      "name": "Preconfigured branded desktop distribution",
+      "acceptance_criterion": "Build a distribution with selected branding, providers and extensions and verify those defaults on first launch.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Build a distribution with selected branding, providers and extensions and verify those defaults on first launch."
+    },
+    {
+      "id": "operations.backup-restore",
+      "family": "operations",
+      "name": "Full application backup and restore",
+      "acceptance_criterion": "Back up configured application state and restore it into a clean instance with sessions and configuration intact.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Back up configured application state and restore it into a clean instance with sessions and configuration intact."
+    },
+    {
+      "id": "operations.sandbox-lifecycle",
+      "family": "operations",
+      "name": "Manage reproducible agent sandbox lifecycle",
+      "acceptance_criterion": "Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/cli.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "package.json"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies."
+    },
+    {
+      "id": "packages.research",
+      "family": "packages",
+      "name": "Cited multi-source reports",
+      "acceptance_criterion": "Produce a multi-source report whose cited links support the associated factual claims.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Produce a multi-source report whose cited links support the associated factual claims."
+    },
+    {
+      "id": "packages.monitoring",
+      "family": "packages",
+      "name": "Change monitoring and knowledge graphs",
+      "acceptance_criterion": "Detect a seeded source change and retain the prior observation and resulting alert evidence.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Detect a seeded source change and retain the prior observation and resulting alert evidence."
+    },
+    {
+      "id": "packages.leads",
+      "family": "packages",
+      "name": "Prospect discovery enrichment scoring and deduplication",
+      "acceptance_criterion": "Enrich and score a fixture prospect set and exclude duplicates in the exported results.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Enrich and score a fixture prospect set and exclude duplicates in the exported results."
+    },
+    {
+      "id": "packages.forecasting",
+      "family": "packages",
+      "name": "Forecasts and calibration",
+      "acceptance_criterion": "Store probabilistic forecasts and calculate a calibration score after recording outcomes.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Store probabilistic forecasts and calculate a calibration score after recording outcomes."
+    },
+    {
+      "id": "packages.clips",
+      "family": "packages",
+      "name": "Video clipping captions and thumbnails",
+      "acceptance_criterion": "Generate a playable short clip with captions and a thumbnail from a valid input video.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate a playable short clip with captions and a thumbnail from a valid input video."
+    },
+    {
+      "id": "packages.social",
+      "family": "packages",
+      "name": "Content scheduling approval and metrics",
+      "acceptance_criterion": "Prepare and schedule a social post while retaining it in the approval queue until authorized.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Prepare and schedule a social post while retaining it in the approval queue until authorized."
+    },
+    {
+      "id": "packages.browser",
+      "family": "packages",
+      "name": "Multistep browser workflows",
+      "acceptance_criterion": "Complete a multistep form fixture and pause before any action requiring the configured approval.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/integrations/browser.ts",
+          "src/registry.ts",
+          "tests/browser.test.mjs"
+        ],
+        "tests": [
+          "isolated browser completes form workflow and refuses destinations outside configured origins"
+        ],
+        "detail": "Fixture fills/clicks a single form and tool permissions can reject interaction; no pending approval workflow."
+      },
+      "remaining": "Add multi-step form acceptance and an explicit approval-pause/resume flow before protected actions."
+    },
+    {
+      "id": "packages.trajectories",
+      "family": "packages",
+      "name": "Trajectory generation and compression",
+      "acceptance_criterion": "Generate a batch of tool trajectories and export a compressed representation preserving task and outcome links.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate a batch of tool trajectories and export a compressed representation preserving task and outcome links."
+    },
+    {
+      "id": "packages.morning-brief",
+      "family": "packages",
+      "name": "Spoken daily briefing from personal sources",
+      "acceptance_criterion": "Generate and play a dated briefing from configured email, calendar, health and news fixtures with source links.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/index.ts",
+          "src/knowledge.ts",
+          "src/scheduler.ts"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Generate and play a dated briefing from configured email, calendar, health and news fixtures with source links."
+    },
+    {
+      "id": "reliability.activity",
+      "family": "reliability",
+      "name": "Streaming tool activity",
+      "acceptance_criterion": "Stream actual tool progress to the client and finish with the tool's real status.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "authenticated API executes real demo and exposes events and usage"
+        ],
+        "detail": "Tools produce durable start/completion/failure records; UI polls run state and trace is inspected on demand."
+      },
+      "remaining": "Stream actual in-progress tool activity to clients with terminal tool status."
+    },
+    {
+      "id": "reliability.context",
+      "family": "reliability",
+      "name": "Context tokens and cache metrics",
+      "acceptance_criterion": "Display reported token and cache-use metrics per round without inventing unavailable values.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "public/app.js"
+        ],
+        "tests": [
+          "failed and cancelled provider attempts retain estimated cost and unknown usage",
+          "invalid completion retains available reported usage"
+        ],
+        "detail": "Estimated/reported input/output and unknown-call accounting exist; UI shows run aggregates, no cache usage."
+      },
+      "remaining": "Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable."
+    },
+    {
+      "id": "reliability.compaction",
+      "family": "reliability",
+      "name": "Visible compaction events",
+      "acceptance_criterion": "Emit a visible compaction event with task continuity preserved after context reduction.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/contracts.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Emit a visible compaction event with task continuity preserved after context reduction."
+    },
+    {
+      "id": "reliability.checks",
+      "family": "reliability",
+      "name": "Success checks and bounded retry handlers",
+      "acceptance_criterion": "Fail an unsuccessful completion check and retry only within the configured attempt bound.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts"
+        ],
+        "tests": [
+          "procedure with wrong expected output is never verified",
+          "specialists require evidence to promote and delegation cannot escalate"
+        ],
+        "detail": "Procedure/specialist file checks reject mismatches; generic runtime completes on model text even after tool failure, and does not retry checks."
+      },
+      "remaining": "Enforce declared completion checks for general runs and bounded retries after failure."
+    },
+    {
+      "id": "reliability.stuck",
+      "family": "reliability",
+      "name": "Stuck-operation recovery",
+      "acceptance_criterion": "Detect a deliberately stalled operation and perform the configured recovery with a recorded outcome.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/contracts.ts"
+        ],
+        "tests": [],
+        "detail": "Abort timeouts and failed/cancelled events exist; no stuck detector/recovery policy."
+      },
+      "remaining": "Detect a stalled operation and implement/test the configured recovery with recorded outcome."
+    },
+    {
+      "id": "reliability.overflow",
+      "family": "reliability",
+      "name": "Context-limit and truncation recovery",
+      "acceptance_criterion": "Recover from injected context-overflow and truncated-output errors within bounded retries.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/contracts.ts"
+        ],
+        "tests": [],
+        "detail": "Runtime rejects estimated contexts above 16,000 tokens; no compaction or recovery retries."
+      },
+      "remaining": "Implement bounded recovery for context overflow and truncated output."
+    },
+    {
+      "id": "reliability.proof",
+      "family": "reliability",
+      "name": "Differentiate successful receipts from failed and blocked audit events",
+      "acceptance_criterion": "Distinguish receipt-bearing successful calls from blocked or failed audit events and reject a forged receipt.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts"
+        ],
+        "tests": [
+          "demo writes, reads, verifies, and persists a multi-step session",
+          "malformed arguments produce a recorded tool error without side effects"
+        ],
+        "detail": "Success/failure audit events are distinct, but there are no cryptographic receipts."
+      },
+      "remaining": "Add receipt-bearing successes and forged-receipt rejection."
+    },
+    {
+      "id": "reliability.checkpoints",
+      "family": "reliability",
+      "name": "Resume work from provider-neutral safe checkpoints",
+      "acceptance_criterion": "Interrupt after a persisted completed tool result, restart and continue without replaying that completed effect.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/runtime.ts"
+        ],
+        "tests": [
+          "startup marks previously running work interrupted without replay"
+        ],
+        "detail": "Restart marks running tasks interrupted and preserves history; does not resume an interrupted workflow."
+      },
+      "remaining": "Add durable execution cursor and continue after restart without replaying already-completed effects."
+    },
+    {
+      "id": "reliability.uncertain-effects",
+      "family": "reliability",
+      "name": "Reconcile interrupted writes before retry",
+      "acceptance_criterion": "Interrupt a write with unknown outcome and require external-state reconciliation before any automatic repeat.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/runtime.ts"
+        ],
+        "tests": [
+          "startup marks previously running work interrupted without replay"
+        ],
+        "detail": "Startup avoids automatic replay but lacks uncertain-effect ledger/reconciliation enforcement."
+      },
+      "remaining": "Classify unknown-outcome writes and require recorded external-state reconciliation before an allowed repeat."
+    },
+    {
+      "id": "reliability.delivery-ledger",
+      "family": "reliability",
+      "name": "Durable ordered outbound delivery independent of task completion",
+      "acceptance_criterion": "Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/contracts.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect."
+    },
+    {
+      "id": "reliability.dead-letter",
+      "family": "reliability",
+      "name": "Transactional queue retries and dead-letter inspection",
+      "acceptance_criterion": "Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/contracts.ts",
+          "experiments/accounting.py"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry."
+    },
+    {
+      "id": "reliability.completion-contract",
+      "family": "reliability",
+      "name": "Runtime-verified task exit criteria",
+      "acceptance_criterion": "Evaluate declared task exit criteria and report failed evidence rather than accepting a child's self-reported completion.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/knowledge.ts",
+          "src/runtime.ts"
+        ],
+        "tests": [
+          "specialists require evidence to promote and delegation cannot escalate",
+          "procedure with wrong expected output is never verified"
+        ],
+        "detail": "Specialist evaluation checks real files; subsequent delegate execution itself can complete without evaluating those exit checks."
+      },
+      "remaining": "Apply declared exit criteria to each delegated task outcome and report failed evidence to parent."
+    },
+    {
+      "id": "reliability.evaluation",
+      "family": "reliability",
+      "name": "Measure task accuracy energy latency and cost",
+      "acceptance_criterion": "Run a fixed evaluation suite and report observed accuracy, latency, cost and supported energy metrics with unavailable values marked.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "experiments/accounting.py",
+          "experiments/test_accounting.py",
+          "src/knowledge.ts"
+        ],
+        "tests": [
+          "AccountingTests.test_missing_prices_are_not_zero_dollars",
+          "AccountingTests.test_synthetic_savings_are_not_live_claims",
+          "AccountingTests.test_reject_unpaired_tasks_and_training_leakage"
+        ],
+        "detail": "Accounting summarizes supplied ledgers and specialist checks evaluate files; no integrated suite runner or energy metric."
+      },
+      "remaining": "Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs."
+    },
+    {
+      "id": "reliability.tracing",
+      "family": "reliability",
+      "name": "Export task traces and service metrics",
+      "acceptance_criterion": "Export a correlated task trace and service metric to configured observability endpoints.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts"
+        ],
+        "tests": [],
+        "detail": "Local events are correlated by runId and parentRunId, available as JSON through the API."
+      },
+      "remaining": "Add trace/metric export to configured observability endpoints."
+    },
+    {
+      "id": "reliability.capability-inventory",
+      "family": "reliability",
+      "name": "Live inventory of tools and configuration readiness",
+      "acceptance_criterion": "List currently available tools with actual configuration readiness and update the list after disabling an adapter.",
+      "status": "partial",
+      "evidence": {
+        "paths": [
+          "src/registry.ts",
+          "src/integrations/bootstrap.ts",
+          "src/server.ts",
+          "src/cli.ts"
+        ],
+        "tests": [
+          "CLI loads explicitly configured integrations before doctor",
+          "MCP version changes and absent allowlisted tools fail before registration"
+        ],
+        "detail": "State lists registered tool descriptions; registration gates MCP startup but no live health/disable lifecycle."
+      },
+      "remaining": "Report actual configuration/readiness and update inventory when an adapter is disabled."
+    },
+    {
+      "id": "collaboration.signed-events",
+      "family": "collaboration",
+      "name": "Identity-signed shared collaboration events",
+      "acceptance_criterion": "Publish a collaboration event under a member identity and reject a modified event whose signature no longer verifies.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Publish a collaboration event under a member identity and reject a modified event whose signature no longer verifies."
+    },
+    {
+      "id": "collaboration.rooms",
+      "family": "collaboration",
+      "name": "Persistent shared rooms for people and agents",
+      "acceptance_criterion": "Add human and agent members to a private room and enforce membership on its history and artifacts.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Add human and agent members to a private room and enforce membership on its history and artifacts."
+    },
+    {
+      "id": "collaboration.unified-search",
+      "family": "collaboration",
+      "name": "Unified search over conversations workflow events and patches",
+      "acceptance_criterion": "Search one query across conversation, workflow and repository events and return source-linked results.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Search one query across conversation, workflow and repository events and return source-linked results."
+    },
+    {
+      "id": "collaboration.media-comments",
+      "family": "collaboration",
+      "name": "Comments anchored to a media frame",
+      "acceptance_criterion": "Attach a comment to a video timestamp and reopen the comment at the same media position.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Attach a comment to a video timestamp and reopen the comment at the same media position."
+    },
+    {
+      "id": "collaboration.git-events",
+      "family": "collaboration",
+      "name": "Repository changes represented as shared events",
+      "acceptance_criterion": "Publish a patch and its repository status as searchable signed events linked to the correct repository.",
+      "status": "missing",
+      "evidence": {
+        "paths": [
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js"
+        ],
+        "tests": [],
+        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+      },
+      "remaining": "Publish a patch and its repository status as searchable signed events linked to the correct repository."
+    }
+  ]
+}

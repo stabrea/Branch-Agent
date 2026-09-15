@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Branch Agent — Your personal assistant</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> KeepOak</span
+      ><span class="topbar-caption">Your personal assistant</span
+      ><button id="appearance-shortcut" class="text-button">
+        ◐ Appearance
+      </button>
+    </div>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Branch Agent home"
+        ><span class="brand-icon"><img src="/assets/keepoak-mark.png" alt="KeepOak logo" /></span> Branch Agent</a
+      >
+      <p class="tagline">
+        PERSONAL ASSISTANT<br />Good work, with room to grow.
+      </p>
+      <p class="nav-label">Your workspace</p>
+      <nav aria-label="Main navigation">
+        <button class="nav active" data-view="chat">Conversation</button
+        ><button class="nav" data-view="runs">Activity</button
+        ><button class="nav" data-view="memory">Memory</button
+        ><button class="nav" data-view="skills">Skills</button
+        ><button class="nav" data-view="specialists">Specialists</button
+        ><button class="nav" data-view="procedures">Procedures</button
+        ><button class="nav" data-view="schedules">Schedules</button
+        ><button class="nav" data-view="settings">Settings</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> Local workspace
+        <p id="provider">Connect to begin</p>
+        <button id="lock" class="text-button" hidden>Lock session</button>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">YOUR WORKSPACE</span>
+          <h1 id="page-title">Conversation</h1>
+        </div>
+        <span class="status-pill" id="connection">Locked</span>
+      </header>
+      <section id="login" class="card login">
+        <span class="eyebrow">// WELCOME TO BRANCH AGENT</span>
+        <h2>Make room for your next idea.</h2>
+        <p>
+          Paste the local session token printed by <code>npm start</code> to
+          connect this browser to your assistant.
+        </p>
+        <form id="login-form">
+          <label for="token">Session token</label>
+          <div class="input-row">
+            <input
+              id="token"
+              type="password"
+              autocomplete="off"
+              required
+              placeholder="Your local session token"
+            /><button>Connect</button>
+          </div>
+        </form>
+        <p class="subtle">
+          Your token stays in this tab’s session storage. Branch Agent listens only on
+          this computer.
+        </p>
+      </section>
+      <div id="workspace" hidden>
+        <section id="chat" class="view">
+          <details id="saved-conversations" class="card saved-conversations">
+            <summary>Saved conversations</summary>
+            <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
+            <form id="saved-search-form" class="saved-search">
+              <label for="saved-query">Find a saved conversation</label>
+              <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
+              <button id="saved-search">Search saved conversations</button>
+            </form>
+            <button id="import-conversation" type="button" class="text-button conversation-switch">Import conversation JSON</button>
+            <input id="conversation-import" type="file" accept="application/json,.json" hidden />
+            <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
+            <div id="saved-list" class="card-list" aria-live="polite"></div>
+            <button id="saved-more" type="button" class="text-button" hidden>Load more conversations</button>
+          </details>
+          <div id="demo-notice" class="notice" hidden>
+            <strong>No model connected yet</strong
+            ><span
+              >Branch is running a small offline demonstration that can only
+              write, read and check one greeting file. Open Settings and
+              connect a model to get real help.</span
+            >
+          </div>
+          <div id="session-context" class="session-context" hidden></div>
+          <div id="conversation" aria-live="polite">
+            <div class="welcome">
+              <span class="eyebrow">// A LITTLE HELP, A LITTLE HEADWAY</span>
+              <h2>Give your next<br />idea a place to grow.</h2>
+              <p>
+                Plan a task, save something worth remembering,<br />or let your
+                assistant help with workspace files.
+              </p>
+              <button id="demo-prompt" class="secondary">
+                Try the file workflow ↗
+              </button>
+            </div>
+          </div>
+          <div id="model-controls" class="model-controls" hidden>
+            <label for="session-model">Model for this conversation</label>
+            <select id="session-model"></select>
+            <label for="session-reasoning">Thinking</label>
+            <select id="session-reasoning">
+              <option value="">Workspace default</option>
+              <option value="low">Quick</option>
+              <option value="medium">Balanced</option>
+              <option value="high">Thorough</option>
+            </select>
+            <span id="model-used" class="meta"></span>
+          </div>
+          <form id="chat-form" class="composer">
+            <label class="sr-only" for="prompt">Your message</label
+            ><textarea
+              id="prompt"
+              required
+              maxlength="16000"
+              placeholder="Describe what you want to do…"
+              rows="3"
+            ></textarea>
+            <div>
+              <span id="session-label"
+                >New conversation · tools leave a record</span
+              ><button id="new-session" type="button" class="text-button">
+                New conversation</button
+              ><button id="send">Send ↗</button>
+            </div>
+          </form>
+        </section>
+        <section id="runs" class="view" hidden>
+          <p class="section-intro">
+            Every run has a trace. Inspect tool results, failures, and usage
+            estimates.
+          </p>
+          <div id="runs-list" class="card-list"></div>
+          <article id="run-detail" class="card" hidden></article>
+        </section>
+        <section id="memory" class="view" hidden>
+          <form id="history-search-form" class="card form-grid">
+            <div><label for="history-query">Search past conversations</label>
+              <input id="history-query" required maxlength="500" placeholder="Project name or a few keywords" />
+            </div>
+            <div><label for="history-match">Match keywords</label>
+              <select id="history-match"><option value="all">All keywords</option><option value="any">Any keyword</option></select>
+            </div>
+            <button>Search conversations</button>
+          </form>
+          <div id="history-results" class="card-list" role="region" aria-live="polite" aria-label="Conversation search results"></div>
+          <article id="history-message" class="card" hidden></article>
+          <p class="section-intro">
+            Notes your assistant can retrieve. Every note carries its source and
+            time.
+          </p>
+          <form id="memory-form" class="card">
+            <label for="memory-text">Remember something</label
+            ><textarea
+              id="memory-text"
+              maxlength="4000"
+              required
+              placeholder="I prefer short, actionable summaries."
+            ></textarea
+            ><label for="memory-source">Source</label
+            ><input
+              id="memory-source"
+              maxlength="500"
+              value="Saved by workspace owner"
+              required
+            /><button>Save memory</button>
+          </form>
+          <div class="card">
+            <p id="memory-count" role="status"></p>
+            <form id="memory-capacity-form" class="form-grid">
+              <div><label for="memory-capacity">Maximum saved facts</label>
+                <input id="memory-capacity" type="number" min="1" max="500" required /></div>
+              <button>Update memory limit</button>
+            </form>
+            <div id="memory-transfer" class="message-actions"></div>
+            <input id="memory-import" type="file" accept="application/json,.json" hidden />
+            <p>Imports merge saved facts. Identical facts are skipped; conflicting IDs reject the entire import. Review imported facts before using them.</p>
+            <p id="memory-import-result" role="status"></p>
+          </div>
+          <div id="memory-list" class="card-list"></div>
+        </section>
+        <section id="specialists" class="view" hidden>
+          <p class="section-intro">
+            Focused assistants with limited permissions. A candidate must pass
+            its explicit file checks before you activate it.
+          </p>
+          <details class="card">
+            <summary>Propose a specialist</summary>
+            <form id="specialist-form">
+              <label for="specialist-json">Definition (JSON)</label
+              ><textarea
+                id="specialist-json"
+                class="code-input"
+                rows="12"
+                spellcheck="false"
+              ></textarea
+              ><button>Save candidate</button>
+            </form>
+          </details>
+          <div id="specialists-list" class="card-list"></div>
+        </section>
+        <section id="procedures" class="view" hidden>
+          <p class="section-intro">
+            Reusable tool recipes with exact expected results. Verification
+            executes the recipe; replay checks its preconditions again.
+          </p>
+          <details class="card">
+            <summary>Propose a procedure</summary>
+            <form id="procedure-form">
+              <label for="procedure-json">Definition (JSON)</label
+              ><textarea
+                id="procedure-json"
+                class="code-input"
+                rows="12"
+                spellcheck="false"
+              ></textarea
+              ><button>Save proposal</button>
+            </form>
+          </details>
+          <div id="procedures-list" class="card-list"></div>
+        </section>
+        <section id="schedules" class="view" hidden>
+          <p class="section-intro">
+            Tasks and reminders, once or on a repeat interval. Branch Agent must be
+            running to execute them. Missed periods become one run on the next
+            poll; failed or interrupted work does not retry automatically.
+          </p>
+          <form id="schedule-form" class="card form-grid">
+            <div>
+              <label for="schedule-repeat">Repeat</label
+              ><select id="schedule-repeat">
+                <option value="0">Once</option>
+                <option value="3600000">Every hour</option>
+                <option value="86400000">Every 24 hours</option>
+                <option value="604800000">Every 7 days</option>
+              </select>
+            </div>
+            <div>
+              <label for="schedule-prompt">Task or reminder</label
+              ><input
+                id="schedule-prompt"
+                required
+                maxlength="8000"
+                placeholder="Review this week’s notes"
+              />
+            </div>
+            <div>
+              <label for="schedule-time">Due (your local time)</label
+              ><input id="schedule-time" type="datetime-local" required />
+            </div>
+            <div>
+              <label for="schedule-kind">Action</label
+              ><select id="schedule-kind">
+                <option value="reminder">Reminder in Activity</option>
+                <option value="task">Run assistant task</option>
+              </select>
+            </div>
+            <button>Schedule</button>
+          </form>
+          <div id="schedules-list" class="card-list"></div>
+        </section>
+        <section id="skills" class="view" hidden>
+          <p class="section-intro">Install a single SKILL.md file. Bundled scripts and assets are not imported. Skills do not grant tool permissions; allowed-tools metadata is informational.</p>
+          <p>Enabled skills share their names and descriptions with the assistant. The assistant reads a selected skill's instructions when needed.</p>
+          <div id="skills-list" class="card-list"></div>
+          <form id="skill-form" class="card">
+            <h2 id="skill-editor-title">Install a skill</h2>
+            <p>Saving an edit creates a new version and keeps the currently active version. Choose a version and activate it when ready.</p>
+            <div class="skill-actions">
+              <button id="skill-new" type="button">New skill</button>
+              <button id="skill-import-button" type="button">Import SKILL.md into editor</button>
+              <button id="skill-reload" type="button" hidden>Reload saved skill</button>
+            </div>
+            <input id="skill-import" type="file" accept=".md,text/markdown,text/plain" hidden />
+            <label for="skill-document">SKILL.md document</label>
+            <textarea id="skill-document" rows="15" maxlength="16000" required spellcheck="false"></textarea>
+            <button id="skill-save">Install skill</button>
+            <div id="skill-version-controls" hidden>
+              <label for="skill-version">Retained version</label>
+              <select id="skill-version"></select>
+              <div class="skill-actions">
+                <button id="skill-read" type="button">Load version into editor</button>
+                <button id="skill-activate" type="button">Activate selected version</button>
+                <button id="skill-disable" type="button">Disable skill</button>
+                <button id="skill-remove" type="button">Remove skill and all versions</button>
+              </div>
+            </div>
+            <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
+            <p id="skill-status" role="status"></p>
+          </form>
+        </section>
+        <section id="settings" class="view" hidden>
+          <p class="section-intro">Make this workspace feel like yours.</p>
+          <form id="identity-form" class="card">
+            <h2>Assistant identity</h2>
+            <p>Changes apply to the next task, including the next message in an existing conversation. Tasks already running keep their current instructions.</p>
+            <fieldset id="identity-fields">
+              <label for="identity-name">Assistant name</label>
+              <input id="identity-name" maxlength="80" required />
+              <label for="identity-instructions">Working instructions</label>
+              <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work."></textarea>
+              <div class="identity-actions">
+                <button id="identity-save">Save identity</button>
+                <button id="identity-reload" type="button">Reload saved identity</button>
+              </div>
+            </fieldset>
+            <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
+            <p id="identity-status" role="status"></p>
+          </form>
+          <form id="settings-form" class="card">
+            <label for="appearance">Appearance</label>
+            <select id="appearance">
+              <option value="forest">Forest</option>
+              <option value="daylight">Daylight</option>
+            </select>
+            <p class="subtle">Saved on this device for your next visit.</p>
+            <button>Save appearance</button>
+          </form>
+          <section id="chatgpt-card" class="card">
+            <h2>ChatGPT account</h2>
+            <p>Use the models that come with your ChatGPT plan. You sign in on OpenAI's website with a short code; Branch never sees your password and keeps the sign-in protected on this device.</p>
+            <p id="chatgpt-status" role="status">Checking…</p>
+            <div id="chatgpt-code-block" hidden>
+              <p class="subtle">Enter this code on the sign-in page</p>
+              <p id="chatgpt-code" class="code-display" aria-live="polite"></p>
+              <div class="identity-actions">
+                <a id="chatgpt-open" class="button-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer">Open the sign-in page ↗</a>
+                <button id="chatgpt-copy" type="button">Copy code</button>
+              </div>
+              <p class="subtle">Waiting for you to finish in the browser. This page updates by itself.</p>
+            </div>
+            <div class="identity-actions">
+              <button id="chatgpt-login" type="button">Sign in with ChatGPT</button>
+              <button id="chatgpt-logout" type="button" hidden>Sign out</button>
+            </div>
+            <p class="subtle">Access through a ChatGPT plan is provided by OpenAI for its own tools and may change. Branch identifies itself as Branch Agent and never pretends to be another app.</p>
+          </section>
+          <section id="updates-card" class="card" hidden>
+            <h2>Updates</h2>
+            <p id="updates-version" class="subtle"></p>
+            <p id="updates-status" role="status"></p>
+            <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
+            <div class="identity-actions">
+              <button id="updates-check" type="button">Check for updates</button>
+              <button id="updates-install" type="button" hidden>Update and restart</button>
+            </div>
+            <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
+          </section>
+          <form id="models-form" class="card">
+            <h2>Models</h2>
+            <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>
+            <label for="models-active">Default model</label>
+            <select id="models-active"></select>
+            <label for="models-reasoning">Default thinking</label>
+            <select id="models-reasoning">
+              <option value="">Model's own default</option>
+              <option value="low">Quick</option>
+              <option value="medium">Balanced</option>
+              <option value="high">Thorough</option>
+            </select>
+            <p class="subtle">If the default fails, try these in order</p>
+            <div id="models-fallback" class="check-list"></div>
+            <label for="models-cooldown">Rest a failed model for (seconds)</label>
+            <input id="models-cooldown" type="number" min="0" max="3600" step="1" />
+            <p id="models-note" class="subtle"></p>
+            <button>Save model settings</button>
+          </form>
+          <form id="model-settings-form" class="card" hidden>
+            <h2>Model connection</h2>
+            <p id="model-settings-note" class="subtle"></p>
+            <fieldset id="model-settings-fields">
+              <label for="model-provider">Provider</label>
+              <select id="model-provider">
+                <option value="demo">Offline demonstration</option>
+                <option value="openai">OpenAI compatible</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+              <div id="model-connection-fields" hidden>
+                <label for="model-endpoint">API base URL</label>
+                <input id="model-endpoint" type="url" maxlength="2048"
+                  placeholder="https://api.openai.com/v1" />
+                <label for="model-name">Model identifier</label>
+                <input id="model-name" maxlength="256" autocomplete="off" />
+                <label for="model-key">API key</label>
+                <input id="model-key" type="password" maxlength="8192"
+                  autocomplete="new-password" spellcheck="false" />
+                <p id="model-key-note" class="subtle"></p>
+              </div>
+              <button>Save model connection</button>
+            </fieldset>
+          </form>
+        </section>
+      </div>
+      <div id="toast" role="status" aria-live="polite" hidden></div>
+    </main>
+    <aside class="context-panel" aria-label="Assistant overview">
+      <span class="eyebrow">// YOUR ASSISTANT</span>
+      <h2>One place.<br />Many possibilities.</h2>
+      <p>Bring your tasks, notes, and useful routines together.</p>
+      <div class="context-provider" id="context-provider">Connect to begin</div>
+      <dl class="context-stats">
+        <div>
+          <dt>Active tasks</dt>
+          <dd id="context-runs">—</dd>
+        </div>
+        <div>
+          <dt>Saved memories</dt>
+          <dd id="context-memory">—</dd>
+        </div>
+        <div>
+          <dt>Available tools</dt>
+          <dd id="context-tools">—</dd>
+        </div>
+      </dl>
+      <div class="acorn-art">
+        <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
+          aria-label="KeepOak acorn. Drag or use arrow keys to turn it." aria-describedby="acorn-hint"></canvas>
+        <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
+        <button id="acorn-motion" class="acorn-motion" type="button">Pause rotation</button>
+      </div>
+      <p class="context-footer">SMALL STEPS. USEFUL PROGRESS.</p>
+    </aside>
+    <script src="/app.js" type="module"></script>
+    <script src="/acorn.js" type="module"></script>
+  </body>
+</html>

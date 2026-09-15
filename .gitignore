@@ -18,3 +18,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local assistant state and user-created task files
+.branch/
+workspace/
+public/fonts/
+public/assets/keepoak.ico
+release/
