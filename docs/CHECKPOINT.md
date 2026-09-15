@@ -9,7 +9,14 @@ from **Settings → Updates**. Do not merge or release every batch.
 - Worktree: `C:/Users/bishi/Documents/Codex/Branch-build`, branch `feat/assistant-runtime`.
 - Remote: `https://github.com/stabrea/Branch-Agent.git`; PR #1 targets `main`.
 - Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.2.0 (main merge b508f57; live updater check verified from 0.1.0 → available and 0.2.0 → current).
-- Version `0.2.0`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
+- 0.2.1 (fix): the ChatGPT backend rejects `max_output_tokens`, answers without a content-type
+  header and sends `usage: null` in early events. Fixed and verified against the owner's real
+  sign-in (streamed reply + real tool call). Provider error text is deliberately never persisted
+  (see `tests/provider-retry.test.mjs`); do not add it to messages or events.
+- The owner's app now runs from `C:/Users/bishi/AppData/Local/Programs/Branch Agent/` (copied
+  from `release/`), so `npm run package:desktop` no longer fights the running executable. The
+  in-app updater mirrors new releases into that folder.
+- Version `0.2.1`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
