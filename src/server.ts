@@ -11,6 +11,7 @@ import { z } from "zod";
 import { RunInputSchema, errorText } from "./contracts.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { maximumArchiveBytes } from "./session-library.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -35,20 +36,20 @@ function send(response: ServerResponse, status: number, value: unknown): void {
   });
   response.end(JSON.stringify(value));
 }
-async function readBody(request: IncomingMessage): Promise<unknown> {
+async function readBody(request: IncomingMessage, maximumBytes = 65536): Promise<unknown> {
   if (!request.headers["content-type"]?.startsWith("application/json"))
     throw new HttpError(415, "Use application/json");
-  if (Number(request.headers["content-length"] ?? 0) > 65536)
-    throw new HttpError(413, "Request exceeds 64 KiB");
-  let body = "";
+  const tooLarge = () => new HttpError(413, `Request exceeds ${maximumBytes / 1024} KiB`);
+  if (Number(request.headers["content-length"] ?? 0) > maximumBytes) throw tooLarge();
+  const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of request) {
     bytes += Buffer.byteLength(chunk);
-    if (bytes > 65536) throw new HttpError(413, "Request exceeds 64 KiB");
-    body += String(chunk);
+    if (bytes > maximumBytes) throw tooLarge();
+    chunks.push(Buffer.from(chunk));
   }
   try {
-    return JSON.parse(body) as unknown;
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as unknown;
   } catch {
     throw new HttpError(400, "Invalid JSON");
   }
@@ -137,9 +138,7 @@ async function api(
   path: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
-  const session = /^\/api\/sessions\/([a-f0-9-]{36})$/.exec(path);
-  if (request.method === "GET" && session)
-    return app.store.sessionView(app.runtime.owner, session[1]!);
+  if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -170,6 +169,22 @@ async function api(
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
     return app.runtime.executeTool(action.tool, action.args);
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "POST" && path === "/api/sessions/search")
+    return app.store.searchSessions(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/sessions/import")
+    return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate))?$/.exec(path);
+  if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
+  if (match && request.method === "GET" && match[2] === "export")
+    return app.store.exportSession(owner, match[1]!);
+  if (match && request.method === "POST" && match[2] === "duplicate") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.store.duplicateSession(owner, match[1]!);
   }
   throw new HttpError(404, "Endpoint not found");
 }
@@ -227,7 +242,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && ["/api/run", "/api/action"].includes(path)
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || path.startsWith("/api/sessions/"))
   );
 }
 function configureLimits(server: Server): void {

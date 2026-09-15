@@ -4,6 +4,7 @@ import type { Event, Message, Run, RunStatus } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
 import { SessionBranches } from "./sessions.js";
+import { SessionLibrary } from "./session-library.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -18,6 +19,7 @@ export class Store {
   private readonly db: DatabaseSync;
   private readonly history: SessionHistory;
   private readonly branches: SessionBranches;
+  private readonly library: SessionLibrary;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -46,6 +48,7 @@ export class Store {
     this.migrateUsage();
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
+    this.library = new SessionLibrary(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
   }
@@ -76,7 +79,19 @@ export class Store {
     return this.branches.branch(owner, input);
   }
   sessionView(owner: string, sessionId: string) {
-    return this.branches.view(owner, sessionId);
+    return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId) };
+  }
+  searchSessions(owner: string, input: unknown) {
+    return this.library.search(owner, input);
+  }
+  exportSession(owner: string, sessionId: string) {
+    return this.library.export(owner, sessionId);
+  }
+  importSession(owner: string, input: unknown) {
+    return this.library.import(owner, input);
+  }
+  duplicateSession(owner: string, sessionId: string) {
+    return this.library.duplicate(owner, sessionId);
   }
   createRun(owner: string, prompt: string, sessionId?: string): Run {
     const now = new Date().toISOString();
