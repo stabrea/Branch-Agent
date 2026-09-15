@@ -166,10 +166,11 @@ export class Store {
     estimatedInput: number,
     estimatedOutput: number,
     reported?: { input: number; output: number },
+    completed = true,
   ): void {
     this.db
       .prepare(
-        "UPDATE usage SET estimated_input=estimated_input+?,estimated_output=estimated_output+?,reported_input=reported_input+?,reported_output=reported_output+?,reports=reports+?,unreported_calls=MAX(0,unreported_calls-?),incomplete_calls=MAX(0,incomplete_calls-1) WHERE run_id=?",
+        "UPDATE usage SET estimated_input=estimated_input+?,estimated_output=estimated_output+?,reported_input=reported_input+?,reported_output=reported_output+?,reports=reports+?,unreported_calls=MAX(0,unreported_calls-?),incomplete_calls=MAX(0,incomplete_calls-?) WHERE run_id=?",
       )
       .run(
         estimatedInput,
@@ -178,6 +179,7 @@ export class Store {
         reported?.output ?? 0,
         reported ? 1 : 0,
         reported ? 1 : 0,
+        completed ? 1 : 0,
         runId,
       );
   }

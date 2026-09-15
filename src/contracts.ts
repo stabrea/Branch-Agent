@@ -40,6 +40,17 @@ export interface Completion {
   toolCalls: ToolCall[];
   usage?: Usage | undefined;
 }
+/** Usage observed before a provider stream failed; content remains uncommitted. */
+export class ProviderStreamError extends Error {
+  override name = "ProviderStreamError";
+  constructor(
+    cause: unknown,
+    readonly estimatedOutput: number,
+    readonly usage?: Usage,
+  ) {
+    super(errorText(cause), { cause });
+  }
+}
 export interface Provider {
   readonly name: string;
   complete(request: CompletionRequest): Promise<Completion>;

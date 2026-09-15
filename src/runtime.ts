@@ -6,6 +6,7 @@ import {
   estimateTokens,
   RunInputSchema,
   UsageSchema,
+  ProviderStreamError,
 } from "./contracts.js";
 import type {
   BudgetOptions,
@@ -328,14 +329,7 @@ export class Runtime {
         maxTokens,
         ...(onTextDelta ? { onTextDelta } : {}),
       });
-      const usage = UsageSchema.safeParse(raw.usage),
-        reported = usage.success ? usage.data : undefined;
-      const output = estimateTokens(raw);
-      this.store.addUsage(run.id, 0, output, reported);
-      context.budget.charge(
-        Math.max(output, reported?.output ?? 0) +
-          Math.max(0, (reported?.input ?? 0) - input),
-      );
+      const { output, reported } = this.recordCompletion(run, context, raw, input);
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
       this.store.event(run.id, "model.completed", {
@@ -346,6 +340,7 @@ export class Runtime {
       });
       return completion;
     } catch (e) {
+      if (e instanceof ProviderStreamError) this.recordStreamFailure(run, context, e, input);
       this.store.event(
         run.id,
         context.signal.aborted ? "model.cancelled" : "model.failed",
@@ -353,6 +348,21 @@ export class Runtime {
       );
       throw e;
     }
+  }
+  private recordCompletion(run: Run, context: ToolContext, raw: Completion, input: number) {
+    const usage = UsageSchema.safeParse(raw.usage),
+      reported = usage.success ? usage.data : undefined;
+    const output = estimateTokens(raw);
+    this.store.addUsage(run.id, 0, output, reported);
+    context.budget.charge(Math.max(output, reported?.output ?? 0) +
+      Math.max(0, (reported?.input ?? 0) - input));
+    return { output, reported };
+  }
+  private recordStreamFailure(run: Run, context: ToolContext, error: ProviderStreamError, input: number): void {
+    this.store.addUsage(run.id, 0, error.estimatedOutput, error.usage, false);
+    // Retain observed spend in the shared budget without replacing the original failure.
+    context.budget.tokens += Math.max(error.estimatedOutput, error.usage?.output ?? 0) +
+      Math.max(0, (error.usage?.input ?? 0) - input);
   }
   private async callTool(
     call: ToolCall,

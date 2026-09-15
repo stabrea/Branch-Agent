@@ -150,11 +150,13 @@ export class OpenAIProvider implements Provider {
     const body = openaiBody(request, this.options.model);
     if (request.onTextDelta) {
       const stream = new OpenAIStream(request.onTextDelta);
-      await post(this.options, "/chat/completions",
-        { ...body, stream: true, stream_options: { include_usage: true } },
-        { authorization: `Bearer ${this.options.apiKey}` }, request.signal,
-        (data) => stream.consume(data));
-      return restoreToolNames(stream.result(), request);
+      try {
+        await post(this.options, "/chat/completions",
+          { ...body, stream: true, stream_options: { include_usage: true } },
+          { authorization: `Bearer ${this.options.apiKey}` }, request.signal,
+          (data) => stream.consume(data));
+        return restoreToolNames(stream.result(), request);
+      } catch (error) { throw stream.failure(error); }
     }
     const response = openaiResponse.parse(
       await post(
@@ -236,10 +238,12 @@ export class AnthropicProvider implements Provider {
     const body = anthropicBody(request, this.options.model);
     if (request.onTextDelta) {
       const stream = new AnthropicStream(request.onTextDelta);
-      await post(this.options, "/messages", { ...body, stream: true },
-        { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
-        request.signal, (data) => stream.consume(data));
-      return restoreToolNames(stream.result(), request);
+      try {
+        await post(this.options, "/messages", { ...body, stream: true },
+          { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
+          request.signal, (data) => stream.consume(data));
+        return restoreToolNames(stream.result(), request);
+      } catch (error) { throw stream.failure(error); }
     }
     const response = anthropicResponse.parse(
       await post(

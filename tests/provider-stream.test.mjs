@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { OpenAIProvider, AnthropicProvider } from "../dist/providers.js";
 import { createBranch } from "../dist/index.js";
 
@@ -37,6 +38,29 @@ const request = {
 };
 const sse = (data) => `data: ${typeof data === "string" ? data : JSON.stringify(data)}\r\n\r\n`;
 const chunk = (delta, finish_reason = null) => ({ choices: [{ index: 0, delta, finish_reason }] });
+
+async function runtimeFixture(t, provider) {
+  const scratch = join(tmpdir(), "Codex-session-files");
+  await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, "branch-stream-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "private"), provider });
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  return app;
+}
+
+function accountedFrames(kind, limited) {
+  if (kind === "openai") return [
+    sse(chunk({ content: "uncommitted fragment" }, limited ? "length" : "stop")),
+    sse({ choices: [], usage: { prompt_tokens: 33, completion_tokens: 17 } }),
+  ];
+  return [
+    sse({ type: "message_start", message: { usage: { input_tokens: 33, output_tokens: 1 } } }),
+    sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+    sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "uncommitted fragment" } }),
+    sse({ type: "content_block_stop", index: 0 }),
+    sse({ type: "message_delta", delta: { stop_reason: limited ? "max_tokens" : "end_turn" }, usage: { output_tokens: 17 } }),
+  ];
+}
 
 test("OpenAI SSE delivers genuine text before completion and assembles fragmented tool calls/usage", async (t) => {
   const release = deferred(), received = deferred();
@@ -129,11 +153,7 @@ test("Anthropic rejects incomplete blocks and in-band errors without exposing pr
 test("cancelling a real SSE response leaves partial text uncommitted and usage attempt incomplete", async (t) => {
   const received = deferred();
   const f = await fixture(t, async (_body, res) => res.write(sse(chunk({ content: "uncommitted fragment" }))));
-  const scratch = join(tmpdir(), "Codex-session-files");
-  await mkdir(scratch, { recursive: true });
-  const root = await mkdtemp(join(scratch, "branch-stream-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "private"), provider: new OpenAIProvider(options(f.endpoint)) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const app = await runtimeFixture(t, new OpenAIProvider(options(f.endpoint)));
   const controller = new AbortController();
   const pending = app.runtime.run({ prompt: "Stream", signal: controller.signal, onTextDelta: () => received.resolve() });
   await received.promise;
@@ -146,5 +166,40 @@ test("cancelling a real SSE response leaves partial text uncommitted and usage a
   assert.equal(usage.incompleteCalls, 1);
   assert.equal(usage.unreportedCalls, 1);
   assert.equal(usage.reports, 0);
+  assert.ok(usage.estimatedOutput > 0);
   assert.match(app.store.events(run.id).map((event) => event.kind).join(" "), /model.cancelled/);
 });
+
+for (const [kind, Provider] of [["openai", OpenAIProvider], ["anthropic", AnthropicProvider]]) {
+  for (const limited of [true, false]) {
+    test(`${kind} preserves received usage and observed output after ${limited ? "token limit" : "cancellation before end marker"}`, async (t) => {
+      const delivered = deferred();
+      const f = await fixture(t, async (_body, res) => {
+        res.write(accountedFrames(kind, limited).join(""));
+        if (limited) res.end(sse(kind === "openai" ? "[DONE]" : { type: "message_stop" }));
+      });
+      const app = await runtimeFixture(t, new Provider(options(f.endpoint)));
+      const controller = new AbortController();
+      const pending = app.runtime.run({ prompt: "Stream", signal: controller.signal,
+        onTextDelta: () => delivered.resolve() });
+      await delivered.promise;
+      if (!limited) {
+        // All frames share one HTTP write; allow its read to consume the usage tail.
+        await delay(30);
+        controller.abort(new Error("Cancelled by user"));
+      }
+      const run = await pending;
+      const usage = app.store.usage(run.id);
+      assert.equal(run.status, limited ? "failed" : "cancelled");
+      assert.equal(usage.attempts, 1);
+      assert.equal(usage.reports, 1);
+      assert.equal(usage.reportedInput, 33);
+      assert.equal(usage.reportedOutput, 17);
+      assert.equal(usage.incompleteCalls, 1);
+      assert.equal(usage.unreportedCalls, 0);
+      assert.ok(usage.estimatedOutput > 0);
+      assert.deepEqual(app.store.messages(run.sessionId), [{ role: "user", content: "Stream" }]);
+      assert.doesNotMatch(run.output, /uncommitted fragment/);
+    });
+  }
+}

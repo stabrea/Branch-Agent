@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Completion, ToolCall, Usage } from "./contracts.js";
+import { estimateTokens, ProviderStreamError } from "./contracts.js";
 
 const count = z.number().int().nonnegative();
 const index = count.max(15);
@@ -106,6 +107,9 @@ export class OpenAIStream {
       ...(this.usage ? { usage: this.usage } : {}),
     };
   }
+  failure(cause: unknown): ProviderStreamError {
+    return streamFailure(cause, this.content, [...this.calls.values()], this.usage);
+  }
 }
 
 const anthropicEvent = z.discriminatedUnion("type", [
@@ -204,4 +208,16 @@ export class AnthropicStream {
       ...(this.usage && this.finalUsage ? { usage: this.usage } : {}),
     };
   }
+  failure(cause: unknown): ProviderStreamError {
+    const blocks = [...this.blocks.values()];
+    return streamFailure(cause,
+      blocks.filter((block) => "text" in block).map((block) => block.text).join("\n"),
+      blocks.filter((block) => "call" in block).map((block) => ({ ...block.call, arguments: block.json || block.call.arguments })),
+      this.usage);
+  }
+}
+
+function streamFailure(cause: unknown, content: string, toolCalls: ToolCall[], usage?: Usage): ProviderStreamError {
+  const estimatedOutput = content || toolCalls.length ? estimateTokens({ content, toolCalls }) : 0;
+  return new ProviderStreamError(cause, estimatedOutput, usage);
 }

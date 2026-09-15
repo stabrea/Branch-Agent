@@ -84,28 +84,27 @@ async function main(): Promise<void> {
       printDoctor(app, dataDir);
       return;
     }
-    const prompt =
-      command === "demo"
-        ? "Run the deterministic file write/read/verify fixture."
-        : process.argv.slice(3).join(" ");
-    if (!prompt)
-      throw new Error('Provide a prompt: node dist/cli.js run "your request"');
-    const run = await app.runtime.run({ prompt });
-    console.log(
-      JSON.stringify(
-        {
-          run,
-          usage: app.store.usage(run.id),
-          events: app.store.events(run.id),
-        },
-        null,
-        2,
-      ),
-    );
-    if (run.status !== "completed") process.exitCode = 1;
+    await runOnce(app, command);
   } finally {
     await close();
   }
+}
+async function runOnce(
+  app: Awaited<ReturnType<typeof createBranch>>,
+  command: string,
+): Promise<void> {
+  const prompt = command === "demo"
+    ? "Run the deterministic file write/read/verify fixture."
+    : process.argv.slice(3).join(" ");
+  if (!prompt)
+    throw new Error('Provide a prompt: node dist/cli.js run "your request"');
+  const run = await app.runtime.run({ prompt });
+  console.log(JSON.stringify({
+    run,
+    usage: app.store.usage(run.id),
+    events: app.store.events(run.id),
+  }, null, 2));
+  if (run.status !== "completed") process.exitCode = 1;
 }
 function printDoctor(
   app: Awaited<ReturnType<typeof createBranch>>,
