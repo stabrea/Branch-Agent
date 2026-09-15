@@ -21,7 +21,12 @@ from **Settings → Updates**. Do not merge or release every batch.
   `electron.exe` as `Branch Agent.exe` (see docs/desktop.md); the update script keeps
   `<install>.previous` and rolls back if the new build does not start. Code signing (Azure Trusted
   Signing or an OV certificate) is the real fix; tracked under security (#12) and owner requests (#18).
-- Version `0.2.1`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
+- Update hand-over lessons (0.2.2): `tasklist /FI "IMAGENAME eq <name with space>"` matches nothing;
+  `timeout` dies without a console; a PATH with Git's Unix `find` breaks `find`. The script now uses
+  `%SystemRoot%\System32\{tasklist,find,ping,robocopy}.exe`, CSV listing, bounded drain, retries and
+  `apply-update.log`. Rehearse with `Updater.writeScript()` + a staged copy before every release.
+- Header: "Branch Agent by KeepOak" (by tiny, KeepOak small). Sidebar: the assistant identity name.
+- Version `0.2.2`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
