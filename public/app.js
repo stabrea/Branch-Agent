@@ -10,6 +10,7 @@ let savedSearchRevision = 0;
 let savedNextOffset = null;
 let savedQuery = "";
 const memoryEditors = new Map();
+let memoryCapacityDraft = null;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -155,7 +156,7 @@ async function showRun(id) {
 function renderMemory() {
   const capacity = state.memoryCapacity;
   $("memory-count").textContent = `${capacity.count} of ${capacity.maxFacts} saved facts`;
-  if (document.activeElement !== $("memory-capacity")) $("memory-capacity").value = capacity.maxFacts;
+  $("memory-capacity").value = memoryCapacityDraft ?? capacity.maxFacts;
   const target = $("memory-list"), previous = new Map([...target.children].map(node => [node.dataset.memoryId, node]));
   const focused = target.contains(document.activeElement) ? document.activeElement : null;
   const selection = focused?.selectionStart == null ? null : [focused.selectionStart, focused.selectionEnd, focused.selectionDirection];
@@ -357,7 +358,7 @@ async function refresh() {
   $("context-runs").textContent = state.runs.filter(
     (run) => run.status === "running",
   ).length;
-  $("context-memory").textContent = state.memory.length;
+  $("context-memory").textContent = state.memoryCapacity?.count ?? state.memory.length;
   $("context-tools").textContent = state.tools.length;
   $("demo-notice").hidden = state.provider !== "offline-demo-fixture";
   renderRuns();
@@ -614,8 +615,12 @@ form("memory-form", () =>
   }),
 );
 form("memory-capacity-form", async () => {
-  await api("memory/capacity", { maxFacts: Number($("memory-capacity").value) }); await refresh();
+  const submitted = $("memory-capacity").value;
+  await api("memory/capacity", { maxFacts: Number(submitted) });
+  if (memoryCapacityDraft === submitted) memoryCapacityDraft = null;
+  await refresh();
 });
+$("memory-capacity").addEventListener("input", () => { memoryCapacityDraft = $("memory-capacity").value; });
 $("memory-transfer").append(button("Export memory JSON", async () => {
   if (await exportArchive(await api("memory/export"), "exportMemory", "branch-memory.json")) toast("Memory exported.");
 }), button("Import memory JSON", () => $("memory-import").click()));

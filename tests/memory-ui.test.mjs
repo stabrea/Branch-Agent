@@ -116,6 +116,28 @@ test('memory capacity rejects additional facts and cannot drop below the saved c
   assert.deepEqual(f.errors, []);
 });
 
+test('capacity draft survives blur and polling, and a pending save preserves newer input', async t => {
+  const f = await fixture(t), input = f.page.locator('#memory-capacity');
+  const submit = f.page.getByRole('button', { name: 'Update memory limit', exact: true });
+  await input.fill('2'); await input.press('Tab');
+  assert.equal(await submit.evaluate(node => document.activeElement === node), true);
+  await f.page.waitForResponse(response => response.url().endsWith('/api/state') && response.request().method() === 'GET');
+  await f.page.waitForTimeout(100);
+  assert.equal(await input.inputValue(), '2');
+  let release, started;
+  const held = new Promise(resolve => { release = resolve; });
+  const intercepted = new Promise(resolve => { started = resolve; });
+  await f.page.route('**/api/memory/capacity', async route => { started(); await held; await route.continue(); });
+  await submit.click(); await intercepted;
+  await input.fill('3'); await input.press('Tab'); release();
+  await f.page.locator('#memory-count').filter({ hasText: '1 of 2 saved facts' }).waitFor();
+  assert.equal(await input.inputValue(), '3');
+  await submit.click();
+  await f.page.locator('#memory-count').filter({ hasText: '1 of 3 saved facts' }).waitFor();
+  assert.equal(await input.inputValue(), '3');
+  assert.deepEqual(f.errors, []);
+});
+
 test('memory file export/import preserves metadata in an empty store and conflicts merge atomically', async t => {
   const source = await fixture(t), destination = await fixture(t, false);
   const download = source.page.waitForEvent('download');
