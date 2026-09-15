@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 11 implemented, 57 partial, 1 external and 100 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 14 implemented, 56 partial, 1 external and 98 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -45,9 +45,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Hosted and local model endpoints (`models.hosted-local`) | external | Configure actual hosted and local model endpoints and complete the same fixture on both. |
 | API-key and supported OAuth routes (`models.oauth`) | partial | Implement and verify a supported OAuth authentication route alongside the API-key route. |
 | Model and provider presets (`models.presets`) | missing | Select two named model presets and verify that each task uses the selected provider and model. |
-| Bounded retries preserving completed work (`models.retry`) | missing | Inject a transient provider failure and resume within the retry bound without repeating a completed tool effect. |
+| Bounded retries preserving completed work (`models.retry`) | implemented | Covered by the listed local fixtures. |
 | Auth rotation cooldowns and model fallback (`models.fallback`) | missing | Inject an eligible provider failure and verify the configured cooldown and fallback order. |
-| Respect explicit selected-model policy (`models.strict-choice`) | partial | Add an eligible provider-failure fixture asserting no switch from the selected strict model. |
+| Respect explicit selected-model policy (`models.strict-choice`) | implemented | Covered by the listed local fixtures. |
 | Live switching with visible fallback notices (`models.switching`) | missing | Switch the active model and expose the actual model used on the next turn. |
 | Hardware-aware local model acquisition (`models.local-download`) | missing | Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint. |
 | Per-session reasoning effort controls (`models.reasoning-default`) | missing | Set a default reasoning effort and override it for one session while preserving the default for a new session. |
@@ -174,7 +174,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Host-side credential injection (`security.credentials`) | partial | Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output. |
 | Host/path allowlists and rate limits (`security.network`) | partial | Add path-specific policy and cover every outbound tool transport. |
 | CPU memory and execution limits (`security.resources`) | partial | Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes. |
-| Encrypted credential store and hidden prompts (`security.secrets`) | missing | Persist a credential encrypted at rest and enter it through a non-echoing setup flow. |
+| Encrypted credential store and hidden prompts (`security.secrets`) | implemented | Covered by the listed local fixtures. |
 | Untrusted-output wrapping and detection (`security.content`) | partial | Add provenance envelopes and configured detection policy tested against injected instructions. |
 | Execution audit and authenticated successful-call receipts (`security.audit`) | partial | Add verifiable successful-result receipts and detect modified results. |
 | Passkey authentication for the assistant service (`security.passkeys`) | missing | Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt. |

@@ -4,12 +4,13 @@ Date: 2026-09-15. Local platform: Windows x64, Node.js 24.15.0, Python 3.12.10. 
 
 ## Application
 
-The strict TypeScript build and 91 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
+The strict TypeScript build and 130 behavioral tests passed locally; one Windows short-name case was skipped because this local volume has no short-name aliases enabled. Tests cover tool loops, SQLite persistence, interrupted transcript repair, permissions, shared budgets, cancellation, specialist versions, procedure step traces, concurrent evaluation, schedules and graceful shutdown.
 
 - OpenAI-compatible and Anthropic adapters use protocol fixtures; no paid provider account has been exercised by this record.
 - Real Chromium tests verify forms, denied origins/redirects/password fields, overlapping run isolation, cancellation, resource limits and shutdown during pending launch.
 - MCP tests use a real local stdio server and HTTP fixtures, including version/tool allowlists, credential handling and bounded responses.
 - Streaming tests use real loopback HTTP SSE responses for text-before-completion, fragmented tool inputs, CR-only framing, token limits and cancellation. Received usage remains recorded on failed streams. Terminal tests verify Ctrl+C and revisions continue the same session after cleanup.
+- Provider retry tests use both protocols over loopback HTTP. They verify unchanged model/credential selection, retained completed tool effects, per-attempt accounting, step/token exhaustion, cancellation during backoff or error reads, quota exclusions, partial-stream rejection, error-body time/byte limits and Retry-After handling. A terminal fixture recovers from an actual HTTP 503 into a streamed response with visible retry progress.
 - The browser UI test sends a task, saves memory and checks mobile-width overflow, logo loading, actual acorn pixel changes, pause, keyboard rotation and reduced motion.
 - The native desktop test executes a task, checks renderer isolation and token non-exposure, attempts navigation to an unapproved local server, tests popup rejection, persists appearance across process restart, hides to tray, follows the home link and verifies shutdown closes the process and listener.
 - Desktop connection tests save a synthetic API key with actual Windows device protection, reject another native window at the IPC boundary, restart into a local fixture provider, and recover from damaged JSON, keys and endpoints.
@@ -37,6 +38,6 @@ No reset correction was applied. The run used zero language-model tokens but con
 
 ## Completion boundary
 
-The 169-entry inventory currently has 11 implemented entries, 57 partial, 1 external and 100 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
+The 169-entry inventory currently has 14 implemented entries, 56 partial, 1 external and 98 missing. These are individual acceptance criteria, not a release-completeness percentage. The broad project objective is not complete.
 
 Outstanding work includes remaining capability families, actual configured-service checks, broader failure scenarios, supported-platform packaging, installers/signing/updates, and measured learning/efficiency comparisons. No AGI, sentience or complete feature-parity claim is supported by these checks.

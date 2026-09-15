@@ -7,11 +7,12 @@ This is a capability roadmap, not a release schedule. The initial runtime and na
 - Native Windows window and tray, shared web interface, and persisted appearance.
 - Model adapters, durable task/tool state, scoped workspace tools and memory.
 - Restricted specialists, versioned procedures, schedules, MCP and browser tools.
+- Streaming terminal chat, full-text conversation retrieval and configured host commands.
 - Separate neural-model experiment and total-task accounting utilities.
 
 ## Remaining breadth
 
-The remaining inventory includes messaging channels, voice and multimedia, richer memory and context retrieval, interactive terminal streaming, tool discovery and plugin distribution, remote execution, broader scheduling, model routing, native installers and updates, mobile surfaces, and learning evaluations. Protocol support alone does not complete those capabilities. Experimental learning needs measured improvement before any efficiency or generality claim.
+The remaining inventory includes messaging channels, voice and multimedia, richer memory and context retrieval, tool discovery and plugin distribution, remote execution, broader scheduling, model routing, native installers and updates, mobile surfaces, and learning evaluations. Protocol support alone does not complete those capabilities. Experimental learning needs measured improvement before any efficiency or generality claim.
 
 ## 1. Establish the core
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T18:41:19.889770+00:00",
+  "assessment_date": "2026-09-15T19:00:22.887743+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -491,16 +491,40 @@
       "family": "models",
       "name": "Bounded retries preserving completed work",
       "acceptance_criterion": "Inject a transient provider failure and resume within the retry bound without repeating a completed tool effect.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/provider-retry.ts",
           "src/providers.ts",
-          "src/contracts.ts"
+          "src/runtime.ts",
+          "src/index.ts",
+          "src/terminal.ts",
+          "tests/provider-retry.test.mjs",
+          "tests/terminal.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "failure after a completed tool retries only the next completion",
+          "transient retries stop after two retries",
+          "explicit rate-limit code and Retry-After minimum are respected",
+          "Retry-After beyond wait ceiling fails instead of retrying early",
+          "cancellation during backoff stops before another provider attempt",
+          "exhausted step or token budget prevents another HTTP attempt",
+          "stream wrapper with observed usage cannot retry even when cause is typed HTTP error",
+          "a headers-only transient response cannot stall error handling indefinitely",
+          "abort while reading a rejected HTTP body stops without a retry",
+          "terminal shows real provider retry progress without printing private error bodies"
+        ],
+        "parameterized_tests": [
+          "openai / anthropic retries transient HTTP failures with unchanged model and per-attempt usage",
+          "openai / anthropic stream wrapper permits pre-body HTTP retries but not partial output",
+          "429 dripping / oversized error bodies cannot hide quota behind Retry-After",
+          "unsupported Retry-After hints prevent an early retry"
+        ],
+        "detail": "Runtime retries only the failed provider completion with unchanged message/tool context; completed tool effects remain outside the retry loop. Local HTTP fixtures inject transient failures and prove recovery, bounded attempts, unchanged provider/model, per-attempt accounting and exactly one completed tool effect. Retry errors are classified from bounded response bodies; a scheduled-retry event is visible in terminal progress without raw private error text.",
+        "validation_source": "Auditor ran node --test tests/provider-retry.test.mjs tests/terminal.test.mjs against the rebuilt corrected tree: 41 passed, 0 failed, 0 skipped (36 retry tests and 5 terminal tests). Parent reports specification reviewer independently approved the 36 retry tests. No configured external model account was used.",
+        "supported_acceptance_scope": "At most two retries per completion, configurable downward including zero; default backoff 250 ms and maximum wait 5000 ms. Eligible rejected HTTP responses are 408/429/500/502/503/504/529 subject to classification and retry-hint policy. Quota/billing errors, unclear 429 classifications, unsupported or over-ceiling Retry-After, observed stream text/output/usage, malformed successful responses, cancellation and exhausted budgets do not auto-retry. This does not establish transport-error recovery, tool-effect replay safety across process restart, fallback models, or live account readiness."
       },
-      "remaining": "Inject a transient provider failure and resume within the retry bound without repeating a completed tool effect."
+      "remaining": ""
     },
     {
       "id": "models.fallback",
@@ -523,18 +547,29 @@
       "family": "models",
       "name": "Respect explicit selected-model policy",
       "acceptance_criterion": "Select a strict model and verify that failure does not silently switch to an unapproved model.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/providers.ts",
-          "src/runtime.ts"
+          "src/provider-retry.ts",
+          "src/runtime.ts",
+          "src/index.ts",
+          "tests/provider-retry.test.mjs",
+          "tests/providers.test.mjs"
         ],
         "tests": [
+          "transient retries stop after two retries",
+          "SDK policy can disable retries",
           "real provider configuration is explicit and has no credential fallback"
         ],
-        "detail": "Single configured provider/model has no automatic fallback path; strict selection policy and failure acceptance are not separately tested."
+        "parameterized_tests": [
+          "openai / anthropic retries transient HTTP failures with unchanged model and per-attempt usage"
+        ],
+        "detail": "A runtime uses its selected provider instance and configured model for every completion and retry. Both provider HTTP fixtures assert that all attempts carry the same selected model and credential route during injected failures; exhausted retries fail instead of selecting a replacement model. There is no runtime model-fallback chain.",
+        "validation_source": "Auditor ran node --test tests/provider-retry.test.mjs tests/terminal.test.mjs against the rebuilt corrected tree: 41 passed, 0 failed, 0 skipped (36 retry tests and 5 terminal tests). Parent reports specification reviewer independently approved the 36 retry tests. No configured external model account was used.",
+        "supported_acceptance_scope": "Strict active provider/model behavior in runtime conversations and bounded retries. This does not claim named preset switching, OAuth, provider cooldown/fallback ordering, or successful live model-account use. Desktop startup recovery from unreadable/undecryptable saved connection settings is a separately disclosed offline-demo recovery path, not a runtime provider-failure retry."
       },
-      "remaining": "Add an eligible provider-failure fixture asserting no switch from the selected strict model."
+      "remaining": ""
     },
     {
       "id": "models.switching",
@@ -2081,19 +2116,26 @@
       "family": "security",
       "name": "Encrypted credential store and hidden prompts",
       "acceptance_criterion": "Persist a credential encrypted at rest and enter it through a non-echoing setup flow.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/desktop/settings.ts",
+          "src/desktop/settings-ipc.ts",
+          "src/desktop/preload.cts",
+          "public/index.html",
+          "public/app.js",
+          "tests/desktop-settings.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "desktop settings reject key reuse across destinations and unavailable encryption",
+          "native settings encrypt a key, keep IPC narrow, and connect after restart",
+          "native settings remain usable after a corrupt file or undecryptable key"
+        ],
+        "detail": "Native desktop model setup enters the API key through a masked password input and clears it on save. The main process uses Electron safeStorage encryption, persists encrypted key bytes, excludes plaintext/ciphertext from returned summaries, and rejects unavailable or insecure fallback storage. The native fixture checks absence of plaintext on disk, empty key input, restricted IPC and successful saved-key reuse after process restart.",
+        "validation_source": "Auditor independently inspected the current native credential implementation and desktop-settings fixtures in the preceding narrow review. Earlier desktop evidence and parent-reported suite validation support this native path; desktop settings were not rerun as part of the 41 retry/terminal checks.",
+        "supported_acceptance_scope": "Native desktop provider credentials with available device-protected storage. The input masks visible characters but necessarily holds plaintext during entry and IPC. This does not establish encryption for all application secrets, a terminal hidden-prompt flow, other OS backend acceptance, WASM credential confinement, or protection against a compromised desktop user session."
       },
-      "remaining": "Persist a credential encrypted at rest and enter it through a non-echoing setup flow."
+      "remaining": ""
     },
     {
       "id": "security.content",

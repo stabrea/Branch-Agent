@@ -6,6 +6,8 @@ Branch Agent is a standalone application. It owns its tool execution loop, sessi
 
 `Provider.complete` accepts messages, tool descriptions, an output limit and an abort signal. It returns content, tool calls and optional provider-reported usage. Provider responses and tool arguments are validated at runtime. TypeScript types alone cannot validate external data.
 
+The runtime retries eligible rejected model requests inside the completion step. Each attempt consumes the same shared budget and records its own usage evidence. Completed tool results stay in the conversation; only a successful, validated completion is appended. The policy preserves the selected provider and model, excludes partial streams, and bounds both retry counts and waits.
+
 `ToolRegistry` registers named tools, schemas, permissions and handlers. Its executor checks the caller's granted permissions, step budget and cancellation before dispatch. Tool results are bounded and recorded as data. Integrations use this interface instead of modifying the model loop.
 
 The data directory holds private SQLite state. The tool workspace is a separate directory. Workspace tools reject path escapes, symbolic-link traversal and common secret filenames. These checks constrain built-in file tools; they are not an operating-system sandbox for arbitrary code.

@@ -37,6 +37,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - A native desktop window and tray, with Forest and Daylight appearances saved across restarts.
 - Desktop model setup with a protected saved key and recovery from invalid settings.
 - OpenAI-compatible and Anthropic provider adapters.
+- Bounded retries for temporary provider failures, preserving completed tool work and attempt accounting.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
 - Full-text conversation search with bounded excerpts and links to source messages.
 - Opt-in host commands with executable aliases, captured results and cancellation.

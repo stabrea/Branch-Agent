@@ -167,6 +167,12 @@ class TerminalConversation {
 }
 
 function progressLine(event: Event): string | undefined {
+  if (event.kind === "model.retry_scheduled") {
+    const { attempt, maxRetries, delayMs } = event.data;
+    if ([attempt, maxRetries, delayMs].every((value) => Number.isSafeInteger(value) && Number(value) >= 0))
+      return `[provider temporarily unavailable; retry ${attempt}/${maxRetries} in ${delayMs} ms]`;
+    return "[provider retry scheduled]";
+  }
   const supported = /^(run\.(started|finished|cleanup_failed)|model\.(started|completed|cancelled|failed)|tool\.(started|completed|failed))$/;
   if (event.kind === "session.reconciled")
     return "[interrupted tool outcome unknown; check actual state before retrying]";

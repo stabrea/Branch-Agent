@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
+import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
-import { createBranch } from "../dist/index.js";
+import { createBranch, OpenAIProvider } from "../dist/index.js";
 import { startTerminal } from "../dist/terminal.js";
 
 function deferred() {
@@ -163,4 +164,31 @@ test("readline Ctrl+C keeps the terminal open for a same-session revision", asyn
   assert.equal(new Set(f.app.store.runs("local").map((run) => run.sessionId)).size, 1);
   f.input.write("/exit\n");
   await f.done;
+});
+
+test("terminal shows real provider retry progress without printing private error bodies", async (t) => {
+  let requests = 0;
+  const server = createServer(async (request, response) => {
+    for await (const _chunk of request) { /* Drain the request before replying. */ }
+    if (++requests === 1) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "PRIVATE_RETRY_DETAIL" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.end('data: {"choices":[{"index":0,"delta":{"content":"Recovered response"},"finish_reason":null}]}\n\n' +
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const provider = new OpenAIProvider({ endpoint: `http://127.0.0.1:${server.address().port}/v1`,
+    model: "retry-fixture", apiKey: "FIXTURE_RETRY_KEY" });
+  const f = await fixture(t, provider);
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  f.input.end("Recover from a temporary failure\n");
+  await f.done;
+  assert.equal(requests, 2);
+  assert.match(f.text(), /provider temporarily unavailable; retry 1\/2 in 250 ms/);
+  assert.match(f.text(), /Recovered response/);
+  assert.doesNotMatch(f.text(), /PRIVATE_RETRY_DETAIL|FIXTURE_RETRY_KEY/);
+  assert.equal(f.app.store.runs("local")[0].status, "completed");
 });
