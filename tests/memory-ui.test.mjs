@@ -76,6 +76,26 @@ test('stale edits retain the draft and do not overwrite a newer fact; cancel dis
   assert.deepEqual(f.errors, []);
 });
 
+test('polling preserves the open editor, focus, selection and continued typing', async t => {
+  const f = await fixture(t);
+  await edit(f.page, 'Juniper draft fact', 'Draft source');
+  const input = f.page.getByLabel('Edit memory fact', { exact: true });
+  await input.focus();
+  await input.evaluate(node => { window.fixtureMemoryInput = node; node.setSelectionRange(8, 13, 'backward'); });
+  const poll = f.page.waitForResponse(response => response.url().endsWith('/api/state') && response.request().method() === 'GET');
+  await poll;
+  await f.page.waitForTimeout(100);
+  assert.deepEqual(await input.evaluate(node => ({ same: node === window.fixtureMemoryInput,
+    focused: document.activeElement === node, start: node.selectionStart, end: node.selectionEnd, direction: node.selectionDirection })),
+  { same: true, focused: true, start: 8, end: 13, direction: 'backward' });
+  await f.page.keyboard.type('corrected');
+  assert.equal(await input.inputValue(), 'Juniper corrected fact');
+  await f.page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
+  assert.equal(record(f).data.text, 'Juniper corrected fact');
+  assert.deepEqual(f.errors, []);
+});
+
 test('memory capacity rejects additional facts and cannot drop below the saved count', async t => {
   const f = await fixture(t);
   await f.page.locator('#memory-capacity').fill('1');

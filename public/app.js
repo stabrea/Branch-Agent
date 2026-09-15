@@ -156,23 +156,30 @@ function renderMemory() {
   const capacity = state.memoryCapacity;
   $("memory-count").textContent = `${capacity.count} of ${capacity.maxFacts} saved facts`;
   if (document.activeElement !== $("memory-capacity")) $("memory-capacity").value = capacity.maxFacts;
-  list(
-    "memory-list",
-    state.memory,
-    (record) => {
-      const node = recordCard(record.data.text);
-      node.dataset.memoryId = record.id;
-      node.append(
-        el("p", record.data.source),
-        el("p", date(record.createdAt), "meta"),
-        button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); }),
-        button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }),
-      );
-      if (memoryEditors.has(record.id)) node.append(memoryEditor(record));
-      return node;
-    },
-    "Save a preference, decision, or useful fact.",
-  );
+  const target = $("memory-list"), previous = new Map([...target.children].map(node => [node.dataset.memoryId, node]));
+  const focused = target.contains(document.activeElement) ? document.activeElement : null;
+  const selection = focused?.selectionStart == null ? null : [focused.selectionStart, focused.selectionEnd, focused.selectionDirection];
+  const cards = state.memory.map(record => {
+    const existing = previous.get(record.id);
+    return memoryEditors.has(record.id) && existing?.querySelector(".memory-editor") ? existing : memoryCard(record);
+  });
+  for (const node of [...target.children]) if (!cards.includes(node)) node.remove();
+  cards.forEach((node, index) => { if (target.children[index] !== node) target.insertBefore(node, target.children[index] || null); });
+  if (!cards.length) target.append(el("div", "Save a preference, decision, or useful fact.", "empty"));
+  if (focused?.isConnected && document.activeElement !== focused) {
+    focused.focus({ preventScroll: true });
+    if (selection) focused.setSelectionRange(...selection);
+  }
+}
+function memoryCard(record) {
+  const node = recordCard(record.data.text);
+  node.dataset.memoryId = record.id;
+  const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
+  edit.disabled = memoryEditors.has(record.id);
+  node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
+    button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }));
+  if (memoryEditors.has(record.id)) node.append(memoryEditor(record));
+  return node;
 }
 function memoryEditor(record) {
   const draft = memoryEditors.get(record.id), editor = el("form", undefined, "memory-editor");
