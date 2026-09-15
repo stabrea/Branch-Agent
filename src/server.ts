@@ -130,6 +130,7 @@ function state(app: Branch): unknown {
       .map((run) => ({ ...run, usage: app.store.usage(run.id) })),
     memory: app.store.list("memory", owner),
     memoryCapacity: app.store.memoryCapacity(owner),
+    skills: app.store.skills.list(owner),
     specialists: app.store.list("specialists", owner),
     procedures: app.store.list("procedures", owner),
     schedules: app.store.list("schedules", owner),
@@ -144,6 +145,7 @@ async function api(
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
+  if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
@@ -204,6 +206,24 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.configureMemory(owner, await readBody(request));
   throw new HttpError(404, "Endpoint not found");
 }
+async function skillsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, skills = app.store.skills;
+  if (request.method === "POST" && path === "/api/skills/install")
+    return skills.install(owner, await readBody(request, 128 * 1024));
+  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read))?$/.exec(path);
+  if (match && request.method === "GET" && !match[2]) return skills.view(owner, match[1]!);
+  if (match && request.method === "POST" && match[2]) {
+    const input = await readBody(request, 128 * 1024), id = match[1]!;
+    switch (match[2]) {
+      case "update": return skills.update(owner, id, input);
+      case "activate": return skills.activate(owner, id, input);
+      case "disable": return skills.disable(owner, id, input);
+      case "remove": return skills.remove(owner, id, input);
+      case "read": return skills.read(owner, id, input);
+    }
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -258,7 +278,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

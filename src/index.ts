@@ -10,6 +10,7 @@ import { registerMemory } from "./memory.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
+import { registerSkills } from "./skill-tools.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 
@@ -50,6 +51,7 @@ export async function createBranch(options: {
   registerMemory(registry, store);
   registerHistory(registry, store);
   registerSessions(registry, store);
+  registerSkills(registry, store);
   registerKnowledge(registry, knowledge);
   const scheduler = new Scheduler(store, runtime);
   registerSchedules(registry, scheduler);
@@ -83,5 +85,7 @@ export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
+export * from "./skills.js";
+export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

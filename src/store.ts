@@ -6,6 +6,7 @@ import { SessionHistory } from "./history.js";
 import { SessionBranches } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
 import { MemoryFacts } from "./memory.js";
+import { InstalledSkills } from "./skills.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -22,6 +23,7 @@ export class Store {
   private readonly branches: SessionBranches;
   private readonly library: SessionLibrary;
   private readonly memories: MemoryFacts;
+  readonly skills: InstalledSkills;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -48,6 +50,7 @@ export class Store {
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
     this.memories = new MemoryFacts(this.db);
+    this.skills = new InstalledSkills(this.db);
     this.migrateUsage();
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
