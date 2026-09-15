@@ -18,7 +18,7 @@ export interface ModelChoice {
   provider: string;
   model: string;
   reasoning: ReasoningEffort | null;
-  source: "session" | "owner" | "default" | "cooldown";
+  source: "session" | "project" | "owner" | "default" | "cooldown";
 }
 const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
 const reasoning = z.enum(reasoningEfforts).nullable();
@@ -33,6 +33,8 @@ export const SessionModelSchema = z.object({
   reasoning: reasoning.default(null),
 }).strict();
 export type ModelSettings = z.infer<typeof ModelSettingsSchema>;
+/** A one-run choice, for example from the terminal's /model and /think commands. */
+export interface RunModelOverride { preset?: string | null; reasoning?: ReasoningEffort | null }
 export type SessionModel = z.infer<typeof SessionModelSchema>;
 
 export class ModelRouter {
@@ -96,11 +98,15 @@ export class ModelRouter {
     return value;
   }
   /** Ordered candidates: the chosen preset first, then configured fallbacks that are not cooling down. */
-  plan(owner: string, sessionId: string): { choice: ModelChoice; candidates: ModelPreset[] } {
+  plan(owner: string, sessionId: string, override: RunModelOverride = {}): { choice: ModelChoice; candidates: ModelPreset[] } {
+    if (override.preset && !this.presets.has(override.preset)) throw new Error(`Unknown model preset ${override.preset}`);
     const owned = this.settings(owner), scoped = this.session(owner, sessionId);
-    const source = scoped.preset ? "session" : owned.activePreset ? "owner" : "default";
-    const first = this.presets.get(scoped.preset ?? owned.activePreset ?? this.default.id) ?? this.default;
-    const effort = scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null;
+    const chosen = override.preset ?? scoped.preset;
+    const project = this.store.projects.active(owner).modelPreset;
+    const projectPreset = project && this.presets.has(project) ? project : null;
+    const source = chosen ? "session" : projectPreset ? "project" : owned.activePreset ? "owner" : "default";
+    const first = this.presets.get(chosen ?? projectPreset ?? owned.activePreset ?? this.default.id) ?? this.default;
+    const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null);
     const fallbacks = owned.fallbackOrder
       .filter(id => id !== first.id && !this.coolingDown(id))
       .map(id => this.presets.get(id)!);

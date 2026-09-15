@@ -19,6 +19,8 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
     const integrations = await loadIntegrations(
       app.registry,
       process.env.BRANCH_INTEGRATIONS,
+      process.env,
+      app.secretsFor,
     );
     return {
       app,

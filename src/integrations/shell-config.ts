@@ -20,6 +20,8 @@ export const ShellInputSchema = z.object({
   args: z.array(argument).max(80).default([]),
   cwd: z.string().min(1).max(500).default('.'),
   timeoutMs: z.number().int().min(100).max(120000).optional(),
+  /** Names of the active project's secrets to expose to the program as environment variables. */
+  secrets: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/)).max(8).default([]),
 }).strict();
 export type ShellInput = z.infer<typeof ShellInputSchema>;
 

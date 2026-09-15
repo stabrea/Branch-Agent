@@ -73,6 +73,21 @@
       </section>
       <div id="workspace" hidden>
         <section id="chat" class="view">
+          <section id="first-run" class="card first-run" hidden>
+            <span class="eyebrow">// FIRST THINGS FIRST</span>
+            <h2>Choose how your assistant thinks.</h2>
+            <p>Pick one to start. You can change it any time in Settings.</p>
+            <div class="doors">
+              <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste.</span></button>
+              <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
+              <button id="door-demo" type="button" class="door"><strong>Just look around</strong><span>An offline demonstration that only writes and reads one greeting file.</span></button>
+            </div>
+            <p id="first-run-status" role="status"></p>
+            <div class="identity-actions">
+              <button id="first-run-test" type="button">Test the connection</button>
+              <button id="first-run-done" type="button" hidden>Done, start chatting</button>
+            </div>
+          </section>
           <details id="saved-conversations" class="card saved-conversations">
             <summary>Saved conversations</summary>
             <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
@@ -131,7 +146,9 @@
               rows="3"
             ></textarea>
             <div>
-              <span id="session-label"
+              <label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
+                ><input id="temporary-toggle" type="checkbox" /> Temporary</label
+              ><span id="session-label"
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
@@ -360,6 +377,39 @@
             </div>
             <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
+          <form id="projects-form" class="card">
+            <h2>Projects</h2>
+            <p>A project keeps its own instructions, preferred model and secrets. Switch the active project to change all three at once.</p>
+            <label for="project-active">Active project</label>
+            <select id="project-active"></select>
+            <p class="subtle">Edit a project below. Choosing a project in the list loads it; save writes it back.</p>
+            <label for="project-id">Short id</label>
+            <input id="project-id" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. client-site" />
+            <label for="project-name">Name</label>
+            <input id="project-name" maxlength="80" placeholder="Client website" />
+            <label for="project-instructions">Instructions for this project</label>
+            <textarea id="project-instructions" maxlength="4000" rows="3" placeholder="What the assistant should keep in mind while working on this project."></textarea>
+            <label for="project-preset">Preferred model</label>
+            <select id="project-preset"></select>
+            <div class="identity-actions">
+              <button id="project-save">Save project</button>
+              <button id="project-new" type="button">New project</button>
+              <button id="project-remove" type="button">Remove project</button>
+            </div>
+            <p id="project-status" role="status"></p>
+          </form>
+          <form id="secrets-form" class="card">
+            <h2>Secrets</h2>
+            <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
+            <label for="secret-project">Project</label>
+            <select id="secret-project"></select>
+            <label for="secret-name">Name (as an environment variable)</label>
+            <input id="secret-name" maxlength="64" pattern="[A-Z][A-Z0-9_]{0,63}" placeholder="DEPLOY_TOKEN" autocomplete="off" />
+            <label for="secret-value">Value</label>
+            <input id="secret-value" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false" />
+            <button id="secret-save">Save secret</button>
+            <div id="secrets-list" class="card-list" aria-live="polite"></div>
+          </form>
           <form id="models-form" class="card">
             <h2>Models</h2>
             <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>

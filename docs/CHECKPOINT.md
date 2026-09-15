@@ -26,6 +26,7 @@ from **Settings → Updates**. Do not merge or release every batch.
   `%SystemRoot%\System32\{tasklist,find,ping,robocopy}.exe`, CSV listing, bounded drain, retries and
   `apply-update.log`. Rehearse with `Updater.writeScript()` + a staged copy before every release.
 - Header: "Branch Agent by KeepOak" (by tiny, KeepOak small). Sidebar: the assistant identity name.
+- Published v0.2.2: https://github.com/stabrea/Branch-Agent/releases/tag/v0.2.2 (main ea35fd1). Live check from 0.2.1 offers it. The owner's installed 0.2.1 carries the fixed hand-over script; their button click is the first real button-driven update.
 - Version `0.2.2`. Release process: merge to `main`, tag `vX.Y.Z`, `gh release create` with
   `release/Branch-Agent-windows-x64.zip` and its `.zip.sha256`. The in-app updater reads
   `releases/latest` and requires both assets by exact name.
@@ -41,6 +42,24 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Issue #18: the owner's direct requests (`owner-request` label).
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
+
+## Batch 4: terminal commands, projects, secrets locker (0.3.0)
+
+Commits 43b3627, 2d9ead1. `/models` `/model` `/think` in the terminal (per-run override through
+`ModelRouter.plan(owner, sessionId, override)`); `src/projects.ts` (instructions, preferred model,
+default project) and `src/locker.ts` (AES-256-GCM, key file `locker.key` in the data dir, host-boundary
+injection via `shell.execute` `secrets`, scrubbed output). Routes `/api/projects*`, `/api/secrets*`.
+Full suite green; coverage 29 implemented, 51 partial, 88 missing. Packaged 0.3.0 passes 8/8 native tests.
+Note: a file named `secrets.ts` is blocked by the tool's write rules; the module is `locker.ts`.
+
+## Batch 3: setup, temporary chats, forgetting
+
+Commit 85f34d1. First-run panel with three doors and a real test call (`POST /api/models/test`,
+`POST /api/onboarding`); temporary conversations (`temporary` on `/api/run`, `POST
+/api/sessions/:id/discard`, purge at startup); memory forgetting (`/api/memory/forget/preview`,
+`/api/memory/forget`, `memory_suppressions`, `originRunId` on facts). Full suite 213/0/1.
+Coverage 28 implemented, 51 partial, 89 missing. Issues #3, #7, #14, #18 updated.
+Release 0.3.0 when the next batch (terminal `/model` `/think`, project secrets) lands.
 
 ## Delivered this session
 

@@ -4,6 +4,9 @@ import type { ToolContext } from '../contracts.js';
 import type { ToolRegistry } from '../registry.js';
 import { ShellConfigSchema, ShellInputSchema, shellEnvironment, validateExecutables, type ShellConfig, type ShellInput } from './shell-config.js';
 import { ShellProcess, type ProcessResult } from './shell-process.js';
+import { scrubSecrets } from '../locker.js';
+
+export type SecretResolver = (context: ToolContext, names: string[]) => Promise<Record<string, string>>;
 
 interface Operation { controller: AbortController; owner: string; runId: string; done: Promise<unknown> }
 export class BranchShell {
@@ -11,12 +14,12 @@ export class BranchShell {
   private readonly env: NodeJS.ProcessEnv;
   private readonly pending = new Set<Operation>();
   private closed = false;
-  constructor(input: unknown, env = process.env) {
+  constructor(input: unknown, env = process.env, private readonly secrets?: SecretResolver) {
     this.config = ShellConfigSchema.parse(input);
     this.env = shellEnvironment(this.config, env);
   }
   async ready(): Promise<void> { await validateExecutables(this.config); }
-  execute(input: ShellInput, context: ToolContext): Promise<ProcessResult & { target: Record<string, string> }> {
+  execute(input: ShellInput, context: ToolContext): Promise<ProcessResult & { target: { alias: string; executable: string; cwd: string; secrets: string[] } }> {
     if (this.closed) return Promise.reject(new Error('Host command execution is closed'));
     if (this.pending.size) return Promise.reject(new Error('A host command is already active'));
     if (!context.owner || !context.runId) return Promise.reject(new Error('Host commands require an owner and run ID'));
@@ -37,10 +40,18 @@ export class BranchShell {
     if (!(await stat(cwd)).isDirectory()) throw new Error('Command cwd must be a workspace directory');
     if (input.timeoutMs && input.timeoutMs > this.config.timeoutMs) throw new Error('Command timeout exceeds configured maximum');
     signal.throwIfAborted();
-    const process = new ShellProcess({ executable: executable.path, args: [...executable.args, ...input.args], cwd, env: this.env,
+    const injected = await this.injected(input.secrets, context);
+    const process = new ShellProcess({ executable: executable.path, args: [...executable.args, ...input.args], cwd, env: { ...this.env, ...injected },
       signal, timeoutMs: input.timeoutMs ?? this.config.timeoutMs, maxOutputBytes: this.config.maxOutputBytes });
     const result = await process.run();
-    return { ...result, target: { alias: input.executable, executable: executable.path, cwd } };
+    const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
+    return { ...scrubbed, target: { alias: input.executable, executable: executable.path, cwd, secrets: Object.keys(injected) } };
+  }
+  /** Secret values exist only in the child's environment; the model sees names and scrubbed output. */
+  private async injected(names: string[], context: ToolContext): Promise<Record<string, string>> {
+    if (!names.length) return {};
+    if (!this.secrets) throw new Error('Secrets are not available to host commands in this launch');
+    return this.secrets(context, names);
   }
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const operations = [...this.pending].filter(operation => operation.owner === context.owner && operation.runId === context.runId);
@@ -58,6 +69,6 @@ export class BranchShell {
 export function registerShell(registry: ToolRegistry, shell: BranchShell): void {
   registry.onRunFinished(context => shell.closeRun(context));
   registry.register({ name: 'shell.execute', permission: 'shell.execute', parameters: ShellInputSchema,
-    description: 'Run a configured trusted host executable alias with argument arrays in a workspace directory. This is host execution, not OS isolation: programs can access the host and launch other programs. Output and time are bounded; escaped descendants may survive cancellation.',
+    description: 'Run a configured trusted host executable alias with argument arrays in a workspace directory. Name secrets from the active project in `secrets` to expose them to the program as environment variables; their values never appear in results. This is host execution, not OS isolation: programs can access the host and launch other programs. Output and time are bounded; escaped descendants may survive cancellation.',
     execute: (input, context) => shell.execute(input, context) });
 }

@@ -5,12 +5,12 @@ import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser } from './browser.js';
 import { ShellConfigSchema } from './shell-config.js';
-import { BranchShell, registerShell } from './shell.js';
+import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional() }).strict();
 
-export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env) {
+export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver) {
   const closers: (() => Promise<void>)[] = [];
   const close = async () => {
     const results = await Promise.allSettled(closers.map(stop => stop()));
@@ -33,7 +33,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }
     if (config.shell) {
-      const shell = new BranchShell(config.shell, env);
+      const shell = new BranchShell(config.shell, env, secrets);
       await shell.ready();
       registerShell(registry, shell); closers.push(() => shell.close());
     }

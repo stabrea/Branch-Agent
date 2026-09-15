@@ -119,6 +119,32 @@ async function staticFile(
   response.end(body);
   return true;
 }
+const OnboardingSchema = z.object({ done: z.boolean(), completedAt: z.string().optional() }).strict();
+function onboardingState(app: Branch): { done: boolean } {
+  const saved = OnboardingSchema.safeParse(app.store.get("settings", app.runtime.owner, "onboarding")?.data ?? {});
+  return { done: saved.success ? saved.data.done : false };
+}
+/** A real, tiny completion through the chosen preset so setup ends with evidence, not a saved form. */
+async function testModel(app: Branch, body: unknown): Promise<unknown> {
+  const { preset } = z.object({ preset: z.string().min(1).max(64).nullable().optional() }).strict().parse(body);
+  const owner = app.runtime.owner;
+  const chosen = preset ? app.runtime.models.presets.get(preset) : app.runtime.models.plan(owner, "").candidates[0];
+  if (!chosen) throw new HttpError(400, "That model is not configured");
+  const started = Date.now();
+  try {
+    const completion = await chosen.provider.complete({
+      messages: [
+        { role: "system", content: "You are Branch Agent. Reply with the single word OK." },
+        { role: "user", content: "Connection test" },
+      ],
+      tools: [], maxTokens: 16, signal: AbortSignal.timeout(30000),
+    });
+    return { ok: true, presetId: chosen.id, presetName: chosen.name, model: chosen.model,
+      reply: completion.content.slice(0, 80), ms: Date.now() - started };
+  } catch (error) {
+    throw new HttpError(502, `${chosen.name} did not answer: ${errorText(error)}`);
+  }
+}
 /** The preset that actually served a run: the last recorded selection or fallback, if any. */
 function modelUsed(app: Branch, runId: string) {
   const events = app.store.events(runId).filter((event) => ["model.selected", "model.fallback"].includes(event.kind));
@@ -134,6 +160,8 @@ function state(app: Branch): unknown {
   return {
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
+    onboarding: onboardingState(app),
+    project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },
     preferences: preferences(app.store, owner),
@@ -162,10 +190,18 @@ async function api(
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
+  if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
+  if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
+  if (request.method === "POST" && path === "/api/onboarding") {
+    const value = OnboardingSchema.parse(await readBody(request));
+    app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
+    return onboardingState(app);
+  }
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -191,6 +227,7 @@ async function api(
     return app.runtime.run({
       prompt: input.prompt,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.temporary ? { temporary: true } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {
@@ -205,7 +242,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard))?$/.exec(path);
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
   if (match && match[2] === "model") {
     if (request.method === "POST")
@@ -217,6 +254,10 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   }
   if (match && request.method === "GET" && match[2] === "export")
     return app.store.exportSession(owner, match[1]!);
+  if (match && request.method === "POST" && match[2] === "discard") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.store.discardSession(owner, match[1]!);
+  }
   if (match && request.method === "POST" && match[2] === "duplicate") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.duplicateSession(owner, match[1]!);
@@ -230,6 +271,49 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.importMemory(owner, await readBody(request, maximumMemoryArchiveBytes));
   if (request.method === "POST" && path === "/api/memory/capacity")
     return app.store.configureMemory(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/memory/forget/preview") {
+    const { sessionId } = z.object({ sessionId: z.string().uuid() }).strict().parse(await readBody(request));
+    return app.store.forgetMemoryPreview(owner, sessionId);
+  }
+  if (request.method === "POST" && path === "/api/memory/forget")
+    return app.store.forgetMemory(owner, await readBody(request));
+  throw new HttpError(404, "Endpoint not found");
+}
+async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, projects = app.store.projects;
+  if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
+  if (request.method === "POST" && path === "/api/projects") {
+    const body = await readBody(request) as { modelPreset?: unknown };
+    if (typeof body?.modelPreset === "string" && !app.runtime.models.presets.has(body.modelPreset))
+      throw new HttpError(400, "That model preset is not configured");
+    return projects.save(owner, body);
+  }
+  if (request.method === "POST" && path === "/api/projects/active") return projects.setActive(owner, await readBody(request));
+  const match = /^\/api\/projects\/([a-z0-9-]{1,40})\/remove$/.exec(path);
+  if (match && request.method === "POST") {
+    z.object({}).strict().parse(await readBody(request));
+    const result = projects.remove(owner, match[1]!);
+    app.store.locker.removeProject(owner, match[1]!);
+    return result;
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Secret values go in and never come out; only names are listed. */
+async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, locker = app.store.locker;
+  const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
+  const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
+  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: locker.names(owner, listMatch[1]!) }; }
+  if (request.method === "POST" && path === "/api/secrets") {
+    const { project, name, value } = z.object({ project: z.string(), name: z.string(), value: z.string() }).strict().parse(await readBody(request, 64 * 1024));
+    known(project);
+    return locker.set(owner, project, name, value);
+  }
+  const removeMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/remove$/.exec(path);
+  if (removeMatch && request.method === "POST") {
+    z.object({}).strict().parse(await readBody(request));
+    return { removed: locker.remove(owner, removeMatch[1]!, removeMatch[2]!) };
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -322,7 +406,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

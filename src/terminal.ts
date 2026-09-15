@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from "./models.js";
 import { createInterface, type Interface } from "node:readline";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -29,6 +30,8 @@ class TerminalConversation {
   private readonly pollIntervalMs: number;
   private queue: string[] = [];
   private sessionId: string | undefined;
+  private model: string | undefined;
+  private reasoning: ReasoningEffort | null | undefined;
   private active: ActiveRun | undefined;
   private draining = false;
   private closing = false;
@@ -45,7 +48,7 @@ class TerminalConversation {
   }
   start(): Promise<void> {
     const done = new Promise<void>((resolve) => { this.resolveDone = resolve; });
-    this.write("Branch Agent terminal conversation\nLive model text when supported; tool/model/run progress for all providers. Partial text is uncommitted.\nCtrl+C or /cancel interrupts. Type a revision to redirect; /new starts a session; /exit quits.\n");
+    this.write("Branch Agent terminal conversation\nLive model text when supported; tool/model/run progress for all providers. Partial text is uncommitted.\nCtrl+C or /cancel interrupts. Type a revision to redirect; /new starts a session; /exit quits.\n/models lists models; /model <id> and /think <low|medium|high|default> choose for this conversation; /help repeats this.\n");
     this.lines.on("line", this.receive);
     this.lines.on("SIGINT", this.interrupt);
     this.signals.on("SIGINT", this.interrupt);
@@ -65,7 +68,7 @@ class TerminalConversation {
     }
     if (text === "/cancel") { this.interrupt(); return; }
     if (text.startsWith("/") && text !== "/new") {
-      this.write("Commands: /cancel, /new, /exit.\n");
+      this.command(text);
       this.prompt();
       return;
     }
@@ -73,6 +76,35 @@ class TerminalConversation {
     this.queue = text === "/new" ? [text] : [...this.queue.filter((item) => item === "/new"), text];
     void this.drain();
   };
+  /** Slash commands that never start a task. */
+  private command(text: string): void {
+    const [name, ...rest] = text.split(/\s+/), argument = rest.join(" ");
+    const owner = this.runtime.owner, models = this.runtime.models;
+    if (name === "/help") { this.write("Commands: /models, /model <id>, /think <low|medium|high|default>, /cancel, /new, /exit.\n"); return; }
+    if (name === "/models") {
+      const summary = models.summary(owner), active = this.model ?? summary.activePreset ?? summary.defaultPreset;
+      for (const preset of summary.presets)
+        this.write(`${preset.id === active ? "*" : " "} ${preset.id} — ${preset.name} · ${preset.model}${preset.coolingDownUntil ? " (resting)" : ""}\n`);
+      return;
+    }
+    if (name === "/model") {
+      if (!argument) { this.write(`Model for this conversation: ${this.model ?? "workspace default"}. Use /models to list ids.\n`); return; }
+      if (!models.presets.has(argument)) { this.write(`No model called ${argument}. Use /models to list ids.\n`); return; }
+      this.model = argument;
+      if (this.sessionId) models.configureSession(owner, this.sessionId, { preset: argument });
+      this.write(`[model set to ${models.presets.get(argument)!.name} for this conversation]\n`);
+      return;
+    }
+    if (name === "/think") {
+      const choice = argument === "default" ? null : argument;
+      if (choice !== null && !["low", "medium", "high"].includes(choice)) { this.write("Use /think low, medium, high or default.\n"); return; }
+      this.reasoning = choice as ReasoningEffort | null;
+      if (this.sessionId) models.configureSession(owner, this.sessionId, { reasoning: this.reasoning });
+      this.write(`[thinking set to ${choice ?? "the model's default"} for this conversation]\n`);
+      return;
+    }
+    this.write("Commands: /models, /model <id>, /think <level>, /cancel, /new, /exit.\n");
+  }
   private interrupt = (): void => {
     this.queue = [];
     if (!this.cancel()) this.write("No active task. Use /exit to quit.\n");
@@ -115,6 +147,8 @@ class TerminalConversation {
       const run = await this.runtime.run({
         prompt, signal: active.controller.signal,
         ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+        ...(this.model ? { model: this.model } : {}),
+        ...(this.reasoning !== undefined ? { reasoning: this.reasoning } : {}),
         onStarted: (run) => {
           active.run = run;
           this.write(`[session ${run.sessionId}]\n`);
@@ -122,7 +156,12 @@ class TerminalConversation {
         },
         onTextDelta: (text) => this.textDelta(active, text),
       });
+      const firstRun = this.sessionId !== run.sessionId;
       this.sessionId = run.sessionId;
+      if (firstRun && (this.model || this.reasoning !== undefined))
+        this.runtime.models.configureSession(this.runtime.owner, run.sessionId, {
+          ...(this.model ? { preset: this.model } : {}), ...(this.reasoning !== undefined ? { reasoning: this.reasoning } : {}),
+        });
       this.progress(active);
       if (run.status === "completed") this.write(`[final assistant response]\n${visibleText(run.output)}\n`);
       else this.write(`[task ${run.status}; partial text is not a final answer]\n`);

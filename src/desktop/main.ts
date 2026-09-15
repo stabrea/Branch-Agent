@@ -153,6 +153,8 @@ async function start(): Promise<void> {
     const integrations = await loadIntegrations(
       branch.registry,
       process.env.BRANCH_INTEGRATIONS,
+      process.env,
+      branch.secretsFor,
     );
     integrationClose = integrations.close;
     const server = await startServer(branch, { dataDir, port: 0 });

@@ -142,6 +142,8 @@ export const RunInputSchema = z
   .object({
     prompt: z.string().trim().min(1).max(16000),
     sessionId: z.string().uuid().optional(),
+    /** Start a conversation that is never searchable and is discarded when closed. */
+    temporary: z.boolean().optional(),
   })
   .strict();
 export const errorText = (error: unknown): string =>

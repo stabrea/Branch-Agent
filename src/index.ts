@@ -15,6 +15,8 @@ import { createRequire } from "node:module";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import type { ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
@@ -27,6 +29,8 @@ export async function createBranch(options: {
   presets?: ModelPreset[];
   /** ChatGPT account sign-in; when present and signed in, ChatGPT presets are registered. */
   chatgpt?: ChatGPTAuth;
+  /** Key for the secrets locker; defaults to a private key file inside the data directory. */
+  lockerKey?: LockerKeySource;
   owner?: string;
   retryPolicy?: RetryPolicyInput;
 }) {
@@ -46,6 +50,7 @@ export async function createBranch(options: {
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
   const store = new Store(join(dataDir, "branch.sqlite"));
+  store.openLocker(options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key")));
   const registry = new ToolRegistry();
   registerFiles(registry, files);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
@@ -83,6 +88,9 @@ export async function createBranch(options: {
     chatgpt,
     version,
     userAgent,
+    /** Secrets for host commands: only the active project's, never returned to the model. */
+    secretsFor: (context: ToolContext, names: string[]) =>
+      store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
     close: () => (closing ??= closeBranch(scheduler, runtime, store)),
   };
 }
@@ -110,6 +118,8 @@ export * from "./models.js";
 export * from "./chatgpt-auth.js";
 export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
+export * from "./projects.js";
+export * from "./locker.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

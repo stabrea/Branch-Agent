@@ -27,6 +27,8 @@ export class SessionBranches {
     const point = this.db.prepare("SELECT id,body FROM messages WHERE session_id=? AND source_id=?")
       .get(parentSessionId, messageId);
     if (!point) throw new Error("Branch message not found");
+    if (Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(parentSessionId)?.temporary) === 1)
+      throw new Error("Temporary conversations cannot be branched");
     const selected = JSON.parse(String(point.body)) as Message;
     if (!["user", "assistant"].includes(selected.role) || selected.toolCalls?.length)
       throw new Error("Choose a user message or an assistant reply without tool requests");
@@ -36,7 +38,7 @@ export class SessionBranches {
     const sessionId = randomUUID(), createdAt = new Date().toISOString();
     this.db.exec("BEGIN");
     try {
-      this.db.prepare("INSERT INTO sessions VALUES(?,?,?)").run(sessionId, owner, createdAt);
+      this.db.prepare("INSERT INTO sessions(id,owner,created_at) VALUES(?,?,?)").run(sessionId, owner, createdAt);
       const insert = this.db.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)");
       for (const row of rows) insert.run(sessionId, String(row.body));
       this.db.prepare("INSERT INTO session_branches VALUES(?,?,?,?)")
