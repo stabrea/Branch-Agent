@@ -71,7 +71,9 @@ export function parseRetryAfter(
   )
     return undefined;
   const deadline = Date.parse(value);
-  return Number.isFinite(deadline) ? Math.max(0, deadline - now) : undefined;
+  if (!Number.isFinite(deadline) || new Date(deadline).toUTCString() !== value.trim())
+    return undefined;
+  return Math.max(0, deadline - now);
 }
 
 export async function rejectedHttpResponse(

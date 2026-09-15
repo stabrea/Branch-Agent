@@ -546,8 +546,14 @@ test("abort while reading a rejected HTTP body stops without a retry", async (t)
   assert.equal(requests.length, 1);
 });
 
-for (const hint of ["later please", "Tuesday, 15-Sep-26 12:00:03 GMT"])
+for (const hint of [
+  "later please",
+  "Tuesday, 15-Sep-26 12:00:03 GMT",
+  "Tue, 31 Feb 2026 12:00:03 GMT",
+  "Tue, 15 Sep 2026 24:00:00 GMT",
+])
   test(`unsupported Retry-After ${hint} prevents an early retry`, async (t) => {
+    assert.equal(parseRetryAfter(hint), undefined);
     const { app, requests } = await fixture(t, "openai", (_entry, res) =>
       respond(res, 503, {}, { "retry-after": hint }),
     );
