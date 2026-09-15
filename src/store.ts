@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
 import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
+import { SessionBranches } from "./sessions.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -16,6 +17,7 @@ export interface SavedRecord {
 export class Store {
   private readonly db: DatabaseSync;
   private readonly history: SessionHistory;
+  private readonly branches: SessionBranches;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -43,6 +45,7 @@ export class Store {
       );
     this.migrateUsage();
     this.history = new SessionHistory(this.db);
+    this.branches = new SessionBranches(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
   }
@@ -68,6 +71,12 @@ export class Store {
       this.db.close();
       this.closed = true;
     }
+  }
+  branchSession(owner: string, input: Parameters<SessionBranches["branch"]>[1]) {
+    return this.branches.branch(owner, input);
+  }
+  sessionView(owner: string, sessionId: string) {
+    return this.branches.view(owner, sessionId);
   }
   createRun(owner: string, prompt: string, sessionId?: string): Run {
     const now = new Date().toISOString();

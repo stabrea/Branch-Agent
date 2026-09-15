@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 14 implemented, 56 partial, 1 external and 98 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 15 implemented, 56 partial, 1 external and 97 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -36,7 +36,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
 | Search resume duplicate import and export sessions (`routing.lifecycle`) | partial | Add session search, duplication, export and import; verify resumed history through a supported client. |
 | Temporary chats excluded from history and memory (`routing.temporary`) | missing | Close a temporary chat and verify that its messages do not enter persisted topic history or long-term memory. |
-| Branch a conversation from a selected prior state (`routing.branch`) | missing | Create a session branch at a selected point and verify that subsequent messages leave the original branch unchanged. |
+| Branch a conversation from a selected prior state (`routing.branch`) | implemented | Covered by the listed local fixtures. |
 
 ## Models
 

@@ -137,6 +137,9 @@ async function api(
   path: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
+  const session = /^\/api\/sessions\/([a-f0-9-]{36})$/.exec(path);
+  if (request.method === "GET" && session)
+    return app.store.sessionView(app.runtime.owner, session[1]!);
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);

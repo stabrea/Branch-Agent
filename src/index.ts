@@ -8,6 +8,7 @@ import { DemoProvider } from "./demo.js";
 import { Knowledge, registerMemory, registerKnowledge } from "./knowledge.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
+import { registerSessions } from "./sessions.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 
@@ -47,6 +48,7 @@ export async function createBranch(options: {
   const knowledge = new Knowledge(store, registry, runtime);
   registerMemory(registry, store);
   registerHistory(registry, store);
+  registerSessions(registry, store);
   registerKnowledge(registry, knowledge);
   const scheduler = new Scheduler(store, runtime);
   registerSchedules(registry, scheduler);

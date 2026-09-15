@@ -40,6 +40,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Bounded retries for temporary provider failures, preserving completed tool work and attempt accounting.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
 - Full-text conversation search with bounded excerpts and links to source messages.
+- Conversation branches from earlier messages, with separate subsequent histories.
 - Opt-in host commands with executable aliases, captured results and cancellation.
 - Restricted delegation with shared step/token limits and cancellation.
 - One-time and interval schedules while Branch Agent is running.

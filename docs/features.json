@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T19:00:22.887743+00:00",
+  "assessment_date": "2026-09-15T19:15:04.885283+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -421,17 +421,37 @@
       "family": "routing",
       "name": "Branch a conversation from a selected prior state",
       "acceptance_criterion": "Create a session branch at a selected point and verify that subsequent messages leave the original branch unchanged.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
+          "src/sessions.ts",
           "src/store.ts",
-          "src/server.ts"
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/sessions.test.mjs",
+          "tests/session-ui.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "conversation branch preserves exact prefix, tool evidence and original while continuing independently",
+          "branching requires both grants and refuses other owners or mismatched message identities",
+          "unsafe branch boundaries are rejected without repairing or mutating the source",
+          "branch copying is atomic on write failure and checks size only through its chosen point",
+          "authenticated session API exposes branch history and rejects other owners",
+          "browser branches a historical prefix and follows up without changing the original",
+          "pending chat disables branching and conversation switching until its response settles",
+          "failed branch view keeps its created ID and retry opens it without another branch",
+          "a rejected historical tool-request branch leaves the current conversation unchanged"
+        ],
+        "commits": [
+          "049b328"
+        ],
+        "detail": "sessions.branch copies the exact conversation prefix through a selected eligible message into a new session with new message source IDs. The copy and durable parent/branch-point lineage are committed atomically. Owner checks and both sessions.branch/history.read grants protect access. The branch continues from copied history without including later original messages or replaying prior tool effects; original messages and lineage remain unchanged after continuation and restart. Browser controls select branch points, follow up in the branch and reopen the original; a failed branch-view fetch retains its created ID and retries viewing without duplicating the branch.",
+        "validation_source": "Auditor inspected current source and ran node --test tests/sessions.test.mjs tests/session-ui.test.mjs against the built working tree: 9 passed, 0 failed, 0 skipped (5 core/API and 4 browser tests). The full application suite passed 139 tests with 1 skipped. Core and interface specification and quality reviews approved the implementation.",
+        "supported_acceptance_scope": "Conversation branching only. Eligible boundaries are user messages or assistant replies without tool requests, and the selected prefix must contain no unfinished tool requests. Copy/view bounds are 1000 messages or 4 MiB; the copy limit applies through the chosen point. Workspace files and saved memory remain shared and are explicitly disclosed in the UI. This does not create isolated workspaces, sandbox branches, session import/export, general lifecycle completeness, or a guarantee that future model-directed tool calls cannot repeat an effect."
       },
-      "remaining": "Create a session branch at a selected point and verify that subsequent messages leave the original branch unchanged."
+      "remaining": ""
     },
     {
       "id": "models.hosted-local",
