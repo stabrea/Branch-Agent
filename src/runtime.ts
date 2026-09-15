@@ -147,6 +147,7 @@ export class Runtime {
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
+    const budget = parent?.budget ?? new Budget(options.budget);
     const run = this.prepareRun(options);
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
@@ -161,7 +162,7 @@ export class Runtime {
       : this.context({
           runId: run.id,
           signal,
-          budget: new Budget(options.budget),
+          budget,
           ...(options.permissions ? { permissions: options.permissions } : {}),
         });
     this.store.message(run.sessionId, {

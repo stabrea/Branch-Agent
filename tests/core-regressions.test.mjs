@@ -329,3 +329,51 @@ test("cancelled tool side effects are marked unknown and never replayed on conti
   assert.equal(sideEffects, 1);
   await assert.rejects(app.files.read("should-not-replay.txt"), /ENOENT/);
 });
+
+test("invalid budgets do not create durable runs or active controllers", async (t) => {
+  const { app } = await fixture(t);
+  for (const budget of [
+    { maxSteps: 0, maxTokens: 2000 },
+    { maxSteps: 10, maxTokens: 0 },
+  ]) {
+    await assert.rejects(
+      app.runtime.run({ prompt: "invalid budget", budget }),
+      /Invalid budget/,
+    );
+    assert.equal(app.store.runs("local").length, 0);
+  }
+  await app.runtime.shutdown();
+  assert.equal(app.store.runs("local").length, 0);
+});
+
+test("invalid budgets preserve an existing session for valid continuation", async (t) => {
+  const { app } = await fixture(t, {
+    name: "fixture",
+    async complete() {
+      return { content: "continued", toolCalls: [] };
+    },
+  });
+  const initial = await app.runtime.run({ prompt: "begin" });
+  const originalMessages = app.store.messages(initial.sessionId);
+  for (const budget of [
+    { maxSteps: 0, maxTokens: 2000 },
+    { maxSteps: 10, maxTokens: 0 },
+  ]) {
+    await assert.rejects(
+      app.runtime.run({
+        prompt: "invalid",
+        sessionId: initial.sessionId,
+        budget,
+      }),
+      /Invalid budget/,
+    );
+    assert.equal(app.store.runs("local").length, 1);
+    assert.deepEqual(app.store.messages(initial.sessionId), originalMessages);
+  }
+  const continued = await app.runtime.run({
+    prompt: "valid",
+    sessionId: initial.sessionId,
+  });
+  assert.equal(continued.status, "completed");
+  assert.equal(app.store.runs("local").length, 2);
+});
