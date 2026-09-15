@@ -5,6 +5,7 @@ import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
 import { SessionBranches } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
+import { MemoryFacts } from "./memory.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -20,6 +21,7 @@ export class Store {
   private readonly history: SessionHistory;
   private readonly branches: SessionBranches;
   private readonly library: SessionLibrary;
+  private readonly memories: MemoryFacts;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -45,6 +47,7 @@ export class Store {
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
+    this.memories = new MemoryFacts(this.db);
     this.migrateUsage();
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
@@ -240,6 +243,7 @@ export class Store {
     id: string,
     data: Record<string, unknown>,
   ): SavedRecord {
+    if (table === "memory") return this.memories.save(owner, id, data);
     const now = new Date().toISOString();
     this.db
       .prepare(
@@ -249,12 +253,14 @@ export class Store {
     return this.get(table, owner, id)!;
   }
   get(table: RecordTable, owner: string, id: string): SavedRecord | undefined {
+    if (table === "memory") return this.memories.get(owner, id);
     const row = this.db
       .prepare(`SELECT * FROM ${table} WHERE owner=? AND id=?`)
       .get(owner, id);
     return row ? this.toRecord(row) : undefined;
   }
   list(table: RecordTable, owner: string): SavedRecord[] {
+    if (table === "memory") return this.memories.list(owner);
     return this.db
       .prepare(
         `SELECT * FROM ${table} WHERE owner=? ORDER BY updated_at DESC LIMIT 500`,
@@ -269,6 +275,14 @@ export class Store {
         .run(owner, id).changes > 0
     );
   }
+  memoryCapacity(owner: string) { return this.memories.capacity(owner); }
+  configureMemory(owner: string, input: unknown) { return this.memories.configure(owner, input); }
+  updateMemory(owner: string, input: unknown, sourceRunId: string) {
+    return this.memories.update(owner, input, sourceRunId);
+  }
+  searchMemory(owner: string, query: string) { return this.memories.search(owner, query); }
+  exportMemory(owner: string) { return this.memories.export(owner); }
+  importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
   claimSchedule(
     owner: string,
     id: string,

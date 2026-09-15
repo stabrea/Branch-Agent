@@ -12,6 +12,7 @@ import { RunInputSchema, errorText } from "./contracts.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
+import { maximumMemoryArchiveBytes } from "./memory.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -126,6 +127,7 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id) })),
     memory: app.store.list("memory", owner),
+    memoryCapacity: app.store.memoryCapacity(owner),
     specialists: app.store.list("specialists", owner),
     procedures: app.store.list("procedures", owner),
     schedules: app.store.list("schedules", owner),
@@ -139,6 +141,7 @@ async function api(
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
+  if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -186,6 +189,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     z.object({}).strict().parse(await readBody(request));
     return app.store.duplicateSession(owner, match[1]!);
   }
+  throw new HttpError(404, "Endpoint not found");
+}
+async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
+  if (request.method === "POST" && path === "/api/memory/import")
+    return app.store.importMemory(owner, await readBody(request, maximumMemoryArchiveBytes));
+  if (request.method === "POST" && path === "/api/memory/capacity")
+    return app.store.configureMemory(owner, await readBody(request));
   throw new HttpError(404, "Endpoint not found");
 }
 export async function startServer(
@@ -242,7 +254,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || path.startsWith("/api/sessions/"))
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

@@ -370,44 +370,6 @@ export class Knowledge {
   }
 }
 
-export function registerMemory(registry: ToolRegistry, store: Store): void {
-  registry.register({
-    name: "memory.put",
-    description: "Save explicit memory with source attribution and timestamp.",
-    permission: "memory.write",
-    parameters: z
-      .object({
-        text: z.string().min(1).max(4000),
-        source: z.string().min(1).max(500),
-      })
-      .strict(),
-    execute: async (a, c) =>
-      store.save("memory", c.owner, randomUUID(), {
-        ...a,
-        sourceRunId: c.runId,
-      }),
-  });
-  registry.register({
-    name: "memory.search",
-    description: "Search this owner's stored memory by literal text.",
-    permission: "memory.read",
-    parameters: z.object({ query: z.string().max(200) }).strict(),
-    execute: async (a, c) =>
-      store
-        .list("memory", c.owner)
-        .filter((r) =>
-          String(r.data.text).toLowerCase().includes(a.query.toLowerCase()),
-        )
-        .slice(0, 20),
-  });
-  registry.register({
-    name: "memory.delete",
-    description: "Delete an owner-scoped memory.",
-    permission: "memory.write",
-    parameters: idArgs,
-    execute: async (a, c) => store.delete("memory", c.owner, a.id),
-  });
-}
 function registerProcedures(
   registry: ToolRegistry,
   knowledge: Knowledge,
