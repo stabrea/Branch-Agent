@@ -15,6 +15,16 @@ from **Settings → Updates**. Do not merge or release every batch.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
 - Copy rule: plain language for non-technical people, no developer jargon in the interface.
 
+## Tracking on GitHub
+
+Nothing lives only in chat. Open work is tracked as checklists:
+
+- Issues #2–#17: one per inventory family (`inventory` label), one checkbox per acceptance entry.
+  Tick a box only when the criterion passes with a real fixture and the ledger is updated.
+- Issue #18: the owner's direct requests (`owner-request` label).
+- Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
+  the change into the family issue with `gh issue edit`.
+
 ## Delivered this session
 
 1. Skills batch shipped (coverage: `extensions.progressive`, `extensions.authoring` implemented).
