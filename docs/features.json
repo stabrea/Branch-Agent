@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T23:24:16.768554+00:00",
+  "assessment_date": "2026-09-15T23:28:52.581707+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -226,16 +226,25 @@
       "family": "surfaces",
       "name": "Background task attention notifications",
       "acceptance_criterion": "Run a background task that needs user input and surface a notification linking to that exact pending task.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/contracts.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
           "public/app.js",
-          "src/runtime.ts"
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Activity polling and cancel controls exist, but no attention notification flow."
+        "tests": [
+          "a task that needs an answer stops, is listed for attention, reaches channels as a question, and continues with the reply"
+        ],
+        "detail": "The user.ask tool stops a task with status needs_input and an attention.needed event; /api/state lists waiting conversations; the web and desktop app show a banner and a system notification that open that exact conversation; channels deliver the question as the reply; the next message in the conversation answers it."
       },
-      "remaining": "Implement pending-user-input task state and background notification linked to the exact task."
+      "remaining": ""
     },
     {
       "id": "surfaces.editor-clients",
@@ -1477,17 +1486,26 @@
       "family": "learning",
       "name": "Context compaction preserving task handoff",
       "acceptance_criterion": "Compact an oversized conversation while preserving recent turns and the active task handoff.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/store.ts",
+          "src/contracts.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an oversized conversation is compacted into a handoff summary; recent turns and the stored history stay",
+          "compaction split keeps at least six recent messages, cuts at a user turn and ignores this run's own turns"
+        ],
+        "detail": "Above ~11k estimated tokens the older stored turns are summarised by the model into a handoff note (facts, decisions, open tasks, next step) and replaced in the working context; at least six recent turns and this run's own turns stay; the summary is persisted per conversation and reused; the full transcript remains stored."
       },
-      "remaining": "Compact an oversized conversation while preserving recent turns and the active task handoff."
+      "remaining": ""
     },
     {
       "id": "learning.dream",
@@ -3048,18 +3066,25 @@
       "family": "reliability",
       "name": "Visible compaction events",
       "acceptance_criterion": "Emit a visible compaction event with task continuity preserved after context reduction.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/store.ts",
           "src/contracts.ts",
-          "experiments/accounting.py"
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an oversized conversation is compacted into a handoff summary; recent turns and the stored history stay"
+        ],
+        "detail": "A context.compacted run event records dropped/kept counts and estimated sizes before and after; the task continues in the same run with the summary in place."
       },
-      "remaining": "Emit a visible compaction event with task continuity preserved after context reduction."
+      "remaining": ""
     },
     {
       "id": "reliability.checks",

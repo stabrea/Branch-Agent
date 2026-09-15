@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 43 implemented, 46 partial, 1 external and 79 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 46 implemented, 45 partial, 1 external and 77 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -21,7 +21,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Grouped side-by-side conversations (`surfaces.panes`) | missing | Arrange multiple topics side by side and verify that messages remain assigned to the correct topic. |
 | Mobile installable web app and push notifications (`surfaces.mobile-push`) | missing | Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded. |
 | Localized application interface (`surfaces.i18n`) | missing | Switch between two supported interface languages and verify that navigation and task controls remain usable. |
-| Background task attention notifications (`surfaces.attention`) | partial | Implement pending-user-input task state and background notification linked to the exact task. |
+| Background task attention notifications (`surfaces.attention`) | implemented | Covered by the listed local fixtures. |
 | Personal knowledge access from note editors (`surfaces.editor-clients`) | missing | Query indexed personal knowledge from a supported note-editor client and open the cited document. |
 
 ## Routing
@@ -107,7 +107,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Context compaction preserving task handoff (`learning.compaction`) | missing | Compact an oversized conversation while preserving recent turns and the active task handoff. |
+| Context compaction preserving task handoff (`learning.compaction`) | implemented | Covered by the listed local fixtures. |
 | Scheduled consolidation from append-only history (`learning.dream`) | missing | Process only new archive entries during scheduled consolidation and advance the consumption cursor after success. |
 | Versioned durable memory (`learning.versioning`) | partial | Version and restore durable-memory content itself. |
 | Post-task memory and skill review (`learning.review`) | missing | Run a post-task review that can propose a memory or skill change with a link to the originating task. |
@@ -231,7 +231,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Streaming tool activity (`reliability.activity`) | partial | Stream actual in-progress tool activity to clients with terminal tool status. |
 | Context tokens and cache metrics (`reliability.context`) | partial | Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable. |
-| Visible compaction events (`reliability.compaction`) | missing | Emit a visible compaction event with task continuity preserved after context reduction. |
+| Visible compaction events (`reliability.compaction`) | implemented | Covered by the listed local fixtures. |
 | Success checks and bounded retry handlers (`reliability.checks`) | partial | Enforce declared completion checks for general runs and bounded retries after failure. |
 | Stuck-operation recovery (`reliability.stuck`) | partial | Detect a stalled operation and implement/test the configured recovery with recorded outcome. |
 | Context-limit and truncation recovery (`reliability.overflow`) | partial | Implement bounded recovery for context overflow and truncated output. |

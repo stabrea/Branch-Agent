@@ -59,6 +59,8 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.
 - Web search and page reading, guarded against local and private addresses; pin a skill to a conversation; archive or purge stale memory by age; a live list of the tools that exist right now.
+- Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.
+- When the assistant needs your answer it stops and asks; a banner and a notification take you straight to that conversation.
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
 - Configurable assistant name and working instructions, applied consistently within each task.
 - Opt-in host commands with executable aliases, captured results and cancellation.

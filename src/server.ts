@@ -170,12 +170,23 @@ function toolInventory(app: Branch) {
     models: [...app.runtime.models.presets.keys()],
   };
 }
+/** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
+function attention(app: Branch) {
+  const seen = new Set<string>(), waiting: { runId: string; sessionId: string; question: string; createdAt: string }[] = [];
+  for (const run of app.store.runs(app.runtime.owner)) {
+    if (seen.has(run.sessionId)) continue;
+    seen.add(run.sessionId);
+    if (run.status === "needs_input") waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt });
+  }
+  return waiting;
+}
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;
   return {
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
+    attention: attention(app),
     project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },

@@ -977,3 +977,7 @@ summary {
 .door.selected { border-color: var(--copper); box-shadow: inset 0 0 0 1px var(--copper); }
 .door strong { font-size: 1rem; }
 .door span { color: var(--muted); font-size: 0.9rem; font-weight: 400; }
+
+.attention { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
+.attention-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.attention-row strong { color: var(--copper-hi); }

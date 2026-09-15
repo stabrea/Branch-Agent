@@ -391,6 +391,30 @@ async function refresh() {
   renderProjects();
   void renderSecrets();
   void renderChannels();
+  renderAttention();
+}
+const notifiedAttention = new Set();
+function renderAttention() {
+  const waiting = state.attention || [];
+  const banner = $("attention");
+  banner.hidden = !waiting.length;
+  banner.replaceChildren(...waiting.map((item) => {
+    const row = el("div", undefined, "attention-row");
+    row.append(el("strong", "Your assistant needs you"), el("span", item.question),
+      button("Open conversation", () => { displayView("chat"); openConversation(item.sessionId); }));
+    return row;
+  }));
+  for (const item of waiting) {
+    if (notifiedAttention.has(item.runId)) continue;
+    notifiedAttention.add(item.runId);
+    if (typeof Notification === "undefined") continue;
+    const show = () => {
+      const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
+      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.sessionId); };
+    };
+    if (Notification.permission === "granted") show();
+    else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
+  }
 }
 async function renderChannels() {
   let summary;

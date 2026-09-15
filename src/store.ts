@@ -48,7 +48,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), owner TEXT NOT NULL, prompt TEXT NOT NULL, status TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id), body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS usage(run_id TEXT PRIMARY KEY REFERENCES tasks(id), estimated_input INTEGER NOT NULL DEFAULT 0, estimated_output INTEGER NOT NULL DEFAULT 0, reported_input INTEGER NOT NULL DEFAULT 0, reported_output INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0);`);
+      CREATE TABLE IF NOT EXISTS usage(run_id TEXT PRIMARY KEY REFERENCES tasks(id), estimated_input INTEGER NOT NULL DEFAULT 0, estimated_output INTEGER NOT NULL DEFAULT 0, reported_input INTEGER NOT NULL DEFAULT 0, reported_output INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);`);
     for (const table of ["memory", "specialists", "procedures", "schedules", "settings"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
@@ -168,6 +169,7 @@ export class Store {
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
+      this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
       this.db.exec("COMMIT");
       return { discarded: true, messages: Number(messages) };
@@ -202,6 +204,19 @@ export class Store {
     this.db
       .prepare("INSERT INTO messages(session_id,body,source_id) VALUES(?,?,?)")
       .run(sessionId, JSON.stringify(message), sourceId ?? null);
+  }
+  /** Messages the model should see: a summary of compacted history, then everything after it. */
+  workingMessages(sessionId: string): { summary: string | null; rows: { id: number; message: Message }[] } {
+    const compaction = this.db.prepare("SELECT through_id, summary FROM compactions WHERE session_id=?").get(sessionId);
+    const after = compaction ? Number(compaction.through_id) : 0;
+    const rows = this.db.prepare("SELECT id, body FROM messages WHERE session_id=? AND id>? ORDER BY id").all(sessionId, after)
+      .map((row) => ({ id: Number(row.id), message: JSON.parse(String(row.body)) as Message }));
+    return { summary: compaction ? String(compaction.summary) : null, rows };
+  }
+  saveCompaction(sessionId: string, throughId: number, summary: string): void {
+    this.db.prepare(`INSERT INTO compactions VALUES(?,?,?,?) ON CONFLICT(session_id)
+      DO UPDATE SET through_id=excluded.through_id, summary=excluded.summary, created_at=excluded.created_at`)
+      .run(sessionId, throughId, summary, new Date().toISOString());
   }
   messages(sessionId: string): Message[] {
     return this.db
