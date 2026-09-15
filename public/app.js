@@ -193,13 +193,17 @@ function memoryEditor(record) {
   const save = el("button", "Save changes"); save.type = "submit";
   editor.append(text, source, error, save, button("Cancel edit", async () => { memoryEditors.delete(record.id); await refresh(); }));
   editor.addEventListener("submit", async event => {
-    event.preventDefault(); save.disabled = true;
+    event.preventDefault(); save.disabled = true; text.disabled = true; source.disabled = true;
     try {
       await api("action", { tool: "memory.update", args: { id: record.id, text: draft.text, source: draft.source, expectedRevision: draft.revision } });
       if (memoryEditors.get(record.id) === draft) memoryEditors.delete(record.id);
       await refresh(); toast("Memory updated.");
     } catch (failure) { draft.error = failure.message; error.textContent = failure.message; }
-    finally { save.disabled = false; }
+    finally {
+      if (memoryEditors.get(record.id) === draft) {
+        save.disabled = false; text.disabled = false; source.disabled = false;
+      }
+    }
   });
   return editor;
 }

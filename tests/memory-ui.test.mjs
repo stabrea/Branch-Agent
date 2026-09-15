@@ -108,9 +108,13 @@ test('an older pending save cannot discard a reopened editor draft', async t => 
   });
   await edit(f.page, 'Saved draft A', 'Source A');
   await f.page.getByRole('button', { name: 'Save changes', exact: true }).click(); await updated;
+  assert.equal(await f.page.getByLabel('Edit memory fact', { exact: true }).isDisabled(), true);
+  assert.equal(await f.page.getByLabel('Edit memory source', { exact: true }).isDisabled(), true);
   await f.page.getByRole('button', { name: 'Cancel edit', exact: true }).click();
   await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
   await edit(f.page, 'Unsaved draft B', 'Source B');
+  assert.equal(await f.page.getByLabel('Edit memory fact', { exact: true }).isEnabled(), true);
+  assert.equal(await f.page.getByLabel('Edit memory source', { exact: true }).isEnabled(), true);
   release(); await f.page.locator('#toast').filter({ hasText: 'Memory updated.' }).waitFor();
   assert.equal(await f.page.getByLabel('Edit memory fact', { exact: true }).inputValue(), 'Unsaved draft B');
   assert.equal(await f.page.getByLabel('Edit memory source', { exact: true }).inputValue(), 'Source B');
@@ -118,6 +122,32 @@ test('an older pending save cannot discard a reopened editor draft', async t => 
   await f.page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
   assert.equal(record(f).data.text, 'Unsaved draft B');
+  assert.deepEqual(f.errors, []);
+});
+
+test('failed pending memory save restores both fields with the original draft intact', async t => {
+  const f = await fixture(t);
+  let release, received;
+  const held = new Promise(resolve => { release = resolve; });
+  const pending = new Promise(resolve => { received = resolve; });
+  await f.page.route('**/api/action', async route => {
+    if (route.request().postDataJSON().tool !== 'memory.update') return route.continue();
+    received(); await held;
+    await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Retry this save"}' });
+  });
+  await edit(f.page, 'Draft awaiting save', 'Draft source');
+  await f.page.getByRole('button', { name: 'Save changes', exact: true }).click(); await pending;
+  const text = f.page.getByLabel('Edit memory fact', { exact: true });
+  const source = f.page.getByLabel('Edit memory source', { exact: true });
+  assert.equal(await text.isDisabled(), true); assert.equal(await source.isDisabled(), true);
+  release(); await f.page.locator('.memory-error').filter({ hasText: 'Retry this save' }).waitFor();
+  assert.equal(await text.isEnabled(), true); assert.equal(await source.isEnabled(), true);
+  assert.equal(await text.inputValue(), 'Draft awaiting save'); assert.equal(await source.inputValue(), 'Draft source');
+  await f.page.unroute('**/api/action');
+  await text.fill('Retried correction'); await source.fill('Retried source');
+  await f.page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
+  assert.equal(record(f).data.text, 'Retried correction'); assert.equal(record(f).data.source, 'Retried source');
   assert.deepEqual(f.errors, []);
 });
 
