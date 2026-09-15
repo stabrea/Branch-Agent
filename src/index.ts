@@ -82,5 +82,6 @@ export * from "./demo.js";
 export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
+export * from "./identity.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

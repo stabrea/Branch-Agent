@@ -13,6 +13,7 @@ import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
+import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -122,6 +123,7 @@ function state(app: Branch): unknown {
   return {
     provider: app.runtime.provider.name,
     preferences: preferences(app.store, owner),
+    identity: assistantIdentity(app.store, owner),
     workspace: app.runtime.workspace,
     runs: app.store
       .runs(owner)
@@ -142,6 +144,8 @@ async function api(
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
+  if (request.method === "POST" && path === "/api/identity")
+    return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
