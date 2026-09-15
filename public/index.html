@@ -263,6 +263,22 @@
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>
+          <form id="identity-form" class="card">
+            <h2>Assistant identity</h2>
+            <p>Changes apply to the next task, including the next message in an existing conversation. Tasks already running keep their current instructions.</p>
+            <fieldset id="identity-fields">
+              <label for="identity-name">Assistant name</label>
+              <input id="identity-name" maxlength="80" required />
+              <label for="identity-instructions">Working instructions</label>
+              <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work."></textarea>
+              <div class="identity-actions">
+                <button id="identity-save">Save identity</button>
+                <button id="identity-reload" type="button">Reload saved identity</button>
+              </div>
+            </fieldset>
+            <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
+            <p id="identity-status" role="status"></p>
+          </form>
           <form id="settings-form" class="card">
             <label for="appearance">Appearance</label>
             <select id="appearance">

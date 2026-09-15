@@ -885,3 +885,5 @@ summary {
 .memory-editor { display: grid; gap: 12px; margin-top: 16px; }
 .memory-error { color: var(--danger, #b43b34); }
 #memory-transfer { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.identity-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+#identity-fields { border: 0; padding: 0; margin: 0; }

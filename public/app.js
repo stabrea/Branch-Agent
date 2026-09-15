@@ -11,6 +11,7 @@ let savedNextOffset = null;
 let savedQuery = "";
 const memoryEditors = new Map();
 let memoryCapacityDraft = null;
+let identityDraft = null, identityDirty = false, identityBusy = false;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -371,6 +372,37 @@ async function refresh() {
   renderSpecialists();
   renderProcedures();
   renderSchedules();
+  renderIdentity();
+}
+function renderIdentity() {
+  if (identityDirty || identityBusy || !state.identity) return;
+  if (identityDraft && state.identity.revision < identityDraft.revision) return;
+  setIdentityDraft(state.identity);
+}
+function setIdentityDraft(identity) {
+  identityDraft = { ...identity }; identityDirty = false;
+  $("identity-name").value = identity.name;
+  $("identity-instructions").value = identity.instructions;
+}
+async function changeIdentity(reload) {
+  if (identityBusy || !identityDraft) return;
+  identityBusy = true; $("identity-fields").disabled = true;
+  $("identity-status").textContent = reload ? "Reloading saved identity…" : "Saving identity…";
+  try {
+    const saved = reload ? (await api("state")).identity : await api("identity", {
+      name: identityDraft.name, instructions: identityDraft.instructions, expectedRevision: identityDraft.revision,
+    });
+    setIdentityDraft(saved);
+    $("identity-status").textContent = reload ? "Saved identity loaded." : "Identity saved. Changes apply to the next task.";
+  } catch (error) { $("identity-status").textContent = error.message; }
+  finally { identityBusy = false; $("identity-fields").disabled = false; }
+}
+$("identity-form").addEventListener("submit", event => { event.preventDefault(); void changeIdentity(false); });
+$("identity-reload").addEventListener("click", () => { void changeIdentity(true); });
+for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "instructions"]]) {
+  $(id).addEventListener("input", () => {
+    if (!identityBusy && identityDraft) { identityDraft[key] = $(id).value; identityDirty = true; }
+  });
 }
 function message(role, content, source) {
   const node = el("div", undefined, "message " + (source?.toolCalls?.length ? "assistant-step" : role));
