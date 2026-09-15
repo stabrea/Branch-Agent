@@ -1,14 +1,60 @@
-# Branch
+# Branch Agent
 
 An open-source personal assistant designed to assemble the capabilities you need, coordinate specialist agents, and improve through verified experience.
 
-**Status: project foundation.** This repository currently contains the project direction and contribution guidelines. A working assistant has not been released yet.
+**Status: early implementation.** The local runtime, web interface and offline demonstration run today. The complete requested capability set remains in development; see the [feature inventory](docs/features.md) for evidence and gaps.
+
+## Run locally
+
+Requires Node.js 24 and npm. Python 3.12 is optional for experiments.
+
+```sh
+npm ci
+npm run demo
+npm start
+```
+
+For the native desktop application:
+
+```sh
+npm run desktop
+```
+
+It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. Installers, signing and automatic updates are pending.
+
+Open the local address printed by `npm start` and paste its session token. The default provider is a deterministic demonstration that writes, reads and verifies a greeting. It does not interpret arbitrary requests. Configure a language model using [configuration.md](docs/configuration.md) for general assistance.
+
+The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, outside that workspace. Both directories are excluded from Git. Keep the session token private: it authorizes the local application's tools.
+
+## Available now
+
+- Conversations with persisted runs, tool traces and reported/estimated usage.
+- A native desktop window and tray, with Forest and Daylight appearances saved across restarts.
+- OpenAI-compatible and Anthropic provider adapters.
+- Workspace file tools, owner-scoped memory, versioned procedures and specialists.
+- Restricted delegation with shared step/token limits and cancellation.
+- One-time and interval schedules while Branch Agent is running.
+- Optional MCP tools and browser automation through explicit configuration.
+- Separate Python accounting and released neural-model experiments.
+
+Provider protocol fixtures and local tests do not establish live account readiness. Procedure checks establish their explicit assertions; they do not establish general intelligence or unrestricted self-improvement.
+
+## Development checks
+
+```sh
+npx playwright install chromium --only-shell
+npm test
+python -m unittest discover -s experiments -p 'test_*.py'
+npm run doctor
+```
+
+See [architecture](docs/architecture.md), [experiments](docs/experiments.md), and [contributing](CONTRIBUTING.md).
 
 ## The idea
 
-Give Branch an outcome. Branch should organize the work, select suitable tools and specialists, and bring their results back into one conversation.
+Give Branch Agent an outcome. Branch Agent should organize the work, select suitable tools and specialists, and bring their results back into one conversation.
 
-For example, a request to build a website could involve design, implementation, testing, and deployment. Branch's role would be to coordinate those steps, respect the access you grant, and verify the result.
+For example, a request to build a website could involve design, implementation, testing, and deployment. Branch Agent's role would be to coordinate those steps, respect the access you grant, and verify the result.
 
 ## What we want to build
 
@@ -19,17 +65,17 @@ For example, a request to build a website could involve design, implementation, 
 - **Efficient execution.** Load relevant context on demand and measure the total cost of successful work.
 - **Reliable upgrades.** Check compatibility before activating updated components, with a way to return to a working version.
 
-These are design goals, not claims about implemented features or guaranteed compatibility.
+These describe the broader direction. Consult the feature inventory for each implementation's current scope.
 
 ## Get involved
 
-Branch is being built from scratch. The initial focus is a small, understandable core and a working demonstration of task execution.
+Contributions can expand the capability inventory, improve task reliability, or supply representative evaluation cases.
 
-- Start a [discussion](https://github.com/stabrea/Branch/discussions) about use cases or design decisions.
-- Open an [issue](https://github.com/stabrea/Branch/issues) with a concrete proposal.
+- Start a [discussion](https://github.com/stabrea/Branch-Agent/discussions) about use cases or design decisions.
+- Open an [issue](https://github.com/stabrea/Branch-Agent/issues) with a concrete proposal.
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
 - See [ROADMAP.md](ROADMAP.md) for the proposed milestones.
 
 ## License
 
-Branch is licensed under the [MIT License](LICENSE). You may use, modify, distribute, and sell the software, including as part of a commercial product, subject to the license's notice requirements.
+Branch Agent is licensed under the [MIT License](LICENSE). You may use, modify, distribute, and sell the software, including as part of a commercial product, subject to the license's notice requirements.

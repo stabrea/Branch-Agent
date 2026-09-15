@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { RunInputSchema, errorText } from "./contracts.js";
 import type { createBranch } from "./index.js";
+import { PreferencesSchema, preferences } from "./preferences.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -91,6 +92,9 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
+    "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
+    "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
+    "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
   };
   const asset = assets[path];
   if (!asset) return false;
@@ -112,6 +116,7 @@ function state(app: Branch): unknown {
   const owner = app.runtime.owner;
   return {
     provider: app.runtime.provider.name,
+    preferences: preferences(app.store, owner),
     workspace: app.runtime.workspace,
     runs: app.store
       .runs(owner)
@@ -129,6 +134,11 @@ async function api(
   path: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
+  if (request.method === "POST" && path === "/api/preferences") {
+    const value = PreferencesSchema.parse(await readBody(request));
+    app.store.save("settings", app.runtime.owner, "preferences", value);
+    return value;
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(\/cancel)?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);

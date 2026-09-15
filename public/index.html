@@ -3,23 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>Branch — Your local assistant</title>
+    <meta name="color-scheme" content="dark light" />
+    <title>Branch Agent — Your personal assistant</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <aside>
-      <a class="brand" href="/" aria-label="Branch home"
-        ><span class="brand-icon">⌘</span> Branch</a
+    <div class="topbar">
+      <span class="topbar-brand">↗ Branch Agent</span
+      ><span class="topbar-caption">Your personal assistant</span
+      ><button id="appearance-shortcut" class="text-button">
+        ◐ Appearance
+      </button>
+    </div>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Branch Agent home"
+        ><span class="brand-icon">↗</span> Branch Agent</a
       >
-      <p class="tagline">A little help.<br />A clear record.</p>
+      <p class="tagline">
+        PERSONAL ASSISTANT<br />Good work, with room to grow.
+      </p>
+      <p class="nav-label">Your workspace</p>
       <nav aria-label="Main navigation">
         <button class="nav active" data-view="chat">Conversation</button
         ><button class="nav" data-view="runs">Activity</button
         ><button class="nav" data-view="memory">Memory</button
         ><button class="nav" data-view="specialists">Specialists</button
         ><button class="nav" data-view="procedures">Procedures</button
-        ><button class="nav" data-view="schedules">Schedules</button>
+        ><button class="nav" data-view="schedules">Schedules</button
+        ><button class="nav" data-view="settings">Settings</button>
       </nav>
       <div class="sidebar-bottom">
         <span class="dot"></span> Local workspace
@@ -36,7 +47,7 @@
         <span class="status-pill" id="connection">Locked</span>
       </header>
       <section id="login" class="card login">
-        <span class="eyebrow">WELCOME TO BRANCH</span>
+        <span class="eyebrow">// WELCOME TO BRANCH AGENT</span>
         <h2>Make room for your next idea.</h2>
         <p>
           Paste the local session token printed by <code>npm start</code> to
@@ -72,8 +83,8 @@
           </div>
           <div id="conversation" aria-live="polite">
             <div class="welcome">
-              <div class="leaf">↗</div>
-              <h2>What would you like to work on?</h2>
+              <span class="eyebrow">// A LITTLE HELP, A LITTLE HEADWAY</span>
+              <h2>Give your next<br />idea a place to grow.</h2>
               <p>
                 Plan a task, save something worth remembering,<br />or let your
                 assistant help with workspace files.
@@ -212,9 +223,43 @@
           </form>
           <div id="schedules-list" class="card-list"></div>
         </section>
+        <section id="settings" class="view" hidden>
+          <p class="section-intro">Make this workspace feel like yours.</p>
+          <form id="settings-form" class="card">
+            <label for="appearance">Appearance</label>
+            <select id="appearance">
+              <option value="forest">Forest</option>
+              <option value="daylight">Daylight</option>
+            </select>
+            <p class="subtle">Saved on this device for your next visit.</p>
+            <button>Save appearance</button>
+          </form>
+        </section>
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
+    <aside class="context-panel" aria-label="Assistant overview">
+      <span class="eyebrow">// YOUR ASSISTANT</span>
+      <h2>One place.<br />Many possibilities.</h2>
+      <p>Bring your tasks, notes, and useful routines together.</p>
+      <div class="context-provider" id="context-provider">Connect to begin</div>
+      <dl class="context-stats">
+        <div>
+          <dt>Active tasks</dt>
+          <dd id="context-runs">—</dd>
+        </div>
+        <div>
+          <dt>Saved memories</dt>
+          <dd id="context-memory">—</dd>
+        </div>
+        <div>
+          <dt>Available tools</dt>
+          <dd id="context-tools">—</dd>
+        </div>
+      </dl>
+      <div class="branch-art" aria-hidden="true"><span>↗</span></div>
+      <p class="context-footer">SMALL STEPS. USEFUL PROGRESS.</p>
+    </aside>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

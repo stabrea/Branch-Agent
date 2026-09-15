@@ -1,5 +1,5 @@
 {
-  "name": "branch-assistant",
+  "name": "branch-agent",
   "version": "0.1.0",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
@@ -12,11 +12,13 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-fonts.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
     "start": "npm run build && node dist/cli.js start",
     "demo": "npm run build && node dist/cli.js demo",
-    "doctor": "npm run build && node dist/cli.js doctor"
+    "doctor": "npm run build && node dist/cli.js doctor",
+    "desktop": "npm run build && electron .",
+    "package:desktop": "npm run build && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
@@ -24,7 +26,14 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
     "@types/node": "^24.10.0",
+    "electron": "44.3.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "main": "dist/desktop/main.js",
+  "productName": "Branch Agent"
 }

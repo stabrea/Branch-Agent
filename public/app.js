@@ -1,4 +1,7 @@
 const $ = (id) => document.getElementById(id);
+const desktop = new URLSearchParams(location.search).get("desktop") === "1";
+if (desktop) document.querySelector(".brand").href = "/?desktop=1";
+let savedAppearance;
 let token = sessionStorage.getItem("branch-token") || "",
   state = null,
   sessionId = null,
@@ -10,6 +13,7 @@ const titles = {
   specialists: "Specialists",
   procedures: "Procedures",
   schedules: "Schedules",
+  settings: "Settings",
 };
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -298,9 +302,22 @@ async function refresh() {
   state = await api("state");
   $("login").hidden = true;
   $("workspace").hidden = false;
-  $("lock").hidden = false;
+  $("lock").hidden = desktop;
   $("connection").textContent = "Connected";
   $("provider").textContent = state.provider;
+  if (savedAppearance !== state.preferences.appearance) {
+    savedAppearance = state.preferences.appearance;
+    applyAppearance(savedAppearance);
+  }
+  $("context-provider").textContent =
+    state.provider === "offline-demo-fixture"
+      ? "Offline demonstration"
+      : state.provider;
+  $("context-runs").textContent = state.runs.filter(
+    (run) => run.status === "running",
+  ).length;
+  $("context-memory").textContent = state.memory.length;
+  $("context-tools").textContent = state.tools.length;
   $("demo-notice").hidden = state.provider !== "offline-demo-fixture";
   renderRuns();
   renderMemory();
@@ -311,7 +328,7 @@ async function refresh() {
 function message(role, content) {
   const node = el("div", undefined, "message " + role);
   node.append(
-    el("small", role === "user" ? "You" : "Branch"),
+    el("small", role === "user" ? "You" : "Branch Agent"),
     document.createTextNode(content),
   );
   $("conversation").append(node);
@@ -439,7 +456,22 @@ $("procedure-json").value = JSON.stringify(
   null,
   2,
 );
-if (token) refresh().catch((e) => toast(e.message));
+function applyAppearance(value) {
+  const theme = value === "daylight" ? "daylight" : "forest";
+  document.documentElement.dataset.theme = theme;
+  $("appearance").value = theme;
+}
+applyAppearance("forest");
+form("settings-form", async () => {
+  const value = await api("preferences", { appearance: $("appearance").value });
+  savedAppearance = value.appearance;
+  applyAppearance(savedAppearance);
+});
+$("appearance-shortcut").addEventListener("click", () => {
+  displayView("settings");
+  if ($("workspace").hidden) toast("Connect to change settings.");
+});
+if (token || desktop) refresh().catch((e) => toast(e.message));
 setInterval(() => {
-  if (token) refresh().catch(() => {});
+  if (token || desktop) refresh().catch(() => {});
 }, 3000);

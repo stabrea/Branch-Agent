@@ -7,6 +7,16 @@ import type {
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
+  private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
+  onRunFinished(listener: (context: ToolContext) => Promise<void>): void {
+    this.runFinished.add(listener);
+  }
+  async finishRun(context: ToolContext): Promise<void> {
+    const results = await Promise.allSettled([...this.runFinished].map(listener =>
+      Promise.resolve().then(() => listener(context))));
+    const failures = results.filter(result => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), "Run cleanup failed");
+  }
   register<T>(tool: ToolDefinition<T>): void {
     if (
       !/^[a-z][a-z0-9_.-]{0,99}$/.test(tool.name) ||
