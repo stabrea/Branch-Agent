@@ -45,6 +45,10 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 ## Batch 4: terminal commands, projects, secrets locker (0.3.0)
 
+Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.3.0 (main 01aabeb). The owner's install
+was brought from 0.2.1 to 0.3.0 through `Updater.install()` + the hardened `apply-update.cmd` on the
+real install folder: keep previous → copy → start → detected, no rollback. The owner's assistant is named "TK".
+
 Commits 43b3627, 2d9ead1. `/models` `/model` `/think` in the terminal (per-run override through
 `ModelRouter.plan(owner, sessionId, override)`); `src/projects.ts` (instructions, preferred model,
 default project) and `src/locker.ts` (AES-256-GCM, key file `locker.key` in the data dir, host-boundary
