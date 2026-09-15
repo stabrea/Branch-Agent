@@ -150,8 +150,9 @@ test("specialists require evidence to promote and delegation cannot escalate", a
   );
   assert.equal(evidence.data.evaluationPassed, true);
   app.knowledge.promoteSpecialist(context, specialist.id);
-  const run = await app.knowledge.delegate(context, specialist.id, "demo");
+  const { run, result } = await app.knowledge.delegate(context, specialist.id, "demo");
   assert.equal(run.status, "completed");
+  assert.equal(result.status, "resolved");
   await assert.rejects(
     app.knowledge.delegate(
       { ...context, permissions: new Set(["files.read", "specialists.use"]) },

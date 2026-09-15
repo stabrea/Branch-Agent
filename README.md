@@ -58,10 +58,13 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - A secrets locker: values are encrypted with a key kept outside the database, reach a program only as environment variables of a host command in the active project, are scrubbed from its output, and are never shown again.
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.
+- Web search and page reading, guarded against local and private addresses; pin a skill to a conversation; archive or purge stale memory by age; a live list of the tools that exist right now.
+- Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.
+- When the assistant needs your answer it stops and asks; a banner and a notification take you straight to that conversation.
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
 - Configurable assistant name and working instructions, applied consistently within each task.
 - Opt-in host commands with executable aliases, captured results and cancellation.
-- Restricted delegation with shared step/token limits and cancellation.
+- Delegation to specialists with shared budgets, depth and concurrency limits, per-child timeouts, cancellation that reaches children, answers checked against a requested schema, and fan-out that runs independent tasks together and chains dependent ones.
 - Schedules: once, on an interval, or every day at a time in your timezone; tasks, reminders, or monitoring checks that remember the last result; results can be sent to a Telegram chat; each schedule keeps its run history; webhooks and `branch trigger` run one on demand.
 - Optional MCP tools and browser automation through explicit configuration.
 - Separate Python accounting and released neural-model experiments.

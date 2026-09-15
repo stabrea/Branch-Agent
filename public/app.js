@@ -391,6 +391,30 @@ async function refresh() {
   renderProjects();
   void renderSecrets();
   void renderChannels();
+  renderAttention();
+}
+const notifiedAttention = new Set();
+function renderAttention() {
+  const waiting = state.attention || [];
+  const banner = $("attention");
+  banner.hidden = !waiting.length;
+  banner.replaceChildren(...waiting.map((item) => {
+    const row = el("div", undefined, "attention-row");
+    row.append(el("strong", "Your assistant needs you"), el("span", item.question),
+      button("Open conversation", () => { displayView("chat"); openConversation(item.sessionId); }));
+    return row;
+  }));
+  for (const item of waiting) {
+    if (notifiedAttention.has(item.runId)) continue;
+    notifiedAttention.add(item.runId);
+    if (typeof Notification === "undefined") continue;
+    const show = () => {
+      const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
+      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.sessionId); };
+    };
+    if (Notification.permission === "granted") show();
+    else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
+  }
 }
 async function renderChannels() {
   let summary;
@@ -667,9 +691,23 @@ function renderModels() {
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
 }
 let sessionModel = { preset: null, reasoning: null };
+async function loadSessionSkill() {
+  const select = $("session-skill");
+  const enabled = (state.skills || []).filter((skill) => skill.activeVersion);
+  const current = sessionId ? (await api(`sessions/${sessionId}/skill`).catch(() => ({ skillId: null }))).skillId : null;
+  select.replaceChildren(el("option", "None"), ...enabled.map((skill) => { const option = el("option", skill.name); option.value = skill.id; return option; }));
+  select.options[0].value = "";
+  select.value = current ?? "";
+}
+$("session-skill").addEventListener("change", async () => {
+  if (!sessionId) return;
+  try { await api(`sessions/${sessionId}/skill`, { skillId: $("session-skill").value || null }); toast($("session-skill").value ? "Skill pinned to this conversation." : "Skill unpinned."); }
+  catch (e) { toast(e.message); }
+});
 async function loadSessionModel() {
   $("model-controls").hidden = !sessionId;
   if (!sessionId) return;
+  await loadSessionSkill();
   const value = await api(`sessions/${sessionId}/model`);
   sessionModel = value;
   presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);

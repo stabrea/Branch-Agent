@@ -73,6 +73,7 @@
       </section>
       <div id="workspace" hidden>
         <section id="chat" class="view">
+          <div id="attention" class="notice attention" hidden></div>
           <section id="first-run" class="card first-run" hidden>
             <span class="eyebrow">// FIRST THINGS FIRST</span>
             <h2>Choose how your assistant thinks.</h2>
@@ -134,6 +135,8 @@
               <option value="medium">Balanced</option>
               <option value="high">Thorough</option>
             </select>
+            <label for="session-skill">Pinned skill</label>
+            <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
           <form id="chat-form" class="composer">

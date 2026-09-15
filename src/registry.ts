@@ -36,6 +36,16 @@ export class ToolRegistry {
           (z.toJSONSchema(t.parameters) as Record<string, unknown>),
       }));
   }
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+  names(): string[] {
+    return [...this.tools.keys()];
+  }
+  /** Every registered tool with its permission, for the capability inventory. */
+  inventory(): { name: string; permission: string; description: string }[] {
+    return [...this.tools.values()].map((t) => ({ name: t.name, permission: t.permission, description: t.description }));
+  }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];
   }

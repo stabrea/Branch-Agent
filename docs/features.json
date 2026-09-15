@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T23:05:16.194345+00:00",
+  "assessment_date": "2026-09-15T23:40:58.403826+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -226,16 +226,25 @@
       "family": "surfaces",
       "name": "Background task attention notifications",
       "acceptance_criterion": "Run a background task that needs user input and surface a notification linking to that exact pending task.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/contracts.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
           "public/app.js",
-          "src/runtime.ts"
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Activity polling and cancel controls exist, but no attention notification flow."
+        "tests": [
+          "a task that needs an answer stops, is listed for attention, reaches channels as a question, and continues with the reply"
+        ],
+        "detail": "The user.ask tool stops a task with status needs_input and an attention.needed event; /api/state lists waiting conversations; the web and desktop app show a banner and a system notification that open that exact conversation; channels deliver the question as the reply; the next message in the conversation answers it."
       },
-      "remaining": "Implement pending-user-input task state and background notification linked to the exact task."
+      "remaining": ""
     },
     {
       "id": "surfaces.editor-clients",
@@ -762,17 +771,22 @@
       "family": "execution",
       "name": "Web search and fetch",
       "acceptance_criterion": "Search for a query and fetch a selected page with readable content and its source URL.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/files.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "web.fetch returns readable text with the final address, follows bounded redirects and refuses non-text",
+          "web.search parses result links and snippets and drops the search engine's own links",
+          "web tools are registered by default, take settings from the integrations file, and appear in the live tool inventory"
+        ],
+        "detail": "web.search (DuckDuckGo-lite style HTML endpoint, configurable) returns titles, addresses and snippets; web.fetch returns readable text with title and final address after bounded redirects, refusing non-text bodies. Registered by default with permission web.read."
       },
-      "remaining": "Search for a query and fetch a selected page with readable content and its source URL."
+      "remaining": ""
     },
     {
       "id": "execution.browser",
@@ -957,18 +971,22 @@
       "family": "extensions",
       "name": "Pin a procedure to active chat",
       "acceptance_criterion": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
-          "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/skill-tools.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a skill pinned to a conversation is present in every turn until unpinned"
+        ],
+        "detail": "A conversation can pin one enabled skill; its full instructions are in every turn, recorded as a skills.pinned event, until unpinned. Other conversations are unaffected."
       },
-      "remaining": "Pin a skill to a chat and verify that subsequent turns retain the selected procedure until unpinned."
+      "remaining": ""
     },
     {
       "id": "extensions.mcp",
@@ -1351,16 +1369,20 @@
       "family": "memory",
       "name": "Automatic archival and expiry of stale memory",
       "acceptance_criterion": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "memory hygiene previews, archives (restorable) or purges stale facts by age"
+        ],
+        "detail": "Retention by last-update age: preview, archive (restorable from a separate table, restore counts as an edit) or purge, each returning the affected facts."
       },
-      "remaining": "Apply a configured retention policy to seeded stale memories and report which entries were archived or purged."
+      "remaining": ""
     },
     {
       "id": "memory.export-import",
@@ -1464,17 +1486,26 @@
       "family": "learning",
       "name": "Context compaction preserving task handoff",
       "acceptance_criterion": "Compact an oversized conversation while preserving recent turns and the active task handoff.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/store.ts",
+          "src/contracts.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an oversized conversation is compacted into a handoff summary; recent turns and the stored history stay",
+          "compaction split keeps at least six recent messages, cuts at a user turn and ignores this run's own turns"
+        ],
+        "detail": "Above ~11k estimated tokens the older stored turns are summarised by the model into a handoff note (facts, decisions, open tasks, next step) and replaced in the working context; at least six recent turns and this run's own turns stay; the summary is persisted per conversation and reused; the full transcript remains stored."
       },
-      "remaining": "Compact an oversized conversation while preserving recent turns and the active task handoff."
+      "remaining": ""
     },
     {
       "id": "learning.dream",
@@ -1691,15 +1722,21 @@
       "family": "delegation",
       "name": "Sequential and parallel tasks",
       "acceptance_criterion": "Run independent children concurrently and enforce order for a dependent sequence.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts"
+          "src/delegation.ts",
+          "src/runtime.ts",
+          "src/knowledge.ts",
+          "tests/delegation.test.mjs",
+          "tests/knowledge.test.mjs"
         ],
-        "tests": [],
-        "detail": "Independent runtime.run calls can coexist across sessions; the model tool loop awaits calls sequentially and has no fan-out orchestration."
+        "tests": [
+          "fan-out runs independent tasks together, orders dependent ones, feeds results forward and merges under the parent"
+        ],
+        "detail": "specialists.fanout runs tasks in dependency waves: independent tasks concurrently, dependent tasks after their dependencies with those results appended to their prompt; cycles and unknown dependencies are rejected before anything starts."
       },
-      "remaining": "Add explicit concurrent child orchestration and dependent-sequence acceptance fixtures."
+      "remaining": ""
     },
     {
       "id": "delegation.tools",
@@ -1727,36 +1764,42 @@
       "family": "delegation",
       "name": "Depth concurrency timeout and turn bounds",
       "acceptance_criterion": "Reject delegation beyond configured depth or concurrency and terminate a child exceeding its timeout.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/delegation.ts",
           "src/runtime.ts",
-          "src/contracts.ts"
+          "src/knowledge.ts",
+          "tests/delegation.test.mjs",
+          "tests/knowledge.test.mjs"
         ],
         "tests": [
-          "delegated work charges its parent budget and cannot reset depth",
-          "cancellation and exhausted shared budget stop runs"
+          "delegation enforces depth, concurrency and a child timeout, and cancelling the parent cancels children"
         ],
-        "detail": "Fixed depth limit 3, shared budgets and 120-second AbortSignal exist, without concurrency scheduling or child timeout acceptance."
+        "detail": "Depth limit 3, at most four concurrent children per parent, and a per-child timeout (1 to 120 s) that cancels the child with a plain message."
       },
-      "remaining": "Enforce configured child concurrency and configurable depth/timeouts; test a child exceeding its timeout."
+      "remaining": ""
     },
     {
       "id": "delegation.results",
       "family": "delegation",
       "name": "Structured child result contracts",
       "acceptance_criterion": "Validate a child result against its requested schema and report an invalid result as unresolved.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/delegation.ts",
           "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "tests/delegation.test.mjs",
+          "tests/knowledge.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a child's answer is checked against the requested schema and reported unresolved when it does not match"
+        ],
+        "detail": "specialists.delegate accepts a resultSchema; the child's JSON answer (bare or fenced) is checked against a JSON-Schema subset (type, required, properties, items, enum, min/max, minLength, minItems); a mismatch is returned as unresolved with a reason and recorded as a delegation.unresolved event on the parent."
       },
-      "remaining": "Validate a child result against its requested schema and report an invalid result as unresolved."
+      "remaining": ""
     },
     {
       "id": "delegation.steering",
@@ -1778,18 +1821,21 @@
       "family": "delegation",
       "name": "Cascading child cancellation",
       "acceptance_criterion": "Cancel a parent task and verify that running children and grandchildren receive cancellation.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/delegation.ts",
           "src/runtime.ts",
-          "src/knowledge.ts"
+          "src/knowledge.ts",
+          "tests/delegation.test.mjs",
+          "tests/knowledge.test.mjs"
         ],
         "tests": [
-          "aborting an in-flight provider cancels work and preserves attempt record"
+          "delegation enforces depth, concurrency and a child timeout, and cancelling the parent cancels children"
         ],
-        "detail": "Parent AbortSignal propagates to child, but current fixtures only prove direct run cancellation."
+        "detail": "Children run under a signal derived from the parent's; cancelling the parent cancels running children (and their children, which derive again)."
       },
-      "remaining": "Exercise cancellation through a running parent, child and grandchild chain."
+      "remaining": ""
     },
     {
       "id": "delegation.orphans",
@@ -1829,17 +1875,21 @@
       "family": "delegation",
       "name": "Route task chains and fan-out across named teammates",
       "acceptance_criterion": "Hand a task through a named agent chain and merge independent fan-out results under the original task.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/delegation.ts",
           "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "tests/delegation.test.mjs",
+          "tests/knowledge.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "fan-out runs independent tasks together, orders dependent ones, feeds results forward and merges under the parent"
+        ],
+        "detail": "A named chain is a fan-out with dependsOn; each task names its specialist; all results merge under the original task as a delegation.fanout event with per-task run ids and result status."
       },
-      "remaining": "Hand a task through a named agent chain and merge independent fan-out results under the original task."
+      "remaining": ""
     },
     {
       "id": "automation.cron",
@@ -2306,16 +2356,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/integrations/browser.ts",
-          "src/providers.ts",
-          "src/integrations/mcp-config.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
         "tests": [
-          "an allowed site cannot redirect the browser to an unlisted origin"
+          "the network guard refuses loopback, private, link-local and blocked hosts before any request, and honours an allowlist"
         ],
-        "detail": "Browser enforces exact origins and blocks redirects before forwarding; no path allowlist or universal egress policy."
+        "detail": "Host allowlist and blocklist (with subdomains) for web reading, enforced before sending."
       },
-      "remaining": "Add path-specific policy and cover every outbound tool transport."
+      "remaining": "Path-level rules and the same policy for MCP HTTP and browser requests."
     },
     {
       "id": "security.resources",
@@ -2422,19 +2473,20 @@
       "family": "security",
       "name": "Block internal-network request forgery",
       "acceptance_criterion": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/integrations/web.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "tests/web-pin-hygiene.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "the network guard refuses loopback, private, link-local and blocked hosts before any request, and honours an allowlist"
+        ],
+        "detail": "Every hop (including redirects) is checked: loopback, private, link-local, unspecified, multicast, IPv4-mapped, .local/.internal/localhost names and embedded credentials are refused before any request; DNS results are checked for hostnames."
       },
-      "remaining": "Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses."
+      "remaining": ""
     },
     {
       "id": "security.origin",
@@ -3033,18 +3085,25 @@
       "family": "reliability",
       "name": "Visible compaction events",
       "acceptance_criterion": "Emit a visible compaction event with task continuity preserved after context reduction.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/store.ts",
           "src/contracts.ts",
-          "experiments/accounting.py"
+          "src/index.ts",
+          "src/server.ts",
+          "src/channels/router.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/compaction-attention.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "an oversized conversation is compacted into a handoff summary; recent turns and the stored history stay"
+        ],
+        "detail": "A context.compacted run event records dropped/kept counts and estimated sizes before and after; the task continues in the same run with the summary in place."
       },
-      "remaining": "Emit a visible compaction event with task continuity preserved after context reduction."
+      "remaining": ""
     },
     {
       "id": "reliability.checks",
@@ -3250,21 +3309,20 @@
       "family": "reliability",
       "name": "Live inventory of tools and configuration readiness",
       "acceptance_criterion": "List currently available tools with actual configuration readiness and update the list after disabling an adapter.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/registry.ts",
           "src/integrations/bootstrap.ts",
           "src/server.ts",
-          "src/cli.ts"
+          "tests/web-pin-hygiene.test.mjs"
         ],
         "tests": [
-          "CLI loads explicitly configured integrations before doctor",
-          "MCP version changes and absent allowlisted tools fail before registration"
+          "web tools are registered by default, take settings from the integrations file, and appear in the live tool inventory"
         ],
-        "detail": "State lists registered tool descriptions; registration gates MCP startup but no live health/disable lifecycle."
+        "detail": "GET /api/tools lists the tools that exist right now with permission and readiness; closing an integration unregisters its tools and the list updates."
       },
-      "remaining": "Report actual configuration/readiness and update inventory when an adapter is disabled."
+      "remaining": ""
     },
     {
       "id": "collaboration.signed-events",

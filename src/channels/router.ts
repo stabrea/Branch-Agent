@@ -106,9 +106,9 @@ export class ChannelRouter {
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
         title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });
-      const text = run.status === "completed" ? run.output || "(no reply)" : `I could not finish that (${run.status}).`;
+      const text = run.status === "completed" ? run.output || "(no reply)" : run.status === "needs_input" ? run.output : `I could not finish that (${run.status}).`;
       await adapter.send(message.chatId, text.length > replyLimit ? text.slice(0, replyLimit - 1) + "…" : text, message.messageId);
-      return run.status === "completed" ? "replied" : "failed";
+      return run.status === "completed" || run.status === "needs_input" ? "replied" : "failed";
     } catch (error) {
       await adapter.send(message.chatId, "Something went wrong on my side; the owner can see the details in Activity.", message.messageId).catch(() => undefined);
       void error;

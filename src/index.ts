@@ -12,12 +12,14 @@ import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { createRequire } from "node:module";
+import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { ChannelRouter } from "./channels/router.js";
-import type { ToolContext } from "./contracts.js";
+import { WebAccess, registerWeb } from "./integrations/web.js";
+import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
@@ -32,6 +34,8 @@ export async function createBranch(options: {
   chatgpt?: ChatGPTAuth;
   /** Key for the secrets locker; defaults to a private key file inside the data directory. */
   lockerKey?: LockerKeySource;
+  /** Web reading settings (search endpoint, address allow/block lists). */
+  web?: unknown;
   owner?: string;
   retryPolicy?: RetryPolicyInput;
 }) {
@@ -68,7 +72,15 @@ export async function createBranch(options: {
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
+  registry.register({
+    name: "user.ask", permission: "user.ask",
+    description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
+    parameters: z.object({ question: z.string().trim().min(1).max(2000) }).strict(),
+    execute: async ({ question }) => { throw new NeedsInputError(question); },
+  });
   registerKnowledge(registry, knowledge);
+  const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
+  registerWeb(registry, web);
   const channels = new ChannelRouter(store, runtime);
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text) => channels.deliver(channel, chatId, text));
   registerSchedules(registry, scheduler);
@@ -94,10 +106,12 @@ export async function createBranch(options: {
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
     channels,
+    web,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
+      web,
     },
     close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
   };
@@ -132,6 +146,8 @@ export * from "./projects.js";
 export * from "./locker.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";
+export * from "./integrations/web.js";
+export * from "./delegation.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

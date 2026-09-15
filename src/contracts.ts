@@ -68,6 +68,7 @@ export type RunStatus =
   | "failed"
   | "cancelled"
   | "budget_exceeded"
+  | "needs_input"
   | "interrupted";
 export interface Run {
   id: string;
@@ -92,6 +93,11 @@ export interface BudgetOptions {
 }
 export class BudgetError extends Error {
   override name = "BudgetError";
+}
+/** Raised by the user.ask tool: the task stops and waits for the person's answer. */
+export class NeedsInputError extends Error {
+  override name = "NeedsInputError";
+  constructor(readonly question: string) { super(question); }
 }
 export class Budget {
   steps = 0;

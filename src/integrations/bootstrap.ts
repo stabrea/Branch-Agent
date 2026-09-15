@@ -8,6 +8,7 @@ import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ChannelPolicySchema, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
+import { WebConfigSchema, type WebAccess } from './web.js';
 
 export const ChannelConfigSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/).default('telegram'),
@@ -18,15 +19,17 @@ export const ChannelConfigSchema = z.object({
   tokenSecret: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
   apiBase: z.string().url().optional(),
 }).merge(ChannelPolicySchema).strict().refine(value => !!value.tokenEnv !== !!value.tokenSecret, 'Give exactly one of tokenEnv or tokenSecret');
-export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string> }
+export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess }
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional(),
-  channels: z.array(ChannelConfigSchema).max(4).default([]) }).strict();
+  channels: z.array(ChannelConfigSchema).max(4).default([]), web: WebConfigSchema.optional() }).strict();
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
+  const before = new Set(registry.names());
   const close = async () => {
+    for (const name of registry.names()) if (!before.has(name)) registry.unregister(name);
     const results = await Promise.allSettled(closers.map(stop => stop()));
     const errors = results.filter(result => result.status === 'rejected');
     if (errors.length) throw new Error(`Failed to close ${errors.length} integration(s)`);
@@ -35,6 +38,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
   const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  if (config.web) channels?.web?.configure(config.web);
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)
     throw new Error('MCP server IDs must be unique');
   try {

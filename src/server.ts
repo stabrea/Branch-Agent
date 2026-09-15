@@ -155,12 +155,38 @@ function modelUsed(app: Branch, runId: string) {
     ? { presetId: data.to, provider: data.provider, model: data.model, fellBackFrom: data.from }
     : { presetId: data.presetId, presetName: data.presetName, provider: data.provider, model: data.model, reasoning: data.reasoning };
 }
+/** Tools that exist right now, grouped by permission, with what makes each group ready. */
+function toolInventory(app: Branch) {
+  const readiness: Record<string, string> = {
+    "web.read": app.web.settings().allowPrivateAddresses ? "ready (private addresses allowed)" : "ready",
+    "shell.execute": "ready (configured host commands)",
+    "browser.read": "ready (configured origins)", "browser.act": "ready (configured origins)",
+  };
+  const channels = app.channels.summary().channels.map((c) => c.id);
+  return {
+    tools: app.registry.inventory().map((tool) => ({ ...tool, readiness: readiness[tool.permission] ?? "ready" })),
+    permissions: app.registry.permissions(),
+    channels,
+    models: [...app.runtime.models.presets.keys()],
+  };
+}
+/** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
+function attention(app: Branch) {
+  const seen = new Set<string>(), waiting: { runId: string; sessionId: string; question: string; createdAt: string }[] = [];
+  for (const run of app.store.runs(app.runtime.owner)) {
+    if (seen.has(run.sessionId)) continue;
+    seen.add(run.sessionId);
+    if (run.status === "needs_input") waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt });
+  }
+  return waiting;
+}
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;
   return {
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
+    attention: attention(app),
     project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },
@@ -186,6 +212,7 @@ async function api(
   path: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
+  if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
@@ -244,8 +271,19 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill))?$/.exec(path);
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
+  if (match && match[2] === "skill") {
+    if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
+    const key = `pinned-skill:${match[1]}`;
+    if (request.method === "POST") {
+      const { skillId } = z.object({ skillId: z.string().uuid().nullable() }).strict().parse(await readBody(request));
+      if (skillId && !app.store.skills.catalog(owner).some((s) => s.id === skillId)) throw new HttpError(400, "That skill is not enabled");
+      if (skillId) app.store.save("settings", owner, key, { skillId }); else app.store.delete("settings", owner, key);
+      return { skillId };
+    }
+    if (request.method === "GET") return { skillId: (app.store.get("settings", owner, key)?.data as { skillId?: string } | undefined)?.skillId ?? null };
+  }
   if (match && match[2] === "model") {
     if (request.method === "POST")
       return app.runtime.models.configureSession(owner, match[1]!, await readBody(request));
@@ -279,6 +317,13 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/memory/forget")
     return app.store.forgetMemory(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  const restore = /^\/api\/memory\/archive\/([^/]{1,200})\/restore$/.exec(path);
+  if (restore && request.method === "POST") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.store.restoreMemory(owner, decodeURIComponent(restore[1]!));
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
