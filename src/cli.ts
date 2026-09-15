@@ -21,6 +21,7 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
       process.env.BRANCH_INTEGRATIONS,
       process.env,
       app.secretsFor,
+      app.channelHost,
     );
     return {
       app,

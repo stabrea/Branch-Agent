@@ -383,7 +383,33 @@ async function refresh() {
   renderFirstRun();
   renderProjects();
   void renderSecrets();
+  void renderChannels();
 }
+async function renderChannels() {
+  let summary;
+  try { summary = await api("channels"); } catch { return; }
+  list("channels-list", summary.channels, (channel) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", `${channel.kind}${channel.botName ? " · @" + channel.botName : ""}`),
+      el("p", `${channel.activation === "always" ? "Answers every group message" : "Answers when mentioned or replied to"} · ${channel.pairing ? "new people pair with a code" : "only listed people"}`, "meta"));
+    return node;
+  }, "No channel connected in this launch.");
+  const people = [...summary.pending.map((p) => ({ ...p, label: `${p.name} is waiting · code ${p.code}` })),
+    ...summary.approved.map((p) => ({ ...p, label: `${p.name} · approved` }))];
+  list("pairings-list", people, (person) => {
+    const node = el("div", undefined, "record");
+    node.append(el("span", person.label), button("Remove", async () => {
+      await api("channels/pairings/remove", { channel: person.channel, senderId: person.senderId }); await renderChannels();
+    }));
+    return node;
+  }, "Nobody has written to your assistant through a channel yet.");
+}
+form("pairing-form", async () => {
+  const approved = await api("channels/pairings/approve", { code: $("pairing-code").value.trim() });
+  $("pairing-code").value = "";
+  toast(`${approved.name} can now talk to your assistant.`);
+  await renderChannels();
+});
 let editingProject = null;
 function projectOptions(select, projects, value) {
   const focused = document.activeElement === select;

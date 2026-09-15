@@ -155,6 +155,7 @@ async function start(): Promise<void> {
       process.env.BRANCH_INTEGRATIONS,
       process.env,
       branch.secretsFor,
+      branch.channelHost,
     );
     integrationClose = integrations.close;
     const server = await startServer(branch, { dataDir, port: 0 });

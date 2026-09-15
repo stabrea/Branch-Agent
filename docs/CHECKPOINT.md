@@ -43,6 +43,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
+## Batch 5 (local, unreleased): Telegram channel, pairing, activation, /skills /memory
+
+`src/channels/router.ts` (per-chat conversations, pairing codes approved in Settings → Channels,
+mention/always activation, no shell permission for channel tasks) and `src/channels/telegram.ts`
+(long polling; token from `tokenSecret` in the default project's locker or `tokenEnv`). Config lives in
+the integrations file under `channels`. Routes `/api/channels`, `/api/channels/pairings/approve|remove`.
+Full suite green; coverage 32 implemented, 51 partial, 85 missing. Verified only against a local fake
+Telegram server; the owner's real bot has not been connected yet.
+
 ## Batch 4: terminal commands, projects, secrets locker (0.3.0)
 
 Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.3.0 (main 01aabeb). The owner's install

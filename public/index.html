@@ -410,6 +410,18 @@
             <button id="secret-save">Save secret</button>
             <div id="secrets-list" class="card-list" aria-live="polite"></div>
           </form>
+          <section id="channels-card" class="card">
+            <h2>Channels</h2>
+            <p>Talk to your assistant from Telegram. Each chat keeps its own conversation. People you don't know get a six-digit code the first time they write; approve it here and they're in. In groups, the assistant answers when it is mentioned or replied to.</p>
+            <div id="channels-list" class="card-list"></div>
+            <form id="pairing-form" class="input-row">
+              <label class="sr-only" for="pairing-code">Approval code</label>
+              <input id="pairing-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code from the person" />
+              <button>Approve</button>
+            </form>
+            <div id="pairings-list" class="card-list" aria-live="polite"></div>
+            <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+          </section>
           <form id="models-form" class="card">
             <h2>Models</h2>
             <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>

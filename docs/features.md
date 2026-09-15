@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 29 implemented, 51 partial, 1 external and 88 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 32 implemented, 51 partial, 1 external and 85 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -28,9 +28,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Direct and group chat adapters (`routing.channels`) | missing | Receive and reply to a direct message and a group message through configured channel adapters. |
-| Mention activation and engagement policies (`routing.activation`) | missing | Ignore a non-triggering group message and respond when the configured mention or engagement rule matches. |
-| Sender allowlists and pairing (`routing.pairing`) | missing | Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes. |
+| Direct and group chat adapters (`routing.channels`) | implemented | Covered by the listed local fixtures. |
+| Mention activation and engagement policies (`routing.activation`) | implemented | Covered by the listed local fixtures. |
+| Sender allowlists and pairing (`routing.pairing`) | implemented | Covered by the listed local fixtures. |
 | Conversation spanning channels (`routing.shared-session`) | missing | Continue one conversation from two linked channels with both surfaces observing the same ordered history. |
 | Shared agent identity with separate conversations (`routing.shared-identity`) | partial | Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate. |
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T22:42:09.174042+00:00",
+  "assessment_date": "2026-09-15T22:59:14.298813+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -259,51 +259,75 @@
       "family": "routing",
       "name": "Direct and group chat adapters",
       "acceptance_criterion": "Receive and reply to a direct message and a group message through configured channel adapters.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Telegram Bot API adapter (long polling) behind a channel router; direct and group messages are answered through per-chat conversations; channel tasks never get host command permission. Only Telegram so far."
       },
-      "remaining": "Receive and reply to a direct message and a group message through configured channel adapters."
+      "remaining": ""
     },
     {
       "id": "routing.activation",
       "family": "routing",
       "name": "Mention activation and engagement policies",
       "acceptance_criterion": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Groups answer only when the bot is mentioned or replied to (activation: mention) or always (activation: always); unaddressed group messages are ignored without a model call."
       },
-      "remaining": "Ignore a non-triggering group message and respond when the configured mention or engagement rule matches."
+      "remaining": ""
     },
     {
       "id": "routing.pairing",
       "family": "routing",
       "name": "Sender allowlists and pairing",
       "acceptance_criterion": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/server.ts"
+          "src/channels/router.ts",
+          "src/channels/telegram.ts",
+          "src/integrations/bootstrap.ts",
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/channels.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "Telegram: pairing for unknown senders, allowlist, group activation by mention or reply, one conversation per chat",
+          "integrations file starts a Telegram channel from a locker secret, and the HTTP API lists it"
+        ],
+        "detail": "Unknown senders receive a six-digit code; the owner approves it in Settings \u2192 Channels (or the API); allowlisted ids skip pairing; pairing can be disabled so unknown senders are told the assistant is private."
       },
-      "remaining": "Reject an unknown sender and accept that sender only after the configured pairing or allowlist process completes."
+      "remaining": ""
     },
     {
       "id": "routing.shared-session",
