@@ -43,13 +43,20 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
+## Batch 9 (local, unreleased): delegation results, limits, cancellation, fan-out
+
+`src/delegation.ts` (checkResult JSON-Schema subset, fanoutWaves), `Runtime.delegate` options
+(timeoutMs, resultSchema; 4 concurrent children per parent; derived abort signal), `delegateChecked`,
+`fanout`; `specialists.delegate` gains resultSchema/timeoutMs, new `specialists.fanout`.
+Test fixtures must honour `request.signal` or a timed-out child never returns.
+
 ## Batch 8 (local, unreleased): conversation compaction, needs-input attention
 
 `compactions` table + `store.workingMessages`; `Runtime.maybeCompact` (threshold 11k est. tokens, keep 6,
 cut at a user turn, summariser call through `complete()` with no tools, `context.compacted` event);
 `user.ask` tool → `NeedsInputError` → run status `needs_input` + `attention.needed`; `/api/state.attention`;
 banner + Notification in the UI; channels send the question as the reply.
-Coverage 46 implemented, 46 partial, 76 missing.
+Coverage 46 implemented, 45 partial, 77 missing.
 
 ## Batch 7: web reading, network guard, skill pinning, memory hygiene, tool inventory
 

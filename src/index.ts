@@ -147,6 +147,7 @@ export * from "./locker.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";
 export * from "./integrations/web.js";
+export * from "./delegation.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

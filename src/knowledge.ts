@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
+import { FanoutTaskSchema, ResultSchemaSchema, type FanoutTask } from "./delegation.js";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -315,26 +316,22 @@ export class Knowledge {
       previousActive: state.activeVersion,
     });
   }
-  async delegate(
-    context: ToolContext,
-    id: string,
-    prompt: string,
-  ): Promise<Run> {
+  /** The evaluated active version of a specialist, or an error the caller can show. */
+  activeSpecialist(owner: string, id: string) {
+    const state = this.required("specialists", owner, id).data as unknown as SpecialistState;
+    const version = state.activeVersion === state.version ? state : state.history.find((v) => v.version === state.activeVersion);
+    if (!version || !version.evaluationPassed) throw new Error(`Specialist ${id} has no evaluated active version`);
+    return { permissions: version.definition.permissions, instructions: version.definition.instructions };
+  }
+  async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown> } = {}) {
     this.require(context, "specialists.use");
-    const state = this.required("specialists", context.owner, id)
-      .data as unknown as SpecialistState;
-    const version =
-      state.activeVersion === state.version
-        ? state
-        : state.history.find((v) => v.version === state.activeVersion);
-    if (!version || !version.evaluationPassed)
-      throw new Error("Specialist has no evaluated active version");
-    return this.runtime.delegate(
-      prompt,
-      context,
-      version.definition.permissions,
-      version.definition.instructions,
-    );
+    const spec = this.activeSpecialist(context.owner, id);
+    return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, options);
+  }
+  async fanout(context: ToolContext, tasks: (FanoutTask & { specialist: string })[]) {
+    this.require(context, "specialists.use");
+    const specs = new Map(tasks.map((task) => [task.id, this.activeSpecialist(context.owner, task.specialist)]));
+    return this.runtime.fanout(context, tasks, (id) => specs.get(id)!);
   }
   private async checkFiles(
     context: ToolContext,
@@ -435,10 +432,18 @@ function registerSpecialists(
   registry.register({
     name: "specialists.delegate",
     description:
-      "Delegate to an evaluated active specialist with the same shared budget and reduced permissions.",
+      "Delegate to an evaluated active specialist with the same shared budget and reduced permissions. Optionally require the answer to match a JSON schema; a non-matching answer is reported as unresolved. Children stop after timeoutMs (default 120 s).",
     permission: "specialists.use",
-    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000) }),
-    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt),
+    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional() }),
+    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt, { ...(a.timeoutMs ? { timeoutMs: a.timeoutMs } : {}), ...(a.resultSchema ? { resultSchema: a.resultSchema } : {}) }),
+  });
+  registry.register({
+    name: "specialists.fanout",
+    description:
+      "Run several specialist tasks: independent tasks run at the same time, tasks with dependsOn wait for those results and receive them. Results are merged under this task.",
+    permission: "specialists.use",
+    parameters: z.object({ tasks: z.array(FanoutTaskSchema.extend({ specialist: z.string().min(1).max(200) })).min(1).max(8) }).strict(),
+    execute: async (a, c) => knowledge.fanout(c, a.tasks),
   });
 }
 export function registerKnowledge(

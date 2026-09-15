@@ -23,6 +23,7 @@ import type { ToolRegistry } from "./registry.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
+import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -31,6 +32,9 @@ import {
   type RetryPolicyInput,
 } from "./provider-retry.js";
 
+const childConcurrency = 4;
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown> }
+export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const compactionThreshold = 11000;
 const compactionKeep = 6;
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
@@ -63,6 +67,7 @@ export interface RunOptions {
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
+  private readonly children = new Map<string, number>();
   private readonly activeSessions = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
@@ -203,18 +208,61 @@ export class Runtime {
     parent: ToolContext,
     permissions: string[],
     instructions: string,
+    options: DelegateOptions = {},
   ): Promise<Run> {
     if (parent.depth >= 3) throw new Error("Delegation depth limit reached");
     if (permissions.some((p) => !parent.permissions.has(p)))
       throw new Error("Delegation permission escalation denied");
+    const timeoutMs = options.timeoutMs ?? 120000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
+    const running = this.children.get(parent.runId) ?? 0;
+    if (running >= childConcurrency) throw new Error(`Delegation concurrency limit reached (${childConcurrency} children at once)`);
+    this.children.set(parent.runId, running + 1);
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(new Error(`Child stopped: it took longer than ${timeoutMs / 1000} seconds`)), timeoutMs);
     const context = {
       ...parent,
+      signal: AbortSignal.any([parent.signal, timeout.signal]),
       permissions: new Set(permissions),
       depth: parent.depth + 1,
     };
-    return this.track(() =>
-      this.execute({ prompt, signal: parent.signal }, context, instructions),
-    );
+    try {
+      return await this.track(() => this.execute({ prompt, signal: context.signal }, context, instructions));
+    } finally {
+      clearTimeout(timer);
+      const left = (this.children.get(parent.runId) ?? 1) - 1;
+      if (left > 0) this.children.set(parent.runId, left); else this.children.delete(parent.runId);
+    }
+  }
+  /** A delegated run plus the check of its answer against the schema the parent asked for. */
+  async delegateChecked(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}) {
+    const run = await this.delegate(prompt, parent, permissions, instructions, options);
+    const result: ResultCheck = run.status !== "completed"
+      ? { status: "unresolved", reason: `The child ended with status ${run.status}` }
+      : checkResult(run.output, options.resultSchema);
+    if (result.status === "unresolved" && parent.runId)
+      this.store.event(parent.runId, "delegation.unresolved", { childRunId: run.id, reason: result.reason });
+    return { run, result };
+  }
+  /**
+   * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
+   * results into later prompts; every result is merged under the parent run.
+   */
+  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string }): Promise<FanoutOutcome> {
+    const waves = fanoutWaves(tasks), byId = new Map(tasks.map((t) => [t.id, t]));
+    const outcomes: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> = {};
+    for (const wave of waves) {
+      await Promise.all(wave.map(async (id) => {
+        const task = byId.get(id)!, spec = resolve(id);
+        const context = task.dependsOn.length
+          ? `\n\nResults from earlier tasks:\n${task.dependsOn.map((d) => `[${d}] ${outcomes[d]?.output ?? ""}`).join("\n")}` : "";
+        const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions,
+          task.resultSchema ? { resultSchema: task.resultSchema } : {});
+        outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
+      }));
+    }
+    if (parent.runId) this.store.event(parent.runId, "delegation.fanout", { waves, tasks: Object.fromEntries(Object.entries(outcomes).map(([id, o]) => [id, { runId: o.runId, status: o.status, result: o.result.status }])) });
+    return { waves, tasks: outcomes };
   }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
   private scopeToSession(run: Run, context: ToolContext): ToolContext {

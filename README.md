@@ -64,7 +64,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
 - Configurable assistant name and working instructions, applied consistently within each task.
 - Opt-in host commands with executable aliases, captured results and cancellation.
-- Restricted delegation with shared step/token limits and cancellation.
+- Delegation to specialists with shared budgets, depth and concurrency limits, per-child timeouts, cancellation that reaches children, answers checked against a requested schema, and fan-out that runs independent tasks together and chains dependent ones.
 - Schedules: once, on an interval, or every day at a time in your timezone; tasks, reminders, or monitoring checks that remember the last result; results can be sent to a Telegram chat; each schedule keeps its run history; webhooks and `branch trigger` run one on demand.
 - Optional MCP tools and browser automation through explicit configuration.
 - Separate Python accounting and released neural-model experiments.

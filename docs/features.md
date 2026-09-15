@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 46 implemented, 45 partial, 1 external and 77 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 51 implemented, 42 partial, 1 external and 75 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -125,15 +125,15 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
 | Focused child agents (`delegation.children`) | implemented | External model behavior remains configuration-dependent; local fixture establishes child/result isolation only. |
-| Sequential and parallel tasks (`delegation.parallel`) | partial | Add explicit concurrent child orchestration and dependent-sequence acceptance fixtures. |
+| Sequential and parallel tasks (`delegation.parallel`) | implemented | Covered by the listed local fixtures. |
 | Restrict child tool access (`delegation.tools`) | partial | Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately. |
-| Depth concurrency timeout and turn bounds (`delegation.limits`) | partial | Enforce configured child concurrency and configurable depth/timeouts; test a child exceeding its timeout. |
-| Structured child result contracts (`delegation.results`) | missing | Validate a child result against its requested schema and report an invalid result as unresolved. |
+| Depth concurrency timeout and turn bounds (`delegation.limits`) | implemented | Covered by the listed local fixtures. |
+| Structured child result contracts (`delegation.results`) | implemented | Covered by the listed local fixtures. |
 | Queue follow-ups while tasks run (`delegation.steering`) | partial | Implement queued follow-ups to an active session while another session continues. |
-| Cascading child cancellation (`delegation.cancellation`) | partial | Exercise cancellation through a running parent, child and grandchild chain. |
+| Cascading child cancellation (`delegation.cancellation`) | implemented | Covered by the listed local fixtures. |
 | Preserve critical child results after parent finishes (`delegation.orphans`) | missing | Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery. |
 | Persistent specialist roles and team rooms (`delegation.persistent-teams`) | partial | Add durable team membership/roles and shared room history with restart fixture. |
-| Route task chains and fan-out across named teammates (`delegation.handoff`) | missing | Hand a task through a named agent chain and merge independent fan-out results under the original task. |
+| Route task chains and fan-out across named teammates (`delegation.handoff`) | implemented | Covered by the listed local fixtures. |
 
 ## Automation
 
