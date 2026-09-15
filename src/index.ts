@@ -11,6 +11,11 @@ import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
+import { createRequire } from "node:module";
+import { ModelRouter, type ModelPreset } from "./models.js";
+import type { ChatGPTAuth } from "./chatgpt-auth.js";
+import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 
@@ -18,6 +23,10 @@ export async function createBranch(options: {
   workspace: string;
   dataDir: string;
   provider?: Provider;
+  /** Named model presets; the first is the default. Overrides `provider`. */
+  presets?: ModelPreset[];
+  /** ChatGPT account sign-in; when present and signed in, ChatGPT presets are registered. */
+  chatgpt?: ChatGPTAuth;
   owner?: string;
   retryPolicy?: RetryPolicyInput;
 }) {
@@ -39,10 +48,11 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   const registry = new ToolRegistry();
   registerFiles(registry, files);
+  const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
     registry,
-    options.provider ?? new DemoProvider(),
+    new ModelRouter(store, presets),
     workspace,
     options.owner ?? "local",
     retryPolicy,
@@ -55,6 +65,13 @@ export async function createBranch(options: {
   registerKnowledge(registry, knowledge);
   const scheduler = new Scheduler(store, runtime);
   registerSchedules(registry, scheduler);
+  const version = String(createRequire(import.meta.url)("../package.json").version);
+  const userAgent = `BranchAgent/${version}`;
+  const chatgpt = options.chatgpt;
+  if (chatgpt) {
+    await chatgpt.load();
+    syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
+  }
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -63,6 +80,9 @@ export async function createBranch(options: {
     files,
     knowledge,
     scheduler,
+    chatgpt,
+    version,
+    userAgent,
     close: () => (closing ??= closeBranch(scheduler, runtime, store)),
   };
 }
@@ -86,6 +106,10 @@ export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
 export * from "./skills.js";
+export * from "./models.js";
+export * from "./chatgpt-auth.js";
+export * from "./chatgpt-provider.js";
+export * from "./chatgpt-presets.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

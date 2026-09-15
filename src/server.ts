@@ -8,6 +8,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -118,16 +119,29 @@ async function staticFile(
   response.end(body);
   return true;
 }
+/** The preset that actually served a run: the last recorded selection or fallback, if any. */
+function modelUsed(app: Branch, runId: string) {
+  const events = app.store.events(runId).filter((event) => ["model.selected", "model.fallback"].includes(event.kind));
+  const last = events.at(-1);
+  if (!last) return null;
+  const data = last.data;
+  return last.kind === "model.fallback"
+    ? { presetId: data.to, provider: data.provider, model: data.model, fellBackFrom: data.from }
+    : { presetId: data.presetId, presetName: data.presetName, provider: data.provider, model: data.model, reasoning: data.reasoning };
+}
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;
   return {
     provider: app.runtime.provider.name,
+    version: app.version,
+    chatgpt: { configured: Boolean(app.chatgpt) },
     preferences: preferences(app.store, owner),
     identity: assistantIdentity(app.store, owner),
     workspace: app.runtime.workspace,
     runs: app.store
       .runs(owner)
-      .map((run) => ({ ...run, usage: app.store.usage(run.id) })),
+      .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id) })),
+    models: app.runtime.models.summary(owner),
     memory: app.store.list("memory", owner),
     memoryCapacity: app.store.memoryCapacity(owner),
     skills: app.store.skills.list(owner),
@@ -146,8 +160,11 @@ async function api(
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
+  if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/models")
+    return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -187,8 +204,16 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model))?$/.exec(path);
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
+  if (match && match[2] === "model") {
+    if (request.method === "POST")
+      return app.runtime.models.configureSession(owner, match[1]!, await readBody(request));
+    if (request.method === "GET") {
+      if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
+      return { ...app.runtime.models.session(owner, match[1]!), effective: app.runtime.models.plan(owner, match[1]!).choice };
+    }
+  }
   if (match && request.method === "GET" && match[2] === "export")
     return app.store.exportSession(owner, match[1]!);
   if (match && request.method === "POST" && match[2] === "duplicate") {
@@ -204,6 +229,24 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.importMemory(owner, await readBody(request, maximumMemoryArchiveBytes));
   if (request.method === "POST" && path === "/api/memory/capacity")
     return app.store.configureMemory(owner, await readBody(request));
+  throw new HttpError(404, "Endpoint not found");
+}
+async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const auth = app.chatgpt, owner = app.runtime.owner;
+  if (!auth) throw new HttpError(404, "ChatGPT sign-in is not available in this launch");
+  if (request.method === "GET" && path === "/api/chatgpt/status") return auth.status();
+  if (request.method === "POST" && path === "/api/chatgpt/login") {
+    z.object({}).strict().parse(await readBody(request));
+    const prompt = await auth.startDeviceLogin();
+    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent).catch(() => undefined);
+    return { userCode: prompt.userCode, verificationUrl: prompt.verificationUrl, expiresAt: prompt.expiresAt };
+  }
+  if (request.method === "POST" && path === "/api/chatgpt/logout") {
+    z.object({}).strict().parse(await readBody(request));
+    const status = await auth.signOut();
+    syncChatGPTPresets(app.runtime.models, auth, false, app.userAgent);
+    return status;
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 async function skillsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -278,7 +321,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

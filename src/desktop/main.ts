@@ -9,10 +9,13 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBranch } from "../index.js";
-import { providerFromEnv } from "../providers.js";
+import { defaultPreset, providerFromEnv } from "../providers.js";
 import { startServer } from "../server.js";
 import { loadIntegrations } from "../integrations/bootstrap.js";
 import { loadDesktopSettings, registerSettingsIpc } from "./settings-ipc.js";
+import { registerUpdaterIpc } from "./updater-ipc.js";
+import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
+import { safeStorage } from "electron";
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 
@@ -81,6 +84,7 @@ async function createWindow(
   protectWindow(window, url, token);
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
+  registerUpdaterIpc(window, url, app.getVersion(), () => app.quit());
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -117,12 +121,18 @@ function createTray(): void {
 async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
+  const chatgpt = new ChatGPTAuth(new FileTokenVault(join(base, "chatgpt-auth.json"), {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (value) => safeStorage.encryptString(value),
+    decrypt: (value) => safeStorage.decryptString(value),
+  }), { userAgent: `BranchAgent/${app.getVersion()}` });
   const dataDir = process.env.BRANCH_DATA_DIR ?? join(base, "state");
   const workspace = process.env.BRANCH_WORKSPACE ?? join(base, "workspace");
   const branch = await createBranch({
     dataDir,
     workspace,
-    provider: desktopProvider(settings),
+    presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
+    chatgpt,
   });
   let integrationClose: (() => Promise<void>) | undefined;
   let serverClose: (() => Promise<void>) | undefined;

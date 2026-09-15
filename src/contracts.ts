@@ -32,6 +32,8 @@ export interface CompletionRequest {
   tools: ToolDescription[];
   signal: AbortSignal;
   maxTokens: number;
+  /** Requested reasoning effort; adapters map it to their own parameter or ignore it. */
+  reasoning?: "low" | "medium" | "high";
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
 }

@@ -10,6 +10,7 @@ import type {
 import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
+import type { ModelPreset } from "./models.js";
 
 export interface ProviderOptions {
   endpoint: string;
@@ -55,7 +56,7 @@ const anthropicResponse = z.object({
     .object({ input_tokens: usageNumber, output_tokens: usageNumber })
     .optional(),
 });
-const wireName = (name: string): string =>
+export const wireName = (name: string): string =>
   "branch_" + createHash("sha256").update(name).digest("hex").slice(0, 24);
 function originalName(wire: string, request: CompletionRequest): string {
   const tool = request.tools.find((t) => wireName(t.name) === wire);
@@ -188,6 +189,7 @@ function openaiBody(request: CompletionRequest, model: string): Record<string, u
   return {
     model,
     max_tokens: request.maxTokens,
+    ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
     messages: request.messages.map(openaiMessage),
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
@@ -275,16 +277,24 @@ export class AnthropicProvider implements Provider {
     };
   }
 }
+const thinkingBudgets = { low: 1024, medium: 4096, high: 8192 } as const;
+/** Anthropic extended thinking needs a budget of at least 1024 tokens below max_tokens; otherwise it is omitted. */
+function anthropicThinking(request: CompletionRequest): Record<string, unknown> {
+  if (!request.reasoning) return {};
+  const budget = Math.min(thinkingBudgets[request.reasoning], request.maxTokens - 256);
+  return budget >= 1024 ? { thinking: { type: "enabled", budget_tokens: budget } } : {};
+}
 function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
   return {
     model,
     max_tokens: request.maxTokens,
+    ...anthropicThinking(request),
     system: request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
     messages: anthropicMessages(request.messages),
     tools: request.tools.map((t) => ({ name: wireName(t.name), description: t.description, input_schema: t.parameters })),
   };
 }
-function restoreToolNames(completion: Completion, request: CompletionRequest): Completion {
+export function restoreToolNames(completion: Completion, request: CompletionRequest): Completion {
   return {
     ...completion,
     toolCalls: completion.toolCalls.map((call) => ({ ...call, name: originalName(call.name, request) })),
@@ -312,4 +322,37 @@ export function providerFromEnv(
   return kind === "openai"
     ? new OpenAIProvider(options)
     : new AnthropicProvider(options);
+}
+
+const presetEnvSchema = z.array(z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().trim().min(1).max(80),
+  provider: z.enum(["demo", "openai", "anthropic"]),
+  endpoint: z.string().max(2048).optional(),
+  model: z.string().max(256).optional(),
+  apiKeyEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/).optional(),
+  reasoning: z.enum(["low", "medium", "high"]).optional(),
+}).strict()).min(1).max(16);
+/**
+ * Named presets from BRANCH_MODEL_PRESETS (JSON). Keys are read from the named environment variable
+ * and never stored. The first entry is the default. Without the variable, the single configured
+ * provider becomes the only preset.
+ */
+export function presetsFromEnv(env: NodeJS.ProcessEnv = process.env): ModelPreset[] {
+  if (!env.BRANCH_MODEL_PRESETS) return [defaultPreset(providerFromEnv(env), env.BRANCH_MODEL)];
+  let parsed: unknown;
+  try { parsed = JSON.parse(env.BRANCH_MODEL_PRESETS); } catch { throw new Error("BRANCH_MODEL_PRESETS must be JSON"); }
+  return presetEnvSchema.parse(parsed).map((entry) => {
+    const provider = providerFromEnv({
+      BRANCH_PROVIDER: entry.provider, BRANCH_ENDPOINT: entry.endpoint, BRANCH_MODEL: entry.model,
+      BRANCH_API_KEY: entry.apiKeyEnv ? env[entry.apiKeyEnv] : undefined,
+    });
+    return { id: entry.id, name: entry.name, provider, model: entry.model ?? "demo",
+      ...(entry.reasoning ? { reasoning: entry.reasoning } : {}) };
+  });
+}
+export function defaultPreset(provider: Provider, model?: string): ModelPreset {
+  const demo = provider.name === "offline-demo-fixture";
+  return { id: "default", name: demo ? "Offline demonstration" : "Default connection",
+    provider, model: model ?? (demo ? "demo" : "configured") };
 }

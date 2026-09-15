@@ -130,6 +130,7 @@ function renderRuns() {
           `${run.usage.unreportedCalls} calls without provider usage · ${run.usage.incompleteCalls} calls with incomplete output accounting`,
           "meta",
         ),
+        el("p", modelLine(run.model), "meta"),
         el("p", date(run.createdAt), "meta"),
         button("Inspect trace", () => showRun(run.id)),
       );
@@ -361,7 +362,7 @@ async function refresh() {
   }
   $("context-provider").textContent =
     state.provider === "offline-demo-fixture"
-      ? "Offline demonstration"
+      ? "Not connected"
       : state.provider;
   $("context-runs").textContent = state.runs.filter(
     (run) => run.status === "running",
@@ -376,7 +377,162 @@ async function refresh() {
   renderSchedules();
   renderIdentity();
   renderSkills();
+  renderModels();
+  renderChatGPT();
+  renderUpdates();
 }
+let chatgptTimer = null, chatgptBusy = false;
+function chatgptPoll(active) {
+  clearTimeout(chatgptTimer);
+  if (active) chatgptTimer = setTimeout(() => renderChatGPT(), 3000);
+}
+async function renderChatGPT() {
+  if (!state.chatgpt?.configured) {
+    $("chatgpt-status").textContent = "ChatGPT sign-in is not available in this launch.";
+    $("chatgpt-login").disabled = true;
+    return;
+  }
+  let status;
+  try { status = await api("chatgpt/status"); } catch (e) { $("chatgpt-status").textContent = e.message; return; }
+  const pending = status.pending && new Date(status.pending.expiresAt) > new Date();
+  $("chatgpt-code-block").hidden = !pending;
+  if (pending) {
+    $("chatgpt-code").textContent = status.pending.userCode;
+    $("chatgpt-open").href = status.pending.verificationUrl;
+  }
+  $("chatgpt-login").hidden = status.signedIn;
+  $("chatgpt-login").disabled = chatgptBusy || pending;
+  $("chatgpt-login").textContent = pending ? "Waiting for sign-in…" : "Sign in with ChatGPT";
+  $("chatgpt-logout").hidden = !status.signedIn;
+  $("chatgpt-status").textContent = status.signedIn
+    ? `Signed in${status.email ? " as " + status.email : ""}. ChatGPT models are available in the model list.`
+    : status.lastError || (pending ? "Sign-in started." : "Not signed in.");
+  chatgptPoll(pending);
+  if (status.signedIn && !$("session-model").options.length) await refresh();
+}
+$("chatgpt-login").addEventListener("click", async () => {
+  if (chatgptBusy) return;
+  chatgptBusy = true;
+  try {
+    const prompt = await api("chatgpt/login", {});
+    $("chatgpt-code").textContent = prompt.userCode;
+    $("chatgpt-open").href = prompt.verificationUrl;
+    $("chatgpt-code-block").hidden = false;
+    if (window.branchDesktop) window.branchDesktop.openExternal(prompt.verificationUrl).catch(() => undefined);
+  } catch (e) { toast(e.message); } finally { chatgptBusy = false; await renderChatGPT(); }
+});
+$("chatgpt-open").addEventListener("click", (event) => {
+  if (!window.branchDesktop) return;
+  event.preventDefault();
+  window.branchDesktop.openExternal($("chatgpt-open").href).catch((e) => toast(e.message));
+});
+$("chatgpt-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("chatgpt-code").textContent); toast("Code copied."); }
+  catch { toast("Select the code and copy it."); }
+});
+$("chatgpt-logout").addEventListener("click", async () => {
+  try { await api("chatgpt/logout", {}); toast("Signed out of ChatGPT."); await refresh(); }
+  catch (e) { toast(e.message); }
+});
+let updatesTimer = null;
+function showUpdateStatus(status) {
+  $("updates-status").textContent = status.message;
+  const working = ["checking", "downloading", "verifying", "unpacking", "ready"].includes(status.phase);
+  $("updates-progress").hidden = status.progress === null;
+  $("updates-bar").style.width = `${Math.round((status.progress ?? 0) * 100)}%`;
+  $("updates-check").disabled = working || status.phase === "unsupported";
+  $("updates-install").hidden = status.phase !== "available" && !working;
+  $("updates-install").disabled = working;
+  $("updates-install").textContent = working ? "Updating…" : "Update and restart";
+  clearTimeout(updatesTimer);
+  if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus), 700);
+}
+async function renderUpdates() {
+  $("updates-card").hidden = !window.branchDesktop;
+  $("updates-version").textContent = `Branch Agent ${state.version}`;
+  if (!window.branchDesktop) return;
+  try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
+}
+$("updates-check").addEventListener("click", async () => {
+  try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
+});
+$("updates-install").addEventListener("click", async () => {
+  try { showUpdateStatus(await window.branchDesktop.installUpdate()); } catch (e) { toast(e.message); await renderUpdates(); }
+});
+function modelLine(model) {
+  if (!model) return "Model: not recorded";
+  const name = model.presetName || model.presetId;
+  const fallback = model.fellBackFrom ? ` (after ${model.fellBackFrom} was unavailable)` : "";
+  return `Model: ${name} · ${model.model}${fallback}`;
+}
+function presetOptions(select, presets, firstLabel, value) {
+  const focused = document.activeElement === select;
+  select.replaceChildren(
+    ...(firstLabel ? [el("option", firstLabel)] : []),
+    ...presets.map((preset) => {
+      const option = el("option", `${preset.name} · ${preset.model}`);
+      option.value = preset.id;
+      if (preset.coolingDownUntil) option.textContent += " (resting)";
+      return option;
+    }),
+  );
+  if (firstLabel) select.options[0].value = "";
+  if (!focused) select.value = value ?? "";
+}
+function renderModels() {
+  const models = state.models;
+  if (!models) return;
+  presetOptions($("models-active"), models.presets, null, models.activePreset ?? models.defaultPreset);
+  if (document.activeElement !== $("models-reasoning")) $("models-reasoning").value = models.reasoning ?? "";
+  if (document.activeElement !== $("models-cooldown")) $("models-cooldown").value = Math.round(models.cooldownMs / 1000);
+  const fallback = $("models-fallback");
+  if (!fallback.contains(document.activeElement)) {
+    fallback.replaceChildren(...models.presets.map((preset) => {
+      const label = el("label", undefined, "check");
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.value = preset.id;
+      box.checked = models.fallbackOrder.includes(preset.id);
+      label.append(box, ` ${preset.name} · ${preset.model}`);
+      return label;
+    }));
+  }
+  $("models-note").textContent = models.presets.length > 1
+    ? `${models.presets.length} models available.`
+    : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
+  presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
+}
+let sessionModel = { preset: null, reasoning: null };
+async function loadSessionModel() {
+  $("model-controls").hidden = !sessionId;
+  if (!sessionId) return;
+  const value = await api(`sessions/${sessionId}/model`);
+  sessionModel = value;
+  presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);
+  $("session-reasoning").value = value.reasoning ?? "";
+  $("model-used").textContent = `Next reply: ${value.effective.presetName} · ${value.effective.model}`;
+}
+async function saveSessionModel() {
+  if (!sessionId) return;
+  try {
+    await api(`sessions/${sessionId}/model`, {
+      preset: $("session-model").value || null,
+      reasoning: $("session-reasoning").value || null,
+    });
+    await loadSessionModel();
+  } catch (e) { toast(e.message); }
+}
+$("session-model").addEventListener("change", saveSessionModel);
+$("session-reasoning").addEventListener("change", saveSessionModel);
+form("models-form", async () => {
+  const fallbackOrder = [...$("models-fallback").querySelectorAll("input:checked")].map((box) => box.value);
+  await api("models", {
+    activePreset: $("models-active").value || null,
+    reasoning: $("models-reasoning").value || null,
+    fallbackOrder,
+    cooldownMs: Math.max(0, Math.round(Number($("models-cooldown").value) || 0)) * 1000,
+  });
+  await refresh();
+});
 function renderSkills() {
   list("skills-list", state.skills || [], value => {
     const node = recordCard(value.name, value.activeVersion === null ? "disabled" : "enabled");
@@ -540,6 +696,7 @@ function renderConversation(value, status) {
 async function loadConversation(id, status) {
   try {
     renderConversation(await api("sessions/" + id), status);
+    await loadSessionModel();
   } catch (error) {
     renderConversationContext();
     const context = $("session-context");
@@ -680,6 +837,7 @@ $("chat-form").addEventListener("submit", async (event) => {
     $("session-label").textContent = run.status + " · conversation saved";
     await loadConversation(run.sessionId, run.status);
     await refresh();
+    await loadSessionModel();
   } catch (e) {
     message("assistant", e.message);
   } finally {
@@ -695,6 +853,8 @@ $("new-session").addEventListener("click", () => {
   $("conversation").replaceChildren();
   $("session-label").textContent = "New conversation";
   renderConversationContext();
+  sessionModel = { preset: null, reasoning: null };
+  $("model-controls").hidden = true;
 });
 $("demo-prompt").addEventListener("click", () => {
   $("prompt").value =

@@ -21,6 +21,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { skillInstructions } from "./skill-tools.js";
+import type { ModelPreset, ModelRouter, ReasoningEffort } from "./models.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -29,6 +30,11 @@ import {
   type RetryPolicyInput,
 } from "./provider-retry.js";
 
+interface ModelRoute {
+  index: number;
+  reasoning: ReasoningEffort | null;
+  candidates: ModelPreset[];
+}
 export interface RunOptions {
   prompt: string;
   sessionId?: string;
@@ -47,12 +53,16 @@ export class Runtime {
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
-    readonly provider: Provider,
+    readonly models: ModelRouter,
     readonly workspace: string,
     readonly owner = "local",
     retryPolicy?: RetryPolicyInput,
   ) {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
+  }
+  /** The default preset's provider; individual runs may select another preset. */
+  get provider(): Provider {
+    return this.models.default.provider;
   }
   context(
     options: {
@@ -290,11 +300,15 @@ export class Runtime {
       },
       ...this.store.messages(run.sessionId),
     ];
+    const plan = this.models.plan(context.owner, run.sessionId);
+    this.store.event(run.id, "model.selected", { ...plan.choice });
+    const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
     for (let round = 0; round < 12; round++) {
       const completion = await this.completeWithRetries(
         run,
         messages,
         context,
+        route,
         onTextDelta,
       );
       const assistant: Message = {
@@ -324,6 +338,7 @@ export class Runtime {
     run: Run,
     messages: Message[],
     context: ToolContext,
+    route: ModelRoute,
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
     for (let retriesUsed = 0; ; retriesUsed++) {
@@ -334,13 +349,19 @@ export class Runtime {
             onTextDelta(text);
           }
         : undefined;
+      const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, emit);
+        return await this.complete(run, messages, context, preset, route.reasoning, emit);
       } catch (error) {
         const retry = observedText
           ? undefined
           : planRetry(error, retriesUsed, this.retryPolicy);
-        if (!retry || context.signal.aborted) throw error;
+        if (context.signal.aborted) throw error;
+        if (!retry) {
+          if (observedText || !this.fallBack(run, context, route, error)) throw error;
+          retriesUsed = -1;
+          continue;
+        }
         this.checkRetryBudget(messages, context);
         this.store.event(run.id, "model.retry_scheduled", {
           attempt: retriesUsed + 1,
@@ -352,6 +373,18 @@ export class Runtime {
         await waitForRetry(retry.delayMs, context.signal);
       }
     }
+  }
+  /** Moves to the next configured preset after an eligible failure; records the cooldown and switch. */
+  private fallBack(run: Run, context: ToolContext, route: ModelRoute, error: unknown): boolean {
+    const failed = route.candidates[route.index]!, next = route.candidates[route.index + 1];
+    const cooldownUntil = this.models.markFailure(context.owner, failed.id, error);
+    if (!cooldownUntil || !next) return false;
+    route.index += 1;
+    this.store.event(run.id, "model.fallback", {
+      from: failed.id, to: next.id, provider: next.provider.name, model: next.model,
+      reason: errorText(error), cooldownUntil,
+    });
+    return true;
   }
   private checkRetryBudget(messages: Message[], context: ToolContext): void {
     context.signal.throwIfAborted();
@@ -368,6 +401,8 @@ export class Runtime {
     run: Run,
     messages: Message[],
     context: ToolContext,
+    preset: ModelPreset,
+    reasoning: ReasoningEffort | null,
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
     context.budget.step(context.signal);
@@ -384,13 +419,18 @@ export class Runtime {
     this.store.event(run.id, "model.started", {
       estimatedInput: input,
       maxTokens,
+      preset: preset.id,
+      provider: preset.provider.name,
+      model: preset.model,
+      reasoning,
     });
     try {
-      const raw = await this.provider.complete({
+      const raw = await preset.provider.complete({
         messages,
         tools,
         signal: context.signal,
         maxTokens,
+        ...(reasoning ? { reasoning } : {}),
         ...(onTextDelta ? { onTextDelta } : {}),
       });
       const { output, reported } = this.recordCompletion(run, context, raw, input);

@@ -1,6 +1,13 @@
+#!/usr/bin/env node
 import { resolve } from "node:path";
 import { createBranch } from "./index.js";
-import { providerFromEnv } from "./providers.js";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defaultPreset, presetsFromEnv } from "./providers.js";
+import { ChatGPTAuth, FileTokenVault } from "./chatgpt-auth.js";
+import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
@@ -58,14 +65,16 @@ async function serve(
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
-  if (!["start", "run", "chat", "demo", "doctor"].includes(command))
+  if (command === "update") return updateCheckout();
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor",
+      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor | login | logout | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
-  const provider = command === "demo" ? new DemoProvider() : providerFromEnv();
-  const { app, close } = await configuredApp({ workspace, dataDir, provider });
+  const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
+  const chatgpt = new ChatGPTAuth(new FileTokenVault(join(dataDir, "chatgpt-auth.json")), { userAgent: "BranchAgent" });
+  const { app, close } = await configuredApp({ workspace, dataDir, presets, chatgpt });
   if (command === "start") {
     try {
       await serve(app, dataDir, close);
@@ -76,7 +85,12 @@ async function main(): Promise<void> {
     return;
   }
   try {
-    if (command === "chat") {
+    if (command === "login") await loginChatGPT(app);
+    else if (command === "logout") {
+      await app.chatgpt!.signOut();
+      syncChatGPTPresets(app.runtime.models, app.chatgpt!, false, app.userAgent);
+      console.log("Signed out of ChatGPT.");
+    } else if (command === "chat") {
       await startTerminal(app.runtime);
       return;
     }
@@ -106,6 +120,25 @@ async function runOnce(
   }, null, 2));
   if (run.status !== "completed") process.exitCode = 1;
 }
+async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const auth = app.chatgpt!;
+  const prompt = await auth.startDeviceLogin();
+  console.log(`\nTo connect your ChatGPT account:\n\n  1. Open ${prompt.verificationUrl}\n  2. Enter this code: ${prompt.userCode}\n\nWaiting for you to finish in the browser...`);
+  const status = await finishChatGPTSignIn(app.runtime.models, auth, app.runtime.owner, app.userAgent);
+  console.log(`Signed in${status.email ? " as " + status.email : ""}. ChatGPT models are now available.`);
+}
+/** Refreshes a source checkout in place: pull, install exact dependencies, rebuild. */
+function updateCheckout(): void {
+  const root = dirname(dirname(fileURLToPath(import.meta.url)));
+  if (!existsSync(join(root, ".git")))
+    throw new Error("This copy was not installed from Git. Download the newest release from GitHub instead.");
+  const steps: [string, string[]][] = [["git", ["pull", "--ff-only"]], ["npm", ["ci"]], ["npm", ["run", "build"]]];
+  for (const [command, args] of steps) {
+    const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
+    if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed`);
+  }
+  console.log("Branch Agent is up to date. Restart it to use the new version.");
+}
 function printDoctor(
   app: Awaited<ReturnType<typeof createBranch>>,
   dataDir: string,
@@ -118,6 +151,9 @@ function printDoctor(
         workspace: app.runtime.workspace,
         dataDir,
         provider: app.runtime.provider.name,
+        modelPresets: [...app.runtime.models.presets.values()].map((preset) => ({
+          id: preset.id, name: preset.name, provider: preset.provider.name, model: preset.model,
+        })),
         registeredTools: app.registry.permissions(),
         networkProviderTested: false,
       },

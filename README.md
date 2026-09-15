@@ -4,6 +4,10 @@ An open-source personal assistant designed to assemble the capabilities you need
 
 **Status: early implementation.** The local runtime, web interface and offline demonstration run today. The complete requested capability set remains in development; see the [feature inventory](docs/features.md) for evidence and gaps.
 
+## Install the Windows app
+
+Download `Branch-Agent-windows-x64.zip` from the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest), unzip it anywhere, and start `Branch Agent.exe`. Open **Settings → ChatGPT account** to sign in with your ChatGPT plan, or **Settings → Model connection** to use an API key. **Settings → Updates** checks GitHub for a newer release and installs it with one click after verifying the published checksum.
+
 ## Run locally
 
 Requires Node.js 24 and npm. Python 3.12 is optional for experiments.
@@ -14,6 +18,8 @@ npm run demo
 npm start
 ```
 
+Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`logout` removes it). A source checkout updates itself with `node dist/cli.js update`. After `npm link`, the same commands are available as `branch chat`, `branch login` and `branch update`.
+
 For an interactive terminal conversation, run `npm run chat`. Text streams as the provider sends it. Press Ctrl+C or type a revised request to interrupt the current task and continue the same conversation. `/new` starts a new conversation; `/exit` closes the terminal assistant.
 
 For the native desktop application:
@@ -22,9 +28,9 @@ For the native desktop application:
 npm run desktop
 ```
 
-It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. Installers, signing and automatic updates are pending.
+It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. The packaged app updates itself from GitHub Releases; installers and code signing are pending.
 
-In desktop **Settings → Model connection**, select a provider and enter its API base URL, model identifier and key. The key is stored using the device's key protection. Quit and reopen to apply the connection. Explicit launch environment configuration takes precedence.
+In **Settings → ChatGPT account**, sign in on OpenAI's website with a short code to use the models that come with your ChatGPT plan; the sign-in is kept under the device's key protection and Branch identifies itself as Branch Agent. In **Settings → Model connection**, select a provider and enter its API base URL, model identifier and key. Quit and reopen to apply an API-key connection. Explicit launch environment configuration takes precedence.
 
 Open the local address printed by `npm start` and paste its session token. The default provider is a deterministic demonstration that writes, reads and verifies a greeting. It does not interpret arbitrary requests. Configure a language model using [configuration.md](docs/configuration.md) for general assistance.
 
@@ -36,7 +42,9 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Interactive terminal chat with provider streaming, interruption and in-place redirection.
 - A native desktop window and tray, with Forest and Daylight appearances saved across restarts.
 - Desktop model setup with a protected saved key and recovery from invalid settings.
-- OpenAI-compatible and Anthropic provider adapters.
+- OpenAI-compatible and Anthropic provider adapters, plus ChatGPT plan sign-in through OpenAI's device-code route.
+- Named model presets with a workspace default, per-conversation choice, thinking-effort control and ordered fallback with cooldowns; every run records the model that actually answered.
+- One-click updates from GitHub Releases with checksum verification, and `branch update` for source checkouts.
 - Bounded retries for temporary provider failures, preserving completed tool work and attempt accounting.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
 - Full-text conversation search with bounded excerpts and links to source messages.

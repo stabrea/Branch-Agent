@@ -9,7 +9,7 @@
   </head>
   <body>
     <div class="topbar">
-      <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> Branch Agent</span
+      <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> KeepOak</span
       ><span class="topbar-caption">Your personal assistant</span
       ><button id="appearance-shortcut" class="text-button">
         ◐ Appearance
@@ -88,12 +88,11 @@
             <button id="saved-more" type="button" class="text-button" hidden>Load more conversations</button>
           </details>
           <div id="demo-notice" class="notice" hidden>
-            <strong>Offline demo fixture</strong
+            <strong>No model connected yet</strong
             ><span
-              >Try the complete file workflow. This deterministic fixture
-              writes, reads, and verifies a greeting; it does not understand
-              arbitrary requests. Configure a real provider for general
-              assistance.</span
+              >Branch is running a small offline demonstration that can only
+              write, read and check one greeting file. Open Settings and
+              connect a model to get real help.</span
             >
           </div>
           <div id="session-context" class="session-context" hidden></div>
@@ -109,6 +108,18 @@
                 Try the file workflow ↗
               </button>
             </div>
+          </div>
+          <div id="model-controls" class="model-controls" hidden>
+            <label for="session-model">Model for this conversation</label>
+            <select id="session-model"></select>
+            <label for="session-reasoning">Thinking</label>
+            <select id="session-reasoning">
+              <option value="">Workspace default</option>
+              <option value="low">Quick</option>
+              <option value="medium">Balanced</option>
+              <option value="high">Thorough</option>
+            </select>
+            <span id="model-used" class="meta"></span>
           </div>
           <form id="chat-form" class="composer">
             <label class="sr-only" for="prompt">Your message</label
@@ -318,6 +329,55 @@
             </select>
             <p class="subtle">Saved on this device for your next visit.</p>
             <button>Save appearance</button>
+          </form>
+          <section id="chatgpt-card" class="card">
+            <h2>ChatGPT account</h2>
+            <p>Use the models that come with your ChatGPT plan. You sign in on OpenAI's website with a short code; Branch never sees your password and keeps the sign-in protected on this device.</p>
+            <p id="chatgpt-status" role="status">Checking…</p>
+            <div id="chatgpt-code-block" hidden>
+              <p class="subtle">Enter this code on the sign-in page</p>
+              <p id="chatgpt-code" class="code-display" aria-live="polite"></p>
+              <div class="identity-actions">
+                <a id="chatgpt-open" class="button-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer">Open the sign-in page ↗</a>
+                <button id="chatgpt-copy" type="button">Copy code</button>
+              </div>
+              <p class="subtle">Waiting for you to finish in the browser. This page updates by itself.</p>
+            </div>
+            <div class="identity-actions">
+              <button id="chatgpt-login" type="button">Sign in with ChatGPT</button>
+              <button id="chatgpt-logout" type="button" hidden>Sign out</button>
+            </div>
+            <p class="subtle">Access through a ChatGPT plan is provided by OpenAI for its own tools and may change. Branch identifies itself as Branch Agent and never pretends to be another app.</p>
+          </section>
+          <section id="updates-card" class="card" hidden>
+            <h2>Updates</h2>
+            <p id="updates-version" class="subtle"></p>
+            <p id="updates-status" role="status"></p>
+            <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
+            <div class="identity-actions">
+              <button id="updates-check" type="button">Check for updates</button>
+              <button id="updates-install" type="button" hidden>Update and restart</button>
+            </div>
+            <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
+          </section>
+          <form id="models-form" class="card">
+            <h2>Models</h2>
+            <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>
+            <label for="models-active">Default model</label>
+            <select id="models-active"></select>
+            <label for="models-reasoning">Default thinking</label>
+            <select id="models-reasoning">
+              <option value="">Model's own default</option>
+              <option value="low">Quick</option>
+              <option value="medium">Balanced</option>
+              <option value="high">Thorough</option>
+            </select>
+            <p class="subtle">If the default fails, try these in order</p>
+            <div id="models-fallback" class="check-list"></div>
+            <label for="models-cooldown">Rest a failed model for (seconds)</label>
+            <input id="models-cooldown" type="number" min="0" max="3600" step="1" />
+            <p id="models-note" class="subtle"></p>
+            <button>Save model settings</button>
           </form>
           <form id="model-settings-form" class="card" hidden>
             <h2>Model connection</h2>

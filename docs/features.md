@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 21 implemented, 52 partial, 1 external and 95 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 26 implemented, 52 partial, 1 external and 90 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -43,14 +43,14 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
 | Hosted and local model endpoints (`models.hosted-local`) | external | Configure actual hosted and local model endpoints and complete the same fixture on both. |
-| API-key and supported OAuth routes (`models.oauth`) | partial | Implement and verify a supported OAuth authentication route alongside the API-key route. |
-| Model and provider presets (`models.presets`) | missing | Select two named model presets and verify that each task uses the selected provider and model. |
+| API-key and supported OAuth routes (`models.oauth`) | implemented | Covered by the listed local fixtures. |
+| Model and provider presets (`models.presets`) | implemented | Covered by the listed local fixtures. |
 | Bounded retries preserving completed work (`models.retry`) | implemented | Covered by the listed local fixtures. |
-| Auth rotation cooldowns and model fallback (`models.fallback`) | missing | Inject an eligible provider failure and verify the configured cooldown and fallback order. |
+| Auth rotation cooldowns and model fallback (`models.fallback`) | implemented | Covered by the listed local fixtures. |
 | Respect explicit selected-model policy (`models.strict-choice`) | implemented | Covered by the listed local fixtures. |
-| Live switching with visible fallback notices (`models.switching`) | missing | Switch the active model and expose the actual model used on the next turn. |
+| Live switching with visible fallback notices (`models.switching`) | implemented | Covered by the listed local fixtures. |
 | Hardware-aware local model acquisition (`models.local-download`) | missing | Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint. |
-| Per-session reasoning effort controls (`models.reasoning-default`) | missing | Set a default reasoning effort and override it for one session while preserving the default for a new session. |
+| Per-session reasoning effort controls (`models.reasoning-default`) | implemented | Covered by the listed local fixtures. |
 
 ## Execution
 
@@ -180,7 +180,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Passkey authentication for the assistant service (`security.passkeys`) | missing | Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt. |
 | Block internal-network request forgery (`security.ssrf`) | missing | Reject tool HTTP requests resolving to disallowed loopback, private or link-local addresses. |
 | Cross-origin WebSocket admission control (`security.origin`) | partial | Implement the WebSocket surface and test rejection/acceptance of upgrade origins. |
-| Verify downloaded release provenance and hashes (`security.release-verification`) | missing | Verify an official artifact's attestation and checksum and reject a tampered copy. |
+| Verify downloaded release provenance and hashes (`security.release-verification`) | partial | Publish and verify a signed attestation alongside the checksum. |
 | End-to-end encrypted relay transport (`security.encrypted-relay`) | missing | Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext. |
 | Pinned SSH host identity for remote execution (`security.host-pinning`) | missing | Execute against a recorded SSH host key and reject a connection whose host identity has changed. |
 | Scan skills before activation (`security.skill-scanning`) | missing | Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation. |

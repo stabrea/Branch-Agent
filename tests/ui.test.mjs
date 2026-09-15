@@ -36,7 +36,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   await verifyArtwork(page);
   assert.match(
     await page.locator("#demo-notice").innerText(),
-    /deterministic fixture/,
+    /offline demonstration/,
   );
   await page.getByRole("button", { name: "Try the file workflow" }).click();
   await page.getByRole("button", { name: "Send" }).click();

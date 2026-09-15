@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T20:33:56.171290+00:00",
+  "assessment_date": "2026-09-15T20:59:51.647248+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -505,34 +505,49 @@
       "family": "models",
       "name": "API-key and supported OAuth routes",
       "acceptance_criterion": "Authenticate through API-key and one supported OAuth route without putting secret values into model-visible messages.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/providers.ts",
-          "src/integrations/mcp-config.ts"
+          "src/chatgpt-auth.ts",
+          "src/chatgpt-provider.ts",
+          "src/chatgpt-presets.ts",
+          "src/server.ts",
+          "src/cli.ts",
+          "src/desktop/main.ts",
+          "tests/chatgpt.test.mjs"
         ],
         "tests": [
-          "real provider configuration is explicit and has no credential fallback"
+          "device sign-in stores tokens, registers ChatGPT presets and completes a tool-using task",
+          "expiring access tokens refresh once for concurrent callers; a rejected refresh signs out",
+          "HTTP API exposes sign-in status, starts the device flow and signs out"
         ],
-        "detail": "Environment API keys enter provider headers; no OAuth flow."
+        "detail": "API-key route plus the ChatGPT device-code OAuth route. Tokens live in a device-protected vault; status responses and model messages never carry secret values."
       },
-      "remaining": "Implement and verify a supported OAuth authentication route alongside the API-key route."
+      "remaining": ""
     },
     {
       "id": "models.presets",
       "family": "models",
       "name": "Model and provider presets",
       "acceptance_criterion": "Select two named model presets and verify that each task uses the selected provider and model.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
           "src/providers.ts",
-          "src/contracts.ts"
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "named presets: each task uses the selected preset's provider and model",
+          "presets come from BRANCH_MODEL_PRESETS with keys read from named variables"
+        ],
+        "detail": "Named presets with per-owner default; keys come from named environment variables or the ChatGPT sign-in and are never stored in settings."
       },
-      "remaining": "Select two named model presets and verify that each task uses the selected provider and model."
+      "remaining": ""
     },
     {
       "id": "models.retry",
@@ -579,16 +594,25 @@
       "family": "models",
       "name": "Auth rotation cooldowns and model fallback",
       "acceptance_criterion": "Inject an eligible provider failure and verify the configured cooldown and fallback order.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
           "src/providers.ts",
-          "src/contracts.ts"
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs",
+          "src/provider-retry.ts"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "eligible failures rest the failed preset and fall back in the configured order",
+          "failures that are not provider outages do not fall back"
+        ],
+        "detail": "Retryable HTTP classes and connection failures place the preset in a configurable cooldown and continue with the configured order; auth and quota failures do not fall back."
       },
-      "remaining": "Inject an eligible provider failure and verify the configured cooldown and fallback order."
+      "remaining": ""
     },
     {
       "id": "models.strict-choice",
@@ -624,16 +648,23 @@
       "family": "models",
       "name": "Live switching with visible fallback notices",
       "acceptance_criterion": "Switch the active model and expose the actual model used on the next turn.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
           "src/providers.ts",
-          "src/contracts.ts"
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "session override switches the model for one conversation and reports the model actually used"
+        ],
+        "detail": "Per-conversation model override; run records and the Activity view show the preset that actually served each run, including fallbacks."
       },
-      "remaining": "Switch the active model and expose the actual model used on the next turn."
+      "remaining": ""
     },
     {
       "id": "models.local-download",
@@ -656,16 +687,23 @@
       "family": "models",
       "name": "Per-session reasoning effort controls",
       "acceptance_criterion": "Set a default reasoning effort and override it for one session while preserving the default for a new session.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/models.ts",
+          "src/runtime.ts",
           "src/providers.ts",
-          "src/contracts.ts"
+          "src/server.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/models.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "reasoning effort reaches provider requests in each protocol's own parameter"
+        ],
+        "detail": "Owner default, per-preset default and per-conversation override; OpenAI reasoning_effort, Anthropic thinking budget, ChatGPT reasoning.effort."
       },
-      "remaining": "Set a default reasoning effort and override it for one session while preserving the default for a new session."
+      "remaining": ""
     },
     {
       "id": "execution.files-shell",
@@ -2359,19 +2397,20 @@
       "family": "security",
       "name": "Verify downloaded release provenance and hashes",
       "acceptance_criterion": "Verify an official artifact's attestation and checksum and reject a tampered copy.",
-      "status": "missing",
+      "status": "partial",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
-          "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "src/desktop/updater.ts",
+          "src/desktop/updater-ipc.ts",
+          "tests/updater.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "install downloads, verifies, unpacks beside the install and writes the hand-over script",
+          "a checksum mismatch refuses to install"
+        ],
+        "detail": "In-app updates verify the published SHA-256 and refuse a tampered archive. No signed attestation yet."
       },
-      "remaining": "Verify an official artifact's attestation and checksum and reject a tampered copy."
+      "remaining": "Publish and verify a signed attestation alongside the checksum."
     },
     {
       "id": "security.encrypted-relay",

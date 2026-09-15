@@ -134,6 +134,9 @@ export class Store {
     const row = this.db.prepare("SELECT * FROM tasks WHERE id=?").get(id);
     return row ? this.toRun(row) : undefined;
   }
+  ownsSession(owner: string, sessionId: string): boolean {
+    return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);
+  }
   runs(owner: string): Run[] {
     return this.db
       .prepare(

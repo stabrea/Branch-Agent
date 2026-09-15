@@ -890,3 +890,51 @@ summary {
 .skill-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 #skill-document { font-family: var(--font-mono, monospace); }
 #skills-list { margin-bottom: 20px; }
+
+.model-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.model-controls label { margin: 0; }
+.model-controls select { width: auto; max-width: 100%; margin: 0; }
+.model-controls .meta { flex-basis: 100%; }
+.check-list { display: grid; gap: 0.35rem; margin: 0 0 0.75rem; }
+.check-list .check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; }
+.check-list input { width: auto; margin: 0; }
+
+.code-display {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 2rem;
+  letter-spacing: 0.18em;
+  margin: 0.25rem 0 0.75rem;
+  color: var(--copper-hi);
+  user-select: all;
+}
+.button-link {
+  display: inline-block;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.6rem;
+  background: var(--copper);
+  color: var(--on-copper);
+  text-decoration: none;
+  font-weight: 600;
+}
+.button-link:hover { background: var(--copper-hi); }
+.progress {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--well);
+  overflow: hidden;
+  margin: 0.5rem 0 0.75rem;
+}
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--copper);
+  transition: width 0.3s ease;
+}

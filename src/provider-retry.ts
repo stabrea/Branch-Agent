@@ -152,6 +152,13 @@ function parseErrorCodes(body: string): ErrorDetails {
     : unavailableErrorDetails();
 }
 
+/** True for failures where trying another configured model is reasonable: retryable HTTP classes or a failed connection. */
+export function fallbackEligible(error: unknown): boolean {
+  if (retryableHttpError(error)) return true;
+  const cause = error instanceof ProviderStreamError ? error.cause : error;
+  return cause instanceof TypeError && /fetch failed/i.test(cause.message);
+}
+
 function retryableHttpError(error: unknown): ProviderHttpError | undefined {
   for (
     let depth = 0;
