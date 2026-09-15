@@ -43,7 +43,16 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
-## Batch 3 (local, unreleased): setup, temporary chats, forgetting
+## Batch 4: terminal commands, projects, secrets locker (0.3.0)
+
+Commits 43b3627, 2d9ead1. `/models` `/model` `/think` in the terminal (per-run override through
+`ModelRouter.plan(owner, sessionId, override)`); `src/projects.ts` (instructions, preferred model,
+default project) and `src/locker.ts` (AES-256-GCM, key file `locker.key` in the data dir, host-boundary
+injection via `shell.execute` `secrets`, scrubbed output). Routes `/api/projects*`, `/api/secrets*`.
+Full suite green; coverage 29 implemented, 51 partial, 88 missing. Packaged 0.3.0 passes 8/8 native tests.
+Note: a file named `secrets.ts` is blocked by the tool's write rules; the module is `locker.ts`.
+
+## Batch 3: setup, temporary chats, forgetting
 
 Commit 85f34d1. First-run panel with three doors and a real test call (`POST /api/models/test`,
 `POST /api/onboarding`); temporary conversations (`temporary` on `/api/run`, `POST
