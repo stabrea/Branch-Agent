@@ -161,6 +161,7 @@ function state(app: Branch): unknown {
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
+    project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },
     preferences: preferences(app.store, owner),
@@ -189,6 +190,8 @@ async function api(
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
+  if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
+  if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -274,6 +277,43 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/memory/forget")
     return app.store.forgetMemory(owner, await readBody(request));
+  throw new HttpError(404, "Endpoint not found");
+}
+async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, projects = app.store.projects;
+  if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
+  if (request.method === "POST" && path === "/api/projects") {
+    const body = await readBody(request) as { modelPreset?: unknown };
+    if (typeof body?.modelPreset === "string" && !app.runtime.models.presets.has(body.modelPreset))
+      throw new HttpError(400, "That model preset is not configured");
+    return projects.save(owner, body);
+  }
+  if (request.method === "POST" && path === "/api/projects/active") return projects.setActive(owner, await readBody(request));
+  const match = /^\/api\/projects\/([a-z0-9-]{1,40})\/remove$/.exec(path);
+  if (match && request.method === "POST") {
+    z.object({}).strict().parse(await readBody(request));
+    const result = projects.remove(owner, match[1]!);
+    app.store.locker.removeProject(owner, match[1]!);
+    return result;
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Secret values go in and never come out; only names are listed. */
+async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, locker = app.store.locker;
+  const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
+  const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
+  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: locker.names(owner, listMatch[1]!) }; }
+  if (request.method === "POST" && path === "/api/secrets") {
+    const { project, name, value } = z.object({ project: z.string(), name: z.string(), value: z.string() }).strict().parse(await readBody(request, 64 * 1024));
+    known(project);
+    return locker.set(owner, project, name, value);
+  }
+  const removeMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/remove$/.exec(path);
+  if (removeMatch && request.method === "POST") {
+    z.object({}).strict().parse(await readBody(request));
+    return { removed: locker.remove(owner, removeMatch[1]!, removeMatch[2]!) };
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -366,7 +406,7 @@ export async function startServer(
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

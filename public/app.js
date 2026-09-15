@@ -381,7 +381,74 @@ async function refresh() {
   renderChatGPT();
   renderUpdates();
   renderFirstRun();
+  renderProjects();
+  void renderSecrets();
 }
+let editingProject = null;
+function projectOptions(select, projects, value) {
+  const focused = document.activeElement === select;
+  select.replaceChildren(...projects.map((project) => { const option = el("option", project.name); option.value = project.id; return option; }));
+  if (!focused) select.value = value;
+}
+function renderProjects() {
+  const info = state.project;
+  if (!info) return;
+  projectOptions($("project-active"), info.all, info.active.id);
+  projectOptions($("secret-project"), info.all, $("secret-project").value || info.active.id);
+  const presets = state.models?.presets ?? [];
+  presetOptions($("project-preset"), presets, "Workspace default", editingProject?.modelPreset ?? "");
+  if (!editingProject) loadProject(info.active);
+}
+function loadProject(project) {
+  editingProject = project;
+  $("project-id").value = project.id; $("project-id").disabled = project.id === "default";
+  $("project-name").value = project.name;
+  $("project-instructions").value = project.instructions;
+  $("project-preset").value = project.modelPreset ?? "";
+  $("project-remove").hidden = project.id === "default";
+}
+$("project-active").addEventListener("change", async () => {
+  try {
+    const active = await api("projects/active", { active: $("project-active").value });
+    loadProject(active); await refresh(); toast(`Now working in ${active.name}.`);
+  } catch (e) { toast(e.message); }
+});
+$("project-new").addEventListener("click", () => {
+  loadProject({ id: "", name: "", instructions: "", modelPreset: null, repository: "" });
+  $("project-id").disabled = false; $("project-remove").hidden = true; $("project-id").focus();
+});
+$("project-remove").addEventListener("click", async () => {
+  if (!editingProject || editingProject.id === "default") return;
+  try { await api(`projects/${editingProject.id}/remove`, {}); editingProject = null; await refresh(); toast("Project removed."); }
+  catch (e) { toast(e.message); }
+});
+form("projects-form", async () => {
+  const saved = await api("projects", {
+    id: $("project-id").value.trim(), name: $("project-name").value.trim(),
+    instructions: $("project-instructions").value, modelPreset: $("project-preset").value || null, repository: editingProject?.repository ?? "",
+  });
+  loadProject(saved); await refresh();
+});
+async function renderSecrets() {
+  const project = $("secret-project").value || state.project?.active.id;
+  if (!project) return;
+  let listing;
+  try { listing = await api(`secrets/${project}`); } catch { return; }
+  list("secrets-list", listing.secrets, (secret) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
+      button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
+    return node;
+  }, "No secrets in this project yet.");
+}
+$("secret-project").addEventListener("change", () => { void renderSecrets(); });
+form("secrets-form", async () => {
+  const value = $("secret-value").value;
+  $("secret-value").value = "";
+  await api("secrets", { project: $("secret-project").value, name: $("secret-name").value.trim(), value });
+  $("secret-name").value = "";
+  await renderSecrets();
+});
 let firstRunDoor = null, firstRunTimer = null;
 function renderFirstRun() {
   const show = state.onboarding && !state.onboarding.done;

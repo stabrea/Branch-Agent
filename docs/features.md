@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 28 implemented, 51 partial, 1 external and 89 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 29 implemented, 51 partial, 1 external and 88 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -153,8 +153,8 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Project files instructions repositories and presets (`workspace.projects`) | partial | Implement project switching across files, instructions, repository and model presets. |
-| Project-scoped secrets and knowledge (`workspace.secrets`) | missing | Use a secret from the active project while rejecting access to another project's secret. |
+| Project files instructions repositories and presets (`workspace.projects`) | partial | Scope workspace files and a linked repository to the active project. |
+| Project-scoped secrets and knowledge (`workspace.secrets`) | implemented | Covered by the listed local fixtures. |
 | Live editable Markdown artifacts (`workspace.markdown`) | partial | Provide user editor and conflict-aware nonconflicting agent/user merge fixture. |
 | Document spreadsheet and presentation cowork (`workspace.office`) | missing | Create and reopen a document, spreadsheet and presentation in the supported office integration. |
 | Visible file diffs and artifacts (`workspace.diffs`) | missing | Show the actual before-and-after file diff and link the resulting artifact after an edit. |

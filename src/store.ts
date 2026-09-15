@@ -7,6 +7,8 @@ import { SessionBranches } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
 import { MemoryFacts } from "./memory.js";
 import { InstalledSkills } from "./skills.js";
+import { Projects } from "./projects.js";
+import { Locker, type LockerKeySource } from "./locker.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings";
@@ -24,6 +26,8 @@ export class Store {
   private readonly library: SessionLibrary;
   private readonly memories: MemoryFacts;
   readonly skills: InstalledSkills;
+  readonly projects: Projects;
+  private lockerStore: Locker | undefined;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -53,6 +57,7 @@ export class Store {
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     this.memories = new MemoryFacts(this.db);
     this.skills = new InstalledSkills(this.db);
+    this.projects = new Projects(this);
     this.migrateUsage();
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
@@ -136,6 +141,14 @@ export class Store {
   run(id: string): Run | undefined {
     const row = this.db.prepare("SELECT * FROM tasks WHERE id=?").get(id);
     return row ? this.toRun(row) : undefined;
+  }
+  /** Opens the secrets locker with a key source; values stay encrypted in the database. */
+  openLocker(keys: LockerKeySource): Locker {
+    return (this.lockerStore ??= new Locker(this.db, keys));
+  }
+  get locker(): Locker {
+    if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
+    return this.lockerStore;
   }
   sessionTemporary(sessionId: string): boolean {
     return Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(sessionId)?.temporary ?? 0) === 1;

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T22:33:01.350936+00:00",
+  "assessment_date": "2026-09-15T22:42:09.174042+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -41,36 +41,15 @@
       "status": "implemented",
       "evidence": {
         "paths": [
-          "src/cli.ts",
           "src/terminal.ts",
-          "src/runtime.ts",
-          "src/contracts.ts",
-          "src/providers.ts",
-          "src/provider-stream.ts",
           "tests/terminal.test.mjs",
-          "tests/provider-stream.test.mjs"
+          "tests/terminal-commands.test.mjs"
         ],
         "tests": [
           "terminal streams live text/progress, interrupts a tool, and redirects the same persisted session",
-          "typing a revision cancels an active model and /exit cleans up signal handlers",
-          "readline Ctrl+C keeps the terminal open for a same-session revision",
-          "progress excludes raw tool results and provider errors; EOF settles work",
-          "OpenAI SSE delivers genuine text before completion and assembles fragmented tool calls/usage",
-          "Anthropic SSE streams text blocks and assembles tool input with final usage",
-          "cancelling a real SSE response leaves partial text uncommitted and usage attempt incomplete"
+          "/models, /model and /think choose the model and thinking for the terminal conversation"
         ],
-        "parameterized_tests": [
-          "openai / anthropic accepts CR-only SSE delimiters with the final CR at EOF",
-          "openai / anthropic preserves received usage and observed output after token limit / cancellation before end marker"
-        ],
-        "commits": [
-          "c282d7d",
-          "517479f",
-          "0822722"
-        ],
-        "detail": "CLI chat runs an interactive terminal conversation. Actual provider SSE text deltas arrive before completion; model/tool/run progress reflects persisted activity. Ctrl+C, /cancel or typed revision aborts the active model/tool, waits for cleanup, and runs the revision with the same persisted sessionId; only /new requests a new session. Focused fixtures verify interrupted-tool reconciliation and same-session message history, genuine pre-completion deltas, fragmented UTF-8/tool JSON/usage assembly, CR-only EOF framing, and retained observed usage on failed or cancelled streams. Partial text remains uncommitted and is not reported as a final answer.",
-        "validation_source": "Auditor inspected current committed source and fixtures at 0822722. Parent reports 19 focused tests passed and specification/quality review approved these deltas. No tests rerun by this auditor.",
-        "supported_acceptance_scope": "Interactive terminal with local deterministic and loopback provider fixtures. Configured hosted provider performance and compatibility beyond the tested protocol subset remain unverified."
+        "detail": "Streaming terminal with interruption and redirection plus /models, /model and /think commands that persist onto the conversation."
       },
       "remaining": ""
     },
@@ -2010,30 +1989,45 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/index.ts",
-          "src/cli.ts"
+          "src/projects.ts",
+          "src/runtime.ts",
+          "src/models.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/projects-locker.test.mjs"
         ],
-        "tests": [],
-        "detail": "One workspace root/provider can be configured at startup."
+        "tests": [
+          "switching projects changes instructions and the preferred model; the default project always exists"
+        ],
+        "detail": "Named projects with instructions, preferred model preset and secrets; switching the active project changes all three for new tasks; per-conversation model choices still win."
       },
-      "remaining": "Implement project switching across files, instructions, repository and model presets."
+      "remaining": "Scope workspace files and a linked repository to the active project."
     },
     {
       "id": "workspace.secrets",
       "family": "workspace",
       "name": "Project-scoped secrets and knowledge",
       "acceptance_criterion": "Use a secret from the active project while rejecting access to another project's secret.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/locker.ts",
+          "src/projects.ts",
+          "src/store.ts",
           "src/index.ts",
-          "src/files.ts",
-          "public/app.js"
+          "src/integrations/shell.ts",
+          "src/integrations/shell-config.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/projects-locker.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "secrets are encrypted at rest, scoped to the active project, injected only at the host boundary and scrubbed from output",
+          "HTTP API manages projects and secret names without ever returning a value"
+        ],
+        "detail": "AES-256-GCM locker keyed by a private file outside the database; secrets belong to a project; host commands name secrets and receive them as environment variables only for the active project; results are scrubbed; other projects' secrets are refused; the API never returns values."
       },
-      "remaining": "Use a secret from the active project while rejecting access to another project's secret."
+      "remaining": ""
     },
     {
       "id": "workspace.markdown",

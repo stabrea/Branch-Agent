@@ -43,6 +43,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
+## Batch 3 (local, unreleased): setup, temporary chats, forgetting
+
+Commit 85f34d1. First-run panel with three doors and a real test call (`POST /api/models/test`,
+`POST /api/onboarding`); temporary conversations (`temporary` on `/api/run`, `POST
+/api/sessions/:id/discard`, purge at startup); memory forgetting (`/api/memory/forget/preview`,
+`/api/memory/forget`, `memory_suppressions`, `originRunId` on facts). Full suite 213/0/1.
+Coverage 28 implemented, 51 partial, 89 missing. Issues #3, #7, #14, #18 updated.
+Release 0.3.0 when the next batch (terminal `/model` `/think`, project secrets) lands.
+
 ## Delivered this session
 
 1. Skills batch shipped (coverage: `extensions.progressive`, `extensions.authoring` implemented).

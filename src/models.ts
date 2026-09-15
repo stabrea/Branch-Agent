@@ -18,7 +18,7 @@ export interface ModelChoice {
   provider: string;
   model: string;
   reasoning: ReasoningEffort | null;
-  source: "session" | "owner" | "default" | "cooldown";
+  source: "session" | "project" | "owner" | "default" | "cooldown";
 }
 const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
 const reasoning = z.enum(reasoningEfforts).nullable();
@@ -102,8 +102,10 @@ export class ModelRouter {
     if (override.preset && !this.presets.has(override.preset)) throw new Error(`Unknown model preset ${override.preset}`);
     const owned = this.settings(owner), scoped = this.session(owner, sessionId);
     const chosen = override.preset ?? scoped.preset;
-    const source = chosen ? "session" : owned.activePreset ? "owner" : "default";
-    const first = this.presets.get(chosen ?? owned.activePreset ?? this.default.id) ?? this.default;
+    const project = this.store.projects.active(owner).modelPreset;
+    const projectPreset = project && this.presets.has(project) ? project : null;
+    const source = chosen ? "session" : projectPreset ? "project" : owned.activePreset ? "owner" : "default";
+    const first = this.presets.get(chosen ?? projectPreset ?? owned.activePreset ?? this.default.id) ?? this.default;
     const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null);
     const fallbacks = owned.fallbackOrder
       .filter(id => id !== first.id && !this.coolingDown(id))
