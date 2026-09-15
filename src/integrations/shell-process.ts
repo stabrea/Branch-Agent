@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes';
 export interface ProcessResult {
@@ -95,16 +96,34 @@ export class ShellProcess {
     this.finish();
   }
   private result(): ProcessResult {
+    const rawTruncated = this.observed > this.kept;
+    const stdout = boundedUtf8(decodeOutput(this.stdout, rawTruncated), this.options.maxOutputBytes);
+    const stderr = boundedUtf8(decodeOutput(this.stderr, rawTruncated), this.options.maxOutputBytes - Buffer.byteLength(stdout.text));
     return {
       status: this.reason ?? (this.failed || this.child.exitCode !== 0 ? 'failed' : 'completed'),
-      stdout: Buffer.concat(this.stdout).toString('utf8'), stderr: Buffer.concat(this.stderr).toString('utf8'),
+      stdout: stdout.text, stderr: stderr.text,
       exitCode: this.child.exitCode, signal: this.child.signalCode, durationMs: Math.round(performance.now() - this.started),
-      truncated: this.observed > this.kept, observedOutputBytes: this.observed,
+      truncated: rawTruncated || stdout.truncated || stderr.truncated, observedOutputBytes: this.observed,
       cleanup: { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
         strategy: process.platform === 'win32' ? 'taskkill /T /F' : 'POSIX process group',
         limitation: 'Trusted host execution, not OS isolation. Escaped descendants or children whose parent already exited may survive; process-tree cleanup is not guaranteed.' },
     };
   }
+}
+
+function decodeOutput(chunks: Buffer[], truncated: boolean): string {
+  const decoder = new StringDecoder('utf8');
+  const text = decoder.write(Buffer.concat(chunks));
+  // A raw byte cap can cut a valid code point; do not invent a replacement for that suffix.
+  return text + (truncated ? '' : decoder.end());
+}
+
+function boundedUtf8(text: string, maximum: number): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= maximum) return { text, truncated: false };
+  let end = maximum;
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
+  return { text: bytes.subarray(0, end).toString('utf8'), truncated: true };
 }
 
 async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {

@@ -14,6 +14,20 @@ if (mode === 'build') {
 } else if (mode === 'flood') {
   const flood = () => { while (process.stdout.write('x'.repeat(4096))) {} process.stdout.once('drain', flood); };
   flood();
+} else if (mode === 'invalid-bytes') {
+  process.stdout.write(Buffer.alloc(Number(process.argv[3]), 255));
+  process.stderr.write(Buffer.alloc(20, 255));
+} else if (mode === 'split-unicode') {
+  const bytes = Buffer.from('☃🙂'.repeat(20));
+  for (let index = 0; index < bytes.length; index++) {
+    process.stdout.write(bytes.subarray(index, index + 1));
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  process.stderr.write('é'.repeat(100));
+} else if (mode === 'unicode-limit') {
+  process.stderr.write('ok');
+  await new Promise(resolve => setTimeout(resolve, 20));
+  process.stdout.write('☃'.repeat(100));
 } else if (mode === 'tree' || mode === 'orphan') {
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'hold'],
     { shell: false, windowsHide: true, detached: mode === 'orphan' && process.platform === 'win32',

@@ -113,6 +113,29 @@ test('shell captures nonzero exit, bounds output, and enforces timeout', async (
   await assert.rejects(f.shell.execute({ executable: 'fixture', timeoutMs: 501 }, f.context()), /maximum/);
 });
 
+test('returned output obeys its combined UTF-8 byte limit for invalid bytes and split Unicode', async (t) => {
+  const f = await fixture(t, { maxOutputBytes: 256 });
+  for (const count of [128, 257]) {
+    const result = await f.shell.execute({ executable: 'fixture', args: ['invalid-bytes', String(count)] }, f.context());
+    assert.ok(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) <= 256);
+    assert.equal(result.truncated, true);
+    if (count === 128) {
+      assert.equal(result.status, 'completed', 'Decoded replacement characters alone exceed the limit');
+      assert.ok(result.observedOutputBytes < 256);
+    }
+  }
+  const unicode = await f.shell.execute({ executable: 'fixture', args: ['split-unicode'] }, f.context());
+  assert.equal(unicode.stdout, '☃🙂'.repeat(20));
+  assert.doesNotMatch(unicode.stdout + unicode.stderr, /\uFFFD/);
+  assert.ok(Buffer.byteLength(unicode.stdout) + Buffer.byteLength(unicode.stderr) <= 256);
+  assert.equal(unicode.truncated, true);
+  const cut = await f.shell.execute({ executable: 'fixture', args: ['unicode-limit'] }, f.context());
+  assert.equal(cut.stderr, 'ok');
+  assert.equal(cut.stdout, '☃'.repeat(84));
+  assert.doesNotMatch(cut.stdout + cut.stderr, /\uFFFD/);
+  assert.equal(cut.truncated, true);
+});
+
 test('cancellation terminates a running parent and its child before returning', async (t) => {
   const f = await fixture(t), controller = new AbortController();
   const path = join(f.app.runtime.workspace, 'pids.json');
