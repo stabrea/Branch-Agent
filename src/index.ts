@@ -9,13 +9,16 @@ import { Knowledge, registerMemory, registerKnowledge } from "./knowledge.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import type { Provider } from "./contracts.js";
+import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 
 export async function createBranch(options: {
   workspace: string;
   dataDir: string;
   provider?: Provider;
   owner?: string;
+  retryPolicy?: RetryPolicyInput;
 }) {
+  const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
     dataDir = resolve(options.dataDir);
   const dataRelative = relative(workspace, dataDir);
@@ -39,6 +42,7 @@ export async function createBranch(options: {
     options.provider ?? new DemoProvider(),
     workspace,
     options.owner ?? "local",
+    retryPolicy,
   );
   const knowledge = new Knowledge(store, registry, runtime);
   registerMemory(registry, store);
@@ -75,3 +79,4 @@ export * from "./demo.js";
 export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./scheduler.js";
+export * from "./provider-retry.js";

@@ -19,6 +19,13 @@ import type {
 } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import {
+  parseRetryPolicy,
+  planRetry,
+  waitForRetry,
+  type RetryPolicy,
+  type RetryPolicyInput,
+} from "./provider-retry.js";
 
 export interface RunOptions {
   prompt: string;
@@ -34,13 +41,17 @@ export class Runtime {
   private readonly activeSessions = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
+  readonly retryPolicy: RetryPolicy;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
     readonly provider: Provider,
     readonly workspace: string,
     readonly owner = "local",
-  ) {}
+    retryPolicy?: RetryPolicyInput,
+  ) {
+    this.retryPolicy = parseRetryPolicy(retryPolicy);
+  }
   context(
     options: {
       permissions?: string[];
@@ -276,8 +287,12 @@ export class Runtime {
       ...this.store.messages(run.sessionId),
     ];
     for (let round = 0; round < 12; round++) {
-      context.budget.step(context.signal);
-      const completion = await this.complete(run, messages, context, onTextDelta);
+      const completion = await this.completeWithRetries(
+        run,
+        messages,
+        context,
+        onTextDelta,
+      );
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
@@ -301,12 +316,57 @@ export class Runtime {
     }
     throw new BudgetError("Maximum 12 model rounds reached");
   }
+  private async completeWithRetries(
+    run: Run,
+    messages: Message[],
+    context: ToolContext,
+    onTextDelta?: (text: string) => void,
+  ): Promise<Completion> {
+    for (let retriesUsed = 0; ; retriesUsed++) {
+      let observedText = false;
+      const emit = onTextDelta
+        ? (text: string) => {
+            if (text.length) observedText = true;
+            onTextDelta(text);
+          }
+        : undefined;
+      try {
+        return await this.complete(run, messages, context, emit);
+      } catch (error) {
+        const retry = observedText
+          ? undefined
+          : planRetry(error, retriesUsed, this.retryPolicy);
+        if (!retry || context.signal.aborted) throw error;
+        this.checkRetryBudget(messages, context);
+        this.store.event(run.id, "model.retry_scheduled", {
+          attempt: retriesUsed + 1,
+          maxRetries: this.retryPolicy.maxRetries,
+          delayMs: retry.delayMs,
+          status: retry.status,
+          provider: this.provider.name,
+        });
+        await waitForRetry(retry.delayMs, context.signal);
+      }
+    }
+  }
+  private checkRetryBudget(messages: Message[], context: ToolContext): void {
+    context.signal.throwIfAborted();
+    if (context.budget.steps >= context.budget.limits.maxSteps)
+      throw new BudgetError("Step budget exhausted before provider retry");
+    const input = estimateTokens({
+      messages,
+      tools: this.registry.descriptions(context.permissions),
+    });
+    if (input >= context.budget.remaining())
+      throw new BudgetError("Token budget exhausted before provider retry");
+  }
   private async complete(
     run: Run,
     messages: Message[],
     context: ToolContext,
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
+    context.budget.step(context.signal);
     const tools = this.registry.descriptions(context.permissions);
     const input = estimateTokens({ messages, tools });
     if (input > 16000)
@@ -329,7 +389,12 @@ export class Runtime {
         maxTokens,
         ...(onTextDelta ? { onTextDelta } : {}),
       });
-      const { output, reported } = this.recordCompletion(run, context, raw, input);
+      const { output, reported } = this.recordCompletion(
+        run,
+        context,
+        raw,
+        input,
+      );
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
       this.store.event(run.id, "model.completed", {
@@ -340,7 +405,8 @@ export class Runtime {
       });
       return completion;
     } catch (e) {
-      if (e instanceof ProviderStreamError) this.recordStreamFailure(run, context, e, input);
+      if (e instanceof ProviderStreamError)
+        this.recordStreamFailure(run, context, e, input);
       this.store.event(
         run.id,
         context.signal.aborted ? "model.cancelled" : "model.failed",
@@ -349,19 +415,32 @@ export class Runtime {
       throw e;
     }
   }
-  private recordCompletion(run: Run, context: ToolContext, raw: Completion, input: number) {
+  private recordCompletion(
+    run: Run,
+    context: ToolContext,
+    raw: Completion,
+    input: number,
+  ) {
     const usage = UsageSchema.safeParse(raw.usage),
       reported = usage.success ? usage.data : undefined;
     const output = estimateTokens(raw);
     this.store.addUsage(run.id, 0, output, reported);
-    context.budget.charge(Math.max(output, reported?.output ?? 0) +
-      Math.max(0, (reported?.input ?? 0) - input));
+    context.budget.charge(
+      Math.max(output, reported?.output ?? 0) +
+        Math.max(0, (reported?.input ?? 0) - input),
+    );
     return { output, reported };
   }
-  private recordStreamFailure(run: Run, context: ToolContext, error: ProviderStreamError, input: number): void {
+  private recordStreamFailure(
+    run: Run,
+    context: ToolContext,
+    error: ProviderStreamError,
+    input: number,
+  ): void {
     this.store.addUsage(run.id, 0, error.estimatedOutput, error.usage, false);
     // Retain observed spend in the shared budget without replacing the original failure.
-    context.budget.tokens += Math.max(error.estimatedOutput, error.usage?.output ?? 0) +
+    context.budget.tokens +=
+      Math.max(error.estimatedOutput, error.usage?.output ?? 0) +
       Math.max(0, (error.usage?.input ?? 0) - input);
   }
   private async callTool(

@@ -8,6 +8,7 @@ import type {
   ToolCall,
 } from "./contracts.js";
 import { DemoProvider } from "./demo.js";
+import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
 
 export interface ProviderOptions {
@@ -96,10 +97,7 @@ async function post(
     redirect: "error",
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(
-      `Provider HTTP ${response.status}; check endpoint, model, credential, and quota`,
-    );
+    throw await rejectedHttpResponse(response, signal);
   }
   if (!response.body) throw new Error("Provider returned empty body");
   if (consume) return readEventStream(response, consume);
