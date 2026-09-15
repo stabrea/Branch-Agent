@@ -125,6 +125,20 @@ test("Anthropic SSE streams text blocks and assembles tool input with final usag
   assert.equal(f.requests[0].stream, true);
 });
 
+for (const [kind, Provider] of [["openai", OpenAIProvider], ["anthropic", AnthropicProvider]]) {
+  test(`${kind} accepts CR-only SSE delimiters with the final CR at EOF`, async (t) => {
+    const f = await fixture(t, async (_body, res) => {
+      const ending = sse(kind === "openai" ? "[DONE]" : { type: "message_stop" });
+      res.end((accountedFrames(kind, false).join("") + ending).replaceAll("\r\n", "\r"));
+    });
+    const deltas = [];
+    const result = await new Provider(options(f.endpoint)).complete({ ...request, onTextDelta: (text) => deltas.push(text) });
+    assert.equal(result.content, "uncommitted fragment");
+    assert.deepEqual(result.usage, { input: 33, output: 17 });
+    assert.deepEqual(deltas, ["uncommitted fragment"]);
+  });
+}
+
 test("OpenAI rejects truncated, malformed, oversized, and token-limited streams", async (t) => {
   for (const response of [
     sse(chunk({ content: "partial" })),

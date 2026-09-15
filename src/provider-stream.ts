@@ -40,7 +40,7 @@ export async function readEventStream(
       if (size > 1048576) throw new Error("Provider response exceeds 1 MiB");
       framing.push(decoder.decode(part.value, { stream: true }));
     }
-    framing.push(decoder.decode());
+    framing.push(decoder.decode(), true);
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -51,11 +51,11 @@ class EventFraming {
   private buffer = "";
   private data: string[] = [];
   constructor(private readonly consume: (data: string) => void) {}
-  push(text: string): void {
+  push(text: string, eof = false): void {
     this.buffer += text;
     while (true) {
       const match = /\r\n|\r|\n/.exec(this.buffer);
-      if (!match || (match[0] === "\r" && match.index === this.buffer.length - 1)) return;
+      if (!match || (!eof && match[0] === "\r" && match.index === this.buffer.length - 1)) return;
       const line = this.buffer.slice(0, match.index);
       this.buffer = this.buffer.slice(match.index + match[0].length);
       if (!line) {
