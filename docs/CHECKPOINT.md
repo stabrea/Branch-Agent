@@ -1276,6 +1276,91 @@ No wake word, and nothing listens unless the button is held. `tests/voice-provid
 tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
 all of it. No new dependency.
 
+
+## Batch 25 (wave 7) — Branch as a first-class MCP citizen, both ways round
+Branch already spoke MCP at both ends; this batch makes it a citizen rather than a tourist.
+**Transport.** `/mcp` keeps `POST` and stdio and adds the streaming half: a `GET` that asks for
+`text/event-stream` opens a stream (`openEventStream` in `src/server.ts`) that carries
+`notifications/tools/list_changed` and `notifications/resources/updated`. A plain `GET` is still
+405, so nothing that relied on that changed. A client that brings no session id is given one in an
+`Mcp-Session-Id` header on the reply to `initialize`. `initialize` now advertises `listChanged`,
+`subscribe` and `logging`, accepts `logging/setLevel`, and answers an unknown protocol version with
+`-32602` naming the three it speaks instead of quietly pretending. `ToolRegistry` grew
+`onToolsChanged`, fired from `register`/`unregister` — so a skill, a plugin or another server's
+tools arriving tells every connected client at once, with no coupling to the loaders.
+**Policy, which is the substance.** `src/mcp-policy.ts` runs the shared tool list through the
+owner's approval settings before anything is offered (`preflight`). Only a flat `deny` hides a
+tool; an `ask` stays listed and is stopped at the call with "this needs your yes in Branch",
+because under `cappedPolicy(…, "mcp")` every change-tool becomes `ask` and hiding all of them would
+look broken. `policy://hidden-tools` is the plain-language note. `McpServer.gate()` is the real fix
+behind A1342 and A2082: `callRegistryTool` never consulted the policy at all, so browser tools —
+already in the registry — now hit the same gate the owner's own runs do. `_meta.dryRun: true` and
+the `mcp.dry_run` tool answer "what would this do?" from `registry.targetOf` and the arguments,
+running nothing.
+**Records and resources.** `src/mcp-snapshots.ts` writes the exact tool list and every schema a
+client was shown, with a sha-256 over canonical JSON, into `governance` as `mcp-snapshot:<id>`, so
+a later dispute can be checked; `mcp.snapshot` records, compares and lists. Resources gained
+`documents://library`, `runs://recent`, `run://<id>` and `resources/subscribe`, and every resource
+is now scoped: it is listed and readable only when the settings would allow the tool that reads the
+same thing, and a refused one answers "unknown resource" rather than admitting it exists. Prompts
+read the real saved-procedure shape (`definition.parameters`) and carry their blanks; a missing
+required one is refused by name.
+**As a client.** `src/mcp-lifecycle.ts` is a manager that opens somebody else's server when a task
+calls `acquire` and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an
+idle connection before refusing a busy one, retry with growing backoff, and per-profile settings.
+**It is not on the production path yet**: `loadIntegrations` still connects every configured MCP
+server eagerly at startup, and nothing calls `acquire`, so `known()` and `health()` are empty on a
+normal install and the Connections card and `mcp.servers` say so. Wiring it up means deferring tool
+registration too, because discovery happens at connect; that is a batch of its own. `src/integrations/
+mcp-oauth.ts` does RFC 8414 discovery and RFC 7591 dynamic client registration, then hands a
+synthesised provider to the existing `OAuthConnections` so PKCE and the locker are unchanged; the
+identity is remembered so a second sign-in does not register twice. `src/mcp-workbench.ts` is
+Settings → Try a server: list, call one by hand, see the raw answer, every try written to the audit
+under the new `mcp.tried` action. `src/mcp-apps.ts` serves a page an MCP app sent under
+`sandbox; default-src 'none'; …; frame-ancestors 'self'`, with the tags the frame would refuse
+stripped anyway, at a one-time address that expires in five minutes — a frame cannot carry the
+session key, so the address is the secret. Two new look-only tools, `mcp.dry_run` and
+`mcp.servers`, and one new read-only permission, `mcp.read`. `tests/mcp-mode.test.mjs` (12 tests)
+covers every one of these; the existing MCP, integrations and catalog-diet suites are untouched and
+green. Covers the mcp-server-mode theme (#68).
+
+## Batch 20 (wave 7) — orchestration, second pass: styles, patches, processes, flows
+Six things, all backend-first with additive UI in Specialists, Procedures and Skills only, and no
+new dependency. **Specialist styles** (`src/specialist-styles.ts`): a specialist declares a `style`
+that changes its loop rather than only its prompt. `react` is told to open each reply with one
+`Thought:` line; the runtime takes that line off the answer, records it as a `react.scratch` event
+and leaves it in the stored transcript, so the model keeps its own trail while the person never
+reads it. `plan-execute` turns on the existing plan runner for a delegated sub-task, which an
+ordinary child never gets. `critic` is narrowed to read-only permissions in `activeSpecialist()` —
+narrowing, so the escalation check is untouched. `researcher` and `coder` seed `openCatalog` with
+the toolboxes their work always needs. **Multi-file changes** (`src/code-change.ts`): `code.patch`
+and `code.change_set` plan the whole change first (`CodeEditor.planPatch`/`preview`/`writeAll`, made
+public; `files.patch` is unchanged and its tests untouched), refuse binary files, write through the
+existing `writeObserver` so every file lands in the file history, and then run the owner's configured
+check program — which is what makes "the assistant sees what it broke in its very next step" true
+rather than aspirational. The change set's `target()` names the files, so one approval reads "2
+files: a.txt, b.txt". **Background processes** (`src/processes.ts`): a dedicated `Running` class
+rather than `ShellProcess`, because a dev server needs a ring buffer and must not sit behind
+`BranchShell`'s single-slot guard; it reuses the exported job object and tree-kill helpers. Keyed by
+**session**, not run — `onRunFinished` fires every round, so keying by run would kill a server before
+the next one. Stopped on `store.onSessionClosed` (new, fired from `purgeSession`) and on
+`createBranch().close()`. **Deferred calls and tool search** are intercepted in `callTool` beside
+`tools.expand`, because the per-run `ToolCatalog` lives in the runtime and a registered tool cannot
+see what is closed; a deferral settles through the existing follow-up queue, not a new mechanism.
+**Flows** (`src/flows.ts`): the wave-6 `Workflows` seen as nodes and edges, with branch steps
+yielding a labelled edge each way. `src/workflows.ts` is a byte-for-byte copy from
+`wave6/collab-workflows`, which had not reached `wave2/integration` when this batch started — the
+copy is deliberate so an add/add merge is clean. Node-completion callbacks are a before/after diff of
+the step states around the run rather than a hook inside `Workflows`, again to keep that file
+identical. **Skill self-improvement** (`src/skill-revisions.ts`): the governance draft is now shown
+as a line diff, tried against the last three real tasks that used the skill with `dryRun` on the
+parent context (so the child inherits it), and refused for acceptance until that trial says the draft
+did no worse. `skills.sync` writes and reads skills as `.md` in a workspace folder. Plugins get a
+local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a folder or a zip
+(reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
+source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
+plugin-and-extension-system (#70) leftovers.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
@@ -1294,7 +1379,7 @@ running executable.
 ## Batch 25 (wave 7) — deferred tool loading: unlimited tools, a small context, a catalog that learns
 Wave 6 stopped the catalog growing with the product; it did not stop it growing with the owner's own
 computer, where a couple of connected servers can mean a thousand tools. Measured on this tree, a
-1,000-tool catalog costs **9,577 estimated tokens** a round with toolboxes alone. `src/tool-loading.ts`
+1,000-tool catalog costs **9,507 estimated tokens** a round with toolboxes alone. `src/tool-loading.ts`
 puts every permitted tool in one of three tiers each round — **loaded** (full dieted schema, at most
 `defaultMaxLoaded` = 12 besides core), **indexed** (one line: name, eight-word purpose and anything
 learned, at most 40 lines) and **deferred** (not in the request at all) — under a hard ceiling on the
@@ -1333,3 +1418,29 @@ card (`public/tool-catalog.js`, `GET /api/tools/catalog`). `tests/tool-loading.t
 fakes only — proves the budget with 1,000 tools over 20 rounds, the search-to-call path, permission
 gating of search and describe, a 15-query ranking table, all four learning behaviours, 300 external
 tools indexed and filtered, the backup round trip and the health line. No new dependency.
+
+Re-measured after the merge, with everything the rest of wave 7 added: 1,000 tools cost **2,245**
+estimated tokens against **9,440** with toolboxes alone, 90 tools cost 1,756 against 1,900, and the
+heaviest tool section over a 20-round conversation with 1,000 tools was **1,901**.
+
+Five things were put right while merging this. A small box of unrecognised names — an installed
+skill, a connected server, anything whose name the product does not know — was being deferred like
+everything else, but nothing in the words of a request can point at such a tool, so it was simply
+lost (`tests/provider-retry.test.mjs` caught it). Up to twelve of them are carried again, exactly as
+wave 6 carried them. A tool the assistant had just called could be put
+away again mid-job, because the cap of twelve went on score alone and a preload or a search hit
+outscored a tool actually in use; tools used in the last few rounds now keep their place and the
+cap takes back the rest. The tool section was sent in score order, so calling a tool reshuffled the
+prefix a provider caches and threw wave 6's cache saving away; it now goes in registry order, and
+score decides only whether a tool travels. A note written by `tools.note` now goes through
+`hideSecrets` first, so a password the assistant happened to see cannot be written into the tool
+list for good. And forgetting a conversation now forgets what it taught: `Store.forgetMemory` and
+`purgeSession` both drop that conversation's `tool_usage` rows. The three `/api/tools/*` routes are
+owner-only, like projects and the locker, and `tests/cost-trace.test.mjs` now expects the eight
+files the diagnostics folder really holds.
+`tests/tool-loading-quality.test.mjs` pins all four, plus three everyday multi-step jobs across four
+toolboxes with 1,000 tools installed: each finishes inside the budget, and by the third time this
+computer has seen that kind of job it loads every tool up front and spends no round looking (cold,
+those jobs spend one to two rounds finding tools, and never a wasted one). `ToolCatalog` in
+`src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
+keep it as the measuring stick the savings are quoted against.

@@ -115,9 +115,11 @@ test("three everyday jobs finish inside the budget, and cost nothing to find onc
   }
   console.log("multi-step jobs, rounds spent finding tools:", JSON.stringify(measured, null, 1));
   for (const result of measured) {
-    // Nothing is ever wasted: a round spent finding a tool always ends with that tool in hand.
-    assert.ok(result.attempts[0].extraRounds <= result.tools - 1,
-      `"${result.job}" spent ${result.attempts[0].extraRounds} of its ${result.tools} tools looking rather than doing`);
+    // Two rounds is what a job spanning four toolboxes costs on a computer that has never seen one
+    // like it: one search for a tool the words of the request do not point at, one load by name for
+    // a tool that was only listed. Nothing is wasted — each of those rounds ends with a tool in hand.
+    assert.ok(result.attempts[0].extraRounds <= 2,
+      `"${result.job}" spent ${result.attempts[0].extraRounds} rounds finding tools the first time round`);
     assert.equal(result.attempts[2].extraRounds, 0,
       `"${result.job}" still had to look for its tools the third time round`);
   }

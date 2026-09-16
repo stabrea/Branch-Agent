@@ -6,6 +6,10 @@ import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
 import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
 import { CodeEditor, registerCodeEdit } from "./code-edit.js";
+import { CodeChanges, registerCodeChanges } from "./code-change.js";
+import { registerHumanTasks } from "./deferred.js";
+import { BackgroundProcesses, registerProcesses } from "./processes.js";
+import { CodeRunner, registerCodeRun } from "./code-run.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -20,6 +24,10 @@ import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
+// Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
+// tools that report what a call would do and how those connections are faring.
+import { McpConnections } from "./mcp-lifecycle.js";
+import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
 import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
 import { createRequire } from "node:module";
@@ -60,6 +68,9 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { Flows, registerFlows } from "./flows.js";
+import { PluginCatalog } from "./plugin-catalog.js";
+import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
@@ -143,7 +154,18 @@ export async function createBranch(options: {
   registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
   registerCodeSearch(registry, new WorkspaceSearch(files));
-  registerCodeEdit(registry, files, new CodeEditor(files, writeObserver));
+  const editor = new CodeEditor(files, writeObserver);
+  registerCodeEdit(registry, files, editor);
+  // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
+  // followed by the check the owner set up for this project.
+  const codeChanges = new CodeChanges(store, options.owner ?? "local", files, editor, workspace);
+  registerCodeChanges(registry, codeChanges);
+  // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
+  // go through the same approval a host command does, and both are off until the owner sets them up.
+  const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
+  registerProcesses(registry, processes);
+  store.onSessionClosed((sessionId) => { void processes.closeSession(sessionId); });
+  registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
   registerGit(registry, git);
@@ -187,6 +209,8 @@ export async function createBranch(options: {
     parameters: z.object({ question: z.string().trim().min(1).max(2000) }).strict(),
     execute: async ({ question }) => { throw new NeedsInputError(question); },
   });
+  // Handing something to the person and carrying on: the plainest deferred tool call there is.
+  registerHumanTasks(registry);
   registerKnowledge(registry, knowledge);
   // Working with several specialists at once, handing work over, and the shared scratch area.
   registerOrchestration(registry, runtime, knowledge);
@@ -247,6 +271,12 @@ export async function createBranch(options: {
   const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
   plugins.providers = providerPlugins;
+  // Where plugins come from: a folder or one file on this computer, shown in full before it is
+  // copied in, with its fingerprint kept so a file that changes later is noticed.
+  const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
+  // Drafts of better versions of a skill, tried against real tasks as a practice run first.
+  const skillRevisions = new SkillRevisions(store, runtime.owner);
+  registerSkillSync(registry, store, files);
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
@@ -279,6 +309,11 @@ export async function createBranch(options: {
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
   registerWorkflows(registry, workflows);
+  // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
+  // each box finishes.
+  const flows = new Flows(store, runtime.owner, workflows);
+  flows.notifyEvent = webhooks.notifier(runtime.owner);
+  registerFlows(registry, flows);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -298,6 +333,12 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
+  // Somebody else's AI-tool server is opened only when a task first needs it, and closed when that
+  // task ends. Each household profile keeps its own settings for how long and how many.
+  const mcpConnections = new McpConnections(store, () => store.profiles.scope());
+  registry.onRunFinished(async (context) => mcpConnections.releaseRun(context.runId));
+  registerMcpTools(registry, store, files.base, mcpConnections);
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
@@ -389,6 +430,8 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    /** Other AI tools' servers, opened only while a task needs one and closed when it ends. */
+    mcpConnections,
     /** Answering assistants elsewhere over the agent-to-agent protocol. */
     a2a,
     /** Assistants elsewhere this one may hand work to. */
@@ -440,6 +483,10 @@ export async function createBranch(options: {
     plugins,
     /** Plugins that were on but could not be loaded this time. */
     pluginProblems,
+    /** Where plugins came from, with the fingerprint each one had when it was accepted. */
+    pluginCatalog,
+    /** Drafted better versions of a skill: the changed lines, the trial, and the owner's answer. */
+    skillRevisions,
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
@@ -451,6 +498,12 @@ export async function createBranch(options: {
     /** How much may be going on at once, counted once for the whole app. */
     executions,
     calendar,
+    /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
+    flows,
+    /** Multi-file changes and the check the owner set up for this project. */
+    codeChanges,
+    /** Programs left running, and the switch that stops them all when the app closes. */
+    processes,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -478,6 +531,10 @@ export async function createBranch(options: {
       stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
+      mcpServer.close();
+      await mcpConnections.closeAll();
+      // Nothing the assistant left running outlives the app.
+      await processes.stopAll().catch(() => undefined);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -638,6 +695,15 @@ export * from "./monitors.js";
 export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+// Batch 20 (wave 7) — orchestration, second pass.
+export * from "./specialist-styles.js";
+export * from "./code-change.js";
+export * from "./deferred.js";
+export * from "./processes.js";
+export * from "./code-run.js";
+export * from "./flows.js";
+export * from "./plugin-catalog.js";
+export * from "./skill-revisions.js";
 export * from "./media.js";
 export * from "./voice.js";
 export * from "./voice-stt.js";
@@ -671,3 +737,10 @@ export * from "./run-queue.js";
 export * from "./execution-limit.js";
 export * from "./calendar.js";
 export * from "./profiles.js";
+// Wave 7 (Branch as a first-class MCP citizen, both ways round).
+export * from "./mcp-policy.js";
+export * from "./mcp-snapshots.js";
+export * from "./mcp-lifecycle.js";
+export * from "./mcp-apps.js";
+export * from "./mcp-workbench.js";
+export * from "./integrations/mcp-oauth.js";

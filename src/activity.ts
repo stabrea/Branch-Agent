@@ -31,6 +31,14 @@ export function describeToolCall(name: string, args: unknown): string {
     case "files.glob": return `Listing files like ${short((a.patterns as string[] | undefined)?.[0])}`;
     case "files.find": return `Looking for a file called “${short(a.query)}”`;
     case "files.patch": return "Applying a set of file changes";
+    case "code.patch": return a.dryRun ? "Working out what a set of file changes would do" : "Applying a set of file changes";
+    case "code.change_set": return `Changing ${(a.edits as unknown[] | undefined)?.length ?? 0} files`;
+    case "code.check": return "Running this project's check";
+    case "code.run": return `Running a small ${a.language === "python" ? "Python" : "JavaScript"} script`;
+    case "process.start": return `Starting ${short(a.name ?? a.executable)} and leaving it running`;
+    case "process.list": return "Listing what is still running";
+    case "process.read": return "Reading what a running program has said";
+    case "process.stop": return "Stopping a running program";
     case "files.edit": return `Changing some text in ${short(a.path)}`;
     case "files.validate": return `Checking ${short(a.path)} still reads correctly`;
     case "workspace.map": return "Mapping the workspace";

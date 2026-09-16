@@ -1,6 +1,6 @@
 import type { ToolDescription } from "./contracts.js";
 import { estimateTokens } from "./contracts.js";
-import { expandToolName, inferToolGroup, type CatalogGroup, type CatalogStats } from "./catalog.js";
+import { expandToolName, inferToolGroup, unrecognisedOpenUpTo, type CatalogGroup, type CatalogStats } from "./catalog.js";
 import { ToolIndex, expandQuery, indexLine, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
 
 /**
@@ -131,7 +131,19 @@ export class ToolLoader {
   nextRound(): void { this.round++; this.version++; }
   noteUse(name: string): void { this.usedAt.set(name, this.round); this.version++; }
   groups(): CatalogGroup[] {
-    return [...this.counts].map(([group, tools]) => ({ group, tools, expanded: this.expandedGroups.has(group) }));
+    return [...this.counts].map(([group, tools]) => ({ group, tools, expanded: this.isOpen(group) }));
+  }
+  /**
+   * Whether a toolbox is open. "other" holds tools whose names the product does not recognise — an
+   * installed skill, a connected server — so nothing in the words of a request can point at them
+   * and nothing would bring them back. A handful stay in view; once there are enough of them to be
+   * worth hiding, they close and are reached by searching like everything else.
+   */
+  private isOpen(group: string): boolean {
+    return this.expandedGroups.has(group) || this.smallUnknownBox(group);
+  }
+  private smallUnknownBox(group: string): boolean {
+    return group === "other" && (this.counts.get(group) ?? 0) <= unrecognisedOpenUpTo;
   }
   /** Opens toolboxes, the older way of finding tools, now a shortcut over the same index. */
   expand(names: readonly string[]): { opened: string[]; unknown: string[]; tools: { name: string; description: string }[] } {
@@ -178,7 +190,9 @@ export class ToolLoader {
   private bonusFor(entry: ToolEntry): number {
     let score = 0;
     if (this.asked.has(entry.name)) score += this.preloaded.some((p) => p.name === entry.name) ? preloadBonus : searchedBonus;
-    if (this.openedGroups.has(entry.group)) score += searchedBonus;
+    // A tool nothing in a request can point at has to be carried or it is lost, so a small box of
+    // unrecognised names counts as strongly as a toolbox the assistant opened on purpose.
+    if (this.openedGroups.has(entry.group) || this.smallUnknownBox(entry.group)) score += searchedBonus;
     else if (this.expandedGroups.has(entry.group)) score += expandedBonus;
     if (this.justUsed(entry)) score += recentBonus;
     if (this.demoted.has(entry.name)) score -= staleePenalty;
@@ -216,7 +230,7 @@ export class ToolLoader {
     const core = scored.filter((hit) => hit.entry.group === "core").map((hit) => hit.entry);
     const rest = scored.filter((hit) => hit.entry.group !== "core");
     const candidates = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)
-      || this.expandedGroups.has(hit.entry.group) || this.usedAt.has(hit.entry.name)));
+      || this.isOpen(hit.entry.group) || this.usedAt.has(hit.entry.name)));
     // Tools in use come first and are never squeezed out by the cap; the rest fill what is left,
     // best first, and are the ones the ceiling takes back if the section is still too heavy.
     const inUse = candidates.filter((hit) => this.justUsed(hit.entry));

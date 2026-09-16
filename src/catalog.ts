@@ -19,7 +19,7 @@ export const toolGroups = [
 const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["core", ["user.", "tools.", "answer"]],
   ["files", ["files.", "workspace.", "folders."]],
-  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch."]],
+  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process."]],
   ["git", ["git.", "github."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
@@ -32,7 +32,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["channels", ["channels.", "telegram.", "slack.", "discord.", "email.", "mail.", "messages.", "whatsapp."]],
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.
-  ["schedules", ["schedules.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "queue."]],
+  ["schedules", ["schedules.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue."]],
   ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
   ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models."]],
@@ -53,7 +53,7 @@ const maxSchemaDescriptionChars = 120;
 /** A regular expression longer than this tells the model nothing it can use, so it is dropped. */
 const maxPatternChars = 40;
 /** How many unrecognised tools ("other") stay open before that toolbox is worth closing too. */
-const unrecognisedOpenUpTo = 12;
+export const unrecognisedOpenUpTo = 12;
 /**
  * Schema keywords the model cannot act on. Every call is parsed against the real zod schema before
  * a tool sees it, so these bounds are still enforced; sending them is pure catalog weight.
@@ -254,6 +254,7 @@ function opener(closed: CatalogGroup[]): ToolDescription {
     },
   };
 }
+
 
 /** Words that suggest a toolbox, used to open the likely ones before the first round. */
 const groupWords: Record<string, readonly string[]> = {

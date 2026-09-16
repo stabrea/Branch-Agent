@@ -494,6 +494,7 @@ async function refresh() {
   renderSnapshots();
   renderAttention();
   void window.branchMcp?.render();
+  void window.branchMcpWorkbench?.render();
   void window.branchApprovals?.render();
   void window.branchScreenControl?.render();
   // Batch 19 (wave 7): the rules read as sentences, under the same settings card.

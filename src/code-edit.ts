@@ -6,7 +6,7 @@ import { languageOf } from "./code-search.js";
 import type { WorkspaceFiles, WriteObserver } from "./files.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
-import { parsePatch, applyHunks, type PatchFile } from "./patch.js";
+import { parsePatch, applyHunks } from "./patch.js";
 
 /**
  * Changing code precisely: applying a unified diff to one or more files, replacing an exact piece
@@ -14,6 +14,8 @@ import { parsePatch, applyHunks, type PatchFile } from "./patch.js";
  * if any part of it does not fit the file exactly, nothing is written at all.
  */
 export interface ChangeSummary { path: string; created: boolean; added: number; removed: number; diff: string }
+/** One file's whole new text, worked out before anything is written. */
+export interface PlannedChange { path: string; before: string | null; after: string }
 const diffBudget = 20000;
 
 export class CodeEditor {
@@ -34,29 +36,43 @@ export class CodeEditor {
 
   /** Applies a whole unified diff or nothing at all. */
   async patch(text: string, context: ToolContext): Promise<{ files: ChangeSummary[] }> {
-    const parsed = parsePatch(text);
-    const planned: { file: PatchFile; before: string | null; after: string }[] = [];
-    for (const file of parsed) {
+    return { files: await this.writeAll(await this.planPatch(text), context) };
+  }
+
+  /**
+   * Works out what a unified diff would do to every file it names, without writing anything. A
+   * part that does not fit throws here, before a single file has been touched.
+   */
+  async planPatch(text: string): Promise<PlannedChange[]> {
+    const planned: PlannedChange[] = [];
+    for (const file of parsePatch(text)) {
       const before = await this.original(file.path);
       if (file.created && before !== null)
         throw new Error(`Patch refused: "${file.path}" already exists but the patch creates it`);
-      planned.push({ file, before, after: applyHunks(file, before) });
+      planned.push({ path: file.path, before, after: applyHunks(file, before) });
     }
-    return { files: await this.writeAll(planned, context) };
+    return planned;
+  }
+
+  /** What a planned set of changes looks like written down, with nothing written. */
+  preview(planned: PlannedChange[]): ChangeSummary[] {
+    const summaries: ChangeSummary[] = [];
+    for (const item of planned) summaries.push(summarise(item.path, item.before, item.after, summaries));
+    return summaries;
   }
 
   /** Writes every planned file; a failure part-way puts the files already written back as they were. */
-  private async writeAll(
-    planned: { file: PatchFile; before: string | null; after: string }[],
+  async writeAll(
+    planned: PlannedChange[],
     context: ToolContext,
   ): Promise<ChangeSummary[]> {
     const done: { path: string; before: string | null }[] = [];
     const summaries: ChangeSummary[] = [];
     try {
       for (const item of planned) {
-        await this.save(item.file.path, item.after, context);
-        done.push({ path: item.file.path, before: item.before });
-        summaries.push(summarise(item.file.path, item.before, item.after, summaries));
+        await this.save(item.path, item.after, context);
+        done.push({ path: item.path, before: item.before });
+        summaries.push(summarise(item.path, item.before, item.after, summaries));
       }
     } catch (error) {
       for (const item of done.reverse()) await this.undo(item.path, item.before);

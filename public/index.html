@@ -362,6 +362,11 @@
           <details class="card">
             <summary>Propose a specialist</summary>
             <form id="specialist-form">
+              <label for="specialist-style">How this one works</label
+              ><select id="specialist-style"></select
+              ><p class="subtle" id="specialist-style-note">
+                Pick a way of working and it is written into the definition below.
+              </p>
               <label for="specialist-json">Definition (JSON)</label
               ><textarea
                 id="specialist-json"
@@ -393,6 +398,13 @@
             </form>
           </details>
           <div id="procedures-list" class="card-list"></div>
+          <h3>Flows</h3>
+          <p class="section-intro">
+            A flow is a list of steps the app works through on its own. Here is
+            what each saved flow does, step by step, and where it has got to.
+          </p>
+          <button id="flows-refresh" class="secondary">Show the flows</button>
+          <div id="flows-list" class="card-list"></div>
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro">
@@ -464,6 +476,16 @@
             <h3>Set aside after repeated failures</h3>
             <p class="subtle">A skill that keeps failing the same way is kept out of new tasks for a while, then gets one trial. You can let it back in now.</p>
             <div id="set-aside-list" class="card-list"></div>
+          </div>
+          <div class="card" id="skill-revisions-card">
+            <h3>Suggested better versions</h3>
+            <p class="subtle">
+              After a task goes well, the app writes a better version of the
+              skill it used. Try it against your last few tasks first — nothing
+              is really done during the try — then keep it or throw it away.
+            </p>
+            <button id="skill-revisions-refresh" type="button">Show suggestions</button>
+            <div id="skill-revisions-list" class="card-list"></div>
           </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">
@@ -961,6 +983,38 @@
             <h3>How to connect</h3>
             <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
             <div id="mcp-connection" class="card-list"></div>
+            <!-- Wave 7: what is held back and why, connections to other people's servers, and a
+                 bench for trying one out. Everything here lives in public/mcp-workbench.js. -->
+            <details id="mcp-offered">
+              <summary>What another tool is offered, and what is held back</summary>
+              <p class="subtle">Your approval settings are checked before anything is offered. A tool you have said no to is never offered at all. A tool you want to be asked about is still offered, but the call waits for your yes here in Branch.</p>
+              <div id="mcp-preflight" class="card-list"></div>
+            </details>
+            <h3>Other people's servers</h3>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <div class="field-row">
+              <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
+              <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
+              <label for="mcp-max-servers">Most servers connected at once</label>
+              <input id="mcp-max-servers" type="number" min="1" max="20" step="1" />
+              <button id="mcp-connections-save" type="button">Save</button>
+            </div>
+            <div id="mcp-health" class="card-list"></div>
+            <details id="mcp-try">
+              <summary>Try a server</summary>
+              <p class="subtle">Paste a web address, or the command that starts the server. Branch asks it what it offers, you fill in the boxes for one of its tools, and you see exactly what came back. Every try is written down in Activity.</p>
+              <label for="mcp-try-url">Address or command</label>
+              <input id="mcp-try-url" type="text" maxlength="300" placeholder="https://example.com/mcp" />
+              <button id="mcp-try-go" type="button">See what it offers</button>
+              <div id="mcp-try-run-row" hidden>
+                <label for="mcp-try-tool">Which tool</label>
+                <select id="mcp-try-tool"></select>
+                <div id="mcp-try-form"></div>
+                <button id="mcp-try-call" type="button">Run it once</button>
+              </div>
+              <p id="mcp-try-status" class="subtle" role="status"></p>
+              <pre id="mcp-try-result" hidden></pre>
+            </details>
           </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
@@ -1171,6 +1225,7 @@
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
@@ -1183,5 +1238,8 @@
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
+    <script src="/flows.js" type="module"></script>
+    <script src="/skill-revisions.js" type="module"></script>
+    <script src="/specialist-styles.js" type="module"></script>
   </body>
 </html>
