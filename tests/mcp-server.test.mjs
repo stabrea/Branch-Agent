@@ -24,20 +24,23 @@ async function fixture(t) {
   return { app, ...server };
 }
 
-async function mcpRequest(url, token, body, sessionId) {
+async function mcpRequest(url, token, body, sessionId, method = "POST") {
   const headers = {
     authorization: `Bearer ${token}`,
-    "content-type": "application/json",
     origin: url,
   };
+  if (method !== "DELETE") {
+    headers["content-type"] = "application/json";
+  }
   if (sessionId) {
-    headers["x-mcp-session"] = sessionId;
+    headers["mcp-session-id"] = sessionId;
   }
   const response = await fetch(`${url}/mcp`, {
-    method: "POST",
+    method,
     headers,
-    body: JSON.stringify(body),
+    ...(method !== "DELETE" && body ? { body: JSON.stringify(body) } : {}),
   });
+  if (response.status === 204) return { status: 204 };
   const data = await response.json();
   return data;
 }
@@ -189,10 +192,10 @@ test("MCP prompts/list returns available prompts", async (t) => {
   }, sessionId);
   assert.ok(response.result);
   assert.ok(Array.isArray(response.result.prompts));
-  assert.ok(response.result.prompts.some(p => p.name === "analyze-memory"));
+  // Prompts list can be empty if no procedures are saved
 });
 
-test("MCP prompts/get returns prompt content", async (t) => {
+test("MCP prompts/get returns error for unknown prompt", async (t) => {
   const { url, token } = await fixture(t);
   const sessionId = "test-session-" + Math.random();
   await mcpRequest(url, token, {
@@ -208,11 +211,10 @@ test("MCP prompts/get returns prompt content", async (t) => {
     jsonrpc: "2.0",
     id: 2,
     method: "prompts/get",
-    params: { name: "analyze-memory" },
+    params: { name: "nonexistent-prompt" },
   }, sessionId);
-  assert.ok(response.result);
-  assert.ok(response.result.messages);
-  assert.ok(Array.isArray(response.result.messages));
+  // Should get an error for unknown prompt
+  assert.ok(response.error || !response.result);
 });
 
 test("MCP server tracks session ids", async (t) => {
@@ -280,4 +282,67 @@ test("MCP connection snippets endpoint works", async (t) => {
   assert.ok(data.httpEndpoint);
   assert.ok(data.bearerToken);
   assert.ok(data.claudeDesktop);
+});
+
+test("MCP GET /mcp returns 405", async (t) => {
+  const { url, token } = await fixture(t);
+  const response = await fetch(`${url}/mcp`, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${token}`,
+      origin: url,
+    },
+  });
+  assert.equal(response.status, 405);
+});
+
+test("MCP DELETE /mcp ends session", async (t) => {
+  const { url, token } = await fixture(t);
+  const sessionId = "test-session-" + Math.random();
+  // Initialize
+  await mcpRequest(url, token, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      clientInfo: { name: "test-client", version: "1.0.0" },
+    },
+  }, sessionId);
+  // Delete session
+  const deleteResp = await fetch(`${url}/mcp`, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${token}`,
+      origin: url,
+      "mcp-session-id": sessionId,
+    },
+  });
+  assert.equal(deleteResp.status, 204);
+});
+
+test("MCP branch.ask tool works", async (t) => {
+  const { url, token } = await fixture(t);
+  const sessionId = "test-session-" + Math.random();
+  // Initialize
+  await mcpRequest(url, token, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      clientInfo: { name: "test-client", version: "1.0.0" },
+    },
+  }, sessionId);
+  // Call branch.ask
+  const response = await mcpRequest(url, token, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "branch.ask",
+      arguments: { prompt: "Say hello" },
+    },
+  }, sessionId);
+  assert.ok(response.result);
 });

@@ -44,10 +44,15 @@ interface McpServerOptions {
 }
 
 class McpSession {
-  readonly id: string = randomBytes(8).toString('hex');
+  readonly id: string;
   clientVersion?: string;
+  protocolVersion: string = PREFERRED_PROTOCOL_VERSION;
   initialized = false;
   callCount = 0;
+
+  constructor() {
+    this.id = randomBytes(8).toString('hex');
+  }
 }
 
 export class McpServer {
@@ -70,6 +75,11 @@ export class McpServer {
       this.sessions.set(id, new McpSession());
     }
     return this.sessions.get(id)!;
+  }
+
+  /** Delete a session and end its state. */
+  deleteSession(sessionId: string): boolean {
+    return this.sessions.delete(sessionId);
   }
 
   /** Handle a JSON-RPC request and return a response or notification. */
@@ -130,6 +140,7 @@ export class McpServer {
       PREFERRED_PROTOCOL_VERSION;
 
     session.clientVersion = parsed.clientInfo.version;
+    session.protocolVersion = selectedVersion;
     session.initialized = true;
     return {
       protocolVersion: selectedVersion,
@@ -139,8 +150,21 @@ export class McpServer {
   }
 
   private listTools(_session: McpSession, _params: unknown): unknown[] {
-    // Only list tools in the exposure policy
-    return this.registry
+    const tools = [];
+
+    // Always include branch.ask
+    tools.push({
+      name: 'branch.ask',
+      description: 'Ask Branch to process a prompt and return the answer',
+      inputSchema: {
+        type: 'object',
+        properties: { prompt: { type: 'string' } },
+        required: ['prompt'],
+      },
+    });
+
+    // Add exposed tools from the registry
+    const exposed = this.registry
       .inventory()
       .filter(t => this.options.exposedTools.has(t.name))
       .map(t => ({
@@ -151,6 +175,9 @@ export class McpServer {
           properties: {} as Record<string, unknown>,
         },
       }));
+
+    tools.push(...exposed);
+    return tools;
   }
 
   private async callTool(session: McpSession, params: unknown): Promise<unknown> {
@@ -171,6 +198,19 @@ export class McpServer {
     const toolName = parsed.name;
     const args = parsed.arguments ?? {};
 
+    // Handle special branch.ask tool
+    if (toolName === 'branch.ask') {
+      try {
+        const AskSchema = z.object({ prompt: z.string() }).strict();
+        const askArgs = AskSchema.parse(args);
+        const result = await this.runtime.run({ prompt: askArgs.prompt });
+        return { content: [{ type: 'text', text: result.output }], isError: false };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: 'text', text: message }], isError: true };
+      }
+    }
+
     // Check if tool is exposed
     if (!this.options.exposedTools.has(toolName)) {
       throw new Error(`Tool not exposed: ${toolName}`);
@@ -183,7 +223,7 @@ export class McpServer {
         runId: `mcp-${randomBytes(4).toString('hex')}`,
         signal: new AbortController().signal,
         budget: new Budget({ maxSteps: 5, maxTokens: 8000 }),
-        permissions: new Set(['files.read']),
+        permissions: new Set(Array.from(this.options.exposedTools)),
         depth: 0,
       };
       const result = await this.registry.execute(toolName, args, context);
@@ -195,10 +235,12 @@ export class McpServer {
   }
 
   private listResources(_session: McpSession): unknown[] {
-    return [
+    const resources = [
       { uri: 'memory://facts', name: 'Memory facts', description: 'Recent memory facts' },
       { uri: 'workspace://files', name: 'Workspace files', description: 'Files in the workspace' },
     ];
+    // Recent conversations would be added here if the store had a sessions list
+    return resources;
   }
 
   private async readResource(session: McpSession, params: unknown): Promise<unknown> {
@@ -221,37 +263,42 @@ export class McpServer {
         throw new Error('Failed to list workspace');
       }
     }
+    const sessionMatch = /^session:\/\/([a-f0-9-]{36})$/.exec(parsed.uri);
+    if (sessionMatch) {
+      const sessionId = sessionMatch[1]!;
+      const sess = this.store.sessionView(this.runtime.owner, sessionId);
+      if (!sess) throw new Error('Session not found');
+      return {
+        contents: [{ uri: parsed.uri, mimeType: 'application/json', text: JSON.stringify(sess) }],
+      };
+    }
     throw new Error(`Unknown resource: ${parsed.uri}`);
   }
 
   private listPrompts(_session: McpSession): unknown[] {
-    return [
-      { name: 'analyze-memory', description: 'Analyze memory facts for patterns' },
-      { name: 'plan-task', description: 'Create a task plan from requirements' },
-    ];
+    const owner = this.runtime.owner;
+    const procedures = this.store.list('procedures', owner).slice(0, 10);
+    return procedures.map(p => ({
+      name: `procedure:${p.id}`,
+      description: p.data?.name || p.id,
+    }));
   }
 
   private async getPrompt(session: McpSession, params: unknown): Promise<unknown> {
     const GetPromptSchema = z.object({ name: z.string() }).strict();
     const parsed = GetPromptSchema.parse(params);
 
-    if (parsed.name === 'analyze-memory') {
+    const procedureMatch = /^procedure:([a-f0-9-]{36})$/.exec(parsed.name);
+    if (procedureMatch) {
+      const owner = this.runtime.owner;
+      const proc = this.store.get('procedures', owner, procedureMatch[1]!);
+      if (!proc) throw new Error('Procedure not found');
+      const data = proc.data as { name?: string; steps?: unknown[] } | undefined;
       return {
         messages: [
           {
             role: 'user',
-            content: 'Analyze the memory facts for patterns, themes, and actionable insights. Output a brief summary.',
-          },
-        ],
-      };
-    }
-    if (parsed.name === 'plan-task') {
-      return {
-        messages: [
-          {
-            role: 'user',
-            content:
-              'Create a detailed plan for the task. Break it into steps with clear success criteria. Consider dependencies and risks.',
+            content: `Execute the procedure: ${data?.name || 'Unnamed'}. Steps: ${JSON.stringify(data?.steps || [])}`,
           },
         ],
       };

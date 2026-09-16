@@ -582,7 +582,21 @@ async function handleMcpRequest(
     const mcp = app.mcpServer;
     if (!mcp) throw new HttpError(500, "MCP server not initialized");
 
-    const sessionId = request.headers["x-mcp-session"] as string | undefined;
+    const sessionId = request.headers["mcp-session-id"] as string | undefined;
+
+    if (request.method === "DELETE") {
+      if (sessionId) {
+        mcp.deleteSession(sessionId);
+      }
+      response.writeHead(204);
+      response.end();
+      return true;
+    }
+
+    if (request.method === "GET") {
+      throw new HttpError(405, "Use POST for JSON-RPC requests");
+    }
+
     const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
 
     if (request.method === "POST" && body) {
@@ -596,7 +610,11 @@ async function handleMcpRequest(
         .strict();
       const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
       const result = await mcp.handle(jsonRpcRequest, sessionId);
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      const session = mcp.getSession(sessionId);
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "mcp-protocol-version": session.protocolVersion,
+      });
       response.end(JSON.stringify(result));
       return true;
     }
