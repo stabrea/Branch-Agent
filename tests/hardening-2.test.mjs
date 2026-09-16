@@ -193,6 +193,69 @@ test("one AI-tool connection may hold more than one question at a time", async (
 });
 
 // ---------------------------------------------------------------------------
+// 3. The address a chat service posts to carries a word nobody can guess, so
+//    the door cannot be found by guessing the name the owner chose.
+// ---------------------------------------------------------------------------
+
+test("a webhook address carries an unguessable word, which can be changed and never leaks", async (t) => {
+  const { app } = await fixture(t);
+  const address = await import("../dist/channels/webhook-address.js");
+  const owner = app.runtime.owner;
+  const first = address.webhookSecret(app.store, owner, "telegram");
+  assert.match(first, /^[a-f0-9]{32}$/, "128 bits, written as an address can carry it");
+  assert.equal(address.webhookSecret(app.store, owner, "telegram"), first, "asking twice gives the address in use");
+  assert.notEqual(address.webhookSecret(app.store, owner, "slack"), first, "each channel has its own");
+  assert.equal(address.webhookAddress("chat", "telegram", first), `/webhooks/chat/telegram/${first}`);
+  // Making a new one really changes it, and the old one stops matching.
+  const second = address.rotateWebhookSecret(app.store, owner, "telegram");
+  assert.notEqual(second, first);
+  assert.equal(address.sameSecret(first, second), false);
+  assert.equal(address.sameSecret(second, second), true);
+  // Nothing that is not the right shape is ever compared as though it might be.
+  for (const wrong of ["", "x", second.toUpperCase(), second.slice(0, 31), `${second}0`])
+    assert.equal(address.sameSecret(wrong, second), false, JSON.stringify(wrong));
+  // The one-release grace has a date on it from the moment the first address was made.
+  assert.match(address.webhookAddressSettings(app.store, owner).oldAddressesEndOn, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(address.webhookAddressSettings(app.store, owner).acceptOldAddresses, true);
+});
+
+test("the old shape of address is answered while the grace lasts, and 404s once it is off", async (t) => {
+  const { app } = await fixture(t);
+  const { webhookAddressRefusal, webhookSecret, saveWebhookAddressSettings } = await import("../dist/channels/webhook-address.js");
+  const owner = app.runtime.owner;
+  const secret = webhookSecret(app.store, owner, "telegram");
+  // The right word is always answered; the wrong word never is; none is answered only in the grace.
+  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", secret), null);
+  assert.match(webhookAddressRefusal(app.store, owner, "telegram", "0".repeat(32)) ?? "", /No chat service is connected/);
+  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", undefined), null, "while the grace lasts");
+  saveWebhookAddressSettings(app.store, owner, { acceptOldAddresses: false });
+  assert.match(webhookAddressRefusal(app.store, owner, "telegram", undefined) ?? "", /No chat service is connected/);
+  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", secret), null, "the new shape keeps working");
+  // A wrong address says nothing about which channel names exist: the same sentence either way.
+  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", "0".repeat(32)),
+    webhookAddressRefusal(app.store, owner, "nothing-here", "0".repeat(32)));
+});
+
+test("the whole webhook route answers the new shape and refuses a guessed one", async (t) => {
+  const { app, root } = await fixture(t);
+  const { startServer } = await import("../dist/server.js");
+  const { webhookSecret, saveWebhookAddressSettings } = await import("../dist/channels/webhook-address.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const post = (path) => fetch(`${server.url}${path}`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: "{}" });
+  const secret = webhookSecret(app.store, app.runtime.owner, "telegram");
+  // No channel is connected in this launch, so every one of these ends in 404 — but the route
+  // reaches the channel lookup only for an address whose word is right.
+  assert.equal((await post(`/webhooks/chat/telegram/${"0".repeat(32)}`)).status, 404);
+  assert.match((await (await post(`/webhooks/chat/telegram/${"0".repeat(32)}`)).json()).error, /No chat service is connected/);
+  assert.match((await (await post(`/webhooks/chat/telegram/${secret}`)).json()).error, /no chat service with that name|No chat service with that name/i);
+  // With the grace switched off, the old shape is refused before anything else is looked at.
+  saveWebhookAddressSettings(app.store, app.runtime.owner, { acceptOldAddresses: false });
+  assert.match((await (await post("/webhooks/chat/telegram")).json()).error, /No chat service is connected/);
+});
+
+// ---------------------------------------------------------------------------
 // 4. A study's cells take places from the one shared count, and a benchmark is
 //    read only from the workspace or the folder the owner named.
 // ---------------------------------------------------------------------------
