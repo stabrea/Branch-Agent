@@ -1327,6 +1327,13 @@ export class Runtime {
     sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session",
     /** The fingerprint the person was shown; a different one means the request changed since. */
     fingerprint?: string,
+    /**
+     * Which chat app the answer was pressed in, when it was not this app. It is written into the
+     * record of what the assistant was allowed to do and nothing else reads it — in particular it
+     * does not change what "yes always" may do, which still turns on where the task itself came
+     * from.
+     */
+    answeredOn?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
     const waiting = this.approvals.waiting(sessionId).at(-1);
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
@@ -1342,10 +1349,17 @@ export class Runtime {
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
-      reason: waiting.label || waiting.question, source: waiting.source, runId: waiting.runId,
+      // The record's "came from" column is a fixed list of the places a task can start, so which
+      // chat app the answer was pressed in goes in the "why" column beside the question itself.
+      reason: answeredOn ? `${waiting.label || waiting.question} — answered on ${answeredOn}` : (waiting.label || waiting.question),
+      source: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /** The questions a conversation has stopped on, for whichever surface is going to put them. */
+  waitingApprovals(sessionId?: string) {
+    return this.approvals.waiting(sessionId);
   }
   /** What this conversation is allowed to do right now, for the "What is allowed" list. */
   allowedNow(sessionId: string) {

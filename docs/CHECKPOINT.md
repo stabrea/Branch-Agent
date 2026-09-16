@@ -1307,6 +1307,13 @@ reported as broken when the key header made Google answer 401. The Gemini card h
 Google" button behind `/api/models/gemini-signin`, and when Google refuses a sign-in the card says
 exactly why in plain words and keeps pointing at the ordinary key flow.
 
+A task started from a chat app that stops to ask now asks there with buttons: Telegram an inline
+keyboard, Discord an action row of components, each button carrying its answer and the fingerprint
+of the exact request. Telegram's poll asks for `callback_query` as well as `message`, which it did
+not before, so a press arrives at all. A channel with no buttons gets "reply y / a / n", and a bare
+letter from a chat with a question waiting answers it. Every route ends at the same approval call,
+and the record says which chat app answered.
+
 Slash-command parsing moved into `public/app.js`, so `/model` and `/help` work when
 `model-profiles.js` has not loaded; the module stays the handler when it is there. Profile cards
 name connections rather than listing ids. Labels appear as chips above Recents and inside Ctrl+K,

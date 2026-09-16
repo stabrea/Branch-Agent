@@ -119,6 +119,135 @@ test("G6 the message box knows its own commands, so /model and /help work withou
   assert.match(module, /presetName/, "profile cards read connection names rather than ids");
 });
 
+/* ---------- G2: approval buttons in a chat app ---------- */
+
+/** A stand-in for api.telegram.org: queued updates come out of getUpdates; sends are recorded. */
+async function fakeTelegram(t) {
+  const { createServer } = await import("node:http");
+  const { setTimeout: delay } = await import("node:timers/promises");
+  const state = { queue: [], sent: [], calls: [] };
+  const server = createServer(async (req, res) => {
+    let raw = ""; for await (const part of req) raw += part;
+    const body = raw ? JSON.parse(raw) : {};
+    const method = req.url.split("/").pop();
+    state.calls.push(method);
+    const reply = (result) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, result })); };
+    if (method === "getMe") return reply({ id: 999, is_bot: true, first_name: "Branch", username: "BranchTestBot" });
+    if (method === "getUpdates") {
+      const pending = state.queue.filter((u) => u.update_id >= (body.offset ?? 0));
+      if (!pending.length) await delay(40);
+      return reply(pending);
+    }
+    if (method === "sendMessage") { state.sent.push(body); return reply({ message_id: 1000 + state.sent.length }); }
+    if (method === "answerCallbackQuery") return reply(true);
+    res.writeHead(404); res.end(JSON.stringify({ ok: false, description: "unknown method" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { state, apiBase: `http://127.0.0.1:${server.address().port}` };
+}
+async function until(check, label) {
+  const { setTimeout: delay } = await import("node:timers/promises");
+  for (let i = 0; i < 400; i++) { if (check()) return; await delay(25); }
+  assert.fail(`Timed out: ${label}`);
+}
+
+test("G2 the letters and the buttons say the same thing, and a yes is tied to the exact request", async () => {
+  const { approvalButtons, readApprovalAnswer, approvalFallbackNote } = await import("../dist/channels/router.js");
+  const fingerprint = "a".repeat(32);
+  const three = approvalButtons(fingerprint, true);
+  assert.deepEqual(three.map((b) => b.label), ["Yes", "Yes always", "No"]);
+  assert.deepEqual(three.map((b) => b.value), [`y:${fingerprint}`, `a:${fingerprint}`, `n:${fingerprint}`]);
+  /* Telegram allows 64 bytes in a button's own value, so every one of them has to fit. */
+  for (const button of three) assert.ok(Buffer.byteLength(button.value) <= 64, button.value);
+  /* A task somebody else started cannot be given a standing yes, so that button is not offered. */
+  assert.deepEqual(approvalButtons(fingerprint, false).map((b) => b.label), ["Yes", "No"]);
+  assert.deepEqual(readApprovalAnswer(`y:${fingerprint}`), { decision: "allow", remember: "session", fingerprint });
+  assert.deepEqual(readApprovalAnswer(`a:${fingerprint}`), { decision: "allow", remember: "always", fingerprint });
+  assert.deepEqual(readApprovalAnswer(`n:${fingerprint}`), { decision: "deny", remember: "session", fingerprint });
+  assert.equal(readApprovalAnswer("write the file"), null, "an ordinary message is not an answer");
+  assert.equal(readApprovalAnswer(""), null);
+  assert.match(approvalFallbackNote, /reply y for yes, a for yes always, or n for no/i);
+});
+
+test("G2 Discord's component payload is an action row of buttons carrying the same answers", async () => {
+  const { DiscordAdapter } = await import("../dist/channels/discord.js");
+  const { approvalButtons } = await import("../dist/channels/router.js");
+  const components = DiscordAdapter.components(approvalButtons("b".repeat(32), true));
+  assert.equal(components.length, 1);
+  assert.equal(components[0].type, 1, "one action row");
+  const buttons = components[0].components;
+  assert.deepEqual(buttons.map((b) => b.type), [2, 2, 2], "each is a button");
+  assert.deepEqual(buttons.map((b) => b.label), ["Yes", "Yes always", "No"]);
+  assert.deepEqual(buttons.map((b) => b.custom_id), [`y:${"b".repeat(32)}`, `a:${"b".repeat(32)}`, `n:${"b".repeat(32)}`]);
+  assert.deepEqual(buttons.map((b) => b.style), [1, 1, 4], "No is the danger button");
+  for (const button of buttons) assert.ok(button.custom_id.length <= 100, "Discord's own limit is honoured");
+});
+
+test("G2 a paused task asks in Telegram with buttons, and a pressed button answers it", async (t) => {
+  const { TelegramAdapter } = await import("../dist/index.js");
+  const { app } = await served(t, writesAFile("gated.txt"));
+  const { state, apiBase } = await fakeTelegram(t);
+  const adapter = new TelegramAdapter({ id: "telegram", token: "123:abc", apiBase, pollTimeoutSeconds: 1 });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(async () => { await app.channels.detachAll(); });
+  const chat = { id: 501, type: "private" };
+  const from = { id: 42, first_name: "Alice", username: "alice" };
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+
+  state.queue.push({ update_id: 1, message: { message_id: 10, text: "write the notes", from, chat } });
+  await until(() => state.sent.some((sent) => sent.reply_markup), "the question went out with buttons");
+  const asked = state.sent.find((sent) => sent.reply_markup);
+  assert.match(asked.text, /Before I go ahead/, "the question is put in words too");
+  const row = asked.reply_markup.inline_keyboard[0];
+  assert.deepEqual(row.map((b) => b.text), ["Yes", "Yes always", "No"]);
+  const waiting = app.runtime.waitingApprovals()[0];
+  assert.ok(waiting.fingerprint, "the question has a fingerprint of the exact request");
+  for (const button of row) assert.equal(button.callback_data.split(":")[1], waiting.fingerprint);
+
+  /* Pressing "Yes" routes through the same approval path, bound to the same exact bytes. */
+  const sessionId = waiting.sessionId;
+  state.queue.push({ update_id: 2, callback_query: { id: "cb1", data: row[0].callback_data, from, message: { message_id: 11, chat, from } } });
+  await until(() => app.runtime.waitingApprovals(sessionId).length === 0, "the press answered the question");
+  await until(() => state.calls.includes("answerCallbackQuery"), "Telegram is told the press landed");
+  assert.equal(app.runtime.allowedNow(sessionId)[0].tool, "files.write", "the yes is remembered for this conversation");
+  await until(() => state.sent.some((sent) => /I will carry on/.test(sent.text ?? "")), "the chat is told the answer landed");
+
+  /* The record of what the assistant was allowed to do says which chat app answered. */
+  const decided = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.ok(decided.length >= 1);
+  assert.match(decided[0].reason, /answered on telegram/);
+  assert.equal(decided[0].outcome, "allowed");
+});
+
+test("G2 a channel with no buttons gets the same question with reply y / a / n", async (t) => {
+  const { app } = await served(t, writesAFile("gated.txt"));
+  const sent = [];
+  /* A plain adapter: it can send words and nothing else, which is WhatsApp and email. */
+  const plain = {
+    id: "whatsapp", kind: "whatsapp", botName: () => "Branch",
+    async start(onMessage) { plain.deliver = onMessage; },
+    async send(chatId, text, replyTo) { sent.push({ chatId, text, replyTo }); return "m1"; },
+    async stop() {},
+  };
+  await app.channels.attach(plain, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(async () => { await app.channels.detachAll(); });
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+
+  await plain.deliver({ channel: "whatsapp", chatId: "9", chatKind: "direct", senderId: "42", senderName: "Alice", text: "write the notes", addressed: true, messageId: "1" });
+  await until(() => sent.some((m) => /reply y for yes/i.test(m.text)), `the letters were offered: ${JSON.stringify(sent)}`);
+  assert.match(sent.at(-1).text, /Before I go ahead/, "the question is there too");
+  const sessionId = app.runtime.waitingApprovals()[0].sessionId;
+
+  /* Typing "n" answers it; anything longer is an ordinary message, not an answer. */
+  await plain.deliver({ channel: "whatsapp", chatId: "9", chatKind: "direct", senderId: "42", senderName: "Alice", text: "n", addressed: true, messageId: "2" });
+  await until(() => app.runtime.waitingApprovals(sessionId).length === 0, "the letter answered the question");
+  assert.match(sent.at(-1).text, /I will not do that/);
+  const decided = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.match(decided[0].reason, /answered on whatsapp/);
+  assert.equal(decided[0].outcome, "refused");
+});
+
 /* ---------- D1: two tasks side by side, and the statistics card ---------- */
 
 /** A provider whose answer depends on what was asked, so two tasks really do differ. */

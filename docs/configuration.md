@@ -1694,6 +1694,20 @@ a yes for this conversation that runs out in an hour, or a standing rule you can
 - `POST /api/rules/allowed/revoke` — `{ session, tool, target }`. Removes one remembered answer and
   hands back what is left. A yes that is not there any more answers 404.
 
+### Answering an approval from a chat app
+When a task started from Telegram or Discord stops to ask whether it may go ahead, the question is
+put in that chat with buttons: Yes, Yes always (only for a task you started yourself, the same rule
+the app's own card follows) and No. Telegram uses an inline keyboard, Discord an action row of
+message components. Each button carries its answer and the fingerprint of the exact request, so a
+yes cannot be replayed against a different one, and the conversation it belongs to is worked out
+from the chat rather than carried in the button — Telegram allows only 64 bytes there.
+
+A channel with no buttons — WhatsApp, email — gets the same question with "Reply y for yes, a for
+yes always, or n for no." A bare `y`, `a` or `n` from a chat whose conversation has a question
+waiting answers it; anything longer is an ordinary message, whatever it happens to say. The answer
+goes through the same approval path as the app's own card, and the record of what the assistant was
+allowed to do says which chat app it was answered on.
+
 ### A task's trajectory
 A trajectory is one JSON file holding everything a task actually did, in a shape that is written
 down here and does not move, so an evaluation tool can read a file saved months ago. "Save
