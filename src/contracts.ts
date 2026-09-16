@@ -103,7 +103,9 @@ export class Budget {
   steps = 0;
   tokens = 0;
   constructor(
-    readonly limits: BudgetOptions = { maxSteps: 30, maxTokens: 24000 },
+    // The whole prompt (tool catalog included) is charged every round, so a task with several tool
+    // calls needs room; the per-run and delegated budgets can still be set lower.
+    readonly limits: BudgetOptions = { maxSteps: 60, maxTokens: 200000 },
   ) {
     if (
       !Number.isInteger(limits.maxSteps) ||

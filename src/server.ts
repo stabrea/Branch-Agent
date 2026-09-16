@@ -20,6 +20,7 @@ import { chatCompletion, modelsList } from "./openai-compat.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { standardSuite } from "./evaluation.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -284,6 +285,26 @@ async function api(
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
+  if (request.method === "GET" && path === "/api/teams") return { teams: app.teams.list() };
+  if (request.method === "POST" && path === "/api/teams") return app.teams.save(await readBody(request));
+  const team = /^\/api\/teams\/([a-f0-9-]{36})(?:\/(room|run|remove))?$/.exec(path);
+  if (team && request.method === "GET" && !team[2]) return app.teams.get(team[1]!);
+  if (team && request.method === "GET" && team[2] === "room") return { messages: app.teams.room(team[1]!) };
+  if (team && request.method === "POST" && team[2] === "run") {
+    const { prompt } = z.object({ prompt: z.string().trim().min(1).max(8000) }).strict().parse(await readBody(request));
+    return app.teams.run(app.runtime, app.knowledge, team[1]!, prompt);
+  }
+  if (team && request.method === "POST" && team[2] === "remove") return app.teams.remove(team[1]!);
+  if (request.method === "POST" && path === "/api/registry/browse") {
+    const { url } = z.object({ url: z.string().url().max(2000) }).strict().parse(await readBody(request));
+    return app.skillRegistry.browse(url);
+  }
+  if (request.method === "POST" && path === "/api/registry/install") {
+    const { url, skillId } = z.object({ url: z.string().url().max(2000), skillId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
+    return app.skillRegistry.install(url, skillId);
+  }
+  if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
+  if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
   if (request.method === "POST" && path === "/api/governance") return app.store.governance.configure(await readBody(request));
@@ -487,6 +508,7 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   const retry = /^\/api\/channels\/deliveries\/([^/]{1,220})\/retry$/.exec(path);
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
@@ -648,7 +670,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

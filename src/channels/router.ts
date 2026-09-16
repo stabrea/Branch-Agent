@@ -103,12 +103,21 @@ export class ChannelRouter {
     if (first?.status === "dead") throw new Error(`Could not deliver to ${channel}: ${first.lastError ?? "unknown error"}`);
     return { messageId: first?.messageId ?? undefined, queued: now.filter((d) => d.status === "pending").length };
   }
+  /** Points a chat at an existing conversation so both surfaces share one ordered history. */
+  link(owner: string, input: unknown) {
+    const { channel, chatId, sessionId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64), sessionId: z.string().uuid() }).strict().parse(input);
+    if (!this.store.ownsSession(owner, sessionId)) throw new Error("Session not found");
+    const key = `channel-session:${channel}:${chatId}`;
+    const saved = this.store.get("settings", owner, key)?.data as { title?: string } | undefined;
+    this.store.save("settings", owner, key, { sessionId, channel, chatId, title: saved?.title ?? chatId, updatedAt: new Date().toISOString(), linked: true });
+    return { channel, chatId, sessionId };
+  }
   /** Chats that have talked to the assistant, usable as delivery targets. */
   chats(owner: string) {
     return this.store.list("settings", owner).flatMap((record) => {
       if (!record.id.startsWith("channel-session:")) return [];
       const data = record.data as { channel?: string; chatId?: string; title?: string; updatedAt?: string };
-      return data.channel && data.chatId ? [{ channel: data.channel, chatId: data.chatId, title: data.title ?? data.chatId, updatedAt: data.updatedAt ?? record.updatedAt }] : [];
+      return data.channel && data.chatId ? [{ channel: data.channel, chatId: data.chatId, title: data.title ?? data.chatId, updatedAt: data.updatedAt ?? record.updatedAt, sessionId: (data as { sessionId?: string }).sessionId ?? null }] : [];
     });
   }
   async handle(message: InboundMessage): Promise<Outcome> {

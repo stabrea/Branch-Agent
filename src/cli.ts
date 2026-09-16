@@ -71,7 +71,7 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval"].includes(command))
     throw new Error(
       "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | update",
     );
@@ -114,6 +114,10 @@ async function main(): Promise<void> {
       if (!target) throw new Error("Provide a file: node dist/cli.js backup <file>");
       await writeFile(target, JSON.stringify(app.store.backup(app.version)), { mode: 0o600 });
       console.log(`Backup written to ${target}. Secrets are not included; they stay on this device.`);
+      return;
+    }
+    if (command === "eval") {
+      console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
       return;
     }
     if (command === "restore") {

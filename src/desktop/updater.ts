@@ -217,11 +217,19 @@ async function findExecutableDir(root: string, executableName: string): Promise<
   }
   throw new Error("The download did not contain the app.");
 }
+/** Unpacks with the built-in tar (fast) and falls back to PowerShell's Expand-Archive when tar is missing. */
 async function expandArchive(archive: string, into: string): Promise<void> {
   if (process.platform !== "win32") throw new Error("Automatic updates are available on Windows only.");
-  await promisify(execFile)("powershell.exe", [
-    "-NoProfile", "-NonInteractive", "-Command",
-    "Expand-Archive -LiteralPath $env:BRANCH_ARCHIVE -DestinationPath $env:BRANCH_INTO -Force",
-  ], { env: { ...process.env, BRANCH_ARCHIVE: archive, BRANCH_INTO: into }, windowsHide: true, maxBuffer: 1048576 });
+  const root = process.env.SystemRoot ?? "C:\\Windows";
+  const tar = join(root, "System32", "tar.exe");
+  try {
+    await stat(tar);
+    await promisify(execFile)(tar, ["-xf", archive, "-C", into], { windowsHide: true, maxBuffer: 1048576 });
+  } catch {
+    await promisify(execFile)("powershell.exe", [
+      "-NoProfile", "-NonInteractive", "-Command",
+      "Expand-Archive -LiteralPath $env:BRANCH_ARCHIVE -DestinationPath $env:BRANCH_INTO -Force",
+    ], { env: { ...process.env, BRANCH_ARCHIVE: archive, BRANCH_INTO: into }, windowsHide: true, maxBuffer: 1048576 });
+  }
   await stat(into);
 }

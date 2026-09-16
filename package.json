@@ -1,6 +1,6 @@
 {
   "name": "branch-agent",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
   "type": "module",
@@ -38,6 +38,8 @@
     "typescript": "^5.9.3"
   },
   "main": "dist/desktop/main.js",
-  "bin": { "branch": "dist/cli.js" },
+  "bin": {
+    "branch": "dist/cli.js"
+  },
   "productName": "Branch Agent"
 }

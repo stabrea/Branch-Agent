@@ -21,6 +21,9 @@ import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
+import { Teams } from "./teams.js";
+import { SkillRegistry } from "./registry-install.js";
+import { Evaluation } from "./evaluation.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
@@ -98,6 +101,9 @@ export async function createBranch(options: {
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
   const hooks = new Hooks(store, runtime.owner);
+  const teams = new Teams(store, runtime.owner);
+  const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
+  const evaluation = new Evaluation(store, runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
@@ -125,6 +131,9 @@ export async function createBranch(options: {
     channels,
     web,
     hooks,
+    teams,
+    skillRegistry,
+    evaluation,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -186,6 +195,9 @@ export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
 export * from "./skill-governance.js";
+export * from "./teams.js";
+export * from "./registry-install.js";
+export * from "./evaluation.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
