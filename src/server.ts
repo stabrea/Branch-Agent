@@ -120,6 +120,8 @@ async function staticFile(
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
+    "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
+    "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
