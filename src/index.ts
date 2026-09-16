@@ -203,7 +203,11 @@ export async function createBranch(options: {
   const channels = new ChannelRouter(store, runtime);
   channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
   channels.speakReply = async (text) => {
-    if (!voice.settings(runtime.owner).replyWithVoiceOnChannels) return null;
+    const settings = voice.settings(runtime.owner);
+    // "Keep audio on this computer" wins over every other voice choice, including this one: a
+    // spoken reply made here would still be uploaded to the chat app, and the Voice screen tells
+    // the owner nothing containing sound leaves. The words are sent instead, as they always are.
+    if (!settings.replyWithVoiceOnChannels || settings.keepAudioOnThisComputer) return null;
     const spoken = await voice.speak(runtime.owner, { text: text.slice(0, 1500), voice: "", speed: 1 });
     return { bytes: spoken.bytes, mediaType: spoken.mediaType };
   };
