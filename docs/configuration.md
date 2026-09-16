@@ -327,6 +327,98 @@ Save the mailbox password as `EMAIL_PASSWORD` and give both servers:
 
 Built on Node's own TLS with no mail library: a small IMAP4rev1 reader (`LOGIN`, `SELECT INBOX`, `SEARCH UNSEEN`, `FETCH`, `STORE \Seen`) looks for unread mail every `pollSeconds`, answers it, and marks it read so it is never answered twice; a small SMTP sender (implicit TLS, `AUTH PLAIN` then `AUTH LOGIN`, `8BITMIME`) sends the reply threaded onto the original with `In-Reply-To` and `References` and a `Re:` subject. `allowlist` holds sender addresses. `tls: false` on a server connects in the clear and upgrades with `STARTTLS` when the server offers it, which is only sensible for a mail server on this computer. **Plain text only**: attachments, HTML mail and multipart bodies are not read or sent, and quoted history below an "On … wrote:" line is trimmed from the question. An address longer than 60 characters is shortened to a stable `who:<hash>` handle, because a chat id may hold 64 characters; such an address therefore cannot be put on the `allowlist` by address, and has to pair with a code instead. The first look at the inbox does not hold up starting, so a mail server that is unreachable shows as **reconnecting** with the reason rather than stopping Branch.
 
+## Connections: the other chat services
+
+Ten more team-chat services work the same way as each other: you paste in an address to send to, the service posts what people write to an address of yours, and a signature or a shared word proves the post really came from the service. Branch has one connection for all of them, and what each one needs is kept as data in `data/channels.json` rather than as a separate piece of program. The table below is written from that file, so it can never say a service does something its row does not say it does.
+
+<!-- channels-table:start -->
+
+| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [Mattermost](https://developers.mattermost.com/integrate/webhooks/) | yes | no | no | no | no | yes | 4000 |
+| [Rocket.Chat](https://docs.rocket.chat/docs/integrations) | yes | no | no | no | no | yes | 4000 |
+| [Google Chat](https://developers.google.com/chat/how-tos/webhooks) | yes | no | no | no | no | yes | 4000 |
+| [Microsoft Teams](https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook) | yes | no | no | no | no | yes | 4000 |
+| [Zulip](https://zulip.com/api/outgoing-webhooks) | yes | no | no | no | no | yes | 4000 |
+| [Feishu / Lark](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) | yes | no | no | no | no | yes | 4000 |
+| [DingTalk](https://open.dingtalk.com/document/robots/custom-robot-access) | yes | no | no | no | no | yes | 2000 |
+| [WeCom group robot](https://developer.work.weixin.qq.com/document/path/91770) | yes | no | no | no | no | send only | 2000 |
+| [LINE](https://developers.line.biz/en/docs/messaging-api/receiving-messages/) | yes | no | no | no | no | yes | 4900 |
+| [Viber](https://developers.viber.com/docs/api/rest-bot-api/) | yes | no | no | no | no | yes | 7000 |
+
+- **Mattermost** (`mattermost`) — Outgoing webhooks post the words people type with the token you chose; incoming webhooks carry the reply back. Text only. You need: The address of an incoming webhook (Integrations, then Incoming Webhooks); The token you set on the matching outgoing webhook.
+- **Rocket.Chat** (`rocketchat`) — Two integrations, one each way, sharing the token Rocket.Chat shows you. Text only. You need: The address of an incoming webhook integration; The token shown on the matching outgoing webhook integration.
+- **Google Chat** (`googlechat`) — A space webhook carries the reply; the Chat app's own events carry what people write, proved by the verification token Google shows you. Branch does not check Google's bearer token, so put this address behind something only Google can reach. You need: The address of a space webhook (Manage webhooks inside the space); The verification token shown on your Chat app's configuration page.
+- **Microsoft Teams** (`msteams`) — An incoming webhook sends and an outgoing webhook receives, with Teams signing every post. This is not a full Teams app: there is no Bot Framework registration, so one-to-one chats, cards and file sharing are out of reach. You need: The address of an incoming webhook added to the channel; The security token Teams shows when you create the outgoing webhook.
+- **Zulip** (`zulip`) — Replies go back as private messages to whoever wrote, so a question asked in a stream is answered in a direct message. You need: Your Zulip address, for example https://example.zulipchat.com; A bot's email and key written as one base64 word, for the Basic header; The token shown on the outgoing webhook bot.
+- **Feishu / Lark** (`feishu`) — Feishu asks the address to echo a word once before it will send anything; Branch answers that automatically. Encrypted event subscriptions are not supported, so leave the encrypt key empty. You need: The address of a custom bot webhook added to the group; The verification token from the app's Event Subscriptions page.
+- **DingTalk** (`dingtalk`) — Both directions are signed with the same secret and a timestamp, so a post copied and sent again later is refused. You need: The address of a custom robot webhook; The signing secret shown beside it (starts with SEC).
+- **WeCom group robot** (`wecom`) — Send only. A WeCom group robot has no way to hand messages back, so Branch can post to the group but cannot be asked anything there; use it for the morning brief and for notices. You need: The address of a group robot webhook.
+- **LINE** (`line`) — Replies are sent with the push endpoint rather than the reply token, so an answer that takes a while still arrives. LINE counts pushed messages against your plan. You need: The channel access token from the LINE Developers console; The channel secret from the same page.
+- **Viber** (`viber`) — The same token both signs what Viber sends and authorises what Branch sends back. One-to-one chats only. You need: The bot authentication token from the Viber admin panel.
+
+<!-- channels-table:end -->
+
+Connect one by naming the service in the connections file:
+
+```json
+{ "channels": [{ "type": "chat", "id": "work-chat", "service": "mattermost",
+  "webhookUrlSecret": "MATTERMOST_WEBHOOK", "secretSecret": "MATTERMOST_TOKEN",
+  "botName": "branch", "activation": "mention", "pairing": true, "allowlist": [] }] }
+```
+
+`service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
+
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>`. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+
+`activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
+
+**What is not built.** None of these ten carry files, voice notes or buttons, so a question that needs an answer goes out as words with "reply y for yes, a for yes always, or n for no". Google Chat's own bearer-token check is not implemented — Branch checks the verification token the Chat app is given, so put that address somewhere only Google can reach it. Microsoft Teams is an incoming webhook plus an outgoing webhook, **not** a Bot Framework app: one-to-one chats, cards and file sharing are out of reach. Feishu's encrypted event subscriptions are not supported. A WeCom group robot can only be posted to, so Branch can send the morning brief there but cannot be asked anything.
+
+### Matrix
+
+Matrix is not a webhook service, so it gets its own connection: one long request is held open asking what has happened since, and the next goes out when it answers. A dropped connection is retried with a widening wait, and stopping the channel stops the loop.
+
+```json
+{ "channels": [{ "type": "matrix", "homeserver": "https://matrix.example.org",
+  "userId": "@branch:example.org", "tokenSecret": "MATRIX_ACCESS_TOKEN", "syncSeconds": 30 }] }
+```
+
+Save an access token for the assistant's own Matrix account as `MATRIX_ACCESS_TOKEN`. **End-to-end encrypted rooms are not supported**: their messages arrive as `m.room.encrypted` and Branch has no key to read them, so they are counted and the channel's health line says how many have arrived rather than pretending nothing happened. Invite the assistant to an unencrypted room. Whatever is already in a room when Branch connects is not answered, so it does not reply to history after a restart.
+
+### Signal
+
+Signal has no bot API. The only supported way in is a registered account driven by the `signal-cli` program, which **you install yourself** — Branch downloads nothing. Give the full path to it:
+
+```json
+{ "channels": [{ "type": "signal", "path": "C:/tools/signal-cli/bin/signal-cli.bat", "account": "+15550000000" }] }
+```
+
+If there is no program at that path the channel refuses to start and says so, rather than appearing to work. Messages travel over that program's JSON-RPC mode — one JSON document per line in and out — so this connection makes no network call of its own.
+
+### Messenger and Instagram
+
+Facebook Messenger and Instagram direct messages use the same Meta webhook and send shape WhatsApp does, so they share its code: the same one-off address check, the same `X-Hub-Signature-256` over the exact bytes, and the same Graph API send.
+
+```json
+{ "channels": [{ "type": "messenger", "id": "messenger", "pageId": "123456789012345",
+  "tokenSecret": "META_PAGE_TOKEN", "verifyTokenSecret": "META_VERIFY_TOKEN", "appSecretSecret": "META_APP_SECRET" }] }
+```
+
+Use `"type": "instagram"` for Instagram, with the professional account's id as `pageId`. Point Meta's webhook at `/webhooks/chat/<channel id>`; `GET` answers the `hub.challenge` check and `POST` is refused with 401 unless the signature matches.
+
+**Meta must review your app before anybody outside your own team can write to it.** Until that review passes, only people with a role on the app can message the page, which is enough to try it out and not enough to use it. Branch says so in the channel's health line rather than leaving you to discover it.
+
+**X / Twitter direct messages are not built.** The direct-message endpoints need an elevated access tier that is applied for and paid for per project, and there is no shape Branch could ship that would work on a fresh developer account, so shipping a connection that always fails would be worse than not shipping one.
+
+### Sending without being asked
+
+Two tools send on the assistant's own initiative rather than answering somebody. `channels.broadcast` sends one message to several linked chats at once — leave the list empty to reach every chat that has talked to the assistant — and `channels.digest` sends the morning brief as it stands right now to one chat on any connected service. Both go through the same waiting line every reply uses, so quiet hours, splitting and retries apply unchanged: during quiet hours the message is written down and sent when they end.
+
+### Chat services a plugin brings
+
+A plugin may bring a chat service of its own, the same way it may bring a way of talking to a model. It exports one or more adapters under `plugin.channel.<id>`; each is a factory that is handed what the owner typed, a way to fetch a named secret out of the locker, and a fetch that has already checked the address against your network settings. Registering one only makes it available to connect — a plugin cannot quietly start answering your chats — and switching the plugin off takes its services away again.
+
 ## Voice
 
 **Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:

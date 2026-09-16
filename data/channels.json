@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "note": "Team-chat services Branch talks to through one shared adapter. Each row says how a reply is sent, how a post from the service is proved genuine, and what the owner has to paste in. Adding a service is a row here, not new code.",
+  "services": [
+    {
+      "id": "mattermost",
+      "name": "Mattermost",
+      "docs": "https://developers.mattermost.com/integrate/webhooks/",
+      "needs": [
+        "The address of an incoming webhook (Integrations, then Incoming Webhooks)",
+        "The token you set on the matching outgoing webhook"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "text": "{{text}}", "channel_id": "{{chatId}}" }
+      },
+      "receive": {
+        "verify": { "kind": "body-token", "field": "token" },
+        "fields": {
+          "messageId": "post_id", "chatId": "channel_id", "senderId": "user_id",
+          "senderName": "user_name", "text": "text", "chatTitle": "channel_name"
+        },
+        "defaultChatKind": "group"
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Outgoing webhooks post the words people type with the token you chose; incoming webhooks carry the reply back. Text only."
+    },
+    {
+      "id": "rocketchat",
+      "name": "Rocket.Chat",
+      "docs": "https://docs.rocket.chat/docs/integrations",
+      "needs": [
+        "The address of an incoming webhook integration",
+        "The token shown on the matching outgoing webhook integration"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "text": "{{text}}", "channel": "{{chatId}}" }
+      },
+      "receive": {
+        "verify": { "kind": "body-token", "field": "token" },
+        "fields": {
+          "messageId": "message_id", "chatId": "channel_id", "senderId": "user_id",
+          "senderName": "user_name", "text": "text", "chatTitle": "channel_name"
+        },
+        "defaultChatKind": "group"
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Two integrations, one each way, sharing the token Rocket.Chat shows you. Text only."
+    },
+    {
+      "id": "googlechat",
+      "name": "Google Chat",
+      "docs": "https://developers.google.com/chat/how-tos/webhooks",
+      "needs": [
+        "The address of a space webhook (Manage webhooks inside the space)",
+        "The verification token shown on your Chat app's configuration page"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "text": "{{text}}", "thread": { "name": "{{replyTo}}" } },
+        "messageIdPath": "name"
+      },
+      "receive": {
+        "verify": { "kind": "body-token", "field": "token" },
+        "fields": {
+          "messageId": "message.name", "chatId": "space.name", "senderId": "message.sender.name",
+          "senderName": "message.sender.displayName", "text": "message.text",
+          "chatTitle": "space.displayName", "chatKind": "space.type", "eventType": "type"
+        },
+        "groupValues": ["ROOM"],
+        "defaultChatKind": "group",
+        "messageTypes": ["MESSAGE"]
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "A space webhook carries the reply; the Chat app's own events carry what people write, proved by the verification token Google shows you. Branch does not check Google's bearer token, so put this address behind something only Google can reach."
+    },
+    {
+      "id": "msteams",
+      "name": "Microsoft Teams",
+      "docs": "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook",
+      "needs": [
+        "The address of an incoming webhook added to the channel",
+        "The security token Teams shows when you create the outgoing webhook"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "text": "{{text}}" }
+      },
+      "receive": {
+        "verify": {
+          "kind": "hmac", "header": "authorization", "prefix": "HMAC ",
+          "scheme": { "algorithm": "sha256", "encoding": "base64", "signs": "body", "keyEncoding": "base64" }
+        },
+        "fields": {
+          "messageId": "id", "chatId": "conversation.id", "senderId": "from.id",
+          "senderName": "from.name", "text": "text"
+        },
+        "defaultChatKind": "group"
+      },
+      "mention": "<at>{{botName}}</at>",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "An incoming webhook sends and an outgoing webhook receives, with Teams signing every post. This is not a full Teams app: there is no Bot Framework registration, so one-to-one chats, cards and file sharing are out of reach."
+    },
+    {
+      "id": "zulip",
+      "name": "Zulip",
+      "docs": "https://zulip.com/api/outgoing-webhooks",
+      "needs": [
+        "Your Zulip address, for example https://example.zulipchat.com",
+        "A bot's email and key written as one base64 word, for the Basic header",
+        "The token shown on the outgoing webhook bot"
+      ],
+      "send": {
+        "url": "{{apiBase}}/api/v1/messages",
+        "encoding": "form",
+        "headers": { "authorization": "Basic {{token}}" },
+        "body": { "type": "private", "to": "{{chatId}}", "content": "{{text}}" },
+        "messageIdPath": "id"
+      },
+      "receive": {
+        "verify": { "kind": "body-token", "field": "token" },
+        "fields": {
+          "messageId": "message.id", "chatId": "message.sender_email", "senderId": "message.sender_email",
+          "senderName": "message.sender_full_name", "text": "message.content",
+          "chatKind": "message.type", "chatTitle": "message.display_recipient"
+        },
+        "groupValues": ["stream"],
+        "defaultChatKind": "direct"
+      },
+      "mention": "@**{{botName}}**",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Replies go back as private messages to whoever wrote, so a question asked in a stream is answered in a direct message."
+    },
+    {
+      "id": "feishu",
+      "name": "Feishu / Lark",
+      "docs": "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
+      "needs": [
+        "The address of a custom bot webhook added to the group",
+        "The verification token from the app's Event Subscriptions page"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "msg_type": "text", "content": { "text": "{{text}}" } }
+      },
+      "receive": {
+        "verify": { "kind": "body-token", "field": "header.token" },
+        "fields": {
+          "messageId": "event.message.message_id", "chatId": "event.message.chat_id",
+          "senderId": "event.sender.sender_id.open_id", "text": "event.message.content",
+          "chatKind": "event.message.chat_type", "eventType": "header.event_type"
+        },
+        "textInsideJson": "text",
+        "groupValues": ["group"],
+        "defaultChatKind": "group",
+        "messageTypes": ["im.message.receive_v1"],
+        "challenge": { "whenField": "type", "whenValue": "url_verification", "echoField": "challenge", "tokenField": "token" }
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 4000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Feishu asks the address to echo a word once before it will send anything; Branch answers that automatically. Encrypted event subscriptions are not supported, so leave the encrypt key empty."
+    },
+    {
+      "id": "dingtalk",
+      "name": "DingTalk",
+      "docs": "https://open.dingtalk.com/document/robots/custom-robot-access",
+      "needs": [
+        "The address of a custom robot webhook",
+        "The signing secret shown beside it (starts with SEC)"
+      ],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "msgtype": "text", "text": { "content": "{{text}}" } },
+        "signQuery": {
+          "param": "sign", "timestampParam": "timestamp", "milliseconds": true,
+          "scheme": { "algorithm": "sha256", "encoding": "base64", "signs": "timestamp-secret", "keyEncoding": "utf8" }
+        }
+      },
+      "receive": {
+        "verify": {
+          "kind": "hmac", "header": "sign", "timestampHeader": "timestamp",
+          "scheme": { "algorithm": "sha256", "encoding": "base64", "signs": "timestamp-secret", "keyEncoding": "utf8" }
+        },
+        "fields": {
+          "messageId": "msgId", "chatId": "conversationId", "senderId": "senderId",
+          "senderName": "senderNick", "text": "text.content",
+          "chatTitle": "conversationTitle", "chatKind": "conversationType"
+        },
+        "groupValues": ["2"],
+        "defaultChatKind": "group"
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 2000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Both directions are signed with the same secret and a timestamp, so a post copied and sent again later is refused."
+    },
+    {
+      "id": "wecom",
+      "name": "WeCom group robot",
+      "docs": "https://developer.work.weixin.qq.com/document/path/91770",
+      "needs": ["The address of a group robot webhook"],
+      "send": {
+        "url": "{{webhookUrl}}",
+        "headers": { "content-type": "application/json" },
+        "body": { "msgtype": "text", "text": { "content": "{{text}}" } }
+      },
+      "receive": null,
+      "mention": "@{{botName}}",
+      "maxTextLength": 2000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Send only. A WeCom group robot has no way to hand messages back, so Branch can post to the group but cannot be asked anything there; use it for the morning brief and for notices."
+    },
+    {
+      "id": "line",
+      "name": "LINE",
+      "docs": "https://developers.line.biz/en/docs/messaging-api/receiving-messages/",
+      "needs": [
+        "The channel access token from the LINE Developers console",
+        "The channel secret from the same page"
+      ],
+      "send": {
+        "url": "{{apiBase}}/v2/bot/message/push",
+        "headers": { "authorization": "Bearer {{token}}", "content-type": "application/json" },
+        "body": { "to": "{{chatId}}", "messages": [{ "type": "text", "text": "{{text}}" }] }
+      },
+      "receive": {
+        "verify": {
+          "kind": "hmac", "header": "x-line-signature",
+          "scheme": { "algorithm": "sha256", "encoding": "base64", "signs": "body", "keyEncoding": "utf8" }
+        },
+        "eventsPath": "events",
+        "fields": {
+          "messageId": "message.id", "chatId": "source.groupId|source.roomId|source.userId",
+          "senderId": "source.userId", "text": "message.text",
+          "chatKind": "source.type", "eventType": "type"
+        },
+        "groupValues": ["group", "room"],
+        "defaultChatKind": "direct",
+        "messageTypes": ["message"]
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 4900,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "Replies are sent with the push endpoint rather than the reply token, so an answer that takes a while still arrives. LINE counts pushed messages against your plan."
+    },
+    {
+      "id": "viber",
+      "name": "Viber",
+      "docs": "https://developers.viber.com/docs/api/rest-bot-api/",
+      "needs": ["The bot authentication token from the Viber admin panel"],
+      "send": {
+        "url": "{{apiBase}}/pa/send_message",
+        "headers": { "x-viber-auth-token": "{{token}}", "content-type": "application/json" },
+        "body": { "receiver": "{{chatId}}", "type": "text", "text": "{{text}}", "sender": { "name": "{{botName}}" } },
+        "messageIdPath": "message_token"
+      },
+      "receive": {
+        "verify": {
+          "kind": "hmac", "header": "x-viber-content-signature",
+          "scheme": { "algorithm": "sha256", "encoding": "hex", "signs": "body", "keyEncoding": "utf8" }
+        },
+        "fields": {
+          "messageId": "message_token", "chatId": "sender.id", "senderId": "sender.id",
+          "senderName": "sender.name", "text": "message.text", "eventType": "event"
+        },
+        "defaultChatKind": "direct",
+        "messageTypes": ["message"]
+      },
+      "mention": "@{{botName}}",
+      "maxTextLength": 7000,
+      "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
+      "note": "The same token both signs what Viber sends and authorises what Branch sends back. One-to-one chats only."
+    }
+  ]
+}

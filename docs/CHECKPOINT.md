@@ -1559,3 +1559,28 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+
+## Batch 25 (wave 7) — messaging channels, second pass: ten services from one list
+
+Team-chat services mostly share one shape: an address to send to, an address they post to, and a signature or a
+shared word proving the post is theirs. `data/channels.json` now holds that shape for ten of them (Mattermost,
+Rocket.Chat, Google Chat, Microsoft Teams, Zulip, Feishu/Lark, DingTalk, WeCom, LINE, Viber) and
+`src/channels/webhook-chat.ts` is the single connection that reads it; nothing in that file names a service, so an
+eleventh is a row in the file and a row in the test table. Everything a channel needs beyond sending and receiving —
+pairing codes, the allowlist, answering only when addressed, splitting, retries, quiet hours, the `reply y / a / n`
+fallback — is still the router's and the ledger's, and is inherited unchanged.
+
+Three services do not fit that shape and got their own files: Matrix (`src/channels/matrix.ts`, a held-open sync
+request with a widening retry; encrypted rooms are counted and reported, not read), Signal
+(`src/channels/signal-cli.ts`, JSON-RPC over stdio, refused outright when the program the owner installed is not
+there), and Messenger/Instagram (`src/channels/meta-graph.ts`), which share WhatsApp's address check, signature and
+send — `whatsapp.ts` now imports them from there — and are flagged as needing Meta's app review. X/Twitter direct
+messages are deliberately not built, and the documentation says why.
+
+`/webhooks/chat/<channel id>` is the one unauthenticated address they all post to, next to the WhatsApp one and with
+the same Host rule. Plugins may now bring a chat service (`plugin.channel.<id>`) exactly as they bring a model
+connection, `channels.broadcast` sends one message to several linked chats and `channels.digest` sends the morning
+brief over any connected service, both through the ledger so quiet hours apply. Outbound webhooks gained a JSON
+shape per event, a signing key named in the locker rather than copied into the row, and a preview route for the
+shape editor; inbound triggers gained optional timestamp-and-nonce replay protection. The Connections table in
+`docs/configuration.md` is generated from `data/channels.json` and a test regenerates it byte for byte.

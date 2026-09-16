@@ -39,6 +39,8 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
+import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
@@ -1136,6 +1138,43 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
   send(response, 200, result);
   return true;
 }
+/**
+ * The one address every other chat service posts to. Which signature has to be there, and what the
+ * post looks like inside, comes from that service's row in `data/channels.json`; this route only
+ * hands over the exact bytes and the headers. Like the WhatsApp route it carries no session key,
+ * so the signature check is the only thing letting a post through.
+ */
+async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  if (!match) return false;
+  const adapter = app.channels.adapter(match[1]!);
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(adapter, request, response);
+  if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const result = await adapter.receive(raw, request.headers)
+    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  // Some services will not send anything until the address echoes a word back once.
+  send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
+  return true;
+}
+/** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
+async function metaWebhook(adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
+  if (request.method === "GET") {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const challenge = tryOr(() => adapter.verify(query), 403);
+    response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    response.end(challenge);
+    return true;
+  }
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const signature = request.headers["x-hub-signature-256"];
+  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
+    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  send(response, 200, result);
+  return true;
+}
 function tryOr<T>(work: () => T, status: number): T {
   try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
 }
@@ -1153,6 +1192,10 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
 
   const verified = app.triggers.verify(trigger, request.headers, raw);
   if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
+  // A copied request cannot be sent again: when the owner asked for it, the timestamp must be
+  // fresh and the nonce one nobody has used before.
+  const fresh = app.triggers.checkFreshness(trigger, request.headers);
+  if (!fresh.valid) throw new HttpError(401, fresh.error ?? "Unauthorized");
 
   return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
     const message = errorText(error);
@@ -1211,7 +1254,7 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && path === "/api/webhooks")
     return app.webhooks.create(context, await readBody(request));
 
-  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable))?$/.exec(path);
+  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable|preview))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
 
   const webhook = app.webhooks.get(owner, match[1]!);
@@ -1231,6 +1274,13 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
     app.webhooks.remove(owner, match[1]!);
     return { removed: true };
+  }
+
+  // The shape editor in Settings: what one event would be sent as, without sending anything.
+  if (request.method === "POST" && match[2] === "preview") {
+    const body = z.object({ event: z.string().min(1).max(50), sample: z.record(z.string().max(60), z.unknown()).default({}) })
+      .strict().parse(await readBody(request));
+    return app.webhooks.preview(owner, match[1]!, body.event, body.sample);
   }
 
   if (request.method === "POST" && match[2] === "enable") {
@@ -1670,6 +1720,7 @@ export async function startServer(
         return;
       }
       if (await whatsAppWebhook(app, request, response, path)) return;
+      if (await chatWebhook(app, request, response, path)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
@@ -2054,7 +2105,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {
