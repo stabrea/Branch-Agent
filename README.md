@@ -60,6 +60,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Approval rules with three ready-made settings — ask before changes, work freely in the workspace, or read only — plus a practice run that changes nothing and per-conversation pace limits.
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.
+- Discord, Slack, WhatsApp and email too: the same pairing, the same approved-people list and the same waiting queue on every one. Discord and Slack hold a connection open and come back by themselves when it drops; WhatsApp sends to a web address it has signed; email is checked every minute and answered in the same email conversation. Each one says in the Channels screen whether it is connected, reconnecting, or needs you to look at it.
 - Web search and page reading, guarded against local and private addresses; pin a skill to a conversation; archive or purge stale memory by age; a live list of the tools that exist right now.
 - Voice input and output: record audio messages to transcribe, read messages aloud with browser voice or OpenAI-compatible text-to-speech.
 - Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.

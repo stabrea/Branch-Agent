@@ -1,0 +1,173 @@
+import { z } from "zod";
+import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
+
+/**
+ * Discord adapter. Messages arrive over Discord's gateway socket and replies go out over its REST
+ * API. The socket is kept alive with heartbeats, resumed after a drop where Discord allows it, and
+ * reopened with a widening wait when it does not. Direct messages always count as addressed; in a
+ * server channel the assistant answers when it is mentioned or when someone replies to it.
+ */
+export interface DiscordOptions {
+  id: string;
+  token: string;
+  apiBase?: string;
+  /** Set in tests to skip asking Discord where its gateway is. */
+  gatewayUrl?: string;
+  fetch?: typeof fetch;
+  connect?: WebSocketConnect;
+  reconnectBaseMs?: number;
+  /** Overrides the interval Discord asks for, so a test does not wait forty seconds. */
+  heartbeatMs?: number;
+}
+/** GUILDS, GUILD_MESSAGES, DIRECT_MESSAGES and MESSAGE_CONTENT: what reading a message needs. */
+const intents = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
+const userSchema = z.object({ id: z.string(), username: z.string().optional(), bot: z.boolean().optional() }).passthrough();
+const createSchema = z.object({
+  id: z.string(), channel_id: z.string(), guild_id: z.string().optional(), content: z.string().default(""),
+  author: userSchema, mentions: z.array(userSchema).default([]),
+  referenced_message: z.object({ author: userSchema.optional() }).passthrough().nullish(),
+}).passthrough();
+const payloadSchema = z.object({ op: z.number(), d: z.unknown().optional(), s: z.number().nullish(), t: z.string().nullish() }).passthrough();
+const readySchema = z.object({ user: userSchema, session_id: z.string(), resume_gateway_url: z.string().optional() }).passthrough();
+
+export class DiscordAdapter implements ChannelAdapter {
+  readonly kind = "discord";
+  readonly id: string;
+  /** Discord refuses a message longer than two thousand characters. */
+  readonly maxTextLength = 2000;
+  private readonly base: string;
+  private readonly fetch: typeof fetch;
+  private readonly connect: WebSocketConnect;
+  private socket: WebSocketConnection | undefined;
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
+  private state: ChannelHealth = { state: "reconnecting", reason: "Connecting to Discord" };
+  private user: { id: string; name: string } | null = null;
+  private session: { id: string; url: string } | null = null;
+  private sequence: number | null = null;
+  private stopping = false;
+  private loop: Promise<void> | null = null;
+  /** Empty until a rate-limit header tells us to hold off; the next send waits for it. */
+  private readyAt = 0;
+  constructor(private readonly options: DiscordOptions) {
+    this.id = options.id;
+    this.base = (options.apiBase ?? "https://discord.com/api/v10").replace(/\/$/, "");
+    this.fetch = options.fetch ?? globalThis.fetch;
+    this.connect = options.connect ?? connectWebSocket;
+  }
+  botName(): string | null { return this.user?.name ?? null; }
+  health(): ChannelHealth { return this.state; }
+  async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
+    this.loop = this.run(onMessage);
+    // Give the first connection a moment so a wrong token is reported while the owner is watching.
+    await Promise.race([this.loop, new Promise((resolve) => setTimeout(resolve, 50))]);
+  }
+  async stop(): Promise<void> {
+    this.stopping = true;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.socket?.close();
+    await this.loop?.catch(() => undefined);
+  }
+  /** Reconnects for as long as the channel is attached, resuming where Discord lets us. */
+  private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
+    for (let attempt = 0; !this.stopping; attempt++) {
+      try {
+        await this.live(onMessage);
+        attempt = 0;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.state = reason.includes("token")
+          ? { state: "needs attention", reason: "Discord would not accept the bot token. Check the token saved in the locker." }
+          : { state: "reconnecting", reason: `Lost the Discord connection: ${reason}` };
+      }
+      if (this.stopping) return;
+      await new Promise((resolve) => setTimeout(resolve, reconnectDelay(attempt + 1, this.options.reconnectBaseMs ?? 1000)));
+    }
+  }
+  /** One socket, from handshake to close. Returns when the socket ends. */
+  private async live(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
+    const address = this.session?.url ?? this.options.gatewayUrl ?? (await this.gateway());
+    const socket = await this.connect(`${address}${address.includes("?") ? "&" : "?"}v=10&encoding=json`, {
+      onMessage: (text) => void this.receive(text, onMessage).catch(() => undefined),
+    });
+    this.socket = socket;
+    await socket.closed;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    if (!this.stopping) this.state = { state: "reconnecting", reason: "Discord closed the connection; reconnecting" };
+  }
+  private async gateway(): Promise<string> {
+    const response = await this.fetch(`${this.base}/gateway/bot`, { headers: this.headers(), signal: AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(response.status === 401 ? "Discord refused the bot token" : `Discord could not be reached (${response.status})`);
+    return z.object({ url: z.string() }).passthrough().parse(await response.json()).url;
+  }
+  /** Handles one gateway payload: the handshake ones itself, a new message through the router. */
+  private async receive(text: string, onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
+    const payload = payloadSchema.parse(JSON.parse(text));
+    if (typeof payload.s === "number") this.sequence = payload.s;
+    if (payload.op === 10) return this.hello(payload.d);
+    if (payload.op === 1) return this.beat();
+    if (payload.op === 7) { this.socket?.close(); return; }
+    if (payload.op === 9) { this.session = null; this.socket?.close(); return; }
+    if (payload.op !== 0) return;
+    if (payload.t === "READY") return this.ready(payload.d);
+    if (payload.t !== "MESSAGE_CREATE") return;
+    const inbound = this.inbound(createSchema.parse(payload.d));
+    if (inbound) await onMessage(inbound).catch(() => undefined);
+  }
+  private hello(data: unknown): void {
+    const interval = this.options.heartbeatMs ?? z.object({ heartbeat_interval: z.number() }).passthrough().parse(data).heartbeat_interval;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => this.beat(), Math.max(20, interval));
+    this.heartbeat.unref();
+    this.socket?.send(JSON.stringify(this.session
+      ? { op: 6, d: { token: this.options.token, session_id: this.session.id, seq: this.sequence } }
+      : { op: 2, d: { token: this.options.token, intents, properties: { os: process.platform, browser: "Branch Agent", device: "Branch Agent" } } }));
+  }
+  private beat(): void { this.socket?.send(JSON.stringify({ op: 1, d: this.sequence })); }
+  private ready(data: unknown): void {
+    const parsed = readySchema.parse(data);
+    this.user = { id: parsed.user.id, name: parsed.user.username ?? parsed.user.id };
+    this.session = { id: parsed.session_id, url: parsed.resume_gateway_url ?? this.options.gatewayUrl ?? "" };
+    if (!this.session.url) this.session = null;
+    this.state = { state: "connected" };
+  }
+  private inbound(message: z.infer<typeof createSchema>): InboundMessage | null {
+    if (!message.content || message.author.bot || message.author.id === this.user?.id) return null;
+    const direct = !message.guild_id;
+    const mentioned = message.mentions.some((mention) => mention.id === this.user?.id);
+    const repliedTo = message.referenced_message?.author?.id === this.user?.id;
+    const text = this.user ? message.content.replace(new RegExp(`<@!?${this.user.id}>`, "g"), "").trim() : message.content;
+    return {
+      channel: this.id, chatId: message.channel_id, chatKind: direct ? "direct" : "group",
+      ...(message.guild_id ? { chatTitle: `channel ${message.channel_id}` } : {}),
+      senderId: message.author.id, senderName: message.author.username ?? message.author.id,
+      text: text || message.content, addressed: direct || mentioned || repliedTo, messageId: message.id,
+    };
+  }
+  /** Sends one reply, waiting out any rate limit Discord has told us about. */
+  async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
+    const wait = this.readyAt - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 10000)));
+    const body = JSON.stringify({ content: text.slice(0, this.maxTextLength),
+      ...(replyToMessageId ? { message_reference: { message_id: replyToMessageId, fail_if_not_exists: false } } : {}) });
+    const response = await this.fetch(`${this.base}/channels/${encodeURIComponent(chatId)}/messages`, {
+      method: "POST", headers: { ...this.headers(), "content-type": "application/json" }, body, signal: AbortSignal.timeout(20000),
+    });
+    this.noteLimits(response);
+    if (response.status === 429) throw new Error("Discord asked us to slow down; the message will be tried again");
+    if (!response.ok) throw new Error(`Discord refused the message (${response.status})`);
+    const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
+    return parsed.success ? parsed.data.id : undefined;
+  }
+  /** Records how long Discord wants us to wait before the next call on this route. */
+  private noteLimits(response: { status: number; headers: Headers }): void {
+    const remaining = response.headers.get("x-ratelimit-remaining");
+    const resetAfter = Number(response.headers.get("x-ratelimit-reset-after") ?? "0");
+    const retryAfter = Number(response.headers.get("retry-after") ?? "0");
+    const seconds = response.status === 429 ? Math.max(retryAfter, resetAfter) : remaining === "0" ? resetAfter : 0;
+    if (seconds > 0) this.readyAt = Date.now() + Math.min(seconds, 60) * 1000;
+  }
+  private headers(): Record<string, string> {
+    return { authorization: `Bot ${this.options.token}`, "user-agent": "DiscordBot (https://github.com/branch-agent, 1.0)" };
+  }
+}

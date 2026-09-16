@@ -6,8 +6,13 @@ import { connectMcp } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser } from './browser.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
-import { ChannelPolicySchema, type ChannelRouter } from '../channels/router.js';
+import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
+import { DiscordAdapter } from '../channels/discord.js';
+import { SlackAdapter } from '../channels/slack.js';
+import { WhatsAppAdapter } from '../channels/whatsapp.js';
+import { EmailAdapter } from '../channels/email.js';
+import { connectWebSocket, type WebSocketConnect } from '../channels/ws-client.js';
 import { WebConfigSchema, type WebAccess } from './web.js';
 import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
 import type { ToolContext } from '../contracts.js';
@@ -16,15 +21,70 @@ import type { GitTools } from './git.js';
 import { GitHubAccess, GitHubConfigSchema } from './github.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
 
-export const ChannelConfigSchema = z.object({
-  id: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/).default('telegram'),
+const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
+const credentialName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
+const mailServer = z.object({
+  host: z.string().min(1).max(253), port: z.number().int().min(1).max(65535),
+  user: z.string().min(1).max(320),
+  /** false means connect in the clear and upgrade with STARTTLS; only sensible for sending. */
+  tls: z.boolean().default(true),
+}).strict();
+export const TelegramChannelSchema = z.object({
+  id: channelId.default('telegram'),
   type: z.literal('telegram'),
   /** Name of the environment variable that holds the bot token. */
-  tokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+  tokenEnv: credentialName.optional(),
   /** Name of a secret in the default project's locker that holds the bot token. */
-  tokenSecret: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+  tokenSecret: credentialName.optional(),
   apiBase: z.string().url().optional(),
-}).merge(ChannelPolicySchema).strict().refine(value => !!value.tokenEnv !== !!value.tokenSecret, 'Give exactly one of tokenEnv or tokenSecret');
+}).merge(ChannelPolicySchema).strict();
+export const DiscordChannelSchema = z.object({
+  id: channelId.default('discord'),
+  type: z.literal('discord'),
+  /** Environment variable or locker secret holding the bot token, looked for in that order. */
+  tokenSecret: credentialName.default('DISCORD_BOT_TOKEN'),
+  apiBase: z.string().url().optional(),
+}).merge(ChannelPolicySchema).strict();
+export const SlackChannelSchema = z.object({
+  id: channelId.default('slack'),
+  type: z.literal('slack'),
+  /** The bot token (xoxb-...), which sends the replies. */
+  tokenSecret: credentialName.default('SLACK_BOT_TOKEN'),
+  /** The app-level token (xapp-...), which opens the connection. */
+  appTokenSecret: credentialName.default('SLACK_APP_TOKEN'),
+  /** When given, only these Slack channel ids are answered. */
+  slackChannels: z.array(z.string().min(1).max(64)).max(64).default([]),
+  apiBase: z.string().url().optional(),
+}).merge(ChannelPolicySchema).strict();
+export const WhatsAppChannelSchema = z.object({
+  id: channelId.default('whatsapp'),
+  type: z.literal('whatsapp'),
+  /** The number the business sends from, shown in the WhatsApp Manager. */
+  phoneNumberId: z.string().min(1).max(64),
+  tokenSecret: credentialName.default('WHATSAPP_TOKEN'),
+  /** The word WhatsApp is told to check the web address with. */
+  verifyTokenSecret: credentialName.default('WHATSAPP_VERIFY_TOKEN'),
+  /** The app secret WhatsApp signs every message with. */
+  appSecretSecret: credentialName.default('WHATSAPP_APP_SECRET'),
+  apiBase: z.string().url().optional(),
+}).merge(ChannelPolicySchema).strict();
+export const EmailChannelSchema = z.object({
+  id: channelId.default('email'),
+  type: z.literal('email'),
+  address: z.string().email(),
+  imap: mailServer,
+  smtp: mailServer,
+  /** Name of the environment variable or locker secret holding the mailbox password. */
+  passwordSecret: credentialName.default('EMAIL_PASSWORD'),
+  /** How often to look for new mail, in seconds. */
+  pollSeconds: z.number().int().min(5).max(3600).default(60),
+}).merge(ChannelPolicySchema).strict();
+export const ChannelConfigSchema = z.discriminatedUnion('type', [
+  TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
+]).superRefine((value, context) => {
+  if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
+    context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
+});
 export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext;
   /** Version control on this computer, so the remote and GitHub tools can be switched on here. */
   git?: GitTools; activeSecret?: (name: string) => Promise<string> }
@@ -37,7 +97,7 @@ export const GitConfigSchema = z.object({
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional(),
-  channels: z.array(ChannelConfigSchema).max(4).default([]), web: WebConfigSchema.optional(),
+  channels: z.array(ChannelConfigSchema).max(8).default([]), web: WebConfigSchema.optional(),
   git: GitConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
 
@@ -85,14 +145,64 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     if (config.channels.length && !channels) throw new Error('Channels are configured but this launch cannot host them');
     if (new Set(config.channels.map(channel => channel.id)).size !== config.channels.length) throw new Error('Channel ids must be unique');
     for (const channel of config.channels) {
-      const token = channel.tokenEnv ? env[channel.tokenEnv] : await channels!.secret(channel.tokenSecret!);
-      if (!token) throw new Error(`Channel ${channel.id} has no bot token; set ${channel.tokenEnv ?? channel.tokenSecret}`);
-      const adapter = new TelegramAdapter({ id: channel.id, token, ...(channel.apiBase ? { apiBase: channel.apiBase } : {}) });
+      const adapter = await buildChannel(channel, env, channels!, policy);
       await channels!.router.attach(adapter, { activation: channel.activation, pairing: channel.pairing, allowlist: channel.allowlist });
       closers.push(() => adapter.stop());
     }
     return { close, count: closers.length };
   } catch (error) { await close().catch(() => undefined); throw error; }
+}
+
+type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
+
+/**
+ * Finds one credential: an environment variable of that name first, then a secret of that name in
+ * the default project's locker. The value is never written anywhere, only handed to the adapter.
+ */
+async function credential(name: string, env: NodeJS.ProcessEnv, host: ChannelHost): Promise<string> {
+  const value = env[name] ?? await host.secret(name).catch(() => undefined);
+  if (!value) throw new Error(`Set ${name} as an environment variable, or save a secret called ${name} in the default project.`);
+  return value;
+}
+/** Every outbound call a channel makes is checked against the network settings first. */
+function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | undefined {
+  if (!policy) return undefined;
+  return async (address, options) => {
+    await policy.assertAllowed(new URL(address.replace(/^ws/, 'http')), 'chat service address');
+    return connectWebSocket(address, options);
+  };
+}
+
+/** Builds the adapter one configured channel asks for, with its secrets and network guards. */
+async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
+  const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
+  const connect = guardedSocket(policy);
+  const base = channel.type === 'email' ? {} : channel.apiBase ? { apiBase: channel.apiBase } : {};
+  if (channel.type === 'telegram') {
+    const token = channel.tokenEnv ? env[channel.tokenEnv] : await host.secret(channel.tokenSecret!);
+    if (!token) throw new Error(`Channel ${channel.id} has no bot token; set ${channel.tokenEnv ?? channel.tokenSecret}`);
+    return new TelegramAdapter({ id: channel.id, token, ...base });
+  }
+  if (channel.type === 'discord')
+    return new DiscordAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
+      fetch: guardedFetch, ...(connect ? { connect } : {}), ...base });
+  if (channel.type === 'slack')
+    return new SlackAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
+      appToken: await credential(channel.appTokenSecret, env, host), fetch: guardedFetch,
+      ...(connect ? { connect } : {}), ...(channel.slackChannels.length ? { channels: channel.slackChannels } : {}), ...base });
+  if (channel.type === 'whatsapp')
+    return new WhatsAppAdapter({ id: channel.id, phoneNumberId: channel.phoneNumberId,
+      token: await credential(channel.tokenSecret, env, host), verifyToken: await credential(channel.verifyTokenSecret, env, host),
+      appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
+  return buildEmail(channel, env, host, policy);
+}
+/** Mail uses its own encrypted sockets, so its two servers are checked against the policy by name. */
+async function buildEmail(channel: Extract<ChannelConfig, { type: 'email' }>, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
+  const password = await credential(channel.passwordSecret, env, host);
+  for (const server of [channel.imap, channel.smtp])
+    await policy?.assertAllowed(new URL(`https://${server.host}`), 'mail server');
+  return new EmailAdapter({ id: channel.id, address: channel.address, pollMs: channel.pollSeconds * 1000,
+    imap: { ...channel.imap, password }, smtp: { ...channel.smtp, password } });
 }
 
 /** Turns on the tools that reach a server: sending and receiving work, and GitHub when set up. */

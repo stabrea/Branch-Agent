@@ -475,6 +475,37 @@ theme is not finished. A1441 (cache-aware cost accounting) is explicitly *not* c
 price can be recorded but nothing populates cached token counts. The `usage_cache` table is still
 unused by any caller and records no price confidence, so a cached row reports its tasks as
 unpriced rather than inventing a figure.
+
+## Batch 22 (wave 3) — more messaging channels
+
+Four more channel adapters behind the same `ChannelAdapter` interface, so pairing, allowlists,
+activation modes, the delivery ledger and `POST /api/channels/link` work on all of them unchanged.
+`src/channels/ws-client.ts` is a minimal RFC 6455 **client** (masked writes, ping/pong, fragment
+reassembly, handshake verification) — `src/ws.ts` is the server side and frames the wrong way round
+for this — and serves both socket channels; `readFrame` there now also returns the FIN bit.
+**Discord** (`src/channels/discord.ts`) identifies on the gateway with GUILDS/GUILD_MESSAGES/
+DIRECT_MESSAGES/MESSAGE_CONTENT, heartbeats, resumes with op 6 against `resume_gateway_url`,
+re-identifies on op 9, and reconnects with a widening wait; replies over REST honour the
+`X-RateLimit-*` headers and 429 `retry_after`. **Slack** (`src/channels/slack.ts`) uses Socket Mode,
+acknowledges every envelope before doing anything else, drops repeated `event_id`s, subtypes, bot
+posts and its own user, threads on `thread_ts ?? ts`, and converts markdown to mrkdwn (italics
+before bold, or the new bold gets eaten). **WhatsApp** (`src/channels/whatsapp.ts`) is driven by a
+new unauthenticated route `/webhooks/whatsapp/:id` next to the trigger routes: `GET` echoes Meta's
+`hub.challenge` as **plain text** (not JSON) after a constant-time verify-token check, `POST` is
+refused unless `X-Hub-Signature-256` matches an HMAC over the exact bytes. **Email**
+(`src/channels/mail-client.ts`, `src/channels/email.ts`) is a hand-written IMAP4rev1 reader and SMTP
+sender over Node's TLS, plain text only, threading on `In-Reply-To`/`References`.
+Two decisions worth remembering. Chunking lives in the ledger, not the adapter, so Discord's
+2000-character limit is threaded through as an optional `ChannelAdapter.maxTextLength` into
+`Deliveries.enqueue` rather than split inside `send()`, which would have broken retry semantics.
+And the WhatsApp 24-hour window adds **no** fourth ledger status: `send()` throws a plain-language
+error, so the existing pending/dead-letter machinery holds and shows the message. The router diff is
+only the optional `health()`/`maxTextLength` members, an `adapter(id)` accessor and `health` in
+`summary()`. `ChannelConfigSchema` became a discriminated union of the five kinds with one
+`superRefine` for Telegram's either/or token rule (a `.refine`d object cannot be a union member in
+zod v4). No new dependency. Left out: Discord and Slack attachments, WhatsApp images (the router
+carries text only), and all MIME handling in email — HTML and multipart mail is not read or sent.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
