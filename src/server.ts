@@ -113,6 +113,7 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -341,6 +342,7 @@ async function api(
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
+  if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -712,6 +714,27 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/** A 20 MB file arrives base64 encoded, which is a third larger again. */
+const documentBodyBytes = 28 * 1024 * 1024;
+async function documentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, library = app.documents;
+  if (path === "/api/documents/settings") {
+    if (request.method === "GET") return library.settings(owner);
+    if (request.method === "POST") return library.configure(owner, await readBody(request));
+  }
+  if (request.method === "GET" && path === "/api/documents") return library.view(owner);
+  if (request.method === "POST" && path === "/api/documents")
+    return library.add(owner, await readBody(request, documentBodyBytes));
+  if (request.method === "POST" && path === "/api/documents/search")
+    return { results: await library.search(owner, await readBody(request)) };
+  if (request.method === "POST" && path === "/api/documents/reindex") {
+    const { id } = z.object({ id: z.string().min(1).max(100) }).strict().parse(await readBody(request));
+    return library.reindex(owner, id);
+  }
+  const one = /^\/api\/documents\/([a-f0-9-]{36})$/.exec(path);
+  if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
+  throw new HttpError(404, "Endpoint not found");
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -865,7 +888,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

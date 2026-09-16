@@ -40,6 +40,7 @@ export class Store {
   private lockerStore: Locker | undefined;
   private receiptsStore: Receipts | undefined;
   private closed = false;
+  get sqlite() { return this.db; }
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     try {
