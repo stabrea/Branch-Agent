@@ -1565,6 +1565,36 @@ if (window.branchDesktop) {
     $("model-settings-note").textContent = "Connection saved. Quit from the tray and reopen Branch Agent to apply it.";
   });
 }
+// Voice input and output handlers
+if (typeof initVoiceRecording !== "undefined") {
+  initVoiceRecording().then((supported) => {
+    if (supported) {
+      $("voice-record").hidden = false;
+    }
+  }).catch(() => {
+    $("voice-record").hidden = true;
+  });
+  $("voice-record").addEventListener("mousedown", startVoiceRecording);
+  $("voice-record").addEventListener("mouseup", stopVoiceRecording);
+  $("voice-record").addEventListener("touchstart", startVoiceRecording);
+  $("voice-record").addEventListener("touchend", stopVoiceRecording);
+  $("voice-record").addEventListener("mouseleave", stopVoiceRecording);
+  $("voice-record").addEventListener("touchcancel", stopVoiceRecording);
+}
+if ($("voice-settings-save")) {
+  $("voice-settings-save").addEventListener("click", async () => {
+    try {
+      await saveVoiceSettings();
+      await loadVoiceSettings();
+      toast("Voice settings saved");
+    } catch (e) {
+      toast("Failed to save voice settings: " + (e instanceof Error ? e.message : String(e)));
+    }
+  });
+}
+if (token && typeof loadVoiceSettings !== "undefined") {
+  loadVoiceSettings().catch((e) => console.error("Failed to load voice settings:", e));
+}
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});
 }, 3000);

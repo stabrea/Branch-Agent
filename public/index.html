@@ -156,6 +156,7 @@
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
+              ><button id="voice-record" type="button" class="text-button" title="Hold to record audio, release to transcribe">🎤</button
               ><button id="send">Send ↗</button
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
@@ -396,6 +397,24 @@
             <p class="subtle">Saved on this device for your next visit.</p>
             <button>Save appearance</button>
           </form>
+          <form id="voice-settings-form" class="card">
+            <h2>Voice</h2>
+            <p>Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
+            <label class="check-row">
+              <input id="auto-read-aloud" type="checkbox" /> Read replies aloud automatically
+            </label>
+            <label for="voice-select">Voice</label>
+            <select id="voice-select">
+              <option value="default">Default</option>
+            </select>
+            <label for="speech-rate">Speech speed</label>
+            <input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="1" />
+            <label class="check-row">
+              <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
+            </label>
+            <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
+            <button type="button" id="voice-settings-save">Save voice settings</button>
+          </form>
           <section id="chatgpt-card" class="card">
             <h2>ChatGPT account</h2>
             <p>Use the models that come with your ChatGPT plan. You sign in on OpenAI's website with a short code; Branch never sees your password and keeps the sign-in protected on this device.</p>
@@ -584,6 +603,7 @@
       </div>
     </div>
     <script src="/update-screen.js"></script>
+    <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
