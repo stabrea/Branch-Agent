@@ -91,6 +91,9 @@ import { CalendarSettingsStore } from "./calendar.js";
 // Wave 7 (a coder's toolbox): the project map, language servers, debug adapters, plan branches,
 // checkpoints with undo and redo, kept build outputs, agent export and OpenAPI-defined tools.
 import { ProjectMap, registerProjectMap } from "./code-map.js";
+import { LanguageServers } from "./language-server.js";
+import { registerLanguageServers } from "./language-server-tools.js";
+import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -161,6 +164,13 @@ export async function createBranch(options: {
   // followed by the check the owner set up for this project.
   const codeChanges = new CodeChanges(store, options.owner ?? "local", files, editor, workspace);
   registerCodeChanges(registry, codeChanges);
+  // Language servers and debuggers the owner already has on this computer. Both are switched off
+  // until they turn them on, both are started from a full address and never downloaded, and both
+  // are held under the same job object as every other program the app starts.
+  const languageServers = new LanguageServers(store, options.owner ?? "local", files);
+  registerLanguageServers(registry, languageServers, codeChanges);
+  const debugAdapters = new DebugAdapters(store, options.owner ?? "local", files);
+  registerDebug(registry, debugAdapters);
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -495,6 +505,9 @@ export async function createBranch(options: {
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
     projectMap,
+    /** Language servers and debuggers the owner set up; both stop when the app closes. */
+    languageServers,
+    debugAdapters,
     /** Programs left running, and the switch that stops them all when the app closes. */
     processes,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
@@ -526,6 +539,8 @@ export async function createBranch(options: {
       skillPackages.stop();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
+      await languageServers.stopAll().catch(() => undefined);
+      await debugAdapters.stopAll().catch(() => undefined);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -727,3 +742,7 @@ export * from "./profiles.js";
 // Wave 7 (a coder's toolbox).
 export * from "./code-scanners.js";
 export * from "./code-map.js";
+export * from "./stdio-rpc.js";
+export * from "./language-server.js";
+export * from "./language-server-tools.js";
+export * from "./debug-adapter.js";

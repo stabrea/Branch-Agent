@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranch } from "../dist/index.js";
+import { fileURLToPath } from "node:url";
+import { createBranch, saveLanguageServerSettings, saveDebugSettings } from "../dist/index.js";
+
+const here = join(fileURLToPath(import.meta.url), "..");
+const fakeLanguageServer = join(here, "fixtures", "fake-language-server.mjs");
+const fakeDebugAdapter = join(here, "fixtures", "fake-debug-adapter.mjs");
 
 /** A whole app on a throwaway workspace; everything it started is closed in t.after. */
 export async function fixture(t, options = {}) {
@@ -100,4 +105,133 @@ test("code.map skips what .branchignore hides", async (t) => {
   const paths = map.files.map((file) => file.path);
   assert.ok(paths.includes("src/kept.ts"));
   assert.equal(paths.includes("secretplans/hidden.ts"), false, "the ignore rule keeps it out of the map");
+});
+
+// ---------------------------------------------------------------- language servers
+
+/** An app whose only language server is the stand-in, already switched on. */
+async function withLanguageServer(t) {
+  const made = await fixture(t);
+  await saveLanguageServerSettings(made.app.store, "local", {
+    enabled: true,
+    servers: { fake: { path: process.execPath, args: [fakeLanguageServer], languages: ["TypeScript"] } },
+    timeoutMs: 10000,
+  });
+  t.after(() => made.app.languageServers.stopAll());
+  return made;
+}
+
+test("language servers are off until the owner switches them on", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await put(workspace, "src/a.ts", "export const total = 1;\n");
+  await assert.rejects(
+    app.runtime.executeTool("code.hover", { path: "src/a.ts", line: 1, character: 14 }),
+    /switched off/,
+  );
+});
+
+test("a language server reports mistakes, definitions, uses and hover text", async (t) => {
+  const { app, workspace } = await withLanguageServer(t);
+  await put(workspace, "src/sums.ts", "export const total = 1;\nconsole.log(total);\n");
+
+  const problems = await app.runtime.executeTool("code.diagnostics", { path: "src/sums.ts", waitMs: 400 });
+  assert.equal(problems.server, "fake");
+  assert.equal(problems.diagnostics.length, 1);
+  assert.deepEqual(
+    { path: problems.diagnostics[0].path, line: problems.diagnostics[0].line, severity: problems.diagnostics[0].severity },
+    { path: "src/sums.ts", line: 2, severity: "error" },
+    "the server's 0-based line comes back counted from 1",
+  );
+
+  const definition = await app.runtime.executeTool("code.definition", { path: "src/sums.ts", line: 2, character: 13 });
+  assert.deepEqual(definition.places, [{ path: "src/sums.ts", line: 1, character: 14, endLine: 1, endCharacter: 19 }]);
+
+  const uses = await app.runtime.executeTool("code.references", { path: "src/sums.ts", line: 1, character: 14 });
+  assert.equal(uses.places.length, 2);
+
+  const hover = await app.runtime.executeTool("code.hover", { path: "src/sums.ts", line: 1, character: 14 });
+  assert.match(hover.text, /const total: number/);
+});
+
+test("a rename lands as one change set across files, and can be shown without writing", async (t) => {
+  const { app, workspace } = await withLanguageServer(t);
+  await put(workspace, "src/sums.ts", "export const total = 1;\nconsole.log(total);\n");
+
+  const shown = await app.runtime.executeTool("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "grandTotal", dryRun: true });
+  assert.equal(shown.applied, false);
+  assert.equal(shown.dryRun, true);
+  assert.equal(shown.reason, "rename to grandTotal");
+  assert.equal(await readFile(join(workspace, "src/sums.ts"), "utf8"), "export const total = 1;\nconsole.log(total);\n", "nothing was written");
+
+  const done = await app.runtime.executeTool("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "grandTotal" });
+  assert.equal(done.applied, true);
+  assert.equal(await readFile(join(workspace, "src/sums.ts"), "utf8"), "export const grandTotal = 1;\nconsole.log(grandTotal);\n");
+
+  const kept = await app.runtime.executeTool("files.history", { path: "src/sums.ts" });
+  assert.ok(kept.length >= 1, "the previous bytes were kept, so the rename can be put back");
+});
+
+test("code.rename asks before it writes, the way every multi-file change does", async (t) => {
+  const { app } = await withLanguageServer(t);
+  const rename = app.registry.inventory().find((tool) => tool.name === "code.rename");
+  assert.equal(rename.permission, "files.write", "it counts as a change, so the ask-before-changes policy covers it");
+  const target = app.registry.targetOf("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "x", dryRun: false }, app.runtime.context({}));
+  assert.match(target, /rename to x/, "the person is told what the change is before it happens");
+});
+
+// ---------------------------------------------------------------- debugging
+
+async function withDebugAdapter(t) {
+  const made = await fixture(t);
+  await saveDebugSettings(made.app.store, "local", {
+    enabled: true,
+    adapters: { fake: { path: process.execPath, args: [fakeDebugAdapter], launch: {} } },
+    timeoutMs: 10000,
+  });
+  t.after(() => made.app.debugAdapters.stopAll());
+  return made;
+}
+
+test("debugging is off until the owner switches it on", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await put(workspace, "run.js", "console.log(1);\n");
+  await assert.rejects(
+    app.runtime.executeTool("debug.start", { adapter: "fake", program: "run.js" }),
+    /switched off/,
+  );
+});
+
+test("a debugger launches with breakpoints, steps, shows the names in view and stops", async (t) => {
+  const { app, workspace } = await withDebugAdapter(t);
+  await put(workspace, "run.js", "const total = 42;\nconst name = 'ada';\nconsole.log(total, name);\n");
+
+  const started = await app.runtime.executeTool("debug.start", {
+    adapter: "fake", program: "run.js", breakpoints: [{ path: "run.js", lines: [3] }], waitMs: 3000,
+  });
+  assert.equal(started.running, true);
+  assert.equal(started.stopped.reason, "breakpoint");
+  assert.equal(started.stopped.line, 4);
+  assert.match(started.output, /the program started/);
+
+  const names = await app.runtime.executeTool("debug.variables", {});
+  assert.equal(names.frame, "main");
+  assert.deepEqual(names.variables.map((entry) => entry.name), ["total", "name"]);
+  assert.equal(names.variables[0].value, "42");
+
+  const stepped = await app.runtime.executeTool("debug.step", { kind: "over", waitMs: 3000 });
+  assert.equal(stepped.stopped.line, 5, "the line moved on");
+
+  const ended = await app.runtime.executeTool("debug.stop", {});
+  assert.equal(ended.action, "stopped");
+  await assert.rejects(app.runtime.executeTool("debug.variables", {}), /Nothing is being debugged/);
+});
+
+test("only one debugging session runs at a time", async (t) => {
+  const { app, workspace } = await withDebugAdapter(t);
+  await put(workspace, "run.js", "console.log(1);\n");
+  await app.runtime.executeTool("debug.start", { adapter: "fake", program: "run.js", waitMs: 1000 });
+  await assert.rejects(
+    app.runtime.executeTool("debug.start", { adapter: "fake", program: "run.js", waitMs: 100 }),
+    /already going/,
+  );
 });

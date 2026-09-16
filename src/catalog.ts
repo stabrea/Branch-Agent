@@ -19,7 +19,7 @@ export const toolGroups = [
 const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["core", ["user.", "tools.", "answer"]],
   ["files", ["files.", "workspace.", "folders."]],
-  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process."]],
+  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process.", "debug.", "artifacts."]],
   ["git", ["git.", "github."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
