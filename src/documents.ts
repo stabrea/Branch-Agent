@@ -11,6 +11,7 @@ import { documentType, extractText } from "./document-text.js";
 import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector } from "./document-embeddings.js";
 import { providerEmbeddings } from "./providers.js";
 import { errorText } from "./contracts.js";
+import { Citations, type Citation } from "./citations.js";
 
 /**
  * The person's own documents, kept so the assistant can quote them. Text is split into passages,
@@ -320,14 +321,23 @@ export class DocumentLibrary {
       .filter((entry) => entry.score > 0.15).sort((a, b) => b.score - a.score).slice(0, candidates).map((entry) => entry.match);
   }
 
-  /** Passages to put in front of a task, each labelled with the document it came from. */
-  async contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> {
+  /**
+   * Passages to put in front of a task, each numbered the same way research reports number their
+   * sources, so an answer can carry `[1]` and end with a list the person can check.
+   */
+  async contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[]; citations: Citation[] } | null> {
     if (!this.answersUseDocuments(owner)) return null;
     const results = await this.search(owner, { query: prompt.slice(0, 500), limit: 3 }, signal ?? AbortSignal.timeout(20000));
     if (!results.length) return null;
+    const citations = new Citations();
+    const blocks = results.map((row) => {
+      const citation = citations.add({ url: `document:${row.documentId}`, title: row.source, quote: row.text });
+      return `[${citation.number}] From "${row.source}" (passage ${row.passage + 1}):\n${row.text}`;
+    });
     return {
-      text: results.map((row) => `From "${row.source}" (passage ${row.passage + 1}):\n${row.text}`).join("\n\n"),
+      text: `${blocks.join("\n\n")}\n\n${citations.markdown("Sources in your documents")}`,
       sources: [...new Set(results.map((row) => row.source))],
+      citations: citations.list(),
     };
   }
 }

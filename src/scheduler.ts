@@ -64,6 +64,8 @@ export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Da
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly active = new Set<Promise<Run[]>>();
+  /** Extra work that runs on every beat alongside the saved schedules: watches, the morning brief. */
+  readonly onTick = new Set<(now: Date) => Promise<void>>();
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -92,6 +94,7 @@ export class Scheduler {
   }
   async tick(now = new Date()): Promise<Run[]> {
     const results: Run[] = [];
+    for (const listener of this.onTick) await listener(now).catch(() => undefined);
     if (this.store.review.dreamDue(this.runtime.owner, now)) await this.store.review.consolidate(this.runtime, this.runtime.owner).catch(() => undefined);
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
