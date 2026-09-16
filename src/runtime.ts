@@ -1430,8 +1430,12 @@ export class Runtime {
    * Why the person using this app right now may not have that done, or null. The owner is never
    * held to anything here; somebody else in the house is held to the role and the grant the owner
    * gave their profile — which kinds of thing, which projects, and how much a day.
+   *
+   * Public because a conversation is not the only way a tool can be run: another AI tool's server
+   * and the developer's "Try a tool" screen start one directly, and a role that only held for a
+   * conversation would not be a role at all.
    */
-  private roleRefusal(tool: string, permission: string): string | null {
+  roleRefusal(tool: string, permission: string): string | null {
     const profile = this.store.profiles.active();
     if (!profile) return null;
     const grant = this.roles.get(profile.id);

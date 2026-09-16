@@ -88,8 +88,14 @@ function vaultEnvironment(): NodeJS.ProcessEnv {
   for (const name of passedThrough) if (process.env[name]) result[name] = process.env[name];
   return result;
 }
-/** Where a bare command name lives on this computer, so nothing is ever run through a shell. */
-export function locateCommand(name: string): string {
+/**
+ * Where a bare command name lives on this computer. The whole path is worked out here, so the
+ * password manager is always started by its full name and never looked up again as it is started:
+ * Windows searches the folder Branch happens to be working in first, and a file left there called
+ * `bw.exe` would otherwise be the thing asked for the owner's passwords. A name that is nowhere on
+ * the path comes back as null, which is the plain "not on this computer" refusal rather than a guess.
+ */
+export function locateCommand(name: string): string | null {
   if (name.includes(sep) || name.includes("/") || isAbsolute(name)) return name;
   const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
   for (const folder of (process.env.PATH ?? "").split(delimiter).filter(Boolean))
@@ -97,13 +103,17 @@ export function locateCommand(name: string): string {
       const candidate = join(folder, name + extension);
       try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* keep looking */ }
     }
-  return name;
+  return null;
 }
 
 /** Runs a password manager's command line directly: no shell, no window, and a hard time limit. */
 export const spawnCli: CliRunner = (executable, args, timeoutMs) =>
   new Promise((resolve) => {
-    execFile(locateCommand(executable), args, { timeout: timeoutMs, windowsHide: true, shell: false, maxBuffer: 65536, env: vaultEnvironment() },
+    // Nowhere on the path is the same answer as not installed, and it is given without starting
+    // anything at all, so no folder Branch is working in can stand in for the password manager.
+    const found = locateCommand(executable);
+    if (!found) { resolve({ code: null, stdout: "", stderr: "", missing: true }); return; }
+    execFile(found, args, { timeout: timeoutMs, windowsHide: true, shell: false, maxBuffer: 65536, env: vaultEnvironment() },
       (error, stdout, stderr) => {
         const failure = error as (NodeJS.ErrnoException & { code?: number | string }) | null;
         const missing = failure?.code === "ENOENT";

@@ -124,10 +124,16 @@ export async function runSwarm(runtime: Runtime, knowledge: Knowledge, context: 
   const list = new SharedWorkList(items);
   const results: SwarmResult[] = [];
   const share = Math.max(1, Math.floor(context.budget.remaining() / Math.max(items.length, 1)));
+  // Each item works from a share of what is left, and the total comes off this task's budget at the
+  // end, the same way a fan-out does. Without that, a swarm would cost this task nothing and could
+  // be asked for again and again on the same budget.
+  const budgets: Budget[] = [];
   await pooled(specialists, specialists.length, async (specialist) => {
     for (let taken = list.claim(specialist); taken; taken = list.claim(specialist)) {
       if (context.runId) runtime.store.event(context.runId, "swarm.claimed", { specialist, index: taken.index });
-      const branch: ToolContext = { ...context, budget: new Budget({ maxSteps: 8, maxTokens: share }) };
+      const budget = new Budget({ maxSteps: 8, maxTokens: share });
+      budgets.push(budget);
+      const branch: ToolContext = { ...context, budget };
       try {
         const spec = knowledge.activeSpecialist(context.owner, specialist);
         const { run } = await runtime.delegateChecked(taken.item, branch, spec.permissions, spec.instructions, { agent: specialist });
@@ -142,8 +148,10 @@ export async function runSwarm(runtime: Runtime, knowledge: Knowledge, context: 
       }
     }
   });
-  if (context.runId) runtime.store.event(context.runId, "swarm.finished", { specialists, ...list.state });
-  return { results: results.sort((a, b) => a.index - b.index), ...list.state };
+  const spent = budgets.reduce((total, budget) => total + Math.min(budget.tokens, share), 0);
+  if (context.runId) runtime.store.event(context.runId, "swarm.finished", { specialists, spent, ...list.state });
+  context.budget.charge(spent);
+  return { results: results.sort((a, b) => a.index - b.index), spent, ...list.state };
 }
 
 export const RouteSchema = z.object({

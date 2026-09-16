@@ -47,9 +47,15 @@ export async function tryTool(
   owner: string,
   context: ToolContext,
   input: z.infer<typeof TryToolSchema>,
+  /** Why the person at the keyboard may not have this done, from their profile's role. */
+  personRefusal: (tool: string, permission: string) => string | null = () => null,
 ): Promise<TryOutcome> {
   const permission = registry.permissionOf(input.name);
   if (!permission) return { status: "refused", reason: `There is no tool called ${input.name}.`, tool: input.name, target: "" };
+  // Somebody else in the house is held to their role here as well; running a tool by hand from the
+  // developer screen must not be a way round what the owner said they may have Branch do.
+  const held = personRefusal(input.name, permission);
+  if (held) return { status: "refused", reason: held, tool: input.name, target: "" };
   const target = registry.targetOf(input.name, input.arguments, context) || policyTarget(input.name, input.arguments);
   // What the call is about goes in too, so trying a command by hand is decided exactly as a
   // command the assistant asked for would be — a command nobody has ruled on is asked about.

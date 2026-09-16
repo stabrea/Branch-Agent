@@ -247,6 +247,13 @@ test("A0824 a check that says nothing, or falls over, cannot let something throu
   // Unless the owner said to let it through instead.
   app.hooks.configure([{ id: "broken", event: "tool.before", executable: "checker", onTimeout: "allow" }], scriptedHook("fail").runner);
   assert.equal(await app.hooks.decide(context.runId, { tool: "files.write" }), null);
+  // A check that never answers at all cannot hold the task open: it is given its time and no more.
+  app.hooks.configure([{ id: "hung", event: "tool.before", executable: "checker", timeoutMs: 100 }],
+    () => new Promise(() => {}));
+  const started = Date.now();
+  const hung = await app.hooks.decide(context.runId, { tool: "files.write" });
+  assert.equal(hung.decision, "ask", "a check that never answers holds the call for a yes");
+  assert.ok(Date.now() - started < 5000, "and the task carries on rather than waiting for it");
   // The strictest of several answers wins.
   app.hooks.configure([
     { id: "soft", event: "tool.before", executable: "checker" },
@@ -416,6 +423,25 @@ test("A2006 a child's profile is refused a purchase-class tool and a project out
   const capped = app.runtime.checkPolicy("files.write", { path: "a.txt" }, app.runtime.context({ runId: taskContext(app).run.id }));
   assert.equal(capped.decision, "deny");
   assert.match(capped.reason, /used up today's allowance/);
+});
+
+test("A2006 a child cannot get round their role by going in another way", async (t) => {
+  const { app } = await fixture(t);
+  const { tryTool } = await import("../dist/playground.js");
+  const child = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.runtime.roles.save(child.id, { role: "child", projects: [], dailySpendLimit: 0 });
+  app.store.profiles.switch({ profileId: child.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+
+  // Running a tool by hand from the developer screen goes through the same role check.
+  const byHand = await tryTool(app.registry, app.store, app.runtime.owner, app.runtime.context({}),
+    { name: "files.write", arguments: { path: "a.txt", content: "hi" }, confirm: true },
+    (tool, permission) => app.runtime.roleRefusal(tool, permission));
+  assert.equal(byHand.status, "refused");
+  assert.match(byHand.reason, /Sam is set up as "Child" here/);
+  // And so does another AI tool's server, which starts a tool without a conversation of its own.
+  assert.equal(app.runtime.roleRefusal("files.write", "files.write") === null, false);
+  assert.equal(app.runtime.roleRefusal("files.read", "files.read"), null, "looking things up is still theirs");
 });
 
 // ---------------------------------------------------------------- A1481
