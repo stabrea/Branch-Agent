@@ -76,14 +76,20 @@ export type LocalSpeech = z.infer<typeof LocalSpeechSchema>;
 
 /**
  * The command line for a local speech program. Pure, so the arguments can be read and checked
- * without a program being installed. Both programs write their answer to standard output.
+ * without a program being installed.
+ *
+ * Both families print the transcript to standard output, which is what is read back here, so no
+ * write-a-file flag is passed and nothing is left behind. These are the flags whisper.cpp's own
+ * command-line tool and the faster-whisper command line document; a build that names them
+ * differently will say so plainly when it refuses, and the owner can install one that matches.
+ * Nothing here has been run against a real installation on this machine.
  */
 export function localSttArgs(settings: LocalSpeech, wavPath: string, language: string | null): string[] {
   if (settings.kind === "faster-whisper")
-    return [wavPath, "--output_format", "txt", "--output_dir", "-",
+    return [wavPath,
       ...(settings.model ? ["--model", settings.model] : []),
       ...(language ? ["--language", language] : [])];
-  return ["-f", wavPath, "--no-timestamps", "--output-txt", "--no-prints",
+  return ["-f", wavPath, "--no-timestamps", "--no-prints",
     ...(settings.model ? ["-m", settings.model] : []),
     ...(language ? ["-l", language] : ["-l", "auto"])];
 }

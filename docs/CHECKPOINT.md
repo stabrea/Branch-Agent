@@ -1140,8 +1140,11 @@ embeddings — and appears under `connections` in `branch doctor --probe` and in
 `src/gemini-signin.ts` builds the Google PKCE sign-in and the bearer-header plumbing, and says
 plainly in the docs that Google accepts a user token for `generateContent` only on a Cloud project
 with the API enabled, so the key flow stays the default. One behaviour changed for everyone: a
-Gemini key now travels in `x-goog-api-key` rather than `?key=`, keeping it out of logs, and
-`GeminiProvider` gained `audio()` so `media.transcribe` and `media.speak` work on Gemini too.
+Gemini key now travels in `x-goog-api-key` rather than `?key=` **on the chat and audio routes**
+(`src/providers/gemini.ts`); the picture route in `src/media-images.ts` still uses `?key=` and was
+left alone as another wave's file. `GeminiProvider` gained `audio()` so `media.transcribe` and
+`media.speak` work on Gemini too. The voice-note download host lists for Discord and WhatsApp are
+plumbing no test covers: Telegram is the channel proven end to end here.
 **Deliberately not built:** the OpenAI Realtime WebSocket (A1212, A2293). The network policy checks
 HTTP addresses before each request and has no WebSocket hook, so a realtime session would skip that
 check or need a dependency; both were refused, and `realtimeNote` says so in the app and the docs.

@@ -205,8 +205,13 @@ export class MediaTools {
         { bytes: new Uint8Array(bytes), mediaType: kindOf(input.path), name: input.path.split("/").pop() ?? "sound" },
         { signal: context.signal },
       );
+      // What writing this out cost goes into the task's own record, beside every other cost.
+      if (context.runId)
+        this.store.event(context.runId, "voice.transcribed", {
+          route: written.route, cost: written.cost.amount, note: written.cost.note,
+        });
       return { path: input.path, text: written.text.slice(0, 40000), segments: [], via: written.route,
-        note: "This connection does not send times for the phrases." };
+        cost: written.cost.amount, note: "This connection does not send times for the phrases." };
     }
     const audio = provider.audio?.() ?? null;
     const result = await transcribeFile(bytes, input.path.split("/").pop() ?? "sound", kindOf(input.path), audio, this.policy, this.fetch, {

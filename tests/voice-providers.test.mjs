@@ -84,15 +84,15 @@ test("the three speech-to-text shapes are each read correctly, and each one repo
   assert.equal(local.route, "local");
   assert.equal(local.cost.amount, 0, "a program on this computer genuinely costs nothing");
   assert.equal(ran.length, 1);
-  assert.deepEqual(ran[0].args.slice(0, 4), ["-f", ran[0].args[1], "--no-timestamps", "--output-txt"]);
+  assert.deepEqual(ran[0].args.slice(0, 3), ["-f", ran[0].args[1], "--no-timestamps"]);
+  assert.ok(!ran[0].args.some((arg) => /output/i.test(arg)), "the transcript is read from what the program prints, so no file is asked for");
 });
 
 test("the command line for each local speech program is built, and an unconfigured one refuses in plain words", async (t) => {
   const cpp = localSttArgs({ executable: "w.exe", model: "ggml.bin", kind: "whisper-cpp" }, "C:/tmp/clip.wav", "en");
   assert.ok(cpp.includes("-m") && cpp.includes("ggml.bin") && cpp.includes("-l") && cpp.includes("en"));
   const faster = localSttArgs({ executable: "fw.exe", model: "small", kind: "faster-whisper" }, "C:/tmp/clip.wav", null);
-  assert.equal(faster[0], "C:/tmp/clip.wav");
-  assert.ok(faster.includes("--model") && faster.includes("small"));
+  assert.deepEqual(faster, ["C:/tmp/clip.wav", "--model", "small"]);
   assert.ok(!faster.includes("--language"), "no language is forced when none was chosen");
 
   const stt = new Transcription(openPolicy(), fetch, async () => "");

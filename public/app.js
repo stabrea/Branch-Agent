@@ -1066,21 +1066,21 @@ function message(role, content, source) {
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
   if (role === "user") node.append(document.createTextNode(content));
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
-  if (source?.messageId && !source.toolCalls?.length) {
+  /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
+     through the voice service so the free Windows voice works with no key and no internet. */
+  if (role === "assistant" && !source?.toolCalls?.length) {
+    const controls = el("div", undefined, "message-controls");
+    if (source?.messageId)
+      controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    const readBtn = button("Read aloud", () => globalThis.branchSpeak?.(content));
+    readBtn.classList.add("text-button");
+    const stopBtn = button("Stop", () => globalThis.branchStopSpeaking?.());
+    stopBtn.classList.add("text-button");
+    controls.append(readBtn, stopBtn);
+    node.append(controls);
+  } else if (source?.messageId) {
     const controls = el("div", undefined, "message-controls");
     controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
-    if (role === "assistant" && typeof speakText !== "undefined") {
-      const readBtn = button("Read aloud", async () => {
-        const settings = await api("voice/settings").catch(() => ({}));
-        const useProvider = settings.useProviderVoice ?? false;
-        await speakText(content, useProvider);
-      });
-      readBtn.classList.add("text-button");
-      controls.append(readBtn);
-      const stopBtn = button("Stop", () => stopSpeaking?.());
-      stopBtn.classList.add("text-button");
-      controls.append(stopBtn);
-    }
     node.append(controls);
   }
   $("conversation").append(node);
@@ -1386,7 +1386,10 @@ globalThis.branchRunSpoken = async (text) => {
   lastReply = "";
   $("prompt").value = text;
   $("chat-form").requestSubmit();
-  for (let waited = 0; waited < 600 && (conversationBusy || !lastReply); waited++)
+  // Waits for the task to finish, however it finishes. A task that fails leaves no reply to read
+  // out, so this comes straight back rather than leaving talk mode stuck on "working".
+  await new Promise((done) => setTimeout(done, 100));
+  for (let waited = 0; waited < 600 && conversationBusy; waited++)
     await new Promise((done) => setTimeout(done, 500));
   return lastReply;
 };

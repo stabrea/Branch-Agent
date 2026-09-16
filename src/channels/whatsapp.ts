@@ -129,7 +129,9 @@ export class WhatsAppAdapter implements ChannelAdapter {
     if (!info.ok) throw new Error(`WhatsApp would not say where that voice note is (${info.status})`);
     const where = z.object({ url: z.string().min(1).max(2000) }).passthrough().parse(await info.json());
     const target = new URL(where.url);
-    if (target.protocol !== "https:" || !/(^|\.)(whatsapp\.net|fbcdn\.net|facebook\.com)$/i.test(target.hostname))
+    // The hosts Meta serves media from. `fbsbx.com` is the one the media lookup usually answers
+    // with, so it is listed alongside the others rather than being refused in practice.
+    if (target.protocol !== "https:" || !/(^|\.)(whatsapp\.net|whatsapp\.com|fbcdn\.net|fbsbx\.com|facebook\.com)$/i.test(target.hostname))
       throw new Error("That voice note is not hosted by WhatsApp, so it was not downloaded");
     const response = await this.fetch(target.href, { headers, redirect: "error", signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error(`WhatsApp would not hand over that voice note (${response.status})`);
