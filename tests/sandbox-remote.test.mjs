@@ -548,3 +548,264 @@ test("A1582 a project may name a line of work, and switching to it switches the 
   app.store.projects.setActive("local", { active: "site" });
   assert.deepEqual(heard, ["rewrite"]);
 });
+
+// ------------------------------------------------------------ the screens these modules were missing
+
+/** The app behind a real HTTP door, so the screens are asked for exactly as the browser asks. */
+async function served(t) {
+  const made = await fixture(t);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0, presence: "daemon" });
+  t.after(() => server.close());
+  const api = async (method, path, body) => {
+    const response = await fetch(server.url + path, {
+      method,
+      headers: { authorization: `Bearer ${server.token}`, ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await response.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* some answers are not JSON */ }
+    return { status: response.status, body: parsed, text };
+  };
+  return { ...made, server, api };
+}
+
+test("A1618/A1413/A2028 the firewall card, the ceilings and the sandbox choice all have a way in", async (t) => {
+  const { api } = await served(t);
+
+  const firewall = await api("GET", "/api/firewall");
+  assert.equal(firewall.status, 200);
+  assert.ok(firewall.body.sentences.length >= 4, "the card is sentences, not a list of rules");
+  assert.ok(firewall.body.sentences.some((line) => line.startsWith("The browser has no websites set up")));
+  assert.ok(firewall.body.sentences.some((line) => /Scripts cannot reach the internet/.test(line)));
+
+  // The test button asks the check every real request asks; nothing is fetched.
+  const tried = await api("POST", "/api/firewall/test", { address: "https://example.com/a" });
+  assert.equal(tried.status, 200);
+  assert.equal(typeof tried.body.allowed, "boolean");
+  assert.equal((await api("POST", "/api/firewall/test", { address: "not an address" })).body.allowed, false);
+
+  // The ceilings are the owner's to set and to read back.
+  assert.equal((await api("GET", "/api/limits")).body.limits.requestsPerMinute, 0);
+  const saved = await api("POST", "/api/limits", { requestsPerMinute: 12, tokensPerHour: 0, senderRequestsPerMinute: 4, senderTokensPerHour: 0 });
+  assert.equal(saved.body.limits.requestsPerMinute, 12);
+  assert.equal((await api("GET", "/api/limits")).body.limits.senderRequestsPerMinute, 4);
+
+  // Where scripts run: the owner's choice, and an honest list of what this computer can offer.
+  const sandboxes = await api("GET", "/api/sandboxes");
+  assert.equal(sandboxes.status, 200);
+  assert.equal(sandboxes.body.settings.windowsSandbox, false, "the throwaway desktop is never the default");
+  assert.deepEqual(sandboxes.body.backends.map((entry) => entry.name), ["job-object", "docker", "wsl", "windows-sandbox"]);
+  assert.equal(sandboxes.body.backends[0].available, true, "the plain box is always there");
+  for (const entry of sandboxes.body.backends)
+    if (!entry.available) assert.ok(entry.reason.length > 20, "an unavailable one says what to install");
+});
+
+test("A0329/A0544 the other computers and the marks are reachable, and both refuse plainly", async (t) => {
+  const { api } = await served(t);
+
+  assert.deepEqual((await api("GET", "/api/remotes")).body.computers, []);
+  // A name the owner never wrote in their own SSH config cannot be added through the screen either.
+  const refused = await api("POST", "/api/remotes", { alias: "stranger", root: "/srv/work" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.text, /SSH config/);
+  assert.equal((await api("POST", "/api/remotes/remove", { computer: "stranger" })).body.removed, false);
+
+  assert.deepEqual((await api("GET", "/api/marks")).body.marks, []);
+  const noMark = await api("POST", "/api/marks/undo", { id: "nothing" });
+  assert.equal(noMark.status, 400);
+  assert.match(noMark.text, /no saved way back/);
+});
+
+// ------------------------------------------------------------ A2344: letting old conversations go
+
+test("A2344 old conversations are proposed, exported, and deleted only on the owner's yes", async (t) => {
+  const { app } = await fixture(t);
+  const { ConversationRetention, retentionSettings, saveRetentionSettings, sentenceFor } =
+    await import("../dist/retention.js");
+
+  // Off by default: nothing is ever proposed, and the sentence says exactly that.
+  const retention = new ConversationRetention(app.store, "local");
+  assert.equal(retentionSettings(app.store, "local").enabled, false);
+  assert.match(sentenceFor(retentionSettings(app.store, "local")), /kept for ever/);
+  assert.deepEqual(retention.propose().conversations, []);
+
+  // Two conversations, and a clock moved a year on so the first one really is old.
+  const old = app.store.createSession("local");
+  app.store.message(old, { role: "user", content: "the old one" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const fresh = app.store.createSession("local");
+  app.store.message(fresh, { role: "user", content: "the new one" });
+  const madeAt = Date.now();
+  const later = new ConversationRetention(app.store, "local", () => madeAt + 200 * 86_400_000);
+
+  saveRetentionSettings(app.store, "local", { enabled: true, days: 90, megabytes: 0, exportBeforeDeleting: true });
+  const proposal = later.propose();
+  assert.deepEqual(proposal.conversations.map((entry) => entry.sessionId).sort(), [old, fresh].sort(),
+    "with the clock 200 days on, both are older than 90 days");
+  assert.match(proposal.conversations[0].why, /older than 90 days/);
+  assert.match(proposal.sentence, /It always asks first/);
+
+  // Pressing it without the yes changes nothing at all.
+  const looked = later.prune({ approve: false });
+  assert.equal(looked.deleted, false);
+  assert.equal(looked.removed.length, 0);
+  assert.equal(app.store.messages(old).length, 1, "nothing was deleted without a yes");
+
+  // With the yes: a saved copy comes back first, and only the old one goes.
+  const done = new ConversationRetention(app.store, "local", () => madeAt + 200 * 86_400_000)
+    .prune({ approve: true, sessionIds: [old] });
+  assert.equal(done.deleted, true);
+  assert.deepEqual(done.removed, [old], "only the one the owner chose goes");
+  assert.equal(done.exported.length, 1);
+  assert.equal(done.exported[0].archive.format, "branch-agent-conversation");
+  assert.equal(done.exported[0].archive.messages[0].content, "the old one");
+  assert.equal(app.store.messages(old).length, 0);
+  assert.equal(app.store.messages(fresh).length, 1, "the one the owner did not choose is left alone");
+
+  // And it is written into the record.
+  const written = app.store.audit.list("local", { action: "history.pruned" });
+  assert.equal(written.length, 1);
+  assert.equal(written[0].outcome, "deleted");
+  assert.match(written[0].reason, /saved copy/);
+});
+
+test("A2344 the rule can also be about size, and the screen never deletes by itself", async (t) => {
+  const { app, api } = await served(t);
+  const first = app.store.createSession("local"), second = app.store.createSession("local");
+  app.store.message(first, { role: "user", content: "x".repeat(4000) });
+  app.store.message(second, { role: "user", content: "y".repeat(4000) });
+
+  // Saving the rule answers with what it would sweep up, and deletes nothing.
+  const saved = await api("POST", "/api/retention", { enabled: true, days: 0, megabytes: 1, exportBeforeDeleting: true });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.settings.megabytes, 1);
+  assert.match(saved.body.sentence, /once everything together is over 1 MB/);
+  assert.deepEqual(saved.body.conversations, [], "8 KB is nowhere near 1 MB, so nothing is proposed");
+  assert.ok(saved.body.bytes >= 8000, "the card knows how big the whole history is");
+
+  // A ceiling the history really is over: the oldest are proposed until it fits again.
+  const { ConversationRetention } = await import("../dist/retention.js");
+  app.store.save("settings", "local", "retention", { enabled: true, days: 0, megabytes: 0, exportBeforeDeleting: true });
+  const tight = app.store.prunableSessions("local", 0, 1);
+  assert.deepEqual(tight.conversations, [], "1 MB is not reached, so the size rule proposes nothing");
+  const tiny = new ConversationRetention(app.store, "local");
+  assert.deepEqual(tiny.propose().conversations, [], "no rule at all proposes nothing");
+
+  // Asking for the rule, and saving it, never deleted anything.
+  assert.equal(app.store.messages(first).length, 1);
+  assert.equal(app.store.messages(second).length, 1);
+  const looked = await api("POST", "/api/retention/prune", { approve: false });
+  assert.equal(looked.body.deleted, false);
+  assert.equal(app.store.messages(first).length, 1);
+});
+
+// ------------------------------------------------------------ A2233: what a manifest asked for
+
+test("A2233 a package's calls are narrowed to what the owner allowed, and cannot wander off", async (t) => {
+  const { app } = await fixture(t);
+  const { packSkill, declaredHosts, requestedPermissions } = await import("../dist/skill-package.js");
+  const { grantAll, narrowTools, assertDeclaredHost } = await import("../dist/manifest-permissions.js");
+
+  const files = {
+    "SKILL.md": "---\nname: weather\ndescription: Says what the weather is\n---\n\nAsk the service.\n",
+    "tools.json": JSON.stringify({ tools: [{
+      name: "forecast", description: "Today's weather", method: "GET",
+      url: "https://api.weather.test/today?place={{place}}",
+      input: { place: { type: "string", required: true } }, headers: {}, body: {}, pick: [],
+    }] }),
+  };
+  const bytes = packSkill({ files, author: "Someone", packageVersion: "1.0.0" });
+
+  // What the owner is shown before they say yes: the permissions and every address by name.
+  const preview = app.skillPackages.inspect(bytes);
+  assert.deepEqual(preview.hosts, ["api.weather.test"]);
+  assert.ok(preview.permissions.some((entry) => entry.permission === "skills.http"));
+  assert.deepEqual(declaredHosts(files), ["api.weather.test"]);
+  assert.ok(requestedPermissions(files).length >= 2);
+
+  // Allowing only the reading half leaves the web call out of the catalog altogether.
+  const narrow = app.skillPackages.install(bytes, true, ["skills.read"]);
+  assert.equal(narrow.installed, true);
+  assert.deepEqual(narrow.grant.permissions, ["skills.read"]);
+  assert.equal(app.registry.names().some((name) => name.startsWith("skill.weather.")), false,
+    "a call the owner did not allow is never registered, so nothing can call it");
+  assert.ok(narrow.leftOut.some((line) => /did not allow "skills.http"/.test(line)));
+  assert.ok(app.skillPackages.list().some((entry) => entry.leftOut.length === 1));
+
+  // Allowing everything it asked for puts the call in, and its address is remembered.
+  app.store.skills.remove("local", narrow.skill.id, { expectedRevision: narrow.skill.revision });
+  app.skillPackages.forget(narrow.skill.id);
+  const full = app.skillPackages.install(bytes, true);
+  assert.deepEqual(full.grant.hosts, ["api.weather.test"]);
+  assert.ok(app.registry.names().includes("skill.weather.forecast"));
+  assert.deepEqual(full.leftOut, []);
+
+  // And the address is held to at the moment of the call, not only when the package was read.
+  const grant = grantAll({ permissions: [{ permission: "skills.http", why: "" }], hosts: ["api.weather.test"] });
+  assert.doesNotThrow(() => assertDeclaredHost(grant, new URL("https://api.weather.test/today"), "the tool"));
+  assert.throws(() => assertDeclaredHost(grant, new URL("https://somewhere.else.test/x"), "the tool"),
+    /not one of the addresses you were shown/);
+  // Narrowing is the enforcement: a tool outside the grant is simply not there.
+  const { kept, left } = narrowTools([{ name: "a", permission: "skills.http" }, { name: "b", permission: "skills.read" }],
+    grantAll({ permissions: [{ permission: "skills.read", why: "" }], hosts: [] }));
+  assert.deepEqual(kept.map((tool) => tool.name), ["b"]);
+  assert.deepEqual(left.map((tool) => tool.name), ["a"]);
+});
+
+// ------------------------------------------------------------ A2027: one list, the phones included
+
+test("A2027 the one allowlist covers a paired phone as well as every chat app", async (t) => {
+  const { app } = await fixture(t);
+  const { GatewayAuth, deviceHeader, deviceSecretHeader, remoteChannel, saveGatewayAuth } =
+    await import("../dist/remote/gateway-auth.js");
+  const { saveSenderAllowlist, decide, readSenderAllowlist } = await import("../dist/channels/allowlist.js");
+
+  const gateway = new GatewayAuth(app.store, "local");
+  saveGatewayAuth(app.store, "local", { chain: ["token", "device"] });
+  const { device, secret } = gateway.remember("The phone");
+  const headers = { [deviceHeader]: device.id, [deviceSecretHeader]: secret };
+
+  // The phone is let in: same key, same device secret.
+  assert.equal(gateway.check({ headers }, true), null);
+
+  // One rule in the same shape every chat app uses turns it away, without un-pairing it.
+  saveSenderAllowlist(app.store, "local", { rules: [{ channel: remoteChannel, sender: device.id, decision: "block", note: "Lost it" }] });
+  assert.equal(decide(readSenderAllowlist(app.store, "local"), remoteChannel, device.id), "block");
+  const refused = gateway.check({ headers }, true);
+  assert.match(String(refused), /may never reach Branch/);
+  assert.equal(gateway.devices().length, 1, "the phone is still paired; it is the rule that stops it");
+
+  // A rule about every phone at once works the same way, and the refusal is on the record.
+  saveSenderAllowlist(app.store, "local", { rules: [{ channel: remoteChannel, sender: "*", decision: "block", note: "All of them" }] });
+  assert.ok(gateway.check({ headers }, true));
+  assert.ok(app.store.audit.list("local", { action: "auth.refused" }).length >= 1);
+
+  // Taking the rule away lets it back in, and a rule about a chat app never touches the phone.
+  saveSenderAllowlist(app.store, "local", { rules: [{ channel: "telegram", sender: device.id, decision: "block", note: "elsewhere" }] });
+  assert.equal(gateway.check({ headers }, true), null);
+});
+
+// ------------------------------------------------------------ A2028 at the two real boundaries
+
+test("A2028 the ceiling really reaches the run loop and the chat door", async (t) => {
+  const { app } = await fixture(t);
+  const { saveSessionLimits } = await import("../dist/session-limits.js");
+  saveSessionLimits(app.store, "local", { requestsPerMinute: 1, tokensPerHour: 0, senderRequestsPerMinute: 1, senderTokensPerHour: 0 });
+
+  // The owner's side: the run loop asks the counter, and waiting is what reaching it means.
+  assert.equal(typeof app.runtime.sessionCeiling, "function");
+  const first = app.runtime.sessionCeiling("session-a", 0);
+  assert.equal(first.ok, true);
+  const second = app.runtime.sessionCeiling("session-a", 0);
+  assert.equal(second.ok, false);
+  assert.ok(second.waitMs > 0, "the owner is made to wait, never refused");
+
+  // The chat side: somebody messaging from outside gets a sentence instead.
+  assert.equal(typeof app.channels.senderCeiling, "function");
+  assert.equal(app.channels.senderCeiling("telegram", "5551").ok, true);
+  const turned = app.channels.senderCeiling("telegram", "5551");
+  assert.equal(turned.ok, false);
+  assert.match(turned.reason, /as much as Branch will do for one person/);
+});

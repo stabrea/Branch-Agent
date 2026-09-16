@@ -87,6 +87,8 @@ import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
 import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
+import { SessionLimiter } from "./session-limits.js";
+import { ConversationRetention } from "./retention.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
@@ -258,6 +260,10 @@ export async function createBranch(options: {
   });
   const remotes = new RemoteWorkspaces(store, options.owner ?? "local", sshRunner());
   registerRemoteWorkspaces(registry, remotes);
+  // Batch 26 (wave 8): how much one conversation, or one person messaging from outside, may ask for
+  // in a minute and in an hour; and letting conversations older than the owner's cut-off go.
+  const sessionLimiter = new SessionLimiter(store, options.owner ?? "local");
+  const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
@@ -477,6 +483,12 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
+  // outside is told in one sentence and their message is let go. Both are written into the record.
+  runtime.sessionCeiling = (sessionId, tokens) =>
+    sessionLimiter.check({ scope: "conversation", id: sessionId, tokens }, "owner");
+  channels.senderCeiling = (channel, senderId) =>
+    sessionLimiter.check({ scope: "sender", id: `${channel}:${senderId}` }, "stranger");
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
@@ -707,12 +719,29 @@ export async function createBranch(options: {
     desktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
     osPermissions,
+    /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
+    remotes,
+    /** A way back to how a folder was just before a set of changes was written. */
+    checkpoints,
+    /** Switching a folder to the line of work a project names. */
+    gitWorkspaces,
+    /** How much one conversation, or one person messaging from outside, may ask for. */
+    sessionLimiter,
+    /** Letting conversations older than the owner's cut-off go, with a saved copy first. */
+    retention,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
      * offer the sign-in-once window. It stays null when no browser is configured.
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
+    /**
+     * Batch 26 (wave 8): what the firewall card needs that only the launch knows — the sites the
+     * browser may open at all, and whether commands on this computer are pointed at a dead address.
+     * Filled in by the launcher; the defaults say "no browser, and commands can reach out", which is
+     * what a launch with no integrations file actually is.
+     */
+    reach: { browserOrigins: [] as string[], commandsMayReachInternet: true },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: async (context: ToolContext, names: string[]) => {
       const project = store.projects.active(context.owner).id;

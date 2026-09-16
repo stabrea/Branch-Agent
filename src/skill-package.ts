@@ -71,6 +71,14 @@ export function requestedPermissions(files: Record<string, string>): { permissio
   return asked;
 }
 
+/** The web addresses a package's declared calls name, so the owner sees every one before saying yes. */
+export function declaredHosts(files: Record<string, string>): string[] {
+  const toolsFile = files["tools.json"];
+  if (!toolsFile) return [];
+  const { tools } = SkillToolsSchema.parse(JSON.parse(toolsFile));
+  return [...new Set(tools.map((tool) => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).hostname))];
+}
+
 /** Builds the package bytes from a folder's files. Everything is checked here, not at install time only. */
 export function packSkill(input: { files: Record<string, string>; author: string; packageVersion: string; description?: string; createdAt?: string }): Buffer {
   const files = { ...input.files };

@@ -6,6 +6,7 @@ import type { NetworkPolicy } from "./network-policy.js";
 import { scrubSecrets } from "./locker.js";
 import { bindInputs, type InputValue, type Parameters } from "./recipes.js";
 import type { HttpTool } from "./skill-package.js";
+import { assertDeclaredHost, type ManifestGrant } from "./manifest-permissions.js";
 
 /**
  * Declarative web calls a skill package brings with it. The package says which address to call and
@@ -78,10 +79,14 @@ async function readAnswer(response: Response, host: string): Promise<string> {
   return Buffer.concat(parts.map((part) => Buffer.from(part))).toString("utf8");
 }
 
-async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext, enabled?: () => boolean): Promise<unknown> {
+async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext, enabled?: () => boolean, grant?: ManifestGrant): Promise<unknown> {
   if (enabled && !enabled()) throw new Error(`The skill that brought "${tool.name}" is switched off, so it did not run.`);
   const bound = bindInputs(tool.input, args);
   const target = new URL(fillText(tool.url, bound, true));
+  // Batch 26 (wave 8): the address has to be one the owner was shown before they installed this.
+  // The package's own address can carry a value from the request, so this is checked here and not
+  // only when the package was read.
+  if (grant) assertDeclaredHost(grant, target, `"${tool.name}"`);
   await host.policy.assertAllowed(target, "skill tool address");
   const names = secretsUsed(tool);
   const secrets = names.length ? await host.store.locker.resolve(context.owner, host.store.projects.active(context.owner).id, names) : {};
@@ -109,14 +114,14 @@ async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string,
  * any name is taken the ones already added are taken back out, so a half-registered package is
  * never left behind.
  */
-export function registerHttpTools(registry: ToolRegistry, host: HttpToolHost, packageName: string, tools: HttpTool[], enabled?: () => boolean): string[] {
+export function registerHttpTools(registry: ToolRegistry, host: HttpToolHost, packageName: string, tools: HttpTool[], enabled?: () => boolean, grant?: ManifestGrant): string[] {
   const registered: string[] = [];
   try {
     for (const tool of tools) {
       const name = `skill.${packageName}.${tool.name}`;
       registry.register({
         name, description: tool.description, permission: httpToolPermission, parameters: schemaFor(tool.input),
-        execute: async (args, context) => callTool(host, tool, args, context, enabled),
+        execute: async (args, context) => callTool(host, tool, args, context, enabled, grant),
         target: () => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).host,
       });
       registered.push(name);

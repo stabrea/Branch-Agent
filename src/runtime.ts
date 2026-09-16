@@ -220,6 +220,13 @@ export class Runtime {
    */
   askHooks: (runId: string, about: Record<string, unknown>) => Promise<HookDecision | null> = async () => null;
   /**
+   * Batch 26 (wave 8): the ceiling the owner set for one conversation — so many questions a minute,
+   * so much thinking an hour. Set by the app; left alone, nothing is limited and this behaves
+   * exactly as it did before. Reaching it is not a failure: the owner's own task waits.
+   */
+  sessionCeiling: ((sessionId: string, tokens: number) => { ok: boolean; waitMs: number }) | undefined;
+  private readonly tokensCharged = new Map<string, number>();
+  /**
    * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
    */
@@ -835,6 +842,7 @@ export class Runtime {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
+      await this.ceiling(context);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
@@ -1494,6 +1502,24 @@ export class Runtime {
    * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task
    * waits for the window to free up and then carries on.
    */
+  /**
+   * Holds the owner's own conversation to the ceiling they set in Settings. What has been spent
+   * since the last round is charged against the hour's allowance, so a long answer counts for what
+   * it cost. Waiting is the whole behaviour: nothing is refused and nothing is lost.
+   */
+  private async ceiling(context: ToolContext): Promise<void> {
+    if (!this.sessionCeiling) return;
+    const session = this.sessionOf(context);
+    const spent = context.budget.tokens - (this.tokensCharged.get(context.runId) ?? 0);
+    this.tokensCharged.set(context.runId, context.budget.tokens);
+    const verdict = this.sessionCeiling(session, Math.max(0, spent));
+    if (verdict.ok) return;
+    const wait = Math.min(Math.max(verdict.waitMs, 0), 60_000);
+    this.store.event(context.runId, "rate.paused", { kind: "session", waitMs: wait,
+      message: `Pausing for ${Math.ceil(wait / 1000)} second(s): this conversation has reached the limit you set in Settings.` });
+    await sleepFor(wait, context.signal);
+    this.store.event(context.runId, "rate.resumed", { kind: "session" });
+  }
   private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     if (!limit) return;
     const key = kind + ":" + this.sessionOf(context);

@@ -190,7 +190,12 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
-  const hosted: { browser?: BranchBrowser; issues?: IssueAccess } = {};
+  const hosted: {
+    browser?: BranchBrowser; issues?: IssueAccess;
+    /** Batch 26 (wave 8): what the firewall card reads back — the sites the browser may open, and
+     * whether host commands are pointed at a dead address. Both are launch settings, not stored ones. */
+    browserOrigins?: string[]; commandsNetless?: boolean;
+  } = {};
   const before = new Set(registry.names());
   const close = async () => {
     for (const name of registry.names()) if (!before.has(name)) registry.unregister(name);
@@ -225,10 +230,12 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       // Branch is never still holding the door to their signed-in windows open.
       channels?.onLock?.(() => browser.releaseBorrowed());
       hosted.browser = browser;
+      hosted.browserOrigins = [...config.browser.allowedOrigins];
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }
     let shell: BranchShell | undefined;
     if (config.shell) {
+      hosted.commandsNetless = config.shell.netless === true;
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
       await created.ready();
