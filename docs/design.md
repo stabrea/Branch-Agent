@@ -12,24 +12,36 @@ page — the three columns are flush, as the KeepOak portal is.
 | Part | What it holds |
 | --- | --- |
 | Rail head (`public/shell.css`, `.rail-head`) | The mark and the assistant's name with a chevron that switches project, a search icon, an appearance icon |
-| Rail body (`.rail-scroll`) | "New conversation", "Find anything", then three groups that fold and are remembered: **Sections** (every screen as a row with an icon), **Projects** (the workspace folders, the active one marked), **Recents** (conversations grouped by Today / Yesterday / Earlier) |
+| Rail body (`.rail-scroll`) | "New conversation", "Find anything", then three groups that fold and are remembered for whoever this workspace belongs to: **Sections** (every screen as a row with an icon; Activity carries a small count while tasks are running), **Projects** (the workspace folders, the active one marked), **Recents** (conversations grouped by Today / Yesterday / Earlier, each row lighting up under the pointer in both themes) |
 | Conversation row (`.rail-line`) | One line. Hovering reveals rename, pin and "take off this list"; those are this browser's own labels and never change the saved conversation |
 | Rail foot (`.rail-foot`) | The owner row — initial, project, the connection dot — opening a menu with Settings and connections, Change the appearance, Lock session, Check for updates, About. Underneath, the quiet "Branch Agent by KeepOak" line |
 | Main pane (`main`) | A title bar with the rail switch, the section name, the open conversation's name, the connection pill and the context switch; below it one 760 px column |
 | Messages (`.message`) | Left-aligned prose with a small role marker. The owner's own messages sit in a soft tinted bubble on the right. Tool work is one quiet row, "Worked with 2 tools · files list, files read", that opens in place |
-| Composer (`.composer`) | A rounded box pinned to the foot of the column with attach, microphone, Temporary and Send inside it |
-| Context pane (`.context-panel`) | The model with a link to change it, what is running now, the receipts for this conversation in plain language, recently saved memory, three counts, and the dithered acorn small at the bottom |
+| Composer (`.composer-dock`) | A rounded box floating at the foot of the main pane with attach, microphone, Temporary and Send inside it, and one quiet helper line underneath. Send is a single-line pill with the arrow after the word |
+| Context pane (`.context-panel`) | The model — a plain "Connect a model" button while nothing is connected, a link to change it once something is — what is running now, the receipts for this conversation in plain language, recently saved memory, three counts, and the dithered acorn, which takes the room left over and never pushes the pane taller |
 
 The rail and the context pane each fold away from the title bar, and the choice is remembered on
 the device. Under 1180 px the context pane steps aside; under 860 px the rail slides over the
 page instead of taking a column. The page itself never scrolls sideways, down to 400 px.
 
+The composer floats over the reading column rather than sitting in it. `public/shell.js` measures
+the dock with a `ResizeObserver` and writes its height to `--composer-h`; `#chat` keeps exactly
+that much room at its end, so nothing in the column — the welcome card, the greeting, the last
+message — can come to rest underneath the composer.
+
 Keyboard: **Ctrl+K** opens the command palette (sections, conversations, projects, recipes,
 skills, and the top actions), **Ctrl+N** starts a conversation, **Ctrl+,** opens Appearance,
-**Esc** closes the palette, a menu, or the rail. Arrow keys and Enter move through the palette.
+**Ctrl+Shift+K** folds the context pane away and back, **Esc** closes the palette, a menu, or the
+rail, and from the message box it steps out of the box without touching what has been typed.
+Arrow keys and Enter move through the palette. Tab walks the rail first, then the title bar, then
+the messages, then the composer; the message column is a stop of its own so it can be scrolled
+from the keyboard.
 
-The empty conversation is a short greeting and four suggestion chips. The chips use the owner's
-own recipes when there are any, and fall back to stock prompts otherwise.
+On a new workspace the welcome card is the greeting: "Choose how your assistant thinks", three
+equal tiles for the three ways in, and one primary action. The selected tile is marked with the
+accent ring, not a heavy border. Once that is done the card gives way to a short greeting and
+four suggestion chips. The chips use the owner's own recipes when there are any, and fall back to
+stock prompts otherwise.
 
 ## Tokens
 

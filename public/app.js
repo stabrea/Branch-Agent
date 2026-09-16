@@ -455,6 +455,8 @@ async function refresh() {
     applyAppearance(state.preferences);
   }
   $("context-provider").textContent = demo ? "Not connected" : active.presetName;
+  /* The context pane offers "Connect a model" while nothing real is connected. */
+  $("context-panel").dataset.connected = String(!demo);
   $("context-runs").textContent = state.runs.filter(
     (run) => run.status === "running",
   ).length;
