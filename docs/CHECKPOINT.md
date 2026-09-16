@@ -2,10 +2,22 @@
 
 ## Checkpoint 2026-09-16 — how to resume
 
-**State.** Released **0.16.0**, installed on the owner's PC, with 0.15.0 kept beside it. Staging
-`wave2/integration` carries, since the release: web UI pass 3 and the auth/tracing/CLI rows, both
-reviewed and merged, plus the release commits merged back. Still to review: `wave8/sandbox-remote`
-(work in progress) and `wave8/docs-3` (stopped part-way); `wave8/handbook` is finished and waiting.
+**State.** Released **0.16.0**, installed on the owner's PC and running (its own `running.json` says
+0.16.0), with 0.15.0 kept beside it as `Branch Agent.previous`. Staging `wave2/integration` carries,
+since the release: web UI pass 3, the auth/tracing/CLI rows and the owner's handbook, all three
+reviewed and merged, plus the release commits merged back. Full suite on that tip: 1279 tests, 0
+failures, 2 environment skips. **Nothing finished is waiting for review.** The two branches left are
+both unfinished builder work, and need a builder rather than an integrator: `wave8/sandbox-remote`
+(Docker/WSL/Windows-Sandbox backends, SSH workspaces, A2027/A2233/A2344 remain) and `wave8/docs-3`
+(stopped part-way; catalog width trim pending).
+
+**One job carried forward from the handbook merge.** That branch reorganised `docs/configuration.md`
+into ten chapters. The reference had grown by about five hundred lines since it forked, so keeping
+the reorganisation would have dropped the sandbox, short-lived key, tracing and "what Branch is not"
+sections. The current reference was kept instead and the branch's *new* writing — settings that had
+never been documented anywhere — was lifted across. `scripts/check-docs.mjs` now holds every settings
+field to account (131 named, every handbook link resolving), so redoing the reorganisation against
+the current file is safe work for whoever picks it up: the checker will say if anything falls out.
 
 **To resume the loop** (details in `docs/agents/README.md`):
 1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with environment skips.
