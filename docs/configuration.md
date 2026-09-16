@@ -233,6 +233,35 @@ Built on Node's own TLS with no mail library: a small IMAP4rev1 reader (`LOGIN`,
 
 Speech-to-text transcription requires an OpenAI-compatible provider with an API key. The ChatGPT plan sign-in does not provide an API key for audio endpoints; configure an API key in **Settings → Model connection** to use voice transcription. API routes: `POST /api/voice/transcribe` (binary audio input), `POST /api/voice/speak` (JSON text input, audio output), `GET|POST /api/voice/settings` (voice preferences).
 
+### Talking to it, and where the sound goes (wave 7)
+
+**Talk** next to the message box is hold-to-talk: hold it, speak, let go. What you said is written out, put in the message box so you can see it, sent as an ordinary message, and the answer is read back to you. Press Talk again while it is talking and it stops. The four states it moves through (waiting, listening, working, reading aloud) live in `src/voice-talk.ts` and are tested on their own.
+
+Three services can write out what you say, and Branch picks whichever one your settings point at: an OpenAI-shaped `/audio/transcriptions` (the Whisper shape, which most providers speak), Gemini's own route (the sound goes inline with the request), or **a speech program already installed on this computer** — whisper.cpp or faster-whisper. Branch never downloads a speech model for you: you point it at the program and its model file, and it checks the program is there before it tries. Three can read text aloud: the OpenAI-shaped `/audio/speech`, Gemini's speech route, and **the voices that come with Windows**, which need no key, no account and no internet. The Windows voice is driven by a short PowerShell script written to a temporary file and run with `-File` and no console window; the words are put in as a quoted string, so nothing in a reply can be run as a command.
+
+- **Keep audio on this computer**: nothing containing sound may leave. Both cloud routes then refuse in plain words instead of sending anyway, and the refusal lives in the service itself, so the `voice.say` tool cannot go around it.
+- **Who writes out what you say** / **Who reads replies aloud**: pick a service, or leave it on "whatever suits".
+- **Language**: a code such as `en` forces one; empty lets the service work it out.
+- **Answer a voice note on a chat app with a voice note back**: off until you turn it on. Telegram is the one channel that can send sound back today.
+
+A voice note that arrives on **Telegram, Discord or WhatsApp** is written out and handled exactly like a typed message, and the reply quotes the transcript back ("You said (from your voice note): …") so you can see what was heard. The bytes are only fetched once the message has earned an answer, so a stranger cannot make Branch download anything, and a note over 20 MB is refused.
+
+Costs are estimated the same honest way as everything else: published per-minute prices for writing out speech and per-thousand-character prices for reading aloud, with the date they were read, and **no figure at all** when there is no price on file or the length is unknown. A voice on this computer genuinely costs nothing, and reports zero.
+
+Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
+
+**Not built: live two-way voice calls** (the OpenAI Realtime WebSocket, audit A1212 and A2293). Branch checks every outbound address against its network policy before each request, and that policy has no hook for a WebSocket; a realtime session would either skip the check or need a new dependency, and this build refuses both. Hold-to-talk does the same job over the ordinary routes. There is no wake word and nothing listens unless you are holding the button.
+
+### Which model does what (wave 7)
+
+Type `/model` in the message box to see your connections, and `/model <name>` to change the one answering **this conversation only** — no restart, nothing else affected, and the next reply is charged at the new model's prices. `/model default` puts it back. The assistant can do the same for itself with the `models.switch` tool. The rail above the message box always names the model that will answer next.
+
+**Settings → Which model does what** holds *routing profiles*. A profile is just data — a name and an order of connections — saved in `settings/model-profiles`, so you can read it, change it and hand it to someone else. Branch fills in four from the connections you actually have: **Cheap and fast** (whatever runs on this computer first, then the least expensive with a published price), **Best quality** (most expensive first, which is the only ranking that can be justified from published prices), **Private** (only connections on this computer; honestly empty until you set one up) and **Long context** (your own order — Branch cannot read how much a cloud model holds, so it does not pretend to). None is switched on until you pick one. When a profile does pick, the run records a `model.routed` event whose reason says which rule fired, for example *The "Cheap and fast" profile asked for alpha first, but it was not available, so beta took it* — that is the "why this model" line in the run inspector.
+
+**Settings → Check your connections** asks each connection what it can do right now: whether its key still works, how many models it lists, and whether it offers speech, pictures and comparing passages. `branch doctor --probe` prints the same thing under `connections`. It costs nothing beyond one list-of-models request per connection.
+
+**Signing in with Google for Gemini** (`src/gemini-signin.ts`) is built as far as it can honestly go: the standard code flow with PKCE through the existing sign-in machinery, and the resulting token sent to Gemini in the ordinary `Authorization: Bearer` header — never in the address. **But**: Google's Generative Language API accepts a signed-in person's token only for a Google Cloud project that has the API switched on, and it bills that project. Branch cannot check that from here without sending a real request, so the API key remains the ordinary way and nothing has been changed about it. Nothing else in Branch uses Google sign-in. One thing did change for everybody: a Gemini API key now travels in the `x-goog-api-key` header instead of a `?key=` query parameter, so it can never end up in a log.
+
 ## Projects and secrets
 
 **Settings → Projects** keeps named projects, each with its own instructions (added to every task while it is active), a preferred model preset and its own secrets. The `default` project always exists. Switching the active project changes all three for new tasks; a conversation's own model choice still wins. API: `GET /api/projects`, `POST /api/projects`, `POST /api/projects/active`, `POST /api/projects/:id/remove`.

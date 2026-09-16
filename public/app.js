@@ -895,6 +895,8 @@ async function saveSessionModel() {
     await loadSessionModel();
   } catch (e) { toast(e.message); }
 }
+/* Wave 7: the rail shows the active model again after /model or the models.switch tool. */
+globalThis.branchRefreshSessionModel = () => loadSessionModel();
 $("session-model").addEventListener("change", saveSessionModel);
 $("session-reasoning").addEventListener("change", saveSessionModel);
 form("models-form", async () => {
@@ -1350,6 +1352,8 @@ $("login-form").addEventListener("submit", async (event) => {
     await api("lock/unlock", {}).catch(() => undefined);
     sessionStorage.setItem("branch-token", token);
     $("token").value = "";
+    /* Wave 7: the voice and model-routing cards can only read their settings once you are in. */
+    globalThis.branchVoiceReady?.();
   } catch (e) {
     toast(e.message);
   }
@@ -1372,10 +1376,26 @@ $("prompt").addEventListener("keydown", (event) => {
   if (conversationBusy && sessionId) { $("followup-send").click(); return; }
   if (!conversationBusy) $("chat-form").requestSubmit();
 });
+/**
+ * Wave 7: talk mode. The words that were spoken are sent the ordinary way, and the reply comes
+ * back so it can be read aloud. Nothing here bypasses the message box: you see what was heard.
+ */
+let lastReply = "";
+globalThis.branchRunSpoken = async (text) => {
+  if (conversationBusy) return "";
+  lastReply = "";
+  $("prompt").value = text;
+  $("chat-form").requestSubmit();
+  for (let waited = 0; waited < 600 && (conversationBusy || !lastReply); waited++)
+    await new Promise((done) => setTimeout(done, 500));
+  return lastReply;
+};
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const typed = $("prompt").value.trim();
   if (!typed || conversationBusy) return;
+  /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
+  if (await (globalThis.branchSlashCommand?.(typed, sessionId) ?? false)) { $("prompt").value = ""; return; }
   /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */
   const prompt = $("ask-first-toggle")?.checked
     ? await (window.branchMisc?.askBeforeStarting(typed) ?? Promise.resolve(typed))
@@ -1403,6 +1423,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     message("assistant", run.output);
+    /* Wave 7: talk mode reads this out loud once the reply is on the screen. */
+    lastReply = run.output;
     $("session-label").textContent = currentTemporary ? run.status + " · temporary, not saved" : run.status + " · conversation saved";
     await loadConversation(run.sessionId, run.status);
     await refresh();

@@ -1106,6 +1106,49 @@ nothing in `tests/compaction-attention.test.mjs` needed touching — it imports 
 which now means the 11,000 floor, and the conversation share alone is well past that when it
 compacts. Covers the
 context-management theme (#82) and the reliability inventory item (#16).
+## Batch 25 (wave 7) — a voice you can talk to, and models you can switch on the fly
+Voice stopped being one provider's feature. `src/voice-stt.ts` is one `Transcription` service with
+three adapters — the Whisper-shaped `/audio/transcriptions` every OpenAI-compatible service speaks,
+Gemini's inline-audio `generateContent`, and a whisper.cpp or faster-whisper program the owner has
+already installed (detected by path, never downloaded, argv built by a pure exported function).
+`src/voice-tts.ts` is the matching `Speech` service: `/audio/speech`, Gemini's speech route, and the
+voices that ship with Windows through a hidden PowerShell child (`sapiScript()` is pure and asserted
+in the tests, quotes doubled, run with `-File` and never `-Command`, so nothing in a model's reply
+can be executed). `src/voice-service.ts` decides which route runs from the owner's settings and is
+where **keep audio on this computer** is enforced — in the service, so the new `voice.say` tool
+cannot go round it, which the tests prove by counting network calls. Costs follow
+`estimateImageCost`'s shape exactly: a published per-minute or per-thousand-character figure with
+the date it was read, `null` when there is no price or no known length, and a genuine zero only for
+a voice on this computer. `src/voice-talk.ts` holds the hold-to-talk state machine (idle →
+listening → thinking → speaking → idle, pressing again interrupts) away from the browser so it is
+unit-tested without a microphone; `public/voice-talk.js` draws it in the composer and wires the Voice
+settings card. Voice notes arriving on Telegram, Discord and WhatsApp become ordinary messages:
+`InboundMessage` gained an optional `voice` whose bytes are fetched lazily (so a stranger cannot make
+Branch download anything), `ChannelRouter` gained injectable `transcribeVoice` and `speakReply`
+properties on the `outboundGuard` pattern, and the reply quotes the transcript back. Telegram can
+send a spoken reply (`sendVoice`); the other two cannot yet and say so.
+
+On the model side, `src/model-switch.ts` adds `/model` in the composer and a `models.switch` tool
+that resolves its conversation from the task it is part of — one conversation changes, no restart,
+every other conversation untouched. `src/model-profiles.ts` makes routing profiles ordinary data in
+`settings/model-profiles`: four are generated from the connections that actually exist, ordered only
+by things that can be justified (runs here; published output price), with `private` honestly empty
+when there is no local connection. `Runtime.routed()` asks the profile first and writes a
+`model.routed` event whose reason names the rule that fired, which is the "why this model" line.
+`src/provider-probe.ts` asks each connection what it can do — auth, model count, speech/pictures/
+embeddings — and appears under `connections` in `branch doctor --probe` and in Settings → Models.
+`src/gemini-signin.ts` builds the Google PKCE sign-in and the bearer-header plumbing, and says
+plainly in the docs that Google accepts a user token for `generateContent` only on a Cloud project
+with the API enabled, so the key flow stays the default. One behaviour changed for everyone: a
+Gemini key now travels in `x-goog-api-key` rather than `?key=`, keeping it out of logs, and
+`GeminiProvider` gained `audio()` so `media.transcribe` and `media.speak` work on Gemini too.
+**Deliberately not built:** the OpenAI Realtime WebSocket (A1212, A2293). The network policy checks
+HTTP addresses before each request and has no WebSocket hook, so a realtime session would skip that
+check or need a dependency; both were refused, and `realtimeNote` says so in the app and the docs.
+No wake word, and nothing listens unless the button is held. `tests/voice-providers.test.mjs` (14
+tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
+all of it. No new dependency.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

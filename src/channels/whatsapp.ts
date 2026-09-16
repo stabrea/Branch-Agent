@@ -34,6 +34,8 @@ const valueSchema = z.object({
   messages: z.array(z.object({
     id: z.string(), from: z.string(), timestamp: z.string().optional(), type: z.string().optional(),
     text: z.object({ body: z.string() }).passthrough().optional(),
+    audio: z.object({ id: z.string().min(1).max(200), mime_type: z.string().max(100).optional() }).passthrough().optional(),
+    voice: z.object({ id: z.string().min(1).max(200), mime_type: z.string().max(100).optional() }).passthrough().optional(),
   }).passthrough()).default([]),
 }).passthrough();
 const webhookSchema = z.object({
@@ -94,12 +96,46 @@ export class WhatsAppAdapter implements ChannelAdapter {
     }
     return { accepted };
   }
-  private inbound(message: { id: string; from: string; type?: string | undefined; text?: { body: string } | undefined }, name?: string): InboundMessage | null {
-    if ((message.type ?? "text") !== "text" || !message.text?.body) return null;
+  private inbound(
+    message: {
+      id: string; from: string; type?: string | undefined; text?: { body: string } | undefined;
+      audio?: { id: string; mime_type?: string | undefined } | undefined;
+      voice?: { id: string; mime_type?: string | undefined } | undefined;
+    },
+    name?: string,
+  ): InboundMessage | null {
+    const spoken = message.voice ?? message.audio;
+    const kind = message.type ?? "text";
+    if (!spoken && (kind !== "text" || !message.text?.body)) return null;
     return {
       channel: this.id, chatId: message.from, chatKind: "direct", senderId: message.from,
-      senderName: name ?? message.from, text: message.text.body, addressed: true, messageId: message.id,
+      senderName: name ?? message.from, text: message.text?.body ?? "", addressed: true, messageId: message.id,
+      ...(spoken ? { voice: {
+        mediaType: spoken.mime_type?.split(";")[0] ?? "audio/ogg",
+        seconds: undefined,
+        bytes: () => this.downloadAudio(spoken.id),
+      } } : {}),
     };
+  }
+  /**
+   * WhatsApp hands over media in two steps: ask what address it lives at, then fetch it with the
+   * same key. Both go to WhatsApp's own hosts and nowhere else.
+   */
+  private async downloadAudio(mediaId: string): Promise<Uint8Array> {
+    const headers = { authorization: `Bearer ${this.options.token}` };
+    const info = await this.fetch(`${this.base}/${encodeURIComponent(mediaId)}`, {
+      headers, redirect: "error", signal: AbortSignal.timeout(20000),
+    });
+    if (!info.ok) throw new Error(`WhatsApp would not say where that voice note is (${info.status})`);
+    const where = z.object({ url: z.string().min(1).max(2000) }).passthrough().parse(await info.json());
+    const target = new URL(where.url);
+    if (target.protocol !== "https:" || !/(^|\.)(whatsapp\.net|fbcdn\.net|facebook\.com)$/i.test(target.hostname))
+      throw new Error("That voice note is not hosted by WhatsApp, so it was not downloaded");
+    const response = await this.fetch(target.href, { headers, redirect: "error", signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new Error(`WhatsApp would not hand over that voice note (${response.status})`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > 20 * 1024 * 1024) throw new Error("That voice note is larger than 20 MB, so it was not used");
+    return bytes;
   }
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
     const heard = this.lastHeard.get(chatId);

@@ -27,6 +27,10 @@ const createSchema = z.object({
   id: z.string(), channel_id: z.string(), guild_id: z.string().optional(), content: z.string().default(""),
   author: userSchema, mentions: z.array(userSchema).default([]),
   referenced_message: z.object({ author: userSchema.optional() }).passthrough().nullish(),
+  attachments: z.array(z.object({
+    url: z.string().min(1).max(2000), content_type: z.string().max(100).optional(),
+    size: z.number().nonnegative().optional(), duration_secs: z.number().nonnegative().optional(),
+  }).passthrough()).default([]),
 }).passthrough();
 const payloadSchema = z.object({ op: z.number(), d: z.unknown().optional(), s: z.number().nullish(), t: z.string().nullish() }).passthrough();
 const readySchema = z.object({ user: userSchema, session_id: z.string(), resume_gateway_url: z.string().optional() }).passthrough();
@@ -132,7 +136,8 @@ export class DiscordAdapter implements ChannelAdapter {
     this.state = { state: "connected" };
   }
   private inbound(message: z.infer<typeof createSchema>): InboundMessage | null {
-    if (!message.content || message.author.bot || message.author.id === this.user?.id) return null;
+    const spoken = message.attachments.find((file) => (file.content_type ?? "").startsWith("audio/"));
+    if ((!message.content && !spoken) || message.author.bot || message.author.id === this.user?.id) return null;
     const direct = !message.guild_id;
     const mentioned = message.mentions.some((mention) => mention.id === this.user?.id);
     const repliedTo = message.referenced_message?.author?.id === this.user?.id;
@@ -142,7 +147,25 @@ export class DiscordAdapter implements ChannelAdapter {
       ...(message.guild_id ? { chatTitle: `channel ${message.channel_id}` } : {}),
       senderId: message.author.id, senderName: message.author.username ?? message.author.id,
       text: text || message.content, addressed: direct || mentioned || repliedTo, messageId: message.id,
+      ...(spoken ? { voice: {
+        mediaType: spoken.content_type ?? "audio/ogg",
+        seconds: spoken.duration_secs,
+        bytes: () => this.downloadAudio(spoken.url, spoken.size ?? 0),
+      } } : {}),
     };
+  }
+  /** Fetches a voice message's bytes from the address Discord gave, and only when it is answered. */
+  private async downloadAudio(url: string, declaredSize: number): Promise<Uint8Array> {
+    const limit = 20 * 1024 * 1024;
+    if (declaredSize > limit) throw new Error("That voice message is larger than 20 MB, so it was not downloaded");
+    const target = new URL(url);
+    if (target.protocol !== "https:" || !/(^|\.)discordapp\.(com|net)$/i.test(target.hostname))
+      throw new Error("That attachment is not hosted by Discord, so it was not downloaded");
+    const response = await this.fetch(target.href, { redirect: "error", signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new Error(`Discord would not hand over that voice message (${response.status})`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > limit) throw new Error("That voice message is larger than 20 MB, so it was not used");
+    return bytes;
   }
   /** Sends one reply, waiting out any rate limit Discord has told us about. */
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
