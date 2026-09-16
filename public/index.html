@@ -714,7 +714,7 @@
               <div class="appearance-field">
                 <label for="appearance-language" data-t="appearance.language">Language</label>
                 <select id="appearance-language"></select>
-                <span class="meta" data-t="appearance.languageNote">English is the original. Other languages are machine drafts and may read oddly.</span>
+                <p class="field-note" data-t="appearance.languageNote">English is the original. Other languages are machine drafts and may read oddly.</p>
               </div>
               <div class="appearance-field">
                 <span id="extras-label" data-t="appearance.extras">Movement and artwork</span>
@@ -768,7 +768,8 @@
             </select>
             <label for="voice-language">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
-            <label for="voice-local-exe">Speech program on this computer (whisper.cpp or faster-whisper)</label>
+            <label for="voice-local-exe">Speech program on this computer</label>
+            <p class="field-note">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
             <label for="voice-local-model">Its model file or model name</label>
             <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
@@ -814,7 +815,7 @@
             <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>
             <label for="media-image-model">Picture model</label>
             <input id="media-image-model" maxlength="200" placeholder="Leave empty to use your provider's usual one" />
-            <label for="media-folder">Folder in your workspace for saved pictures and sound</label>
+            <label for="media-folder">Where to save pictures and sound</label>
             <input id="media-folder" maxlength="100" placeholder="media" />
             <p class="subtle" id="media-prices"></p>
             <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>

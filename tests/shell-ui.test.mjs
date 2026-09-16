@@ -512,7 +512,7 @@ test("Q4 every section says what it is for, and every card carries a title", asy
   assert.deepEqual(f.errors, []);
 });
 
-test("Q5 Escape closes the palette and the workspace menu", async (t) => {
+test("Q5 Escape closes every popover this pass touched", async (t) => {
   const f = await fixture(t);
   await f.page.keyboard.press("Control+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
@@ -524,6 +524,25 @@ test("Q5 Escape closes the palette and the workspace menu", async (t) => {
   await f.page.keyboard.press("Escape");
   await f.page.locator("#owner-menu").waitFor({ state: "hidden" });
   assert.equal(await f.page.locator("#owner-menu-button").getAttribute("aria-expanded"), "false");
+
+  /* The room meter moved into the new row under the message box; its numbers still close. */
+  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
+  await f.page.locator("#meter-button").click();
+  await f.page.locator("#meter-popover").waitFor({ state: "visible" });
+  await f.page.keyboard.press("Escape");
+  await f.page.locator("#meter-popover").waitFor({ state: "hidden" });
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q5 the helper line and the room meter share one row, clear of the message box", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => document.getElementById("meter-row").hidden = false);
+  const boxes = await f.page.evaluate(() => {
+    const rect = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+    return { composer: rect(".composer"), foot: rect(".composer-foot"), meter: rect("#meter-row"), note: rect(".composer-foot .composer-note") };
+  });
+  assert.ok(boxes.foot.top >= boxes.composer.bottom - 1, "the quiet row still overlaps the message box");
+  assert.ok(boxes.meter.left >= boxes.note.right - 1, "the meter and the helper line overlap each other");
   assert.deepEqual(f.errors, []);
 });
 

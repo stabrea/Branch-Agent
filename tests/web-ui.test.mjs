@@ -430,12 +430,12 @@ test("U7 dates and numbers follow the chosen language", async (t) => {
 });
 
 /* ==================== Wave 8: the design QA pass ====================
-   Q2 a colour is written down in exactly one file; Q6 every word on a section screen has a key,
+   Q2 a colour is written down in exactly one file; Q6 every section intro and card title has a key,
    and every language file answers it. These read the source, so they need no browser. */
 
 const PUBLIC = join(import.meta.dirname, "..", "public");
 
-test("Q8 no stylesheet but the token layer writes a colour down", async (t) => {
+test("Q2 no stylesheet but the token layer writes a colour down", async (t) => {
   const sheets = (await readdir(PUBLIC)).filter((name) => name.endsWith(".css") && name !== "tokens.css");
   assert.ok(sheets.length >= 3, "the stylesheets moved; this test is looking in the wrong place");
   const offenders = [];
@@ -451,7 +451,7 @@ test("Q8 no stylesheet but the token layer writes a colour down", async (t) => {
   assert.deepEqual(offenders, [], "every colour belongs in public/tokens.css");
 });
 
-test("Q8 the page never shows a key where a word should be", async (t) => {
+test("Q6 the page never shows a key where a word should be", async (t) => {
   const html = await readFile(join(PUBLIC, "index.html"), "utf8");
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
   const keys = [...new Set([...html.matchAll(/data-t(?:-label|-placeholder|-title)?="([^"]+)"/g)].map((m) => m[1]))];
@@ -466,7 +466,7 @@ test("Q8 the page never shows a key where a word should be", async (t) => {
   }
 });
 
-test("Q8 each of the ten sections has its own words on file", async (t) => {
+test("Q6 each of the ten sections has its own words on file", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
   for (const view of ["runs", "usage", "memory", "skills", "specialists", "procedures", "schedules", "documents", "settings"]) {
     const mine = Object.keys(english).filter((key) => key.startsWith(`${view}.`));

@@ -52,20 +52,28 @@ const toTop = (page) => page.evaluate(() => {
 
 const root = await mkdtemp(join(tmpdir(), "branch-wave8-shots-"));
 await mkdir(OUT, { recursive: true });
-const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: answers });
-const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-const call = (method, path, body) => fetch(server.url + path, {
-  method,
-  headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
-  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-}).then((r) => r.json());
 
-/* Something to look at on Activity, Usage and Memory. */
-await call("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
-const first = await call("POST", "/api/run", { prompt: "the kitchen tiles" });
-await call("POST", "/api/run", { prompt: "the car insurance" });
-await call("POST", "/api/labels", { target: "conversation", targetId: first.sessionId, label: "house" }).catch(() => {});
-await call("POST", "/api/usage/metering", { enabled: true, folder: "usage", every: "daily" }).catch(() => {});
+/**
+ * A workspace of its own for each theme and width. The welcome card shows once per workspace, so
+ * sharing one would photograph first run in the first pass only; this way every variant gets it.
+ */
+async function freshWorkspace(tag) {
+  const dataDir = join(root, tag, "data");
+  const app = await createBranch({ workspace: join(root, tag, "workspace"), dataDir, provider: answers });
+  const server = await startServer(app, { dataDir, port: 0 });
+  const call = (method, path, body) => fetch(server.url + path, {
+    method,
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }).then((r) => r.json());
+  /* Something to look at on Activity, Usage and Memory. */
+  await call("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
+  const first = await call("POST", "/api/run", { prompt: "the kitchen tiles" });
+  await call("POST", "/api/run", { prompt: "the car insurance" });
+  await call("POST", "/api/labels", { target: "conversation", targetId: first.sessionId, label: "house" }).catch(() => {});
+  await call("POST", "/api/usage/metering", { enabled: true, folder: "usage", every: "daily" }).catch(() => {});
+  return { app, server };
+}
 
 const browser = await chromium.launch({ headless: true });
 const wide = (width) => width >= 720;
@@ -87,6 +95,7 @@ const setTheme = (page, theme) => page.evaluate(async (wanted) => {
 for (const theme of THEMES) {
   for (const [width, height] of SIZES) {
     const tag = `${theme}-${width}x${height}`;
+    const { app, server } = await freshWorkspace(tag);
     const page = await browser.newPage({ viewport: { width, height } });
     await page.goto(server.url);
 
@@ -102,15 +111,14 @@ for (const theme of THEMES) {
     await page.locator("#workspace").waitFor({ state: "visible" });
     await setTheme(page, theme);
 
-    /* 2. First run: the welcome card, before a model is chosen. */
-    if (await page.locator("#first-run").isVisible()) {
-      await shot(page, `first-run-${tag}`, width);
-      await page.getByRole("button", { name: /Just look around/ }).click();
-      await page.waitForTimeout(400);
-      await shot(page, `first-run-chosen-${tag}`, width);
-      await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
-      await page.locator("#first-run").waitFor({ state: "hidden" }).catch(() => {});
-    }
+    /* 2. First run: the welcome card, before a model is chosen, and once one is picked. */
+    await page.locator("#first-run").waitFor({ state: "visible" });
+    await shot(page, `first-run-${tag}`, width);
+    await page.getByRole("button", { name: /Just look around/ }).click();
+    await page.waitForTimeout(500);
+    await shot(page, `first-run-chosen-${tag}`, width);
+    await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+    await page.locator("#first-run").waitFor({ state: "hidden" });
 
     /* A fresh load so the rail, its chips and every card are drawn from what exists. */
     await page.reload();
@@ -159,30 +167,33 @@ for (const theme of THEMES) {
       }
     }
 
-    /* 5. A conversation with a reply in it, and the receipt sheet over it. */
+    /* 5. A conversation with a reply in it. */
     const box = page.locator("#prompt");
-    if (await box.isVisible()) {
-      await box.fill("Say hello and tell me what you can do.");
-      await page.keyboard.press("Enter");
-      await page.waitForTimeout(2500);
-      await shot(page, `conversation-answered-${tag}`, width);
-      const inside = page.getByRole("button", { name: /Look inside/ }).first();
-      if (await inside.count()) {
-        await inside.click().catch(() => {});
-        await page.waitForTimeout(600);
-        await shot(page, `look-inside-${tag}`, width);
-        await page.keyboard.press("Escape");
-      }
-    }
+    await box.waitFor({ state: "visible" });
+    await box.fill("Say hello and tell me what you can do.");
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(2500);
+    await shot(page, `conversation-answered-${tag}`, width);
+
+    /* 6. The receipt sheet. "Look inside" hangs off a task row in Activity, not the reply. */
+    await show("runs");
+    const inside = page.locator(".inspect-open").first();
+    await inside.waitFor({ state: "visible", timeout: 15000 });
+    await inside.click();
+    await page.locator("#inspect-panel").waitFor({ state: "visible", timeout: 15000 });
+    await page.waitForTimeout(600);
+    await shot(page, `look-inside-${tag}`, width);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 1) overflows.push(`${tag}: ${overflow}px too wide`);
     await page.close();
+    await server.close();
+    await app.close();
   }
 }
 await browser.close();
-await server.close();
-await app.close();
 await rm(root, { recursive: true, force: true });
 console.log(`${taken} pictures into ${OUT}`);
 if (overflows.length) console.error("SIDEWAYS SCROLL:\n  " + overflows.join("\n  "));
