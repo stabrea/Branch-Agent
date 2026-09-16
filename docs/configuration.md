@@ -1535,6 +1535,8 @@ now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reind
 `POST /api/knowledge/source` with `{ collection, source }` or
 `{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
 `knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
-`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. The listing tool
+`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. All seven sit in
+the **documents** toolbox, not the memory one, because a knowledge base is a set of your own files.
+The listing tool
 is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
 stored recipes and specialists.
