@@ -2879,3 +2879,221 @@ planned: a second model on its own context putting notes into every turn of a ta
 action-planning step inside a role loop. Each would be a second engine beside the plan-and-fan-out
 one that already does this work, which is complication without a matching gain for one person's
 assistant.
+
+## The long tail: the API description, kept answers, whole sets, Lockdown, branches and projects (batch 21, wave 8)
+
+This section closes the "other" theme of the capability audit. Some of it is new, some of it points
+at a feature that already does the job under a different name, and some of it is written down here
+as deliberately not built.
+
+### The app's own web API, described (A0758)
+
+Branch has had a web API since the beginning — `/api/*`, the OpenAI-shaped `/v1/chat/completions`
+and `/v1/models`, and the client library in `packages/sdk`. What was missing was a description other
+programs could read.
+
+- `GET /api/openapi.json` is an OpenAPI 3.1 description of the routes worth calling from outside.
+  Every request shape in it is generated from the same zod schema the server checks that request
+  with, so the description cannot drift from what the app will actually accept.
+- `node scripts/write-api-docs.mjs` writes the readable version to [docs/api.md](api.md). Run it
+  after `npm run build`.
+- Every operation in it says the session key is required and what a missing or wrong one gets back;
+  the API is not open to anything that has not been given the key the app printed when it started.
+- The description is the only thing under this heading anybody with the session key may simply read;
+  everything else here belongs to the owner.
+- A test asserts that every route the description names is really answered by the server, so it
+  cannot promise a route that does not exist.
+
+The routes themselves are listed in `src/api-openapi.ts`. Routes that only the app's own screens use,
+and the ones that write their own answer (a backup file, a spreadsheet), are left out on purpose.
+
+### Asking the same thing twice: kept answers (A0928)
+
+Off until you turn it on. When it is on, the exact request that would go to the model — every
+message, the model, the effort, the tools it was shown — is reduced to one hash, and the answer is
+kept against it for a while. An identical request is then answered from what was kept: nothing
+leaves this computer and nothing is charged.
+
+- `GET /api/request-cache` — whether it is on, how long an answer counts for, how many are kept.
+- `POST /api/request-cache` with `{ "enabled": true, "ttlMinutes": 60, "maxEntries": 500 }`.
+- `POST /api/request-cache/clear` throws every kept answer away.
+
+Three rules keep it honest. **An answer that asks for a tool is never kept**, because replaying it
+would replay whatever that tool does — only plain text answers are. **Nothing that carried a picture
+or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
+the app, so a second person in the household never reads one of the owner's answers back out.
+
+A request is only the same request when everything the model was shown is the same: the messages
+(your instructions among them), the model, the effort, and every tool by name *and* by the words
+describing it. Change any of those and the question is asked afresh.
+
+On the "Look inside" screen a round answered this way is marked `cached`, its cost shows as nothing,
+and the reason is written beside it. The kept answer is looked for before anything is charged, so the
+figures per project agree with the inspector: a round that never reached the provider counts nothing
+in either place. One consequence worth knowing: a task that has reached its token ceiling can still
+be answered from a kept answer, because nothing is charged for one. The limit on how many steps a
+task may take still stops it.
+
+Kept answers live in the settings table, so they travel in a backup and they stay there when you
+switch the cache off. `POST /api/request-cache/clear` is what throws them away.
+
+### A whole set of questions at once (A1351, A1352)
+
+Off until you turn it on. OpenAI and Anthropic will both take a large set of questions at once, work
+through it in their own time and charge about half. Evaluation sets and reading a knowledge base are
+exactly that shape.
+
+- `GET /api/batch` — the settings, and which of your connections can take a whole set.
+- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000 }`.
+- `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
+  waits for it, and gives the answers back.
+
+Anything that goes wrong on that road — the connection cannot do it, the hand-over is refused, the
+set fails or never finishes — falls back to one ordinary call per question rather than losing the
+work, and the answer says in one line why. What the set cost is read from what the service reported,
+never guessed.
+
+**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
+submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
+yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
+Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
+`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
+Turning the setting on today changes nothing except the sentence you get back.
+
+### Lockdown: one switch (A0615)
+
+- `GET /api/lockdown` — whether it is on, since when, and in plain words what it stops.
+- `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
+- It also sits at the top of the sidebar.
+
+Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+leaving a program running (`process.start` refuses by name, because the list of programs allowed to
+be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
+out, and telling other programs what happened. It also ends every "yes, just for this conversation"
+you gave earlier, so nothing that was already said yes to carries on unasked. Only the owner can turn
+it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
+still on after the app is closed and opened again.
+
+What it does **not** switch off, because there is no switch to throw:
+
+- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
+  refused outright.
+- A **server for another AI tool** that is already set up stays reachable; every tool call through it
+  waits for your yes like any other.
+
+Turning it off puts back **exactly** the settings that were there before — they are copied, untouched,
+before anything is changed, and a switch that had never been saved at all is left unsaved rather than
+given a made-up default. Both moments go into the record of what the assistant was allowed to do.
+
+### Branches, as a shape (A0390)
+
+Conversations have always persisted, and one conversation could already be branched off another at a
+chosen message (`sessions.branch`). Two things are added:
+
+- `GET /api/sessions/{id}/tree`, and the tool `sessions.tree`, give the whole shape a conversation
+  belongs to — from the one at the root down through everything branched off it, each with what it is
+  about and which message it came off. The sidebar draws it when there is one.
+- `POST /api/sessions/{id}/merge-note` carries a branch's last answer back into the conversation it
+  came off, as **one note** marked as coming from the branch. Nothing already said is rewritten and
+  the branch is left exactly as it was. This is the owner's own choice, made from the sidebar, so it
+  is not offered to the model.
+
+### One flow inside another (A1274), and flow checkpointing (A0834)
+
+A flow step may now be `{ "kind": "flow", "flowId": "…" }`: it works through another saved flow
+before carrying on. Flows may go three deep, and a flow that leads back to one already running is
+refused by name rather than looping.
+
+Checkpointing was **already there** and is not new work: every step's state — where it got to, how
+many tries, what it said, which task it ran — is written to `workflow_state` as it happens, and the
+flow's cursor is saved with it. Closing the app mid-flow loses nothing; `POST /api/flows/{id}/resume`
+picks up at the step it stopped on.
+
+### What a project brings to a task (A0794)
+
+Projects already carried their own instructions, a preferred model connection, a folder and their own
+secrets. They now also carry:
+
+- `profile` — the way of working its tasks start from (see routing profiles), and
+- `knowledgeBases` — the collections of your own documents its tasks look in when no collection is
+  named.
+
+Each is only a starting point: anything chosen for this conversation still wins.
+
+Every task also records the project it was done under, settled when it starts and never changed
+afterwards. `GET /api/projects/costs?days=30` adds the figures up a project at a time. Tasks whose
+model has no price on file are counted separately rather than shown as nothing.
+
+### Watching a folder (A0344)
+
+`branch watch <folder> <procedure-id>` runs a saved procedure whenever a file under that folder is
+written. A burst of saves settles into one run; it never runs twice at once; `node_modules`, `.git`,
+`dist` and `.branch` are ignored, as are temporary files. `--once` stops after the first run and
+`--settle <ms>` changes how long it waits. Ctrl+C closes the watcher and waits for whatever is
+running to finish.
+
+### Already covered elsewhere
+
+These rows of the audit are done, by a feature that exists under another name.
+
+- **A1011 local studio / playground** — the developer playground: `GET /api/tools/forms` gives a form
+  for every tool and `POST /api/tools/try` runs one by hand, through the same approval gate, scrubbed
+  on the way out.
+- **A0279 human-in-the-loop executor** and **A0624 approval-gated side effects** — the approval gate
+  (`src/approvals.ts`): a task stops, the question is kept with what it is about, and the owner's yes
+  is remembered for this conversation or as a standing rule. Whole kinds of thing can be decided at
+  once (`POST /api/approvals/categories`), and "ask me questions first" runs before a task starts.
+- **A0323 OAuth login flows** — `src/oauth.ts` is the standard authorization-code flow with PKCE:
+  the service's own page opens in the default browser, the answer lands on a tiny page on this
+  computer, the key goes straight into the locker. Branch never sees the password.
+- **A0354 Answer Engine**, **A0355 shareable pages**, **A0840 metadata filtering**, **A1745 retriever
+  pipeline** — knowledge bases with word and meaning search, a second ranking pass
+  (`src/retrieval.ts`), numbered sources on every answer (`src/citations.ts`), and a conversation
+  shared as one page that can do nothing (`src/conversation-share.ts`).
+- **A0847 chat engines** — the runtime is the chat engine: conversations, compaction, tool rounds,
+  per-conversation model choice and working styles.
+- **A1410 structured output** — a delegated task may be required to match a JSON shape
+  (`resultSchema`), checked before the answer is accepted. Pydantic is a Python library; the same job
+  is done here by zod and JSON Schema.
+- **A1509 SDKs** — the TypeScript client is `packages/sdk`, and its types are generated from the app's
+  own checks by `scripts/generate-sdk-types.mjs`. Other languages need no library of ours: the
+  OpenAPI description above is enough to generate one.
+- **A1561 action trace recording** and **A1589 bounded visual trajectory** — a task's whole trajectory
+  is written as one JSON file (`src/trajectory.ts`), spans and all, with secrets scrubbed; pictures
+  are capped per turn and never written into the conversation store, so they are not replayed.
+- **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
+  well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
+  `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
+- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
+  carry one between installs (`src/templates.ts`).
+- **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
+  naming which programs may be left running at all.
+- **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
+  a script can read; `branch mcp-serve` and `branch acp-serve` speak over standard input and output.
+  Nothing needs a window.
+- **A2334 artifact file operations** — `src/artifacts.ts` for what a task produced and
+  `src/build-artifacts.ts` for kept versions with sizes and checksums.
+- **A2377 fallback dispatch** — a failed connection is passed over for the next one in the fallback
+  order, with a cool-off and a sentence saying why (`src/provider-retry.ts`, `src/provider-health.ts`).
+- **A1193 bidirectional live streaming** — talk mode plus the per-task WebSocket already carry speech
+  and text both ways. A provider's own realtime socket stays deferred, as recorded in wave 7.
+
+### Deliberately not built
+
+- **A0098 embedded code editor** — the Documents and "Look inside" screens show code read-only with
+  syntax colouring, which is what a desktop assistant needs. A full editor is not: the owner already
+  has one, and building a second would be a worse version of it.
+- **A2375 configurable intent pipeline** — skill discovery and dispatch already choose what to do. A
+  pipeline the owner configures would be a second, competing way to decide the same thing.
+- **A1976 personal knowledge base on a graph database** — needs a graph store running alongside; the
+  knowledge bases here do the same job on the SQLite file that is already there.
+- **A1749 Gradio interface** and **A1611 side-panel chat** — Gradio is a Python web toolkit; the web
+  app here is the interface. A browser side panel is an extension, not part of a local app.
+- **A0663 C FFI** — calling native libraries from the assistant would put unsandboxed native code
+  inside the app. Anything needing that is a program the owner runs through the shell tools.
+- **A1468 ADB operator** — driving an Android phone over USB is not a local Windows desktop
+  assistant's job.
+- **A0602 Ultracode plugin lifecycle** — another project's plugin format. Branch has its own
+  (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
+- **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
+  OpenAI-shaped adapter reach the same services directly, with no extra process to run.

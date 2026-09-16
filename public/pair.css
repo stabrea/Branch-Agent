@@ -6,9 +6,9 @@ body {
   place-items: center;
   padding: 24px 16px;
   box-sizing: border-box;
-  background: var(--ink, #03140b);
-  color: var(--parchment, #eaf3ec);
-  font-family: var(--font-body, system-ui, -apple-system, "Segoe UI", sans-serif);
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--body);
 }
 main { width: 100%; max-width: 360px; }
 img.mark { width: 56px; height: 56px; }
@@ -23,10 +23,10 @@ input {
   letter-spacing: 0.3em;
   text-align: center;
   border-radius: 12px;
-  border: 1px solid var(--line, #2c4636);
-  background: var(--well, #0a1f14);
+  border: 1px solid var(--line);
+  background: var(--well);
   color: inherit;
-  font-family: var(--font-mono, ui-monospace, "Cascadia Mono", monospace);
+  font-family: var(--font-mono);
 }
 button {
   width: 100%;
@@ -37,9 +37,9 @@ button {
   border-radius: 12px;
   border: 0;
   cursor: pointer;
-  background: var(--moss, #4ade80);
-  color: var(--ink, #04160c);
+  background: var(--copper);
+  color: var(--on-copper);
 }
 button[disabled] { opacity: 0.6; cursor: default; }
 #message { margin-top: 16px; min-height: 1.5em; }
-#message.bad { color: var(--rust, #ff9f9f); }
+#message.bad { color: var(--bad); }

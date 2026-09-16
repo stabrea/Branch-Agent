@@ -43,11 +43,87 @@ accent ring, not a heavy border. Once that is done the card gives way to a short
 four suggestion chips. The chips use the owner's own recipes when there are any, and fall back to
 stock prompts otherwise.
 
+## The anatomy of a card
+
+Every card on every section screen reads down the page in the same order, so the owner learns the
+shape once and never has to learn it again.
+
+| In order | What it is | Written as |
+| --- | --- | --- |
+| Title | What this card is, in two to five words | `<h2>` — a section's own name is the `<h1>` in the title bar, so a card is always an `<h2>`, never an `<h3>` |
+| Purpose | One sentence saying what the card is for, in the owner's words | the first `<p>` after the title; `.card > h2 + p` gives it the reading face at 0.95 rem and `--muted` |
+| Controls | The fields, one idea each | `<label>` for a short caption in the label face; a whole sentence belongs in a `.field-note` under the control, not in the label |
+| A plain note | Anything worth saying about consequences | `<p class="subtle">` |
+| One filled button | The single thing this card is for | `<button>`; anything else on the card is `.quiet-button` or `.text-button` |
+
+The last row is the rule to write new cards by; it is not yet true of every card that shipped.
+Nothing checks it, so a few older cards still carry two filled buttons. Fix them as you touch them.
+
+Two rules matter more than the rest because they were the two faults this pass was written to fix:
+
+- **A tick box sits beside its words.** `label:has(> input[type="checkbox"])` is a flex row in the
+  reading face; the tick itself is `width: auto`. Before this, the blanket `input { width: 100% }`
+  stretched every checkbox across the column, so the tick floated on a line of its own above
+  11 px monospace prose. The monospace label face is for short captions only.
+- **An empty screen says what the screen is for and what to do next.** `list()` in
+  `public/app.js` takes `["what this is", "what to do about it"]` and draws an `.empty-state`, not
+  a bare "No skills installed."
+
+## The glossary
+
+One name per idea, across every screen, the rail, the palette and the language files. The words on
+the right never reach the owner on their own.
+
+| Say | Never say | Why |
+| --- | --- | --- |
+| task | run, job, execution | "Activity" lists tasks; "Every run has a trace" meant nothing to anybody |
+| connection | provider, endpoint, API base URL | a connection is a model service this workspace can reach |
+| toolbox | tool group, prefix, namespace | how `src/catalog.ts` groups tools, said in a word |
+| skill | SKILL.md, skill document | a skill is a page of instructions; its file is "a skill file" |
+| note / what it remembers | memory record, fact row | Memory holds notes |
+| words of context | tokens | the room a conversation has left |
+| what is sent | payload, request body | |
+| live updates | SSE, streaming | |
+| signing in on their site | OAuth, device flow | glossed on first use per screen if it must appear |
+
+`tests/shell-ui.test.mjs` walks all ten sections and fails if `SKILL.md`, `API base URL`,
+`endpoint`, `payload` or `SSE` appears in the rendered text of any of them. The rest of the table
+is not machine-checkable, because "run" and "provider" are ordinary English in the right sentence:
+those are for whoever writes the next screen to honour by hand.
+
+## Taking the pictures
+
+The screens are checked with a headless browser, never a visible window, and never through
+Electron. Two scripts do it, both against a scratch workspace that is thrown away afterwards:
+
+- `node tests/wave8-audit.mjs` reads every section at 400 px and reports what is measurably wrong:
+  prose set in the label face, a control nothing can read out, a stretched tick box, a card with
+  no title, a section with no opening line, anything wider than the window. Run this first; it is
+  cheaper and more honest than reading the source.
+- `node tests/wave8-screenshots.mjs before` and `… after` take the same 70 pictures of eighteen
+  screens — ten sections plus the lock screen, the welcome card before and after a choice is made,
+  the palette, the workspace menu, the context pane, an answered conversation and the receipt
+  sheet — in Forest and Daylight at 1280×800 and 400×800, into
+  `claude-session-files/wave8-design-qa/<stage>/`. (The context pane is a wide-window thing, so it
+  is taken at 1280 only, which is why the count is 70 and not 72.) The names match between the two
+  runs so `contact-sheet.html` in that folder can put each pair side by side.
+
 ## Tokens
 
 `public/tokens.css` is the only place a colour is written down. `public/style.css`,
 `public/shell.css` and every inline style read from it. Two themes, five accents, and the
 scales for text, spacing and radius live there.
+
+`tests/web-ui.test.mjs` proves this for every stylesheet. It cannot prove it for the drawings,
+which paint on a canvas or into an SVG from JavaScript, so those are checked by hand. Three are
+allowed to name a colour and no others may be added without a reason written down here:
+
+- `public/deployment.js` paints the square code for the phone in plain black on plain white,
+  because a phone camera needs that contrast to read it, in either theme.
+- `public/update-screen.js` carries the palette of the little figure who walks across the screen
+  while an update installs. It is a picture, not a surface.
+- `public/flows.js` passes a token to the SVG with a colour after it as a safety net. The token is
+  what draws; write the token name exactly, because a typo there fails silently into the net.
 
 | Role | Forest (dark) | Daylight (light) | Copied from |
 | --- | --- | --- | --- |

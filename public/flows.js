@@ -9,7 +9,9 @@ const $ = (id) => document.getElementById(id);
 const svgNS = "http://www.w3.org/2000/svg";
 const box = { width: 210, height: 58, gapY: 34, left: 16, top: 16 };
 const colourFor = {
-  done: "var(--ok, #2e7d32)", approved: "var(--ok, #2e7d32)", failed: "var(--danger, #c62828)",
+  /* --good, not --ok: there has never been an --ok token, so both of these drew themselves in
+     the fallback green instead of the one colour the rest of the app uses for "it went well". */
+  done: "var(--good, #2e7d32)", approved: "var(--good, #2e7d32)", failed: "var(--danger, #c62828)",
   waiting: "var(--warn, #ef6c00)", running: "var(--accent, #1565c0)",
 };
 

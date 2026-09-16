@@ -811,17 +811,28 @@ details.tool-step > summary:hover {
 .composer-temporary {
   flex: none;
 }
-/* The helper line sits under the box, out of the way of the buttons. */
-.composer-note {
-  margin: var(--s1) 0 0;
+/* Wave 8: one quiet line under the box holds the helper text and the room meter together,
+   so the meter no longer sits centred across the box's own bottom edge. */
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: var(--s2) 0 0;
   padding: 0 var(--s3);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.4px;
+  min-width: 0;
+}
+.composer-note {
+  margin: 0;
+  padding: 0;
+  font-family: var(--body);
+  font-size: 11px;
+  letter-spacing: normal;
   color: var(--faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 #send {
   flex: none;

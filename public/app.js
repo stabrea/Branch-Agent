@@ -99,10 +99,17 @@ document
   .forEach((node) =>
     node.addEventListener("click", () => displayView(node.dataset.view)),
   );
+/* Wave 8: an empty list says what the list is for and what to do about it, in that order.
+   Pass a plain sentence, or ["what this is for", "what to do next"]. */
 function list(id, items, render, empty) {
   const target = $(id);
   target.replaceChildren(...items.map(render));
-  if (!items.length) target.append(el("div", empty, "empty"));
+  if (items.length) return;
+  const box = el("div", undefined, "empty-state");
+  const [what, next] = Array.isArray(empty) ? empty : [empty, ""];
+  box.append(el("strong", what));
+  if (next) box.append(el("p", next));
+  target.append(box);
 }
 function recordCard(title, status) {
   const node = el("article", undefined, "item");
@@ -146,7 +153,7 @@ function renderRuns() {
         ),
         el("p", modelLine(run.model), "meta"),
         el("p", date(run.createdAt), "meta"),
-        button("Inspect trace", () => showRun(run.id)),
+        button("See the raw record", () => showRun(run.id)),
       );
       // Wave 6: the same task, opened as one readable screen instead of raw events.
       if (globalThis.branchInspector) node.append(globalThis.branchInspector.button(run.id));
@@ -228,13 +235,13 @@ function renderLearning() {
     node.append(button("Accept", async () => { await api(`memory/proposals/${p.id}/accept`, {}); toast("Applied."); await refresh(); }),
       button("Reject", async () => { await api(`memory/proposals/${p.id}/reject`, {}); await refresh(); }));
     return node;
-  }, "No suggestions waiting.");
+  }, ["No suggestions waiting.", "When your assistant thinks something is worth remembering it will ask you here first."]);
   list("memory-checkpoints", state.memoryCheckpoints || [], (c) => {
     const node = el("div", undefined, "record");
     node.append(el("strong", c.label), el("p", `${c.memories} memories · ${c.skills} skills · ${date(c.createdAt)}`, "meta"),
       button("Put everything back to this", async () => { await api(`memory/checkpoints/${c.id}/restore`, {}); toast("Memories and skill versions restored."); await refresh(); }));
     return node;
-  }, "No checkpoints yet.");
+  }, ["No checkpoints yet.", "A checkpoint saves every note and which skills are switched on, so you can put it all back exactly as it was."]);
 }
 async function saveLearning() {
   try { await api("memory/settings", { review: $("learning-review").checked, requireApproval: $("learning-approval").checked, consolidateDaily: $("learning-consolidate").checked }); await refresh(); }
@@ -506,6 +513,8 @@ async function refresh() {
   void window.branchRules?.render();
   void window.branchMisc?.render();
   void window.branchDiagnostics?.render();
+  // Wave 8: the Lockdown switch, and the shape branched conversations make.
+  void window.branchOther?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {
@@ -552,7 +561,7 @@ function renderSnapshots() {
     node.append(el("strong", s.label), el("p", `${s.files} files · ${Math.round(s.bytes / 1024)} KB · ${date(s.createdAt)}`, "meta"),
       button("Put the workspace back to this", async () => { await api(`history/snapshots/${s.id}/restore`, {}); toast("Workspace files restored."); await refresh(); }));
     return node;
-  }, "No snapshots yet.");
+  }, ["No snapshots yet.", "A snapshot keeps a copy of this whole workspace so you can go back to it after a change."]);
 }
 $("snapshot-save").addEventListener("click", async () => {
   const label = $("snapshot-label").value.trim();
@@ -595,13 +604,13 @@ async function renderChannels() {
         catch (e) { toast(e.message); }
       }));
     return node;
-  }, "No channel connected in this launch.");
+  }, ["No chat app connected.", "Connect one in the connections file and restart Branch; it will appear here."]);
   list("hooks-list", state.hooks || [], (hook) => {
     const node = el("div", undefined, "record");
     node.append(el("strong", `${hook.id} · when ${hook.event.replace(".", " ")}`), el("p", `${hook.enabled ? "On" : "Switched off after " + hook.failures + " failures"}${hook.lastError ? " · last problem: " + hook.lastError : ""}`, "meta"));
     if (!hook.enabled) node.append(button("Switch back on", async () => { await api(`hooks/${hook.id}/enable`, {}); await refresh(); await renderChannels(); }));
     return node;
-  }, "No hooks are set up. Hooks are small commands that run when something happens, set in the integrations file.");
+  }, ["Nothing is set to happen automatically.", "You can have a small command run whenever something happens — a task finishing, a file changing. These are set up in the connections file."]);
   const people = [...summary.pending.map((p) => ({ ...p, label: `${p.name} is waiting · code ${p.code}` })),
     ...summary.approved.map((p) => ({ ...p, label: `${p.name} · approved` }))];
   list("pairings-list", people, (person) => {
@@ -618,7 +627,7 @@ async function renderChannels() {
     if (item.lastError) node.append(el("p", `Last problem: ${item.lastError}`, "meta"));
     node.append(button("Try again", async () => { await api(`channels/deliveries/${encodeURIComponent(item.id)}/retry`, {}); await renderChannels(); }));
     return node;
-  }, "Nothing is waiting. Everything sent through a channel has gone out.");
+  }, ["Nothing is waiting to go out.", "Every message your assistant has sent through a chat app has already been delivered."]);
   await renderChatServices();
 }
 /** The other chat services, listed from the same data the assistant connects them with. */
@@ -636,7 +645,7 @@ async function renderChatServices() {
     link.href = service.docs; link.target = "_blank"; link.rel = "noreferrer";
     node.append(link);
     return node;
-  }, "No chat services are listed in this copy.");
+  }, ["No chat services are listed in this copy.", "This is the list Branch knows how to connect to; a newer version may know more."]);
 }
 form("pairing-form", async () => {
   const approved = await api("channels/pairings/approve", { code: $("pairing-code").value.trim() });
@@ -701,7 +710,7 @@ async function renderSecrets() {
     node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
       button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
     return node;
-  }, "No secrets in this project yet.");
+  }, ["No secrets saved here yet.", "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."]);
 }
 $("secret-project").addEventListener("change", () => { void renderSecrets(); });
 form("secrets-form", async () => {
@@ -948,7 +957,7 @@ function renderSkills() {
     node.append(el("strong", names.get(x.skillId) || x.skillId), el("p", `Kept failing: ${x.signature} · trial after ${date(x.until)}${x.trialRunId ? " · a trial is under way" : ""}`, "meta"),
       button("Let it back in now", async () => { await api(`governance/set-aside/${x.skillId}/restore`, {}); await refresh(); }));
     return node;
-  }, "No skill is set aside.");
+  }, ["No skill is set aside.", "If a skill keeps going wrong in the same way it is rested here for a while. Nothing has needed that yet."]);
   list("skills-list", state.skills || [], value => {
     const node = recordCard(value.name, value.needsReview ? "needs your review" : value.activeVersion === null ? "disabled" : "enabled");
     node.dataset.skillId = value.id;
@@ -957,7 +966,7 @@ function renderSkills() {
       selectSkill(await api("skills/" + value.id));
     }));
     open.disabled = skillBusy; node.append(open); return node;
-  }, "No skills installed. Create a SKILL.md document or import a local file.");
+  }, ["No skills yet.", "A skill is a page of instructions your assistant can follow. Write one below, or open a file someone sent you."]);
 }
 function selectSkill(value) {
   skillView = value;
@@ -1605,13 +1614,13 @@ async function renderArchived() {
       node.append(el("p", r.data.text), el("p", `Set aside ${date(r.archivedAt)}`, "meta"),
         button("Bring back", async () => { await api(`memory/archive/${encodeURIComponent(r.id)}/restore`, {}); toast("Back in memory."); await refresh(); await renderArchived(); }));
       return node;
-    }, "Nothing has been set aside.");
+    }, ["Nothing has been set aside.", "Notes you put away stay here in case you want them back."]);
   } catch { /* shown on the next visit */ }
 }
 $("tidy-preview").addEventListener("click", async () => {
   try {
     const result = await api("memory/hygiene", { olderThanDays: Number($("tidy-days").value) || 180, action: "preview" });
-    list("tidy-list", result.stale, (s) => { const node = el("div", undefined, "record"); node.append(el("p", s.text), el("p", `Last touched ${date(s.updatedAt)}`, "meta")); return node; }, "Nothing that old is in memory.");
+    list("tidy-list", result.stale, (s) => { const node = el("div", undefined, "record"); node.append(el("p", s.text), el("p", `Last touched ${date(s.updatedAt)}`, "meta")); return node; }, ["Nothing that old is saved.", "Notes older than the age you chose would be listed here."]);
   } catch (e) { toast(e.message); }
 });
 $("tidy-archive").addEventListener("click", async () => {
@@ -1661,7 +1670,7 @@ $("history-search-form").addEventListener("submit", async (event) => {
       card.append(el("small", "Conversation started " + date(match.sessionCreatedAt)),
         el("p", match.excerpt), button("Read message", () => readHistoricalMessage(match)));
       return card;
-    }, "No matching conversations. Try fewer keywords or match any keyword.");
+    }, ["Nothing matched.", "Try fewer words, or set the search to match any word instead of all of them."]);
   } catch (error) {
     $("history-results").replaceChildren(el("p", "Conversation search failed. Please try again."));
     toast(error.message);

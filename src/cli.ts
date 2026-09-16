@@ -15,7 +15,8 @@ import { startTerminal } from "./terminal.js";
 import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
 import { cliCommands, completionScript, usageText } from "./cli-completion.js";
-import type { Run } from "./contracts.js";
+import { errorText, type Run } from "./contracts.js";
+import { watchFolder } from "./watch.js";
 import {
   answerFromCommand, usePreset, exitCodeFor, parseRunArgs, runForScripts, statusSnapshot,
   timelineLines, type RunFlags,
@@ -147,6 +148,7 @@ async function main(): Promise<void> {
       await serveAcpStdio(app.runtime, app.store);
       return;
     }
+    if (command === "watch") { await watchCommand(app); return; }
     if (command === "skill") { await skillCommand(app); return; }
     if (command === "plugin") { await pluginCommand(app); return; }
     if (command === "doctor") {
@@ -271,6 +273,36 @@ async function pluginCommand(app: Awaited<ReturnType<typeof createBranch>>): Pro
   }
   if (action === "disable") { app.plugins.disable(id); console.log(`${id} is off. Its tools are out of the catalog.`); return; }
   throw new Error("Usage: node dist/cli.js plugin list | plugin enable <id> | plugin disable <id>");
+}
+/**
+ * `branch watch <folder> <procedure-id>`: runs a saved procedure whenever a file under that folder
+ * is written. It keeps going until Ctrl+C, and `--once` stops after the first run, which is what a
+ * script — or a test — wants. Nothing is watched until the person names a folder.
+ */
+async function watchCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"]): Promise<void> {
+  const folder = process.argv[3], procedureId = process.argv[4];
+  if (!folder || !procedureId)
+    throw new Error("Give a folder and a saved procedure: node dist/cli.js watch <folder> <procedure-id>");
+  const once = process.argv.includes("--once");
+  const settle = Number(flag("settle") ?? 400);
+  let finished: (() => void) | null = null;
+  const done = new Promise<void>((resolve) => { finished = resolve; });
+  const handle = watchFolder(folder, async (reason) => {
+    console.error(`[watch] ${reason}; running ${procedureId}`);
+    const context = app.runtime.context({ signal: AbortSignal.timeout(120000), source: "owner" });
+    const result = await app.knowledge.replayProcedure(context, procedureId, {});
+    console.log(JSON.stringify({ reason, procedureId, version: result.version, results: result.results }));
+    if (once) finished?.();
+  }, { settleMs: settle }, (error) => console.error(`[watch] ${errorText(error)}`));
+  console.error(`[watch] watching ${folder}; Ctrl+C stops it.`);
+  const stop = () => { finished?.(); };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  await done;
+  await handle.stop();
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
+  console.error(`[watch] stopped after ${handle.runs} run(s).`);
 }
 /**
  * `branch run` and `branch demo`. With `--json` every event goes to stdout as one JSON object per

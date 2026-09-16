@@ -21,6 +21,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "login", summary: "Sign in to a ChatGPT account", options: [] },
   { name: "logout", summary: "Sign out of the ChatGPT account", options: [] },
   { name: "trigger", summary: "Run a schedule now", options: [] },
+  { name: "watch", summary: "Run a saved procedure whenever a folder changes: watch <folder> <procedure-id>", options: ["--settle", "--once"] },
   { name: "backup", summary: "Write a backup file", options: [] },
   { name: "export-agent", summary: "Write the assistant itself to one file you can hand on", options: ["--memory", "--redact"] },
   { name: "import-agent", summary: "Read an assistant file: it shows what is inside, then --sections says what to bring in", options: ["--sections"] },
