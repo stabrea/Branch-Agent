@@ -43,8 +43,8 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
-  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, jsonWriteProblem,
-  refusedByPolicy, simulatedResult, sleepFor,
+  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, droppedPendingMessage,
+  jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
@@ -52,7 +52,7 @@ import {
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
 import { Tracer } from "./tracing.js";
-import { audit } from "./audit.js";
+import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -1404,12 +1404,16 @@ export class Runtime {
    */
   grantApproval(
     key: string,
-    about: { tool: string; target: string; label: string; source: RunSource; runId?: string },
+    about: { tool: string; target: string; label: string; source: RunSource; runId?: string;
+      /** The fingerprint of the exact request the question was put for; the yes is bound to it. */
+      fingerprint?: string },
     remember: PolicyRemember = "session",
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (remember !== "never") this.approvals.remember(key, about.tool, about.target, "allow");
+    if (remember !== "never")
+      this.approvals.remember(key, about.tool, about.target, "allow",
+        { fingerprint: about.fingerprint, label: about.label });
     if (remember === "always")
       addPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" });
     audit(this.store, this.owner, {
@@ -1475,15 +1479,31 @@ export class Runtime {
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
     const question = approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
-    this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
+    // A conversation can genuinely stop on more than one thing at once, so the question joins the
+    // list rather than taking the place of whatever was already there. Only when the list is full
+    // does one go, and then the task that was waiting on it is told, in plain words.
+    const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
+    if (dropped) this.letOldestQuestionGo(dropped);
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
       question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
+  }
+  /**
+   * A question nobody answered in time, once the conversation had as many waiting as it may have.
+   * The task it belonged to is finished plainly rather than left waiting on an answer that can no
+   * longer arrive, and the same sentence goes on its own record so it can be read afterwards.
+   */
+  private letOldestQuestionGo(dropped: PendingApproval): void {
+    const message = droppedPendingMessage(dropped.label);
+    try {
+      this.store.event(dropped.runId, "policy.ask.dropped", { name: dropped.tool, target: dropped.target, label: dropped.label, message });
+      if (this.store.run(dropped.runId)?.status === "needs_input") this.store.finish(dropped.runId, "failed", message);
+    } catch { /* telling a task it was let go must never break the one that is asking now */ }
   }
   /**
    * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
@@ -1501,13 +1521,17 @@ export class Runtime {
      */
     answeredOn?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
-    const waiting = this.approvals.waiting(sessionId).at(-1);
+    // With a fingerprint the answer lands on that exact request, whichever of the questions this
+    // conversation is waiting on it is; without one, on the oldest, which is the only one when
+    // only one is waiting.
+    const waiting = this.approvals.questionFor(sessionId, fingerprint)
+      ?? (fingerprint === undefined ? undefined : this.approvals.questionFor(sessionId));
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (fingerprint !== undefined && waiting.fingerprint !== undefined && fingerprint !== waiting.fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
-    this.approvals.resolve(sessionId);
+    this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
@@ -1515,14 +1539,16 @@ export class Runtime {
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
-      // The record's "came from" column is a fixed list of the places a task can start, so which
-      // chat app the answer was pressed in goes in the "why" column beside the question itself.
-      // The column holds 500 characters and a row too long for it would be dropped in silence, so
-      // a long question is shortened here and the chat app's name always survives.
+      // The sentence still says where the answer was pressed, because that is what a person reads
+      // first. The column holds 500 characters and a row too long for it would be dropped in
+      // silence, so a long question is shortened here and the chat app's name always survives.
       reason: answeredOn
         ? `${(waiting.label || waiting.question).slice(0, 440)} — answered on ${answeredOn.slice(0, 40)}`
         : (waiting.label || waiting.question).slice(0, 500),
-      source: waiting.source, runId: waiting.runId,
+      // Where the moment happened is the chat app the button was pressed in, when it was one, and
+      // what the task itself came from is kept beside it. They are two different facts.
+      source: channelSource(answeredOn) ?? waiting.source,
+      origin: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
@@ -1704,6 +1730,18 @@ export class Runtime {
  * A fingerprint of the exact bytes the assistant asked to run. A yes is bound to it, so a command
  * that changes by one character is a new question rather than something an old yes covers.
  */
+/**
+ * Which chat app a button was pressed in, as the record's own word for it. A channel the record has
+ * no word for — one a plugin brought, say — is filed under the general "chat", so the column stays
+ * a short list a person can actually filter on and nothing is ever lost.
+ */
+export function channelSource(answeredOn: string | undefined): AuditSource | null {
+  if (!answeredOn) return null;
+  const name = answeredOn.trim().toLowerCase();
+  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system"].includes(name)
+    ? (name as AuditSource) : "chat";
+}
+
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
 }

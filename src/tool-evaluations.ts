@@ -109,6 +109,49 @@ async function runOneCase(
   return { tool, name: one.name, passed: problem === null, problem, ms: Date.now() - began };
 }
 
+/**
+ * The tool checks really call the tools, so they really write files and really save facts. They do
+ * neither of those to anything of the owner's: the checks run in a project of their own — a folder
+ * beside the practice workspace, inside the workspace but nothing else's — and under a made-up owner
+ * name, so a fact a check saves lands in that name's memory and never in the owner's. The active
+ * project is put back afterwards whatever happened, including when a check throws.
+ */
+export const toolCheckProject = "tool-checks";
+export const toolCheckFolder = "tool-checks";
+/** The made-up name the checks act under; not a profile, and nothing else ever reads it. */
+export const toolCheckOwner = "tool-checks";
+
+/** What the checks need from the app, so the command line and the web route ask for it the same way. */
+export interface ToolCheckHost {
+  store: {
+    projects: {
+      active(owner: string): { id: string };
+      save(owner: string, project: Record<string, unknown>): unknown;
+      setActive(owner: string, input: { active: string }): unknown;
+    };
+  };
+  registry: ToolRegistry;
+  runtime: { owner: string; context(options: { signal: AbortSignal }): ToolContext };
+}
+
+/** Runs the tool checks where nothing they do can reach the owner's own files or memory. */
+export async function runToolChecksSafely(
+  app: ToolCheckHost, signal: AbortSignal, suites?: readonly ToolSuite[],
+): Promise<ToolEvaluationResult> {
+  const projects = app.store.projects, owner = app.runtime.owner;
+  const before = projects.active(owner).id;
+  projects.save(owner, { id: toolCheckProject, name: "Tool checks", folder: toolCheckFolder,
+    instructions: "A folder the tool checks write into. Nothing here is yours and all of it is safe to delete.",
+    modelPreset: null, repository: "" });
+  projects.setActive(owner, { active: toolCheckProject });
+  try {
+    const context: ToolContext = { ...app.runtime.context({ signal }), owner: toolCheckOwner };
+    return await runToolEvaluations(app.registry, context, suites);
+  } finally {
+    projects.setActive(owner, { active: before });
+  }
+}
+
 /** One line for a build log. */
 export function toolEvaluationLine(result: ToolEvaluationResult): string {
   const missing = result.summary.missing.length ? ` ${result.summary.missing.length} tool(s) are not installed: ${result.summary.missing.join(", ")}.` : "";
