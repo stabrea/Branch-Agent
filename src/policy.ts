@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 
 /**
@@ -37,12 +38,17 @@ export const PolicyLimitsSchema = z
   .strict();
 export type PolicyLimits = z.infer<typeof PolicyLimitsSchema>;
 
+/**
+ * Most rules one policy may hold. It is well above the number of tools this app has, because
+ * deciding a whole kind of thing at once (see src/tool-categories.ts) writes one rule per tool.
+ */
+export const maximumPolicyRules = 300;
 export const PolicyPresetSchema = z.enum(["off", "ask-before-changes", "workspace", "read-only", "custom"]);
 export type PolicyPresetName = z.infer<typeof PolicyPresetSchema>;
 export const PolicySchema = z
   .object({
     preset: PolicyPresetSchema.default("off"),
-    rules: z.array(PolicyRuleSchema).max(100).default([]),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).default([]),
     limits: PolicyLimitsSchema.prefault({}),
   })
   .strict();
@@ -50,7 +56,7 @@ export type Policy = z.infer<typeof PolicySchema>;
 export const PolicyInputSchema = z
   .object({
     preset: PolicyPresetSchema.optional(),
-    rules: z.array(PolicyRuleSchema).max(100).optional(),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
     limits: PolicyLimitsSchema.partial().optional(),
   })
   .strict();
@@ -169,7 +175,7 @@ export function readPolicy(store: Store, owner: string): Policy {
   return saved.success ? saved.data : PolicySchema.parse({});
 }
 /** Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value. */
-export function savePolicy(store: Store, owner: string, input: unknown): Policy {
+export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
   const value = PolicyInputSchema.parse(input ?? {});
   const current = readPolicy(store, owner);
   const next: Policy = {
@@ -178,12 +184,18 @@ export function savePolicy(store: Store, owner: string, input: unknown): Policy 
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
   };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;
 }
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
-  const next: Policy = { ...current, rules: [PolicyRuleSchema.parse(rule), ...current.rules].slice(0, 100) };
+  const added = PolicyRuleSchema.parse(rule);
+  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, {
+    action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
+    reason: `A standing "${added.decision}" was remembered from a question you answered`, outcome: "saved",
+  });
   return next;
 }

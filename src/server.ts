@@ -47,6 +47,10 @@ import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, 
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+import { audit } from "./audit.js";
+import { askFirstSettings } from "./ask-first.js";
+import { decisionsFromRules } from "./tool-categories.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -155,6 +159,8 @@ async function staticFile(
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
+    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
+    "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -357,6 +363,14 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    // Batch 19 (wave 6)
+    allowed: { counts: app.store.audit.counts(owner), recent: app.store.audit.list(owner, { limit: 20 }) },
+    approvalCategories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules),
+    askFirst: askFirstSettings(app.store, owner),
+    practice: app.practice.state(owner),
+    reranking: app.retrieval.view(owner),
+    providerPlugins: app.providerPlugins.list(),
+    issueTrackers: app.issues?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
@@ -388,6 +402,12 @@ async function api(
   path: string,
   dataDir: string,
 ): Promise<unknown> {
+  // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
+  // the practice workspace, how passages are ordered, plugin model connections, issue context.
+  if (handlesMiscPath(path))
+    return miscApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
@@ -491,7 +511,11 @@ async function api(
     return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
-  if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
+  if (request.method === "GET" && path === "/api/backup") {
+    audit(app.store, app.runtime.owner, { action: "data.exported", actor: app.runtime.owner, subject: "a full backup",
+      reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
+    return app.store.backup(app.version);
+  }
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
@@ -682,8 +706,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
       return { ...app.runtime.models.session(owner, match[1]!), effective: app.runtime.models.plan(owner, match[1]!).choice };
     }
   }
-  if (match && request.method === "GET" && match[2] === "export")
+  if (match && request.method === "GET" && match[2] === "export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: `conversation ${match[1]!.slice(0, 8)}`,
+      reason: "One conversation was written out as a file", outcome: "saved" });
     return app.store.exportSession(owner, match[1]!);
+  }
   if (match && request.method === "POST" && match[2] === "discard") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.discardSession(owner, match[1]!);
@@ -708,7 +735,11 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
 }
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
-  if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
+  if (request.method === "GET" && path === "/api/memory/export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
+      reason: "The facts the assistant remembers were written out", outcome: "saved" });
+    return app.store.exportMemory(owner);
+  }
   if (request.method === "POST" && path === "/api/memory/import") {
     const body = await readBody(request, maximumMemoryArchiveBytes);
     // Facts arrive either as the whole-archive file or as JSON Lines; the second kind is deduplicated.
@@ -1470,6 +1501,10 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(csv);
     return true;
   }
+  if (request.method === "GET" && path === "/api/audit/export.csv") {
+    auditCsvResponse(app, request, response);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -1498,7 +1533,9 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path)
+      // Batch 19 (wave 6): asking the model questions first, reordering passages, reading an issue.
+      || /^\/api\/(ask-first|retrieval|issues|practice)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

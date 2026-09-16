@@ -90,7 +90,7 @@ function displayView(view) {
   $("page-title").textContent = titles[view];
   /* The open conversation is named beside the title, but only on the conversation. */
   $("thread-name").hidden = view !== "chat";
-  if (view === "usage") void window.branchUsage?.render();
+  if (view === "usage") { void window.branchUsage?.render().then(() => window.branchAllowed?.render()); }
 }
 document
   .querySelectorAll(".nav")
@@ -487,6 +487,7 @@ async function refresh() {
   renderAttention();
   void window.branchMcp?.render();
   void window.branchApprovals?.render();
+  void window.branchMisc?.render();
   void window.branchDiagnostics?.render();
 }
 const notifiedAttention = new Set();
@@ -1363,8 +1364,12 @@ $("prompt").addEventListener("keydown", (event) => {
 });
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const prompt = $("prompt").value.trim();
-  if (!prompt || conversationBusy) return;
+  const typed = $("prompt").value.trim();
+  if (!typed || conversationBusy) return;
+  /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */
+  const prompt = $("ask-first-toggle")?.checked
+    ? await (window.branchMisc?.askBeforeStarting(typed) ?? Promise.resolve(typed))
+    : typed;
   setConversationBusy(true);
   if (!sessionId) $("conversation").replaceChildren();
   message("user", prompt);

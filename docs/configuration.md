@@ -985,3 +985,120 @@ advertised by a registry you have browsed, whose words appear in that work. It i
 match on this computer: no model is asked, nothing is sent anywhere, and a suggestion never
 installs or switches anything on. The Skills screen shows all of the above, and the interface file
 `/skills-extra.js` is served from the same local allowlist as the rest of the interface.
+
+## The client library, issue context, and what the assistant was allowed to do (batch 19, wave 6)
+
+### A client for scripts on this computer
+
+`packages/sdk/` is a single file of plain JavaScript that talks to the Branch Agent already running
+here. It installs nothing and is not published anywhere: point an `import` at
+`packages/sdk/client.mjs`. TypeScript users get `packages/sdk/types.d.ts`, which is **generated**
+from the app's own zod schemas by `node scripts/generate-sdk-types.mjs` (run it after
+`npm run build`), so the types cannot promise something the app would refuse. The client covers
+runs (start, `stream` over Server-Sent Events, `watch` over the run socket, steer, cancel, resume,
+approve, receipts, activity), sessions, memory, documents, schedules, policy, the record below,
+"ask me questions first", combined search and issue context; anything else goes through
+`branch.get` / `branch.post`. It needs the local session key, which is the whole of the app's
+security — see `packages/sdk/README.md` for three worked examples.
+
+### Issues as context
+
+`{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
+settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
+`issues.comment` (behind `issues.write`). GitHub reuses the token named in `git.github`; Linear
+needs its own key saved in the active project's secrets. Neither key ever goes into a web address,
+and both are scrubbed out of anything reported back.
+
+`POST /api/issues/context {"url": "..."}` turns an issue address — a GitHub issue or pull-request
+link, `owner/name#12`, or a Linear link or reference such as `ENG-214` — into a passage carrying
+the title, description and up to ten comments, with the address as its citation and a line saying
+the text was written by other people and is to be quoted, not obeyed. Pasting such an address into
+the box you type in pulls that passage into the task. An issue is treated exactly like a web page:
+before the assistant sees it, lines that read like orders aimed at it are flagged, taken out, or
+the whole issue refused, according to the same `web.injection` setting (`warn`, `redact`, `block`)
+that `web.fetch` obeys.
+
+`github.open_pull_request` takes two more optional fields: `issue` (the issue it settles) and
+`changes` (one line each). Given an issue it reads it first, then writes the description from a
+shared template ending in `Closes owner/name#12`, so merging the pull request closes the issue.
+
+### What the assistant was allowed to do
+
+Every moment that widens or narrows what Branch Agent can reach is written into a dedicated
+`audit` table: a question you answered, a saved password handed to a command (**by name only — the
+value never reaches the record**), a change to the approval settings, a messaging account
+connected or disconnected, something exported, and a switch to another project or into the
+practice workspace. The table is append-only, enforced by the database itself: two SQLite triggers
+refuse any attempt to change or remove a row, so nothing — not even Branch — can quietly rewrite
+what happened.
+
+`GET /api/audit` lists it newest first and accepts `action`, `source`, `from`, `to` and `limit`.
+`GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file. The
+diagnostics folder carries it as `allowed.json`, scrubbed the same way everything else there is.
+The foot of the Usage screen shows it in plain language, with a count of each kind.
+
+### Deciding approvals a kind of thing at a time
+
+Tools are sorted into seven kinds — looking things up, changing files, running commands, using a
+web page, messaging people, spending money and changing settings — from the permission each one
+needs, with a small override list for the handful whose permission does not say enough. A tool
+nobody anticipated counts as changing settings rather than as reading.
+
+`GET /api/approvals/categories` lists the kinds with the tools in each and what that kind is
+currently set to (null when the tools inside it disagree). `POST /api/approvals/categories`
+`{"commands": "deny"}` saves it, expanding to one rule per tool — never a wildcard — through the
+same `savePolicy` the hand-edited rule list uses. **Only the kinds named in the request change**:
+a kind decided earlier stays decided, and every rule you wrote by hand and every standing yes
+remembered from a question you answered is kept, ahead of the new rules, so a narrower rule you set
+deliberately still wins. Because one kind can be dozens of tools, a policy may now hold up to 300
+rules rather than 100 (`maximumPolicyRules` in `src/policy.ts`). Settings → When to check with me
+shows it under the preset.
+
+### Ask me questions first
+
+With the toggle beside the box you type in switched on, Branch Agent comes back with up to five
+short questions, each with what it would assume if you say nothing, before it starts. A short,
+plain request skips this on its own, judged by the same rule that decides whether a task is worth
+planning first, so "what is in this folder" never turns into a form.
+
+`GET`/`POST /api/ask-first/settings` holds `askFirst` and `maxQuestions`.
+`POST /api/ask-first {"prompt": "..."}` returns `{skipped, reason, questions}` — one model request,
+or none at all when it is skipped. `POST /api/ask-first/answers` returns the request with the
+answers written underneath it, which is what the task then gets.
+
+### The practice workspace
+
+`POST /api/practice {"practice": true}` makes a project called "Practice workspace" whose folder is
+`practice-workspace` inside your workspace, writes four made-up files into it (a read-me, meeting
+notes, a shopping list and an invoice spreadsheet) and a short demo conversation into your history,
+then switches to it. `{"practice": false}` goes back to whatever project you were using before.
+`GET /api/practice` says which you are in. The files are left behind either way, and a file you
+changed is never overwritten by switching in again.
+
+### One way of finding passages, and putting the best first
+
+Your documents and your saved notes are both asked the same question through one `Retriever`
+interface. What they find is merged and then put in order by a second pass. By default that pass
+counts how much of your question each passage uses — it costs nothing, happens on this computer,
+and gives the same order every time. Set `mode` to `model` and it instead asks the model once to
+read the top twenty and pick the best five.
+
+`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`.
+`POST /api/retrieval/search {"query": "..."}` returns the passages with `reranked` and
+`rerankCalls`, which is 0 for the word count and 1 for the model. The same ordering is used for the
+passages put in front of an ordinary task.
+
+### Model connections a plugin brings
+
+A plugin may export `providers`, alongside the tools and hooks it already exports. Each is named
+`plugin.provider.<id>` and is a factory that, given the address, the key and the model name the
+owner chose, returns something that answers like every built-in connection. It is handed both the
+network check to call and a fetch that makes that check itself, so an adapter that forgets to ask
+is still held to the owner's address rules. (A plugin is still code running as part of the
+assistant: only install files you trust.)
+
+`GET /api/providers/plugins` lists the adapters plugins have brought. `POST /api/providers/plugins`
+`{"driver": "plugin.provider.echo", "preset": "echo", "name": "Echo", "endpoint": "...", "model": "..."}`
+makes a connection from one and puts it in the model list. Switching the plugin off takes both the
+adapter and every model preset made from it away again. Nothing is registered until the owner
+switches the plugin on, exactly as with a plugin's tools.
