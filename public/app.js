@@ -615,6 +615,24 @@ async function renderChannels() {
     node.append(button("Try again", async () => { await api(`channels/deliveries/${encodeURIComponent(item.id)}/retry`, {}); await renderChannels(); }));
     return node;
   }, "Nothing is waiting. Everything sent through a channel has gone out.");
+  await renderChatServices();
+}
+/** The other chat services, listed from the same data the assistant connects them with. */
+async function renderChatServices() {
+  let catalog;
+  try { catalog = await api("channels/catalog"); } catch { return; }
+  list("chat-services-list", catalog.services, (service) => {
+    const node = el("details", undefined, "card-list");
+    const carries = [service.can.files && "files", service.can.voiceIn && "voice notes", service.can.buttons && "buttons"].filter(Boolean);
+    node.append(el("summary", `${service.name} (${service.id})`),
+      el("p", service.note, "subtle"),
+      el("p", `You need: ${service.needs.join("; ")}.`, "subtle"),
+      el("p", `Words only${carries.length ? ", plus " + carries.join(" and ") : ""} · up to ${service.maxTextLength} characters at a time · ${service.canReceive ? "people can write to it" : "you can send to it, but nobody can write back"}.`, "meta"));
+    const link = el("a", "How to set this up on their side");
+    link.href = service.docs; link.target = "_blank"; link.rel = "noreferrer";
+    node.append(link);
+    return node;
+  }, "No chat services are listed in this copy.");
 }
 form("pairing-form", async () => {
   const approved = await api("channels/pairings/approve", { code: $("pairing-code").value.trim() });

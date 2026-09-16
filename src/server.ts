@@ -40,6 +40,7 @@ import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
@@ -1148,18 +1149,27 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
   if (!match) return false;
   const adapter = app.channels.adapter(match[1]!);
-  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(adapter, request, response);
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response);
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
   if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const result = await adapter.receive(raw, request.headers)
-    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error); });
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
   return true;
 }
+/** A post that did not prove it came from the service is refused, and the refusal is written down. */
+function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown): HttpError {
+  audit(app.store, app.runtime.owner, {
+    action: "auth.refused", actor: `the ${kind} connection`, subject: `/webhooks/chat/${channel}`, source: "system",
+    reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
+    outcome: "refused",
+  });
+  return new HttpError(401, errorText(error));
+}
 /** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
-async function metaWebhook(adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
+async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
   if (request.method === "GET") {
     const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
     const challenge = tryOr(() => adapter.verify(query), 403);
@@ -1171,7 +1181,7 @@ async function metaWebhook(adapter: MetaMessagingAdapter, request: IncomingMessa
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const signature = request.headers["x-hub-signature-256"];
   const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
-    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error); });
   send(response, 200, result);
   return true;
 }
@@ -1293,6 +1303,13 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // The chat services this copy knows how to talk to, so the Connections card lists them from data
+  // rather than from a piece of hand-written page per service. No secret is involved either way.
+  if (request.method === "GET" && path === "/api/channels/catalog")
+    return { services: channelEntries().map((entry) => ({
+      id: entry.id, name: entry.name, docs: entry.docs, needs: entry.needs, note: entry.note,
+      can: entry.can, maxTextLength: entry.maxTextLength, canReceive: entry.receive !== null,
+    })) };
   const retry = /^\/api\/channels\/deliveries\/([^/]{1,220})\/retry$/.exec(path);
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
