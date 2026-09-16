@@ -173,7 +173,12 @@ export async function createBranch(options: {
   const privacy = new PrivacyGuard(store, runtime.owner, moderation);
   moderation.configure(privacy.settings().moderation);
   channels.outboundGuard = (text) => privacy.outbound(text);
-  runtime.hideSecrets = (value) => privacy.inbound(store.secrets.scrubber.deep(value));
+  runtime.hideSecrets = (value) => {
+    const scrubbed = store.secrets.scrubber.deep(value);
+    // The privacy settings live in the database; a failure reported while the app is closing
+    // must still go out scrubbed rather than throw a second time from inside the error path.
+    try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
+  };
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
