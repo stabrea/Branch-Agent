@@ -630,35 +630,36 @@
             <p id="identity-status" role="status"></p>
           </form>
           <!-- Appearance (public/appearance.js). Changes show at once; Save keeps them. -->
+          <!-- Wave 7: every word on this card is a key, so a language file covers it too. -->
           <form id="settings-form" class="card">
-            <h2>Appearance</h2>
-            <p>Change how Branch Agent looks. Everything you pick shows straight away.</p>
+            <h2 data-t="appearance.title">Appearance</h2>
+            <p data-t="appearance.intro">Change how Branch Agent looks. Everything you pick shows straight away.</p>
             <div class="appearance-grid">
               <div class="appearance-field">
-                <label for="appearance">Appearance</label>
+                <label for="appearance" data-t="appearance.theme">Appearance</label>
                 <select id="appearance">
-                  <option value="forest">Forest</option>
-                  <option value="daylight">Daylight</option>
+                  <option value="forest" data-t="appearance.forest">Forest</option>
+                  <option value="daylight" data-t="appearance.daylight">Daylight</option>
                 </select>
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-follow" /> Follow the light or dark setting on this
-                  computer</label
+                  ><input type="checkbox" id="appearance-follow" />
+                  <span data-t="appearance.followSystem">Follow the light or dark setting on this computer</span></label
                 >
               </div>
               <div class="appearance-field">
-                <span id="accent-label">Highlight colour</span>
+                <span id="accent-label" data-t="appearance.accent">Highlight colour</span>
                 <div class="choice-row" id="accent-choices" role="group" aria-labelledby="accent-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="text-size-label">Text size</span>
+                <span id="text-size-label" data-t="appearance.textSize">Text size</span>
                 <div class="choice-row" id="text-size-choices" role="group" aria-labelledby="text-size-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="density-label">Spacing</span>
+                <span id="density-label" data-t="appearance.density">Spacing</span>
                 <div class="choice-row" id="density-choices" role="group" aria-labelledby="density-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="font-label">Lettering</span>
+                <span id="font-label" data-t="appearance.font">Lettering</span>
                 <div class="choice-row" id="font-choices" role="group" aria-labelledby="font-label"></div>
               </div>
               <!-- Wave 6: which language the app speaks (public/i18n.js). -->
@@ -668,18 +669,19 @@
                 <span class="meta" data-t="appearance.languageNote">English is the original. Other languages are machine drafts and may read oddly.</span>
               </div>
               <div class="appearance-field">
-                <span id="extras-label">Movement and artwork</span>
+                <span id="extras-label" data-t="appearance.extras">Movement and artwork</span>
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-motion" /> Keep things still (no sliding or
-                  spinning)</label
+                  ><input type="checkbox" id="appearance-motion" />
+                  <span data-t="appearance.reduceMotion">Keep things still (no sliding or spinning)</span></label
                 >
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-acorn" /> Show the acorn</label
+                  ><input type="checkbox" id="appearance-acorn" />
+                  <span data-t="appearance.showAcorn">Show the acorn</span></label
                 >
               </div>
             </div>
-            <p class="appearance-note">Saved with this workspace, so it looks the same the next time you open it.</p>
-            <button>Save appearance</button>
+            <p class="appearance-note" data-t="appearance.note">Saved with this workspace, so it looks the same the next time you open it.</p>
+            <button data-t="appearance.save">Save appearance</button>
           </form>
           <form id="voice-settings-form" class="card">
             <h2>Voice</h2>

@@ -84,8 +84,13 @@ function draw(view) {
     el("p", [view.run?.status, seconds(view.seconds), view.cost?.display, formatDate(view.run?.createdAt ?? Date.now())]
       .filter(Boolean).join(" · "), "meta"),
   );
+  /* Wave 7: the reply itself, rendered by the shared markdown renderer like everywhere else. */
+  const answer = view.run?.output
+    ? [fillMarkdown(el("div", undefined, "markdown"), view.run.output)]
+    : [];
   body.replaceChildren(
     head,
+    section("inspector.answer", answer),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
     section("inspector.plan", view.plan.map((step) => lineRow(step.title, step.detail))),

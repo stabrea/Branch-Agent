@@ -119,6 +119,57 @@ test("G6 the message box knows its own commands, so /model and /help work withou
   assert.match(module, /presetName/, "profile cards read connection names rather than ids");
 });
 
+/* ---------- G5: markdown everywhere, and Appearance in French ---------- */
+
+const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";
+const scripted = { name: "scripted", async complete() { return { content: markdownReply, toolCalls: [] }; } };
+
+test("G5 the Activity screen and the inspector render a reply as markdown, never as markup", async (t) => {
+  const { page, errors } = await onPage(t, { provider: scripted });
+  await page.locator("#prompt").fill("do the thing");
+  await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+  await page.locator('#conversation .markdown h2').first().waitFor();
+  await page.locator('[data-view="runs"]').first().click();
+  const card = page.locator("#runs-list .item").first();
+  await card.locator(".markdown h2").waitFor();
+  assert.equal(await card.locator(".markdown h2").textContent(), "What I did");
+  assert.equal(await card.locator(".markdown strong").first().textContent(), "two");
+  assert.equal(await card.locator(".markdown code").first().textContent(), "answer = 42");
+  assert.equal(await card.locator(".markdown li").count(), 2, "the list is a real list");
+
+  await card.getByRole("button", { name: "Look inside", exact: true }).first().click();
+  const panel = page.locator("#inspect-panel");
+  await panel.locator(".markdown h2").first().waitFor();
+  assert.equal(await panel.locator(".markdown h2").first().textContent(), "What I did");
+  assert.deepEqual(errors, []);
+});
+
+test("G5 Appearance is written in French when French is chosen", async (t) => {
+  const { page, errors } = await onPage(t);
+  await page.locator('[data-view="settings"]').first().click();
+  assert.equal(await page.locator("#settings-form h2").textContent(), "Appearance");
+  assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Copper");
+  await page.locator("#appearance-language").selectOption("fr");
+  await page.waitForFunction(() => document.querySelector("#settings-form h2").textContent === "Apparence");
+  assert.equal(await page.locator("#accent-label").textContent(), "Couleur de mise en avant");
+  assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Cuivre");
+  assert.equal(await page.locator("#text-size-label").textContent(), "Taille du texte");
+  assert.equal(await page.locator("#settings-form button[data-t='appearance.save']").textContent(), "Enregistrer l'apparence");
+  assert.deepEqual(errors, []);
+});
+
+test("G5 every key the page names has words in both languages", async () => {
+  const dir = new URL("../public/", import.meta.url);
+  const en = JSON.parse(await readFile(new URL("locales/en.json", dir), "utf8"));
+  const fr = JSON.parse(await readFile(new URL("locales/fr.json", dir), "utf8"));
+  const html = await readFile(new URL("index.html", dir), "utf8");
+  const used = new Set([...html.matchAll(/data-t(?:-label|-placeholder|-title)?="([^"]+)"/g)].map((m) => m[1]));
+  const missing = [...used].filter((key) => !(key in en));
+  assert.deepEqual(missing, [], "these keys are named in the page but have no English words");
+  const untranslated = Object.keys(en).filter((key) => !(key in fr));
+  assert.deepEqual(untranslated, [], "these keys have no French words");
+});
+
 test("G6 typing /model with the models module blocked still lists the choices", async (t) => {
   const { page, errors } = await onPage(t, { block: ["/model-profiles.js"] });
   assert.equal(await page.evaluate(() => Boolean(globalThis.branchSlashCommand)), false, "the module really is absent");

@@ -119,7 +119,10 @@ function renderRuns() {
     state.runs,
     (run) => {
       const node = recordCard(run.prompt, run.status);
-      node.append(el("p", run.output || "Working…"));
+      /* Wave 7: the reply on this screen is markdown too, rendered by the shared renderer so
+         nothing a model wrote can become markup. */
+      if (run.output) node.append(fillMarkdown(el("div", undefined, "markdown"), run.output));
+      else node.append(el("p", "Working…"));
       const usage = el("div", undefined, "usage");
       usage.append(
         el(
