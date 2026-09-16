@@ -276,6 +276,71 @@ test("G1 the context pane lists a grant and the approval card says what a yes le
   assert.deepEqual(errors, []);
 });
 
+/* ---------- G4: label chips in Recents, in Ctrl+K, and on the conversation title ---------- */
+
+test("G4 label chips filter Recents and the Ctrl+K box through the labels search parameter", async (t) => {
+  const answers = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const { page, api, errors } = await onPage(t, { provider: answers });
+  const first = (await api("POST", "/api/run", { prompt: "the kitchen tiles" })).body;
+  const second = (await api("POST", "/api/run", { prompt: "the car insurance" })).body;
+  await api("POST", "/api/labels", { target: "conversation", targetId: first.sessionId, label: "house" });
+
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  const chips = page.locator("#rail-labels .label-chip");
+  await chips.first().waitFor({ timeout: 15000 });
+  assert.equal(await chips.count(), 1, "one label is in use");
+  assert.equal(await chips.first().textContent(), "house (1)");
+  assert.equal(await page.locator("#rail-list .rail-item").count(), 2, "both conversations before filtering");
+
+  await chips.first().click();
+  await page.waitForFunction(() => document.querySelectorAll("#rail-list .rail-item").length === 1, null, { timeout: 15000 });
+  assert.match(await page.locator("#rail-list .rail-item").first().textContent(), /kitchen tiles/);
+  assert.equal(await chips.first().getAttribute("aria-pressed"), "true");
+
+  /* The Ctrl+K box shows the same chips and offers only the conversations they leave. */
+  await page.keyboard.press("Control+k");
+  await page.locator("#cmd").waitFor({ state: "visible" });
+  const paletteChips = page.locator("#cmd-labels .label-chip");
+  await paletteChips.first().waitFor();
+  assert.equal(await paletteChips.first().getAttribute("aria-pressed"), "true");
+  await page.locator("#cmd-input").fill("insurance");
+  assert.equal(await page.locator(".cmd-item").count(), 0, "the filtered-out conversation is not offered");
+
+  /* Letting the chip go brings everything back. */
+  await paletteChips.first().click();
+  await page.waitForFunction(() => document.querySelectorAll("#rail-list .rail-item").length === 2, null, { timeout: 15000 });
+  assert.ok(second.sessionId);
+  assert.deepEqual(errors, []);
+});
+
+test("G4 the conversation title has a label picker that puts a label on what you are reading", async (t) => {
+  const answers = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const { page, api, app, errors } = await onPage(t, { provider: answers });
+  const run = (await api("POST", "/api/run", { prompt: "the loft hatch" })).body;
+  await api("POST", "/api/labels", { target: "conversation", targetId: run.sessionId, label: "house" });
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.locator("#rail-list .rail-item").first().click();
+  await page.locator("#thread-labels").click();
+  const picker = page.locator(".label-picker");
+  await picker.waitFor();
+  /* The label it already carries reads as chosen; pressing it takes it off. */
+  const chip = picker.locator(".label-chip").first();
+  assert.equal(await chip.getAttribute("aria-pressed"), "true");
+  await chip.click();
+  /* It was the only thing carrying that label, so the label itself is gone from the picker. */
+  await page.waitForFunction(() => document.querySelectorAll(".label-picker .label-chip").length === 0, null, { timeout: 15000 });
+  assert.deepEqual(app.store.labels.forTarget(app.runtime.owner, "conversation", run.sessionId), []);
+  /* And a new one can be typed in without leaving the screen. */
+  await picker.locator(".label-new").fill("loft");
+  await picker.locator(".label-add").click();
+  await page.waitForFunction(() => document.querySelector(".label-picker .label-chip")?.getAttribute("aria-pressed") === "true", null, { timeout: 15000 });
+  assert.equal(await picker.locator(".label-chip").first().textContent(), "loft");
+  assert.deepEqual(app.store.labels.forTarget(app.runtime.owner, "conversation", run.sessionId), ["loft"]);
+  assert.deepEqual(errors, []);
+});
+
 /* ---------- G5: markdown everywhere, and Appearance in French ---------- */
 
 const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";

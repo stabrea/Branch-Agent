@@ -489,6 +489,8 @@ main {
 }
 header {
   flex: none;
+  /* The label picker hangs off the title row, so it is placed against this. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -882,6 +884,69 @@ details.tool-step > summary:hover {
   color: var(--faint);
   font-size: 11.5px;
   line-height: 1.5;
+}
+/* Wave 7: labels as chips, above Recents, inside Ctrl+K and on the conversation's own title. */
+.label-chips-host[hidden] { display: none; }
+.label-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 var(--s2) var(--s1);
+}
+.label-chips[hidden] { display: none; }
+.label-chip {
+  border: 1px solid var(--line);
+  background: var(--step-bg);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.label-chip:hover { border-color: var(--accent); color: var(--text); }
+.label-chip[aria-pressed="true"] {
+  background: var(--accent-tint);
+  border-color: var(--accent-edge);
+  color: var(--text);
+}
+.label-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.label-picker {
+  position: absolute;
+  top: 44px;
+  right: var(--s2);
+  z-index: 40;
+  display: grid;
+  gap: var(--s1);
+  width: 15rem;
+  padding: var(--s2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r1);
+  box-shadow: var(--shadow);
+}
+.label-picker-head { margin: 0; font-size: 11.5px; color: var(--faint); }
+.label-picker .label-chips { padding: 0; }
+.label-new {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r1);
+  background: var(--surface);
+  color: var(--text);
+}
+.label-add {
+  justify-self: start;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--step-bg);
+  color: var(--text);
+  cursor: pointer;
 }
 /* Wave 7: "What is allowed right now" — one row per yes, with the way to take it back. */
 .allowed-revoke {

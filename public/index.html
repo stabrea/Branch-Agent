@@ -63,6 +63,8 @@
         </section>
         <section class="rail-group" data-group="recents">
           <h2><button class="group-head" type="button" data-toggle="recents" aria-expanded="true"><span data-t="rail.recents">Recents</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <!-- Wave 7: labels as chips, filtering through the conversation search (public/labels-ui.js). -->
+          <div id="rail-labels" class="label-chips-host" hidden></div>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
       </div>
@@ -90,6 +92,10 @@
           <h1 id="page-title">Conversation</h1>
           <span id="thread-name" class="thread-name"></span>
         </div>
+        <!-- Wave 7: put a label on the conversation you are reading (public/labels-ui.js). -->
+        <button id="thread-labels" class="head-icon" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Labels for this conversation" title="Labels for this conversation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h8l8 8-8 8-8-8z" /><circle cx="8.5" cy="8.5" r="1.2" /></svg>
+        </button>
         <span class="status-pill" id="connection">Locked</span>
         <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
