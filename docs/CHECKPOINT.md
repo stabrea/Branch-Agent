@@ -373,6 +373,41 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 22 (wave 3) — browser automation a non-technical owner can trust
+
+The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
+profile. This batch gives it the rest of what an ordinary errand needs, without loosening any of
+the isolation. **Saved sign-ins** (`src/integrations/browser-profiles.ts`): the owner presses "Sign
+in once" in Settings, a headed Chromium window opens at an allowed origin, they sign in by hand,
+and the resulting Playwright storage state is written to `<dataDir>/browser-profiles/<owner
+hash>/<name>.bin` as `iv‖tag‖ciphertext` (AES-256-GCM) under a key derived from the locker key with
+`HMAC(root, "branch-browser-profiles-v1")` — the same derivation trick `Receipts` uses, because the
+locker table caps values at 8 KiB and storage state is far bigger. `browser.profile
+{list|create|remove|use}` picks one; `use` must come before the window opens, and a run that used
+one writes the state back on `closeRun`. **Pictures**: `RunArtifacts` (`src/artifacts.ts`) keeps
+screenshots and PDFs beside the private database, so they sidestep workspace confinement and
+`.branchignore` entirely; the tool result carries `{path, bytes, sha256, mediaType}` and the
+ordinary tool receipt signs that. `Message.images` and `Provider.acceptsImages` (`src/contracts.ts`)
+carry a picture to the model — OpenAI as an `image_url` data URL, Anthropic as a base64 `image`
+block; `Runtime.showPicture` appends the picture as a *user* message after the tool result, which
+is valid in both wire shapes (Anthropic merges the consecutive user turns). Pictures are
+deliberately **not** persisted through `store.message`, or they would be replayed on every later
+load, and `fitContext` measures `messages.map(textOnly)` so one screenshot cannot trip compaction.
+`acceptDownloads` was flipped on: files land in `downloads/` inside the workspace through the same
+`WorkspaceFiles.checked` path `files.*` uses, bounded by `maxDownloadBytes` and `downloadTypes`,
+with the site-supplied filename sanitised (`safeDownloadName`). `BrowserSession` grew tabs (up to
+five, website-opened pop-ups still closed), dialog capture (always dismissed, text surfaced in the
+triggering action's result) and a short grace window after a click so a download that starts a beat
+later is still named in that result. Password redaction is a stylesheet injected immediately before
+the shutter and removed after, not a value mutation; the test proves it by pixel equality — a box
+holding `hunter2-super-secret` screenshots byte-identically to an empty one. Caps live on the
+per-run entry: `maxActionsPerRun` (80) and `maxOriginsPerRun` (5), both stopping with a plain
+sentence that tells the assistant to report back rather than carry on. `browser.upload` was added
+to the "workspace" approval preset, and every new changing tool reports the page's host as its
+approval target. New UI: `public/browser.js` and one additive Settings card; new routes
+`/api/browser/profiles`, `/api/browser/profiles/remove`, `/api/browser/signin`. Tests:
+`tests/browser-more.test.mjs` (12 cases). No new dependency — the same Playwright.
+
 ## Batch 21 (wave 2) — the shell, second pass
 
 The first shell pass kept the old page around the new rail. This pass rebuilds the shape itself:

@@ -21,6 +21,8 @@ import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import { RunArtifacts } from "./artifacts.js";
+import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
@@ -73,7 +75,12 @@ export async function createBranch(options: {
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
   const store = new Store(join(dataDir, "branch.sqlite"));
-  store.openLocker(options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key")));
+  const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
+  store.openLocker(lockerKey);
+  // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
+  // private database, never in the person's workspace.
+  const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
+  const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
@@ -107,6 +114,7 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
+  runtime.artifacts = artifacts;
   const knowledge = new Knowledge(store, registry, runtime);
   registerMemory(registry, store);
   registerHistory(registry, store);
@@ -159,6 +167,13 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    artifacts,
+    browserProfiles,
+    /**
+     * The live browser, once the launcher has loaded the integration settings, so Settings can
+     * offer the sign-in-once window. It stays null when no browser is configured.
+     */
+    browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
@@ -180,6 +195,9 @@ export async function createBranch(options: {
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
       hooks,
+      files,
+      artifacts,
+      browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
     close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
@@ -213,6 +231,7 @@ export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
 export * from "./projects.js";
 export * from "./locker.js";
+export * from "./artifacts.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";
 export * from "./integrations/web.js";

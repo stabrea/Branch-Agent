@@ -643,6 +643,17 @@
             <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
             <div id="policy-waiting" class="card-list"></div>
           </section>
+          <section id="browser-card" class="card">
+            <h2>Websites you stay signed in to</h2>
+            <p>Some websites only show your own information once you are signed in. Sign in here once, in a real browser window, and Branch can use that website later without asking you again. <strong>You type your password into that window yourself — Branch never sees it, and only the small file the website uses to remember you is kept, scrambled, on this computer.</strong></p>
+            <label for="browser-name">Short name for this website</label>
+            <input id="browser-name" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. my-bank" />
+            <label for="browser-url">Address of its sign-in page</label>
+            <input id="browser-url" type="url" maxlength="300" placeholder="https://example.com/login" />
+            <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
+            <p id="browser-status" class="subtle" role="status"></p>
+            <div id="browser-profiles" class="card-list"></div>
+          </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
             <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
@@ -791,6 +802,7 @@
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>

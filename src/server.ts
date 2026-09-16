@@ -134,6 +134,7 @@ async function staticFile(
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
@@ -303,6 +304,7 @@ function toolInventory(app: Branch) {
     "git.remote": "ready (sending to a server switched on)",
     "github.manage": "ready (GitHub token saved)",
     "browser.read": "ready (configured origins)", "browser.act": "ready (configured origins)",
+    "browser.interact": "ready (configured origins)",
   };
   const channels = app.channels.summary().channels.map((c) => c.id);
   return {
@@ -382,6 +384,7 @@ async function api(
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
+  if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -1197,9 +1200,29 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   }
   return false;
 }
+/**
+ * Saved browser sign-ins. "Sign in once" opens a real browser window the person can see and use;
+ * only the cookies that keep them signed in are kept, and the assistant is not part of any of it.
+ */
+async function browserApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/browser/profiles")
+    return { profiles: await app.browserProfiles.list(owner), canSignIn: !!app.browser };
+  const body = (await readBody(request)) as { name?: unknown; url?: unknown };
+  const name = String(body.name ?? "");
+  if (request.method === "POST" && path === "/api/browser/profiles")
+    return { profile: await app.browserProfiles.create(owner, name) };
+  if (request.method === "POST" && path === "/api/browser/profiles/remove")
+    return { removed: await app.browserProfiles.remove(owner, name) };
+  if (request.method === "POST" && path === "/api/browser/signin") {
+    if (!app.browser) throw new HttpError(400, "The browser is not switched on in this launch's integration settings");
+    return { signedIn: await app.browser.signIn(owner, name, String(body.url ?? ""), 240000) };
+  }
+  throw new HttpError(404, "Not found");
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
   );
 }
 function configureLimits(server: Server): void {

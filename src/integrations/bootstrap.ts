@@ -3,7 +3,9 @@ import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp } from './mcp.js';
-import { BranchBrowser, BrowserConfigSchema, registerBrowser } from './browser.js';
+import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
+import type { BrowserProfiles } from './browser-profiles.js';
+import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ChannelPolicySchema, type ChannelRouter } from '../channels/router.js';
@@ -27,7 +29,13 @@ export const ChannelConfigSchema = z.object({
 }).merge(ChannelPolicySchema).strict().refine(value => !!value.tokenEnv !== !!value.tokenSecret, 'Give exactly one of tokenEnv or tokenSecret');
 export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext;
   /** Version control on this computer, so the remote and GitHub tools can be switched on here. */
-  git?: GitTools; activeSecret?: (name: string) => Promise<string> }
+  git?: GitTools; activeSecret?: (name: string) => Promise<string>;
+  /** The workspace, so the browser can send a file to a website and keep one it sends back. */
+  files?: WorkspacePaths;
+  /** Where screenshots and saved pages are kept, beside the private database. */
+  artifacts?: RunArtifacts;
+  /** Saved browser sign-ins, encrypted with the device's locker key. */
+  browserProfiles?: BrowserProfiles }
 
 /** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
 export const GitConfigSchema = z.object({
@@ -43,6 +51,8 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
+  /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
+  const hosted: { browser?: BranchBrowser } = {};
   const before = new Set(registry.names());
   const close = async () => {
     for (const name of registry.names()) if (!before.has(name)) registry.unregister(name);
@@ -50,7 +60,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     const errors = results.filter(result => result.status === 'rejected');
     if (errors.length) throw new Error(`Failed to close ${errors.length} integration(s)`);
   };
-  if (!path) return { close, count: 0 };
+  if (!path) return { close, count: 0, hosted };
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
   const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
@@ -66,6 +76,10 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     if (config.browser) {
       const browser = new BranchBrowser(config.browser);
       browser.policy = policy;
+      browser.files = channels?.files;
+      browser.artifacts = channels?.artifacts;
+      browser.profiles = channels?.browserProfiles;
+      hosted.browser = browser;
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }
     let shell: BranchShell | undefined;
@@ -91,7 +105,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       await channels!.router.attach(adapter, { activation: channel.activation, pairing: channel.pairing, allowlist: channel.allowlist });
       closers.push(() => adapter.stop());
     }
-    return { close, count: closers.length };
+    return { close, count: closers.length, hosted };
   } catch (error) { await close().catch(() => undefined); throw error; }
 }
 
