@@ -42,6 +42,7 @@ import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
+import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 
@@ -140,6 +141,7 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
@@ -425,6 +427,16 @@ async function api(
     return voiceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/voice/settings")
     return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
+  // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
+  if (request.method === "GET" && path === "/api/media/settings")
+    return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
+  if (request.method === "POST" && path === "/api/media/settings")
+    return { settings: saveMediaSettings(app.store, app.runtime.owner, await readBody(request)) };
+  if (request.method === "GET" && path === "/api/artifacts") {
+    const type = new URL(request.url ?? "/", "http://local").searchParams.get("type") ?? "";
+    const kept = await app.artifacts.list();
+    return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
@@ -1271,6 +1283,22 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  // One kept picture or sound, so the gallery can show it. Anything outside the artifacts folder
+  // is refused by RunArtifacts itself, and only kinds the browser can safely display are served.
+  if (request.method === "GET" && path === "/api/artifacts/file") {
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams.get("path") ?? "";
+    const entry = (await app.artifacts.list(500)).find((kept) => kept.path === wanted);
+    if (!entry) throw new HttpError(404, "That file was not made by the assistant");
+    if (!/^(image|audio)\//.test(entry.mediaType)) throw new HttpError(415, "Only pictures and sounds are shown here");
+    const bytes = await app.artifacts.read(entry.path);
+    response.writeHead(200, {
+      "content-type": entry.mediaType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-disposition": `inline; filename="${entry.name}"`,
+      "content-security-policy": "default-src 'none'; sandbox",
+    });
+    response.end(bytes);
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/transcribe") {

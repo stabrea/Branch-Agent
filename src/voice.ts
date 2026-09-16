@@ -99,6 +99,8 @@ export async function generateSpeech(
   provider: AudioProvider | null,
   policy: NetworkPolicy,
   fetch: typeof globalThis.fetch,
+  /** Which voice to use and which speech model to ask; both fall back to the defaults below. */
+  options: { voice?: string; model?: string } = {},
 ): Promise<Uint8Array> {
   if (!provider) {
     throw new Error(
@@ -121,9 +123,9 @@ export async function generateSpeech(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "tts-1",
+      model: options.model ?? "tts-1",
       input: text,
-      voice: "alloy",
+      voice: options.voice || "alloy",
     }),
   });
 

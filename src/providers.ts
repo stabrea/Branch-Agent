@@ -199,6 +199,10 @@ export class OpenAIProvider implements Provider {
   embeddings(): EmbeddingEndpoint | null {
     return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
   }
+  /** The same address and key also serve `/images/generations` and `/images/edits`. */
+  images(): { kind: "openai"; endpoint: string; apiKey: string; defaultModel: string } {
+    return { kind: "openai", endpoint: this.options.endpoint, apiKey: this.options.apiKey, defaultModel: "gpt-image-1" };
+  }
   /** The OpenAI shape carries pictures as message parts, so this connection can be shown one. */
   supportsImages(): boolean {
     return true;
@@ -299,6 +303,10 @@ export class AnthropicProvider implements Provider {
     validateOptions(options);
   }
   audio(): null {
+    return null;
+  }
+  /** Anthropic has no picture-making route, so the media tools refuse in plain words instead. */
+  images(): null {
     return null;
   }
   /** Anthropic messages carry pictures as base64 image blocks, so this connection can be shown one. */

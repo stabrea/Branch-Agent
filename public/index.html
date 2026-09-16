@@ -191,8 +191,12 @@
               placeholder="Describe what you want to do… (Enter sends, Shift+Enter for a new line)"
               rows="3"
             ></textarea>
+            <div id="composer-attachments" class="attachments" hidden></div>
+            <input id="composer-media-file" type="file" class="sr-only" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*" />
             <div>
-              <button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
+              <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
+              ><button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
               ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
@@ -505,6 +509,12 @@
           </form>
           <p id="documents-status" role="status"></p>
           <div id="documents-list" class="card-list"></div>
+          <div class="card">
+            <h3>Made by the assistant</h3>
+            <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
+            <button id="gallery-refresh" type="button">Look again</button>
+            <div id="gallery-list" class="card-list"></div>
+          </div>
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>
@@ -587,6 +597,18 @@
             </label>
             <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
             <button type="button" id="voice-settings-save">Save voice settings</button>
+          </form>
+          <form id="media-form" class="card">
+            <h2>Pictures and sound</h2>
+            <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>
+            <label for="media-image-model">Picture model</label>
+            <input id="media-image-model" maxlength="200" placeholder="Leave empty to use your provider's usual one" />
+            <label for="media-folder">Folder in your workspace for saved pictures and sound</label>
+            <input id="media-folder" maxlength="100" placeholder="media" />
+            <p class="subtle" id="media-prices"></p>
+            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
+            <button type="submit">Save picture and sound settings</button>
+            <p id="media-status" role="status"></p>
           </form>
           <section id="chatgpt-card" class="card">
             <h2>ChatGPT account</h2>
@@ -881,6 +903,7 @@
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
+    <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
