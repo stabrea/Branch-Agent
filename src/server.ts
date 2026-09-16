@@ -6,7 +6,8 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -20,7 +21,7 @@ import { chatCompletion, modelsList } from "./openai-compat.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
-import { startMcpServer, type McpServer } from "./mcp-server.js";
+import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -109,6 +110,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -230,10 +232,11 @@ async function api(
   app: Branch,
   request: IncomingMessage,
   path: string,
+  dataDir: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
-  if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app);
+  if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
@@ -552,18 +555,16 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
 }
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (path === "/api/mcp/settings") {
-    const owner = app.runtime.owner;
-    if (request.method === "GET") {
-      const saved = app.store.get("settings", owner, "mcp-sharing") as { exposedTools?: string[] } | undefined;
-      return { exposedTools: saved?.exposedTools ?? ["files.read"] };
-    }
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "Sharing is not available");
+    if (request.method === "GET")
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     if (request.method === "POST") {
-      const { exposedTools } = z
-        .object({ exposedTools: z.array(z.string()).default(["files.read"]) })
-        .strict()
-        .parse(await readBody(request));
-      app.store.save("settings", owner, "mcp-sharing", { exposedTools });
-      return { exposedTools };
+      const sharing = McpSharingSchema.parse(await readBody(request));
+      const known = new Set(app.registry.names());
+      const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools });
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     }
   }
   throw new HttpError(404, "Endpoint not found");
@@ -630,32 +631,47 @@ async function handleMcpRequest(
     return true;
   }
 }
-function mcpConnectionSnippets(app: Branch): unknown {
-  const url = "http://127.0.0.1:3210";
-  const token = "YOUR_SESSION_TOKEN";
+/**
+ * How another AI tool starts Branch as a child program on this machine. The child is given this
+ * install's data and workspace paths, because it inherits the other tool's working directory.
+ */
+function stdioCommand(dataDir: string, workspace: string): {
+  command: string; args: string[]; env: Record<string, string>; packaged: boolean;
+} {
+  const cli = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
+  const packaged = Boolean(process.versions.electron) && !(process as { defaultApp?: boolean }).defaultApp;
+  const env = { BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: workspace };
+  return packaged
+    ? { command: process.execPath, args: [cli, "mcp-serve"], env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, packaged }
+    : { command: "branch", args: ["mcp-serve"], env, packaged };
+}
+/** Ready-to-paste settings for the other AI tool, using this server's own address and key. */
+function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: string): unknown {
+  const url = `http://${request.headers.host ?? "127.0.0.1:3210"}`;
+  const token = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY";
+  const stdio = stdioCommand(dataDir, app.runtime.workspace);
+  const stdioConfig = JSON.stringify({ mcpServers: { branch: {
+    command: stdio.command, args: stdio.args, env: stdio.env,
+  } } }, null, 2);
+  const httpConfig = JSON.stringify({ mcpServers: { branch: {
+    type: "http", url: `${url}/mcp`, headers: { Authorization: `Bearer ${token}` },
+  } } }, null, 2);
   return {
-    claudeDesktop: {
-      configExample: `{
-  "mcpServers": {
-    "branch": {
-      "command": "curl",
-      "args": ["-N", "-H", "Authorization: Bearer \${BRANCH_TOKEN}", "${url}/mcp"],
-      "env": { "BRANCH_TOKEN": "${token}" }
-    }
-  }
-}`,
-      note: "Add to ~/.config/Claude/claude_desktop_config.json (Linux/macOS) or %APPDATA%/Claude/claude_desktop_config.json (Windows)",
-    },
-    claudeCode: {
-      configExample: `.claude/launch.json can reference MCP servers running at ${url}`,
-      note: "Use bearer token authentication with your session token",
-    },
-    cursor: {
-      configExample: `Similar HTTP transport configuration with the session token as Bearer authentication`,
-      note: "Configure MCP settings in Cursor to use the HTTP endpoint",
-    },
     httpEndpoint: `${url}/mcp`,
     bearerToken: token,
+    stdio: { ...stdio, configExample: stdioConfig },
+    claudeDesktop: {
+      configExample: stdioConfig,
+      note: "Paste this into Claude Desktop's settings file, then restart it. On Windows the file is %APPDATA%/Claude/claude_desktop_config.json; on macOS and Linux it is ~/.config/Claude/claude_desktop_config.json. Claude Desktop starts its own copy of Branch, so close this app first — two copies cannot share the same records.",
+    },
+    claudeCode: {
+      configExample: `claude mcp add --transport http branch ${url}/mcp --header "Authorization: Bearer ${token}"`,
+      note: "Run this once in a terminal. Claude Code then talks to Branch while Branch is open.",
+    },
+    cursor: {
+      configExample: httpConfig,
+      note: "Paste this into Cursor's MCP settings. It talks to Branch over this computer's own address, so Branch has to be open.",
+    },
   };
 }
 export async function startServer(
@@ -685,7 +701,7 @@ export async function startServer(
       if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
-        send(response, 200, await api(app, request, path));
+        send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
         if (executes) executions--;
       }

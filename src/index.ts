@@ -109,9 +109,8 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
-  const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files, {
-    exposedTools: new Set(['files.read']),
-  });
+  // Nothing is shared with other AI tools until the owner turns it on in Settings.
+  const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
   let closing: Promise<void> | undefined;
   return {
     store,

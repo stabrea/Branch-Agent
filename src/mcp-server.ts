@@ -1,43 +1,85 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolRegistry } from './registry.js';
 import type { Store } from './store.js';
 import type { Runtime } from './runtime.js';
 import type { Knowledge } from './knowledge.js';
 import type { WorkspaceFiles } from './files.js';
-import { Budget, type ToolContext } from './contracts.js';
+import { Budget, errorText, type Message, type ToolContext } from './contracts.js';
+import { describeToolCall } from './activity.js';
 
 // Protocol version negotiation: prefer 2025-06-18, fallback to 2024-11-05
 const PREFERRED_PROTOCOL_VERSION = '2025-06-18';
 const FALLBACK_PROTOCOL_VERSION = '2024-11-05';
+const CONVERSATION_LIMIT = 20;
+const TRANSCRIPT_BYTES = 64 * 1024;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
-interface JsonRpcRequest {
+export interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: string | number;
   method: string;
   params?: Record<string, unknown>;
 }
 
-interface JsonRpcResponse {
+export interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: string | number;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
 
-interface JsonRpcNotification {
-  jsonrpc: '2.0';
-  method: string;
-  params?: Record<string, unknown>;
+/** What the owner has chosen to share with other AI tools. */
+export const McpSharingSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    exposedTools: z.array(z.string().min(1).max(100)).max(200).default([]),
+  })
+  .strict();
+export type McpSharing = z.infer<typeof McpSharingSchema>;
+
+/** A tool only reads when its permission ends in `.read`; anything else can change things. */
+export const toolChangesThings = (permission: string): boolean => !/\.read$/.test(permission);
+
+/** Every tool the owner could offer, with whether picking it lets another tool change things. */
+export function shareableTools(registry: ToolRegistry): {
+  name: string; description: string; permission: string; changesThings: boolean;
+}[] {
+  return registry
+    .inventory()
+    .map((tool) => ({ ...tool, changesThings: toolChangesThings(tool.permission) }))
+    .sort((a, b) => Number(a.changesThings) - Number(b.changesThings) || a.name.localeCompare(b.name));
 }
 
-interface InitializeParams {
-  protocolVersion: string;
-  capabilities: Record<string, unknown>;
-  clientInfo: { name: string; version: string };
+/** A conversation transcript as plain `role: text` lines, newest kept, older ones dropped. */
+export function transcriptText(messages: Message[]): string {
+  const lines: string[] = [];
+  let bytes = 0;
+  let dropped = false;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== 'user' && message.role !== 'assistant') continue;
+    const text = message.content.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const line = `${message.role}: ${text.length > 4000 ? text.slice(0, 3999) + '…' : text}`;
+    bytes += Buffer.byteLength(line) + 1;
+    if (bytes > TRANSCRIPT_BYTES) { dropped = true; break; }
+    lines.unshift(line);
+  }
+  if (dropped) lines.unshift('(earlier messages are not included)');
+  return lines.join('\n');
+}
+
+/** A short readable name for a conversation, taken from its first message. */
+export function conversationTitle(preview: string): string {
+  const text = preview.replace(/\s+/g, ' ').trim();
+  if (!text) return 'Conversation';
+  return text.length > 60 ? text.slice(0, 59) + '…' : text;
 }
 
 interface McpServerOptions {
+  /** Used only until the owner saves a choice in Settings. */
+  enabled: boolean;
   exposedTools: ReadonlySet<string>;
   maxConcurrentCalls: number;
   perClientRateLimit: number;
@@ -45,6 +87,7 @@ interface McpServerOptions {
 
 class McpSession {
   readonly id: string;
+  clientName?: string;
   clientVersion?: string;
   protocolVersion: string = PREFERRED_PROTOCOL_VERSION;
   initialized = false;
@@ -57,7 +100,7 @@ class McpSession {
 
 export class McpServer {
   private sessions = new Map<string, McpSession>();
-  private globalCallCount = 0;
+  private inFlight = 0;
 
   constructor(
     readonly registry: ToolRegistry,
@@ -71,9 +114,7 @@ export class McpServer {
   /** Get or create a session for a given session ID. */
   getSession(sessionId?: string): McpSession {
     const id = sessionId ?? randomBytes(8).toString('hex');
-    if (!this.sessions.has(id)) {
-      this.sessions.set(id, new McpSession());
-    }
+    if (!this.sessions.has(id)) this.sessions.set(id, new McpSession());
     return this.sessions.get(id)!;
   }
 
@@ -82,48 +123,50 @@ export class McpServer {
     return this.sessions.delete(sessionId);
   }
 
-  /** Handle a JSON-RPC request and return a response or notification. */
-  async handle(request: JsonRpcRequest, sessionId?: string): Promise<JsonRpcResponse | JsonRpcNotification | null> {
+  /** What the owner is sharing right now; read fresh so a settings change takes effect at once. */
+  sharing(): McpSharing {
+    const saved = this.store.get('settings', this.runtime.owner, 'mcp-sharing');
+    const parsed = saved ? McpSharingSchema.safeParse(saved.data) : undefined;
+    if (parsed?.success) return parsed.data;
+    return { enabled: this.options.enabled, exposedTools: [...this.options.exposedTools] };
+  }
+
+  private exposed(): Set<string> {
+    const sharing = this.sharing();
+    return new Set(sharing.enabled ? sharing.exposedTools : []);
+  }
+
+  /** Handle a JSON-RPC request and return the response to send back. */
+  async handle(request: JsonRpcRequest, sessionId?: string): Promise<JsonRpcResponse> {
     const session = this.getSession(sessionId);
-    const respond = (result?: unknown, error?: { code: number; message: string; data?: unknown }): JsonRpcResponse => ({
+    const respond = (result?: unknown, error?: JsonRpcResponse['error']): JsonRpcResponse => ({
       jsonrpc: '2.0',
       id: request.id,
       ...(error ? { error } : { result: result ?? null }),
     });
-
     try {
       const params = request.params ?? {};
-      if (request.method === 'initialize') {
-        return respond(this.initialize(session, params));
-      }
-      if (request.method === 'ping') {
-        return respond();
-      }
-      if (!session.initialized) {
-        return respond(undefined, { code: -32002, message: 'Not initialized' });
-      }
-      if (request.method === 'tools/list') {
-        return respond({ tools: this.listTools(session, params) });
-      }
-      if (request.method === 'tools/call') {
-        return respond(await this.callTool(session, params));
-      }
-      if (request.method === 'resources/list') {
-        return respond({ resources: this.listResources(session) });
-      }
-      if (request.method === 'resources/read') {
-        return respond(await this.readResource(session, params));
-      }
-      if (request.method === 'prompts/list') {
-        return respond({ prompts: this.listPrompts(session) });
-      }
-      if (request.method === 'prompts/get') {
-        return respond(await this.getPrompt(session, params));
-      }
-      return respond(undefined, { code: -32601, message: 'Method not found' });
+      if (request.method === 'initialize') return respond(this.initialize(session, params));
+      if (request.method === 'ping') return respond({});
+      if (!session.initialized) return respond(undefined, { code: -32002, message: 'Not initialized' });
+      const result = await this.dispatch(session, request.method, params);
+      if (result === undefined) return respond(undefined, { code: -32601, message: 'Method not found' });
+      return respond(result);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      return respond(undefined, { code: -32603, message: 'Internal error', data: { details: message } });
+      return respond(undefined, { code: -32603, message: 'Internal error', data: { details: errorText(e) } });
+    }
+  }
+
+  /** Methods that need an initialized session; `undefined` means the method is unknown. */
+  private async dispatch(session: McpSession, method: string, params: Record<string, unknown>): Promise<unknown> {
+    switch (method) {
+      case 'tools/list': return { tools: this.listTools() };
+      case 'tools/call': return this.callTool(session, params);
+      case 'resources/list': return { resources: this.listResources() };
+      case 'resources/read': return this.readResource(params);
+      case 'prompts/list': return { prompts: this.listPrompts() };
+      case 'prompts/get': return this.getPrompt(params);
+      default: return undefined;
     }
   }
 
@@ -134,11 +177,10 @@ export class McpServer {
       clientInfo: z.object({ name: z.string(), version: z.string() }),
     }).strict();
     const parsed = InitializeSchema.parse(params);
-    const selectedVersion =
-      parsed.protocolVersion === PREFERRED_PROTOCOL_VERSION ? PREFERRED_PROTOCOL_VERSION :
-      parsed.protocolVersion === FALLBACK_PROTOCOL_VERSION ? FALLBACK_PROTOCOL_VERSION :
-      PREFERRED_PROTOCOL_VERSION;
-
+    const selectedVersion = parsed.protocolVersion === FALLBACK_PROTOCOL_VERSION
+      ? FALLBACK_PROTOCOL_VERSION
+      : PREFERRED_PROTOCOL_VERSION;
+    session.clientName = parsed.clientInfo.name;
     session.clientVersion = parsed.clientInfo.version;
     session.protocolVersion = selectedVersion;
     session.initialized = true;
@@ -149,163 +191,176 @@ export class McpServer {
     };
   }
 
-  private listTools(_session: McpSession, _params: unknown): unknown[] {
-    const tools = [];
-
-    // Always include branch.ask
-    tools.push({
+  private listTools(): unknown[] {
+    const tools: unknown[] = [{
       name: 'branch.ask',
-      description: 'Ask Branch to process a prompt and return the answer',
+      description: 'Ask Branch to do something and return its answer. Branch uses its own tools, memory and skills.',
       inputSchema: {
         type: 'object',
-        properties: { prompt: { type: 'string' } },
+        properties: { prompt: { type: 'string', description: 'What you want Branch to do' } },
         required: ['prompt'],
       },
-    });
-
-    // Add exposed tools from the registry
-    const exposed = this.registry
-      .inventory()
-      .filter(t => this.options.exposedTools.has(t.name))
-      .map(t => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: {
-          type: 'object',
-          properties: {} as Record<string, unknown>,
-        },
-      }));
-
-    tools.push(...exposed);
+    }];
+    const exposed = this.exposed();
+    if (!exposed.size) return tools;
+    const schemas = new Map(
+      this.registry.descriptions(new Set(this.registry.permissions())).map((d) => [d.name, d.parameters]),
+    );
+    for (const tool of this.registry.inventory())
+      if (exposed.has(tool.name))
+        tools.push({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: schemas.get(tool.name) ?? { type: 'object', properties: {} },
+        });
     return tools;
   }
 
   private async callTool(session: McpSession, params: unknown): Promise<unknown> {
-    this.globalCallCount++;
-    session.callCount++;
-    if (session.callCount > this.options.perClientRateLimit) {
-      throw new Error(`Client rate limit exceeded (${this.options.perClientRateLimit} calls)`);
-    }
-    if (this.globalCallCount > this.options.maxConcurrentCalls) {
-      throw new Error(`Global concurrency limit exceeded`);
-    }
-
-    const ToolCallSchema = z.object({
-      name: z.string(),
+    const parsed = z.object({
+      name: z.string().min(1).max(100),
       arguments: z.record(z.string(), z.unknown()).optional(),
-    }).strict();
-    const parsed = ToolCallSchema.parse(params);
-    const toolName = parsed.name;
-    const args = parsed.arguments ?? {};
-
-    // Handle special branch.ask tool
-    if (toolName === 'branch.ask') {
-      try {
-        const AskSchema = z.object({ prompt: z.string() }).strict();
-        const askArgs = AskSchema.parse(args);
-        const result = await this.runtime.run({ prompt: askArgs.prompt });
-        return { content: [{ type: 'text', text: result.output }], isError: false };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        return { content: [{ type: 'text', text: message }], isError: true };
-      }
-    }
-
-    // Check if tool is exposed
-    if (!this.options.exposedTools.has(toolName)) {
-      throw new Error(`Tool not exposed: ${toolName}`);
-    }
-
+    }).strict().parse(params);
+    session.callCount++;
+    if (session.callCount > this.options.perClientRateLimit)
+      return failure(`This connection has used its limit of ${this.options.perClientRateLimit} calls.`);
+    if (this.inFlight >= this.options.maxConcurrentCalls)
+      return failure('Branch is already busy with as many shared calls as it allows. Try again shortly.');
+    this.inFlight++;
     try {
-      const context: ToolContext = {
-        owner: this.runtime.owner,
-        workspace: this.files.base,
-        runId: `mcp-${randomBytes(4).toString('hex')}`,
-        signal: new AbortController().signal,
-        budget: new Budget({ maxSteps: 5, maxTokens: 8000 }),
-        permissions: new Set(Array.from(this.options.exposedTools)),
-        depth: 0,
-      };
-      const result = await this.registry.execute(toolName, args, context);
-      return { content: [{ type: 'text', text: JSON.stringify(result) }], isError: false };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      return { content: [{ type: 'text', text: message }], isError: true };
+      const args = parsed.arguments ?? {};
+      if (parsed.name === 'branch.ask') return await this.callAsk(args);
+      const exposed = this.exposed();
+      if (!exposed.has(parsed.name))
+        return failure(`Branch is not sharing "${parsed.name}". Turn it on in Settings, under Sharing with other AI tools.`);
+      return await this.callRegistryTool(parsed.name, args, exposed);
+    } finally {
+      this.inFlight--;
     }
   }
 
-  private listResources(_session: McpSession): unknown[] {
-    const resources = [
-      { uri: 'memory://facts', name: 'Memory facts', description: 'Recent memory facts' },
-      { uri: 'workspace://files', name: 'Workspace files', description: 'Files in the workspace' },
+  /** Delegate a prompt to Branch itself; the runtime records the run, we add the receipt. */
+  private async callAsk(args: Record<string, unknown>): Promise<unknown> {
+    const parsed = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().safeParse(args);
+    if (!parsed.success) return failure('Give a "prompt" saying what you want Branch to do.');
+    try {
+      const run = await this.runtime.run({ prompt: parsed.data.prompt });
+      await this.recordCall(run.id, 'branch.ask', parsed.data, run.output, run.status === 'completed');
+      return { content: [{ type: 'text', text: run.output }], isError: run.status !== 'completed' };
+    } catch (e) {
+      return failure(errorText(e));
+    }
+  }
+
+  /** Run one shared tool as its own recorded task, so it appears in Activity with a receipt. */
+  private async callRegistryTool(name: string, args: Record<string, unknown>, exposed: Set<string>): Promise<unknown> {
+    const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
+    this.store.event(run.id, 'run.started', { source: 'mcp', tool: name, provider: this.runtime.provider.name, parentRunId: null });
+    try {
+      const result = await this.registry.execute(name, args, this.toolContext(run.id, exposed));
+      await this.recordCall(run.id, name, args, result, true);
+      this.store.finish(run.id, 'completed', JSON.stringify(result));
+      return { content: [{ type: 'text', text: JSON.stringify(result) }], isError: false };
+    } catch (e) {
+      const error = errorText(e);
+      await this.recordCall(run.id, name, args, error, false);
+      this.store.finish(run.id, 'failed', error);
+      return failure(error);
+    }
+  }
+
+  /** The same started/completed pair the runtime records, marked as coming from another AI tool. */
+  private async recordCall(runId: string, name: string, args: unknown, result: unknown, ok: boolean): Promise<void> {
+    const id = randomUUID();
+    const label = name === 'branch.ask' ? 'Answering another AI tool' : describeToolCall(name, args);
+    this.store.event(runId, 'tool.started', { name, id, source: 'mcp', label });
+    if (!ok) {
+      this.store.event(runId, 'tool.failed', { name, id, source: 'mcp', error: String(result) });
+      return;
+    }
+    const receipt = await this.store.receipts.sign(runId, id, name, result);
+    this.store.event(runId, 'tool.completed', { name, id, source: 'mcp', result, receipt });
+  }
+
+  private toolContext(runId: string, exposed: Set<string>): ToolContext {
+    const permissions = new Set(
+      this.registry.inventory().filter((tool) => exposed.has(tool.name)).map((tool) => tool.permission),
+    );
+    return {
+      owner: this.runtime.owner,
+      workspace: this.files.base,
+      runId,
+      signal: AbortSignal.timeout(120000),
+      budget: new Budget({ maxSteps: 5, maxTokens: 8000 }),
+      permissions,
+      depth: 0,
+    };
+  }
+
+  private listResources(): unknown[] {
+    const resources: unknown[] = [
+      { uri: 'memory://facts', name: 'Memory facts', description: 'What Branch remembers', mimeType: 'application/json' },
+      { uri: 'workspace://files', name: 'Workspace files', description: 'Files in the workspace', mimeType: 'application/json' },
     ];
-    // Recent conversations would be added here if the store had a sessions list
+    for (const conversation of this.recentConversations())
+      resources.push({
+        uri: `conversation://${conversation.sessionId}`,
+        name: conversation.title,
+        description: `Conversation from ${conversation.date}`,
+        mimeType: 'text/plain',
+      });
     return resources;
   }
 
-  private async readResource(session: McpSession, params: unknown): Promise<unknown> {
-    const ReadResourceSchema = z.object({ uri: z.string() }).strict();
-    const parsed = ReadResourceSchema.parse(params);
-
-    if (parsed.uri === 'memory://facts') {
-      const facts = this.store.list('memory', this.runtime.owner);
-      return {
-        contents: [{ uri: parsed.uri, mimeType: 'application/json', text: JSON.stringify(facts) }],
-      };
-    }
-    if (parsed.uri === 'workspace://files') {
-      try {
-        const listing = await this.files.list();
-        return {
-          contents: [{ uri: parsed.uri, mimeType: 'application/json', text: JSON.stringify(listing) }],
-        };
-      } catch {
-        throw new Error('Failed to list workspace');
-      }
-    }
-    const sessionMatch = /^session:\/\/([a-f0-9-]{36})$/.exec(parsed.uri);
-    if (sessionMatch) {
-      const sessionId = sessionMatch[1]!;
-      const sess = this.store.sessionView(this.runtime.owner, sessionId);
-      if (!sess) throw new Error('Session not found');
-      return {
-        contents: [{ uri: parsed.uri, mimeType: 'application/json', text: JSON.stringify(sess) }],
-      };
-    }
-    throw new Error(`Unknown resource: ${parsed.uri}`);
-  }
-
-  private listPrompts(_session: McpSession): unknown[] {
-    const owner = this.runtime.owner;
-    const procedures = this.store.list('procedures', owner).slice(0, 10);
-    return procedures.map(p => ({
-      name: `procedure:${p.id}`,
-      description: p.data?.name || p.id,
+  /** The owner's most recent saved conversations; temporary ones are never listed. */
+  private recentConversations(): { sessionId: string; title: string; date: string }[] {
+    const found = this.store.searchSessions(this.runtime.owner, { query: '', offset: 0 });
+    return found.sessions.slice(0, CONVERSATION_LIMIT).map((session) => ({
+      sessionId: session.sessionId,
+      title: conversationTitle(session.preview),
+      date: session.createdAt.slice(0, 10),
     }));
   }
 
-  private async getPrompt(session: McpSession, params: unknown): Promise<unknown> {
-    const GetPromptSchema = z.object({ name: z.string() }).strict();
-    const parsed = GetPromptSchema.parse(params);
-
-    const procedureMatch = /^procedure:([a-f0-9-]{36})$/.exec(parsed.name);
-    if (procedureMatch) {
-      const owner = this.runtime.owner;
-      const proc = this.store.get('procedures', owner, procedureMatch[1]!);
-      if (!proc) throw new Error('Procedure not found');
-      const data = proc.data as { name?: string; steps?: unknown[] } | undefined;
-      return {
-        messages: [
-          {
-            role: 'user',
-            content: `Execute the procedure: ${data?.name || 'Unnamed'}. Steps: ${JSON.stringify(data?.steps || [])}`,
-          },
-        ],
-      };
+  private async readResource(params: unknown): Promise<unknown> {
+    const { uri } = z.object({ uri: z.string().min(1).max(500) }).strict().parse(params);
+    const json = (value: unknown) => ({ contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(value) }] });
+    if (uri === 'memory://facts') return json(this.store.list('memory', this.runtime.owner));
+    if (uri === 'workspace://files') return json(await this.files.list());
+    const conversation = new RegExp(`^conversation://(${UUID})$`).exec(uri);
+    if (conversation) {
+      const sessionId = conversation[1]!;
+      if (!this.store.ownsSession(this.runtime.owner, sessionId)) throw new Error('Conversation not found');
+      return { contents: [{ uri, mimeType: 'text/plain', text: transcriptText(this.store.messages(sessionId)) }] };
     }
-    throw new Error(`Unknown prompt: ${parsed.name}`);
+    throw new Error(`Unknown resource: ${uri}`);
+  }
+
+  private listPrompts(): unknown[] {
+    return this.store.list('procedures', this.runtime.owner).slice(0, 10).map((procedure) => ({
+      name: `procedure:${procedure.id}`,
+      description: String((procedure.data as { name?: string }).name ?? procedure.id),
+    }));
+  }
+
+  private async getPrompt(params: unknown): Promise<unknown> {
+    const { name } = z.object({ name: z.string().min(1).max(200) }).strict().parse(params);
+    const match = new RegExp(`^procedure:(${UUID})$`).exec(name);
+    if (!match) throw new Error(`Unknown prompt: ${name}`);
+    const procedure = this.store.get('procedures', this.runtime.owner, match[1]!);
+    if (!procedure) throw new Error('Procedure not found');
+    const data = procedure.data as { name?: string; steps?: unknown[] };
+    return {
+      description: String(data.name ?? 'Saved procedure'),
+      messages: [{
+        role: 'user',
+        content: `Follow the saved procedure "${data.name ?? 'Unnamed'}". Steps: ${JSON.stringify(data.steps ?? [])}`,
+      }],
+    };
   }
 }
+
+const failure = (text: string) => ({ content: [{ type: 'text', text }], isError: true });
 
 export async function startMcpServer(
   registry: ToolRegistry,
@@ -316,8 +371,9 @@ export async function startMcpServer(
   options: Partial<McpServerOptions> = {},
 ): Promise<McpServer> {
   const defaultOptions: McpServerOptions = {
-    exposedTools: new Set(['files.read']),
-    maxConcurrentCalls: 10,
+    enabled: false,
+    exposedTools: new Set<string>(),
+    maxConcurrentCalls: 4,
     perClientRateLimit: 100,
     ...options,
   };

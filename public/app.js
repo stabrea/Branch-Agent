@@ -461,6 +461,7 @@ async function refresh() {
   void renderChannels();
   renderSnapshots();
   renderAttention();
+  void window.branchMcp?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {

@@ -481,6 +481,20 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <section id="mcp-card" class="card">
+            <h2>Sharing with other AI tools</h2>
+            <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
+            <div class="check-list"><label class="check"><input type="checkbox" id="mcp-enabled" /> Let other AI tools use Branch</label></div>
+            <p id="mcp-status" class="subtle" role="status"></p>
+            <details id="mcp-choose" hidden>
+              <summary>Choose which of Branch's tools they may use</summary>
+              <p class="subtle">They can always ask Branch a question in plain words. Tick a tool to let them use it directly. Tools marked <em>can change things</em> write files, run commands or change your settings, so leave those unticked unless you mean it.</p>
+              <div id="mcp-tools" class="check-list"></div>
+            </details>
+            <h3>How to connect</h3>
+            <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
+            <div id="mcp-connection" class="card-list"></div>
+          </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
             <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
@@ -585,6 +599,7 @@
     </div>
     <script src="/update-screen.js"></script>
     <script src="/app.js" type="module"></script>
+    <script src="/mcp.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
 </html>

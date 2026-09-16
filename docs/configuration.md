@@ -243,19 +243,21 @@ Every message sent through a channel (a reply, a scheduled result) is recorded b
 
 ## Using Branch from other AI tools
 
-Branch exposes a Model Context Protocol (MCP) server that lets other assistants use Branch's tools and knowledge. The server runs over HTTP on the same port as the web interface and requires your session token for authentication.
+Branch is itself a Model Context Protocol (MCP) server, so another AI tool on the same computer can ask it to do things. **Settings → Sharing with other AI tools** has the switch, the list of tools you are willing to share, and ready-to-paste settings with a Copy button for Claude Desktop, Claude Code and Cursor.
 
-**HTTP endpoint:** The server listens at `/mcp` with JSON-RPC 2.0 requests. Include the session token as a Bearer authorization header and optionally pass `x-mcp-session` to maintain conversation state across requests.
+**What is shared, and when.** Nothing until you switch it on. Switching it on offers the tools that only read (their permission ends in `.read`) and leaves everything else unticked and marked *can change things*; you tick those yourself. `branch.ask` — asking Branch a question in plain words — is always available, because it goes through Branch's own permissions and budget like any other task. The saved choice lives in `settings/mcp-sharing` as `{ enabled, exposedTools }` and is read fresh on every call, so a change takes effect at once.
 
-**Tools:** By default, no tools are exposed through MCP; the owner controls which tools other assistants can use in **Settings → Sharing with other AI tools**. Exposed tools respect the same permission gates and rate limits as local usage, and all calls are recorded.
+**Two ways to connect.** Over HTTP, at `/mcp` on the same port as the web interface: JSON-RPC 2.0 by `POST`, with your session key as `Authorization: Bearer …`, an optional `Mcp-Session-Id` header to keep one conversation across requests, `DELETE` to end that session (204) and `GET` refused (405). Responses carry `MCP-Protocol-Version`; `2025-06-18` is preferred and `2024-11-05` accepted. Or as a child program: `branch mcp-serve` speaks newline-delimited JSON-RPC on standard input and output, writes every message for a person to standard error, and stops cleanly when the other tool closes the connection.
 
-**Resources:** Memory facts and workspace files are available as read-only resources named `memory://facts` and `workspace://files`.
+Use HTTP when Branch is already open — that is what the Claude Code and Cursor snippets do. `mcp-serve` starts a second copy of Branch against the same records, so close the app first; the snippet sets `BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` for the child, because it inherits the other tool's working directory rather than Branch's.
 
-**Prompts:** Pre-built prompts for analyzing memory and planning tasks are available under names like `analyze-memory` and `plan-task`.
+**Resources.** `memory://facts` (what Branch remembers) and `workspace://files` (the workspace listing) as JSON, plus the twenty most recent saved conversations as `conversation://<id>`, named after their first message and dated. Reading one returns the transcript as plain `role: text` lines in the order they were said, read-only: the most recent messages are kept and older ones dropped once the text passes 64 KiB. Temporary conversations are never listed, and a conversation belonging to someone else is not found.
 
-**Session tracking:** Pass `x-mcp-session` with each request to maintain the initialization state and reuse a session across multiple requests, so the server remembers who you are within a sequence.
+**Prompts.** Your saved procedures, listed as `procedure:<id>` with the procedure's name.
 
-**Configuration examples:** `GET /api/mcp/connection` returns ready-to-paste configuration snippets for Claude Desktop, Claude Code, and Cursor, with placeholders for the token and endpoint.
+**What is recorded.** Every `tools/call` becomes a task of its own, named "Another AI tool used …", with `run.started`, `tool.started` and `tool.completed`/`tool.failed` events carrying `source: "mcp"` and the same signed receipt as local work. They appear in Activity and under `GET /api/runs/:id/receipts`. At most four shared calls run at once and one connection may make 100 in total.
+
+**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets.
 
 ## Delegation
 
