@@ -14,6 +14,11 @@ import { DiscordAdapter } from '../channels/discord.js';
 import { SlackAdapter } from '../channels/slack.js';
 import { WhatsAppAdapter } from '../channels/whatsapp.js';
 import { EmailAdapter } from '../channels/email.js';
+import { WebhookChatAdapter } from '../channels/webhook-chat.js';
+import { channelEntry } from '../channels/catalog.js';
+import { MetaMessagingAdapter } from '../channels/meta-graph.js';
+import { MatrixAdapter } from '../channels/matrix.js';
+import { SignalAdapter } from '../channels/signal-cli.js';
 import { connectWebSocket, type WebSocketConnect } from '../channels/ws-client.js';
 import { WebConfigSchema, type WebAccess } from './web.js';
 import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
@@ -84,8 +89,58 @@ export const EmailChannelSchema = z.object({
   /** How often to look for new mail, in seconds. */
   pollSeconds: z.number().int().min(5).max(3600).default(60),
 }).merge(ChannelPolicySchema).strict();
+/**
+ * Every team-chat service that works the same way: a row in `data/channels.json` says how it sends
+ * and how it proves a post is genuine, and this says which of that service's things the owner saved.
+ */
+export const WebhookChatChannelSchema = z.object({
+  id: channelId,
+  type: z.literal('chat'),
+  /** Which row of the service list to use, for example "mattermost". */
+  service: z.string().regex(/^[a-z][a-z0-9-]{1,29}$/),
+  /** The incoming webhook address the owner pasted, for the services that send that way. */
+  webhookUrlSecret: credentialName.optional(),
+  /** The access token, for the services with a proper API. */
+  tokenSecret: credentialName.optional(),
+  /** The shared word or signing key the service proves itself with. */
+  secretSecret: credentialName.optional(),
+  /** The service's own address, for the ones hosted per company (Zulip, Mattermost). */
+  apiBase: z.string().url().optional(),
+  /** What the bot is called, so a mention of it can be spotted in a group. */
+  botName: z.string().min(1).max(60).optional(),
+}).merge(ChannelPolicySchema).strict();
+/** Facebook Messenger and Instagram direct messages, which share WhatsApp's webhook and send shape. */
+const metaMessagingFields = {
+  id: channelId,
+  /** The page or professional account the assistant answers as. */
+  pageId: z.string().min(1).max(64),
+  tokenSecret: credentialName.default('META_PAGE_TOKEN'),
+  verifyTokenSecret: credentialName.default('META_VERIFY_TOKEN'),
+  appSecretSecret: credentialName.default('META_APP_SECRET'),
+  apiBase: z.string().url().optional(),
+};
+export const MessengerChannelSchema = z.object({ ...metaMessagingFields, type: z.literal('messenger') }).merge(ChannelPolicySchema).strict();
+export const InstagramChannelSchema = z.object({ ...metaMessagingFields, type: z.literal('instagram') }).merge(ChannelPolicySchema).strict();
+export const MatrixChannelSchema = z.object({
+  id: channelId.default('matrix'),
+  type: z.literal('matrix'),
+  homeserver: z.string().url(),
+  /** The assistant's own Matrix user id, so it does not answer itself. */
+  userId: z.string().min(3).max(120),
+  tokenSecret: credentialName.default('MATRIX_ACCESS_TOKEN'),
+  syncSeconds: z.number().int().min(5).max(120).default(30),
+}).merge(ChannelPolicySchema).strict();
+export const SignalChannelSchema = z.object({
+  id: channelId.default('signal'),
+  type: z.literal('signal'),
+  /** Full path to the signal-cli program you installed. Nothing is downloaded. */
+  path: z.string().min(3).max(400),
+  /** The registered number, in +country form. */
+  account: z.string().min(5).max(20),
+}).merge(ChannelPolicySchema).strict();
 export const ChannelConfigSchema = z.discriminatedUnion('type', [
   TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
+  WebhookChatChannelSchema, MessengerChannelSchema, InstagramChannelSchema, MatrixChannelSchema, SignalChannelSchema,
 ]).superRefine((value, context) => {
   if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
@@ -271,7 +326,18 @@ function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | un
 async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
   const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
   const connect = guardedSocket(policy);
-  const base = channel.type === 'email' ? {} : channel.apiBase ? { apiBase: channel.apiBase } : {};
+  const base = 'apiBase' in channel && channel.apiBase ? { apiBase: channel.apiBase } : {};
+  if (channel.type === 'chat') return buildWebhookChat(channel, env, host, guardedFetch);
+  if (channel.type === 'messenger' || channel.type === 'instagram')
+    return new MetaMessagingAdapter({ id: channel.id, service: channel.type, pageId: channel.pageId,
+      token: await credential(channel.tokenSecret, env, host), verifyToken: await credential(channel.verifyTokenSecret, env, host),
+      appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
+  if (channel.type === 'matrix') {
+    await policy?.assertAllowed(new URL(channel.homeserver), 'Matrix home server');
+    return new MatrixAdapter({ id: channel.id, homeserver: channel.homeserver, userId: channel.userId,
+      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch });
+  }
+  if (channel.type === 'signal') return new SignalAdapter({ id: channel.id, path: channel.path, account: channel.account });
   if (channel.type === 'telegram') {
     const token = channel.tokenEnv ? env[channel.tokenEnv] : await host.secret(channel.tokenSecret!);
     if (!token) throw new Error(`Channel ${channel.id} has no bot token; set ${channel.tokenEnv ?? channel.tokenSecret}`);
@@ -293,6 +359,25 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
       appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
   return buildEmail(channel, env, host, policy);
 }
+/**
+ * One of the services in `data/channels.json`. Which of the three saved things it needs comes from
+ * that row, so a service that wants only a webhook address is not asked for a token as well.
+ */
+async function buildWebhookChat(
+  channel: Extract<ChannelConfig, { type: 'chat' }>, env: NodeJS.ProcessEnv, host: ChannelHost, guardedFetch: typeof fetch,
+): Promise<ChannelAdapter> {
+  const entry = channelEntry(channel.service);
+  if (!entry) throw new Error(`There is no chat service called ${channel.service}. See docs/configuration.md for the list.`);
+  return new WebhookChatAdapter({
+    id: channel.id, entry, fetch: guardedFetch,
+    ...(channel.webhookUrlSecret ? { webhookUrl: await credential(channel.webhookUrlSecret, env, host) } : {}),
+    ...(channel.tokenSecret ? { token: await credential(channel.tokenSecret, env, host) } : {}),
+    ...(channel.secretSecret ? { secret: await credential(channel.secretSecret, env, host) } : {}),
+    ...(channel.apiBase ? { apiBase: channel.apiBase } : {}),
+    ...(channel.botName ? { botName: channel.botName } : {}),
+  });
+}
+
 /** Mail uses its own encrypted sockets, so its two servers are checked against the policy by name. */
 async function buildEmail(channel: Extract<ChannelConfig, { type: 'email' }>, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
   const password = await credential(channel.passwordSecret, env, host);

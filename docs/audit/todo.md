@@ -1,38 +1,49 @@
 # Audit to-do: 786 distinct pieces of work (1133 rows) in 38 themes
 
 
+## Family rows — 2026-09-16
+
+The 210 FAMILY rows were judged against the code on this tree (releases 0.7–0.14).
+
+- done: 143
+- partial: 27
+- not done: 17
+- not applicable: 23
+
+Honest work remaining: 349 — 305 single ids still open, plus 27 partial and 17 not-done family rows.
+
 ## agent-orchestration — 77 pieces (122 rows) {'M': 64, 'S': 30, 'L': 28}
 
-- FAMILY agent-specialist (31 rows): Planner agent, ReAct agent, Subtask-aware agent execution, Subagent spawning, Agent thread creation, Subagent prompts, Reviewer agent, Role-based software-development pipeline, Message routing between roles, Data Interpreter agent, Multi-role agent loop, Agent spawning …
-- FAMILY file-editing (4 rows): Patch application, Project code editing, Multi-file change generation and review, Multiple edit formats
-- FAMILY tooling (1 rows): Tool-call inspection
-- FAMILY agent-orchestration (1 rows): Agent-computer interface
-- FAMILY workflow-hooks (1 rows): Patch application hook
-- FAMILY sandbox-isolation (1 rows): Local subprocess code execution
-- FAMILY api-websocket (2 rows): HTTP and WebSocket API, HTTP and WebSocket gateway
-- FAMILY process-management (2 rows): Background process management, Long-running process management
-- FAMILY flow-crud (1 rows): Flow CRUD API
-- FAMILY flow-execution (1 rows): Flow run API
-- FAMILY callback-system (1 rows): Callback and event hooks
-- FAMILY framework-adapters (1 rows): Python API SDK
-- FAMILY adapter-system (3 rows): Chat adapter, JSON adapter, XML adapter
-- FAMILY permissions (1 rows): Human approval for tool calls
-- FAMILY framework-tools (1 rows): Function and component tools
-- FAMILY tool-discovery (1 rows): Toolsets and searchable toolsets
-- FAMILY code-execution (3 rows): Code execution, CodeAgent, Code execution tool
-- FAMILY tool-calling (1 rows): ToolCallingAgent
-- FAMILY sandbox-execution (3 rows): Remote sandbox execution, Sandboxed code execution, Sandbox shell execution
-- FAMILY tool-definition (1 rows): User-defined tools
-- FAMILY tool-deferral (1 rows): Deferred tool calls
-- FAMILY approval-workflow (1 rows): Terminal execution approvals
-- FAMILY vision (1 rows): Optional vision-based page understanding
-- FAMILY desktop-automation (1 rows): Remote computer configuration
-- FAMILY research-pipeline (5 rows): STORM long-form article pipeline, Multi-perspective persona generation, Outline generation, Citation-grounded article generation, Article polishing
-- FAMILY gateway (1 rows): Gateway runtime
-- FAMILY development-tools (1 rows): Language Server Protocol client
-- FAMILY graph-execution (1 rows): Graph execution runtime
-- FAMILY multimodal-input (1 rows): Rich message and file handling
-- FAMILY provider-actions (1 rows): Provider effect actions
+- [x] FAMILY agent-specialist (31 rows): Planner agent, ReAct agent, Subtask-aware agent execution, Subagent spawning, Agent thread creation, Subagent prompts, Reviewer agent, Role-based software-development pipeline, Message routing between roles, Data Interpreter agent, Multi-role agent loop, Agent spawning … — done (0.14.0): src/specialist-styles.ts, src/orchestration.ts; tests/orchestration-2.test.mjs
+- [x] FAMILY file-editing (4 rows): Patch application, Project code editing, Multi-file change generation and review, Multiple edit formats — done (0.14.0): src/patch.ts, src/code-change.ts; tests/orchestration-2.test.mjs
+- [x] FAMILY tooling (1 rows): Tool-call inspection — done (0.14.0): src/inspect.ts; tests/web-ui.test.mjs U2 Look inside
+- [x] FAMILY agent-orchestration (1 rows): Agent-computer interface — done (0.14.0): coder style plus src/code-map.ts toolboxes; tests/code-ide.test.mjs
+- [ ] FAMILY workflow-hooks (1 rows): Patch application hook — partial: hooks fire on file.changed and tool.completed, not on applying a patch itself
+- [x] FAMILY sandbox-isolation (1 rows): Local subprocess code execution — done (0.14.0): src/code-run.ts subprocess with limits; tests/orchestration-2.test.mjs
+- [x] FAMILY api-websocket (2 rows): HTTP and WebSocket API, HTTP and WebSocket gateway — done (0.14.0): src/server.ts and src/ws.ts; tests/guardrails.test.mjs
+- [x] FAMILY process-management (2 rows): Background process management, Long-running process management — done (0.14.0): src/processes.ts start, list, read, stop; tests/orchestration-2.test.mjs
+- [x] FAMILY flow-crud (1 rows): Flow CRUD API — done (0.14.0): src/flows.ts over HTTP; tests/orchestration-2.test.mjs
+- [x] FAMILY flow-execution (1 rows): Flow run API — done (0.14.0): src/flows.ts runs and reports each step; tests/orchestration-2.test.mjs
+- [x] FAMILY callback-system (1 rows): Callback and event hooks — done (0.14.0): src/hooks.ts and src/streams.ts events; tests/guardrails.test.mjs
+- [ ] FAMILY framework-adapters (1 rows): Python API SDK — not done
+- [ ] FAMILY adapter-system (3 rows): Chat adapter, JSON adapter, XML adapter — not done
+- [x] FAMILY permissions (1 rows): Human approval for tool calls — done (0.14.0): src/approvals.ts asks per tool call; tests/approvals.test.mjs
+- [x] FAMILY framework-tools (1 rows): Function and component tools — not applicable: Python function and component wrapping; Branch's tools are TypeScript
+- [x] FAMILY tool-discovery (1 rows): Toolsets and searchable toolsets — done (0.14.0): src/tool-index.ts, src/catalog.ts searchable groups; tests/tool-loading.test.mjs
+- [x] FAMILY code-execution (3 rows): Code execution, CodeAgent, Code execution tool — done (0.14.0): src/code-run.ts runs JavaScript and Python; tests/orchestration-2.test.mjs
+- [x] FAMILY tool-calling (1 rows): ToolCallingAgent — done (0.14.0): src/runtime.ts tool loop; tests/runtime.test.mjs
+- [ ] FAMILY sandbox-execution (3 rows): Remote sandbox execution, Sandboxed code execution, Sandbox shell execution — partial: scripts run under job limits on this computer; no real sandbox and no remote runner
+- [x] FAMILY tool-definition (1 rows): User-defined tools — done (0.14.0): src/openapi-tools.ts and src/skill-http-tools.ts; tests/code-ide.test.mjs
+- [x] FAMILY tool-deferral (1 rows): Deferred tool calls — done (0.14.0): src/deferred.ts follow-up queue; tests/orchestration-2.test.mjs
+- [x] FAMILY approval-workflow (1 rows): Terminal execution approvals — done (0.14.0): src/approvals.ts gates each command; tests/approvals.test.mjs
+- [x] FAMILY vision (1 rows): Optional vision-based page understanding — done (0.14.0): element pictures and numbered marks; tests/browser-2.test.mjs
+- [x] FAMILY desktop-automation (1 rows): Remote computer configuration — not applicable: configuring a remote computer; Branch drives this one
+- [ ] FAMILY research-pipeline (5 rows): STORM long-form article pipeline, Multi-perspective persona generation, Outline generation, Citation-grounded article generation, Article polishing — partial: deep research cites its sources; no persona, outline or polishing stages
+- [ ] FAMILY gateway (1 rows): Gateway runtime — partial: one local router fronts every channel; no multi-node gateway
+- [x] FAMILY development-tools (1 rows): Language Server Protocol client — done (0.14.0): src/language-server.ts; tests/code-ide.test.mjs
+- [x] FAMILY graph-execution (1 rows): Graph execution runtime — done (0.14.0): src/flows.ts nodes and edges; tests/orchestration-2.test.mjs
+- [ ] FAMILY multimodal-input (1 rows): Rich message and file handling — partial: channels transcribe and answer voice notes; pictures and files over a channel are still text only
+- [ ] FAMILY provider-actions (1 rows): Provider effect actions — not done
 - A0186 [partial/M] Plan mode (in 2 projects): Branch supports task planning via prompts but lacks a formal plan-mode toggle that gates tool availability.
 - A0959 [partial/M] Handoffs (in 2 projects): Branch delegates between specialists; no explicit handoff objects or filters.
 - A0110 [partial/M] Plan and Act modes (in 1 projects): Branch has investigation tools (shell, web read, browser) available in all runs; no dual-mode toggle gating tool access.
@@ -83,8 +94,8 @@
 
 ## models.cloud-providers — 11 pieces (92 rows) {'S': 13, 'M': 71, '?': 3, 'L': 5}
 
-- FAMILY model-provider (6 rows): Multi-provider model configuration, Provider diagnostics, Gemini provider, Codex OAuth provider, Embedding provider: voyageai, LiteLLM model adapters
-- FAMILY provider-adapter (77 rows): Google Gemini provider, Azure OpenAI models, Local Ollama models, OpenAI and Azure OpenAI, Hugging Face inference, Gemini models, Google Gemini, Google Gemini models, Hosted model providers, Provider catalog updates, Groq models, LiteLLM model backend …
+- [x] FAMILY model-provider (6 rows): Multi-provider model configuration, Provider diagnostics, Gemini provider, Codex OAuth provider, Embedding provider: voyageai, LiteLLM model adapters — done (0.14.0): src/provider-catalog.ts, src/provider-health.ts; tests/providers-2.test.mjs
+- [x] FAMILY provider-adapter (77 rows): Google Gemini provider, Azure OpenAI models, Local Ollama models, OpenAI and Azure OpenAI, Hugging Face inference, Gemini models, Google Gemini, Google Gemini models, Hosted model providers, Provider catalog updates, Groq models, LiteLLM model backend … — done (0.14.0): data/providers.json 38 services incl. Bedrock, Azure, Gemini; tests/providers-2.test.mjs
 - A0051 [missing/S] Sign in with Google (in 1 projects): Only ChatGPT and API-key auth; no Google OAuth.
 - A0167 [partial/M] Local model serving (in 1 projects): OpenAI-compatible local models work; no bundled serving.
 - A0498 [partial/M] Local/open models through compatible APIs (in 1 projects): OpenAI-compatible local models work; no bundled serving.
@@ -97,11 +108,11 @@
 
 ## documents-and-rag — 41 pieces (71 rows) {'L': 56, 'M': 13, 'S': 2}
 
-- FAMILY file-operations (1 rows): File ingestion
-- FAMILY storage-adapter (23 rows): Storage adapter: chroma, Storage adapter: clickhouse, Storage adapter: cloudflare, Storage adapter: cloudflare-d1, Storage adapter: convex, Storage adapter: couchbase, Storage adapter: dsql, Storage adapter: duckdb, Storage adapter: elasticsearch, Storage adapter: lance, Storage adapter: libsql, Storage adapter: mongodb …
-- FAMILY doc-processing (8 rows): Document converters and preprocessors, PDF reader tool, Document and dataframe ingestion, Document parsers including PDF, Local-document research, Document processing, Office generation, Document ingestion and parsing
-- FAMILY file-tools (2 rows): File upload and trusted-folder mount, File upload and processing
-- FAMILY file-attachments (1 rows): File upload and attachment
+- [x] FAMILY file-operations (1 rows): File ingestion — done (0.14.0): documents.add, read, re-read, remove; tests/documents.test.mjs
+- [x] FAMILY storage-adapter (23 rows): Storage adapter: chroma, Storage adapter: clickhouse, Storage adapter: cloudflare, Storage adapter: cloudflare-d1, Storage adapter: convex, Storage adapter: couchbase, Storage adapter: dsql, Storage adapter: duckdb, Storage adapter: elasticsearch, Storage adapter: lance, Storage adapter: libsql, Storage adapter: mongodb … — not applicable: external hosted databases; Branch keeps its vectors in its own store
+- [ ] FAMILY doc-processing (8 rows): Document converters and preprocessors, PDF reader tool, Document and dataframe ingestion, Document parsers including PDF, Local-document research, Document processing, Office generation, Document ingestion and parsing — partial: Word, spreadsheet, CSV and HTML are read; PDFs still need a helper and nothing writes Office files
+- [x] FAMILY file-tools (2 rows): File upload and trusted-folder mount, File upload and processing — done (0.14.0): src/documents.ts upload and workspace mount; tests/documents.test.mjs
+- [x] FAMILY file-attachments (1 rows): File upload and attachment — done (0.14.0): composer picture chip and CLI --attach; tests/media.test.mjs
 - A0867 [missing/L] RAG knowledge bases (in 2 projects): RAG not implemented.
 - A1260 [missing/L] RAG (in 2 projects): Vector and hosted retrieval for documents; Branch does not support embeddings.
 - A1941 [missing/L] Knowledge-base RAG (in 2 projects): Knowledge-base RAG with ranking requires vector retrieval and BM25 sparse search; missing.
@@ -141,17 +152,17 @@
 
 ## dashboards-and-observability — 58 pieces (58 rows) {'S': 16, 'L': 10, 'M': 32}
 
-- FAMILY event-emission (1 rows): Session event emission
-- FAMILY agent-specialist (1 rows): Live Agent Hub
-- FAMILY prometheus-metrics (1 rows): Prometheus metrics
-- FAMILY application-logging (1 rows): Application logs and tracing
-- FAMILY runtime-logging (1 rows): Runtime logging
-- FAMILY audit-logging (1 rows): Audit log
-- FAMILY diagnostics-logging (1 rows): Event-loop diagnostics
-- FAMILY feedback-diagnostics (1 rows): Feedback diagnostics and logs
-- FAMILY trace-collection (1 rows): Agent traces and metrics
-- FAMILY cost-display (1 rows): Usage and cost ledger
-- FAMILY analytics-dashboard (1 rows): Performance and token telemetry
+- [x] FAMILY event-emission (1 rows): Session event emission — done (0.14.0): src/store.ts events over SSE and WebSocket; tests/polish-observability.test.mjs D3
+- [x] FAMILY agent-specialist (1 rows): Live Agent Hub — done (0.14.0): Activity live feed and the inspector; tests/polish-observability.test.mjs D3
+- [x] FAMILY prometheus-metrics (1 rows): Prometheus metrics — done (0.14.0): src/metrics.ts counters page; tests/tracing-policy.test.mjs T3
+- [x] FAMILY application-logging (1 rows): Application logs and tracing — done (0.14.0): src/tracing.ts spans plus run events; tests/tracing-policy.test.mjs T1
+- [x] FAMILY runtime-logging (1 rows): Runtime logging — done (0.14.0): src/activity.ts and the store's events; tests/polish-observability.test.mjs
+- [x] FAMILY audit-logging (1 rows): Audit log — done (0.14.0): src/audit.ts unedited record; tests/sdk-misc.test.mjs
+- [ ] FAMILY diagnostics-logging (1 rows): Event-loop diagnostics — not done
+- [x] FAMILY feedback-diagnostics (1 rows): Feedback diagnostics and logs — done (0.14.0): src/diagnostics.ts redacted folder; tests/cost-trace.test.mjs
+- [x] FAMILY trace-collection (1 rows): Agent traces and metrics — done (0.14.0): src/tracing.ts and src/tracing-export.ts; tests/tracing-policy.test.mjs
+- [x] FAMILY cost-display (1 rows): Usage and cost ledger — done (0.14.0): src/usage.ts and src/pricing.ts month card; tests/cost-trace.test.mjs
+- [x] FAMILY analytics-dashboard (1 rows): Performance and token telemetry — done (0.14.0): src/metrics.ts and the usage screen; tests/polish-observability.test.mjs D1 and D4
 - A0202 [partial/M] Usage and cost accounting (in 4 projects): Token usage tracked in database; cost accounting not implemented.
 - A0269 [partial/S] Usage and cost tracking (in 2 projects): Token usage recorded in database; display in UI missing.
 - A0057 [partial/S] Session token and latency statistics (in 1 projects): Per-session token counts tracked in usage table; aggregate display in evaluation suite with latency but cost not calculated.
@@ -202,9 +213,9 @@
 
 ## messaging-channels — 14 pieces (55 rows) {'M': 46, 'S': 2, 'L': 7}
 
-- FAMILY webhooks (1 rows): Slack-triggered automations
-- FAMILY channel-adapter (36 rows): Discord adapter, Telegram integration, WhatsApp channel, Discord context, Slack, Slack reader/tools, GitHub signal triggers, Slack bot, Discord bot, Feishu/Lark and WeCom, Discord bot example, WhatsApp MCP example …
-- FAMILY messaging-channel (7 rows): Slack channel, Discord channel, Messaging channels, Feishu channel, WeChat iLink channel, WeChat gateway channel, DingTalk channel
+- [ ] FAMILY webhooks (1 rows): Slack-triggered automations — partial: signed webhook triggers start tasks, but nothing subscribes to Slack's own events
+- [ ] FAMILY channel-adapter (36 rows): Discord adapter, Telegram integration, WhatsApp channel, Discord context, Slack, Slack reader/tools, GitHub signal triggers, Slack bot, Discord bot, Feishu/Lark and WeCom, Discord bot example, WhatsApp MCP example … — partial: Telegram, Discord, Slack, WhatsApp and email ship; Signal, Matrix, Teams, iMessage and the Chinese apps do not
+- [ ] FAMILY messaging-channel (7 rows): Slack channel, Discord channel, Messaging channels, Feishu channel, WeChat iLink channel, WeChat gateway channel, DingTalk channel — partial: Slack and Discord ship; Feishu, WeChat and DingTalk do not
 - A0115 [partial/M] Messaging connectors (in 1 projects): Telegram channel exists; messaging connectors not supported.
 - A2014 [missing/L] Multi-platform messaging adapters (in 1 projects): Multi-platform messaging adapters not implemented.
 - A2034 [missing/L] Messaging channel adapters (in 1 projects): Messaging channel adapters not implemented.
@@ -219,7 +230,7 @@
 
 ## other — 55 pieces (55 rows) {'M': 40, 'L': 11, 'S': 3, '?': 1}
 
-- FAMILY language-specific (1 rows): Native-code plugins
+- [x] FAMILY language-specific (1 rows): Native-code plugins — not applicable: native-code plugins; Branch's plugins are JavaScript
 - A0758 [missing/M] HTTP API (in 3 projects): http api not implemented.
 - A0817 [missing/M] Retriever abstraction (in 2 projects): No implementation found.
 - A0995 [missing/L] Reranking (in 2 projects): RAG not implemented.
@@ -277,9 +288,9 @@
 
 ## evaluation-and-benchmarks — 51 pieces (52 rows) {'M': 10, 'L': 38, 'S': 4}
 
-- FAMILY evaluation-framework (2 rows): Evaluation and replay framework, Chat quality evaluation
-- FAMILY provider-testing (1 rows): Provider matrix tests
-- FAMILY benchmark-harness (1 rows): Evaluation harness
+- [x] FAMILY evaluation-framework (2 rows): Evaluation and replay framework, Chat quality evaluation — done (0.14.0): src/evaluation-suites.ts, src/evaluation-runner.ts; tests/evaluation-more.test.mjs
+- [x] FAMILY provider-testing (1 rows): Provider matrix tests — done (0.14.0): one suite across two model choices; tests/evaluation-more.test.mjs
+- [x] FAMILY benchmark-harness (1 rows): Evaluation harness — done (0.14.0): src/evaluation.ts with history and grading; tests/evaluation-more.test.mjs
 - A0570 [missing/L] Benchmark harness (in 2 projects): No benchmark runner for evaluating agents on standard tasks.
 - A0926 [missing/L] Evaluation runner (in 2 projects): No evaluation runner for programs over test sets with metrics.
 - A0078 [missing/M] Agent tool evaluations (in 1 projects): No dedicated evaluation harnesses for individual tools; integration tests only.
@@ -331,22 +342,22 @@
 
 ## browser-automation — 26 pieces (51 rows) {'S': 19, 'M': 20, 'L': 12}
 
-- FAMILY browser-persistence (1 rows): Stateful browser automation
-- FAMILY web-access (2 rows): Web search and page reading tools, Browserbase Search and Fetch
-- FAMILY vision-browser (1 rows): Vision web browser
-- FAMILY desktop-automation (2 rows): Computer-use tool abstraction, Virtual computer abstraction
-- FAMILY framework-tools (1 rows): Toolkit abstraction
-- FAMILY hybrid-tooling (1 rows): Hybrid browser automation
-- FAMILY examples (1 rows): Browser-agent example
-- FAMILY browser-automation (22 rows): Search-engine query action, Browserbase remote operator, Browser-agent SDK, Natural-language actions, Page observation, Visual browser operation, Persistent browser daemon, Raw CDP access, Accessibility-tree element targeting, Download handling, Browser task execution, Fara browser agent …
-- FAMILY extraction (3 rows): LLM-assisted page extraction, Browser-based scraping, Structured extraction
-- FAMILY tool-definition (1 rows): Custom typed action registry
-- FAMILY resilience (1 rows): Self-healing actions
-- FAMILY cloud-compute (1 rows): Browserbase remote sessions
-- FAMILY doc-processing (1 rows): PDF text extraction
-- FAMILY trace-capture (1 rows): Playwright trace capture
-- FAMILY document-processing (1 rows): Document extraction
-- FAMILY remote-execution (1 rows): Remote computers
+- [x] FAMILY browser-persistence (1 rows): Stateful browser automation — done (0.14.0): src/integrations/browser-profiles.ts, browser-session.ts; tests/browser-2.test.mjs
+- [x] FAMILY web-access (2 rows): Web search and page reading tools, Browserbase Search and Fetch — done (0.14.0): src/integrations/web.ts and web-search.ts; tests/web-pin-hygiene.test.mjs
+- [x] FAMILY vision-browser (1 rows): Vision web browser — done (0.14.0): numbered marks and element pictures; tests/browser-2.test.mjs
+- [x] FAMILY desktop-automation (2 rows): Computer-use tool abstraction, Virtual computer abstraction — done (0.14.0): src/integrations/computer.ts and desktop-tools.ts; tests/screen-control.test.mjs
+- [x] FAMILY framework-tools (1 rows): Toolkit abstraction — done (0.14.0): tool groups in src/catalog.ts; tests/catalog-diet.test.mjs
+- [x] FAMILY hybrid-tooling (1 rows): Hybrid browser automation — not applicable: hybrid Python and TypeScript toolkits; Branch is TypeScript
+- [x] FAMILY examples (1 rows): Browser-agent example — done (0.14.0): three shipped browser skills in src/browser-skills.ts; tests/browser-2.test.mjs
+- [x] FAMILY browser-automation (22 rows): Search-engine query action, Browserbase remote operator, Browser-agent SDK, Natural-language actions, Page observation, Visual browser operation, Persistent browser daemon, Raw CDP access, Accessibility-tree element targeting, Download handling, Browser task execution, Fara browser agent … — done (0.14.0): src/integrations/browser*.ts marks, healing, attach; tests/browser-2.test.mjs
+- [x] FAMILY extraction (3 rows): LLM-assisted page extraction, Browser-based scraping, Structured extraction — done (0.14.0): shaped extraction in src/integrations/browser-schema.ts; tests/browser-2.test.mjs
+- [x] FAMILY tool-definition (1 rows): Custom typed action registry — done (0.14.0): typed browser actions in src/browser-skills.ts; tests/browser-2.test.mjs
+- [x] FAMILY resilience (1 rows): Self-healing actions — done (0.14.0): src/integrations/browser-heal.ts renames heal by name; tests/browser-2.test.mjs
+- [x] FAMILY cloud-compute (1 rows): Browserbase remote sessions — not applicable: hosted cloud browsers; Branch drives this computer's browser
+- [ ] FAMILY doc-processing (1 rows): PDF text extraction — not done
+- [x] FAMILY trace-capture (1 rows): Playwright trace capture — done (0.14.0): src/integrations/browser-trace.ts kept recordings; tests/browser-2.test.mjs
+- [ ] FAMILY document-processing (1 rows): Document extraction — partial: Word, spreadsheet and HTML become text; a PDF still needs a helper Branch does not have
+- [x] FAMILY remote-execution (1 rows): Remote computers — not applicable: remote or cloud computers; Branch runs on this one
 - A2172 [partial/S] Browser-use automation (in 2 projects): Playwright automation exists; no Python runtime.
 - A1568 [missing/L] Domain-specific browser skills (in 1 projects): No domain-specific browser skills; generic browser automation only.
 - A1639 [missing/S] No browser file-upload control (in 1 projects): Browser tools support navigate/snapshot/click/fill only; no file-input handler.
@@ -360,11 +371,11 @@
 
 ## tracing-and-telemetry — 40 pieces (40 rows) {'L': 12, 'M': 25, 'N/A': 1, 'S': 2}
 
-- FAMILY otel-diagnostics (1 rows): OpenTelemetry diagnostics
-- FAMILY otel-export (1 rows): OTLP monitoring export
-- FAMILY otel-tracing (1 rows): OpenTelemetry traces
-- FAMILY otel-integration (1 rows): OpenTelemetry and Langfuse
-- FAMILY langfuse-integration (1 rows): Langfuse tracing plugin
+- [x] FAMILY otel-diagnostics (1 rows): OpenTelemetry diagnostics — done (0.14.0): src/tracing-shapes.ts OTLP spans and metrics; tests/tracing-policy.test.mjs T2
+- [x] FAMILY otel-export (1 rows): OTLP monitoring export — done (0.14.0): src/tracing-export.ts batches and retries; tests/tracing-policy.test.mjs T2
+- [x] FAMILY otel-tracing (1 rows): OpenTelemetry traces — done (0.14.0): src/tracing.ts nested spans and traceparent; tests/tracing-policy.test.mjs T1
+- [x] FAMILY otel-integration (1 rows): OpenTelemetry and Langfuse — done (0.14.0): OTLP, Langfuse and Langsmith destinations; tests/tracing-policy.test.mjs T2
+- [x] FAMILY langfuse-integration (1 rows): Langfuse tracing plugin — done (0.14.0): spansToLangfuse in src/tracing-shapes.ts; tests/tracing-policy.test.mjs T2
 - A0031 [missing/L] OpenTelemetry tracing (in 5 projects): No OpenTelemetry SDK or OTLP export integration present.
 - A0835 [missing/M] Telemetry (in 3 projects): No telemetry collection for agents/tasks/LLM calls.
 - A0972 [partial/M] Tracing (in 3 projects): Tool/completion execution recorded; no trace/span processors or export.
@@ -403,11 +414,11 @@
 
 ## web-ui — 40 pieces (40 rows) {'M': 26, 'L': 10, 'S': 4}
 
-- FAMILY sdk-react (1 rows): React SDK
-- FAMILY agent-specialist (1 rows): Human proxy/console agent
-- FAMILY user-intervention (1 rows): Live logs and intervention
-- FAMILY app-building (1 rows): App-builder SDK MCP server
-- FAMILY token-display (1 rows): Context/token usage display
+- [ ] FAMILY sdk-react (1 rows): React SDK — not done
+- [x] FAMILY agent-specialist (1 rows): Human proxy/console agent — done (0.14.0): src/ask-first.ts puts the question in the conversation; tests/web-ui.test.mjs U3
+- [x] FAMILY user-intervention (1 rows): Live logs and intervention — done (0.14.0): live row, Stop and steering; tests/web-ui.test.mjs U3
+- [ ] FAMILY app-building (1 rows): App-builder SDK MCP server — not done
+- [x] FAMILY token-display (1 rows): Context/token usage display — done (0.14.0): context meter from src/catalog.ts accounting; tests/web-ui.test.mjs U4
 - A0080 [partial/M] Agent Canvas web UI (in 1 projects): Web UI exists; specific framework/architecture may differ.
 - A0275 [missing/M] Visual web workflow console (in 1 projects): visual web workflow console not implemented.
 - A0285 [partial/M] Trajectory inspector web UI (in 1 projects): Web UI exists; specific framework/architecture may differ.
@@ -446,11 +457,11 @@
 
 ## voice-io — 21 pieces (40 rows) {'L': 9, 'M': 27, 'S': 4}
 
-- FAMILY model-provider (17 rows): Live voice provider, Voice provider: aws-nova-sonic, Voice provider: azure, Voice provider: cloudflare, Voice provider: deepgram, Voice provider: elevenlabs, Voice provider: gladia, Voice provider: google, Voice provider: google-gemini-live-api, Voice provider: inworld, Voice provider: mistral, Voice provider: modelslab …
-- FAMILY content-fetching (1 rows): YouTube transcript tool
-- FAMILY voice-io (4 rows): Speech-to-text input, Speech and text-to-speech, Speech transcription and TTS, Audio-capable model handling
-- FAMILY voice-input (1 rows): Speech-to-text
-- FAMILY voice (1 rows): Plugin-based speech and intent stack
+- [ ] FAMILY model-provider (17 rows): Live voice provider, Voice provider: aws-nova-sonic, Voice provider: azure, Voice provider: cloudflare, Voice provider: deepgram, Voice provider: elevenlabs, Voice provider: gladia, Voice provider: google, Voice provider: google-gemini-live-api, Voice provider: inworld, Voice provider: mistral, Voice provider: modelslab … — partial: OpenAI, Gemini, Windows and local whisper only; no Deepgram, ElevenLabs, Azure or the live-voice services
+- [ ] FAMILY content-fetching (1 rows): YouTube transcript tool — not done
+- [x] FAMILY voice-io (4 rows): Speech-to-text input, Speech and text-to-speech, Speech transcription and TTS, Audio-capable model handling — done (0.14.0): src/voice-stt.ts, voice-tts.ts, voice-talk.ts; tests/voice-providers.test.mjs
+- [x] FAMILY voice-input (1 rows): Speech-to-text — done (0.14.0): src/voice-stt.ts three shapes plus local; tests/voice-providers.test.mjs
+- [ ] FAMILY voice (1 rows): Plugin-based speech and intent stack — partial: speech in and out is built in; there is no pluggable speech or intent stack
 - A1995 [missing/L] Text-to-speech (in 2 projects): Text-to-speech synthesis not implemented in Branch Agent.
 - A0328 [missing/M] Voice-message input (in 1 projects): voice-message input not implemented.
 - A0654 [partial/M] Local voice-note transcription (in 1 projects): local voice-note transcription has some implementation; specific features may be missing.
@@ -470,8 +481,8 @@
 
 ## permissions-and-policies — 33 pieces (33 rows) {'M': 19, 'L': 6, 'S': 8}
 
-- FAMILY network-diagnostics (1 rows): Allowlisted network probes
-- FAMILY enterprise (1 rows): Enterprise agent-builder policies
+- [x] FAMILY network-diagnostics (1 rows): Allowlisted network probes — done (0.14.0): src/network-policy.ts and src/provider-probe.ts; tests/web-pin-hygiene.test.mjs
+- [x] FAMILY enterprise (1 rows): Enterprise agent-builder policies — not applicable: organisation-wide builder policy; Branch has one owner
 - A1805 [partial/M] Execution approvals (in 2 projects): user.ask pauses; not explicit execution approval protocol.
 - A0048 [partial/M] Policy engine for tool decisions (in 1 projects): Permission set checked; no fine-grained policy rules.
 - A0152 [partial/M] Approval modes (in 1 projects): user.ask for ask mode; no full approval policy.
@@ -506,16 +517,16 @@
 
 ## agent-interop — 15 pieces (32 rows) {'L': 22, '?': 1, 'M': 9}
 
-- FAMILY acp-support (11 rows): ACP server, Agent Client Protocol mode, ACP agent servers, ACP agent integration, Agent Client Protocol server, ACP bridge and daemon, Agent Client Protocol, ACP, ACP integration, ACP connectors, ACP server and embedded mode
-- FAMILY tool-registry (1 rows): Tool registry
-- FAMILY agent-protocol (1 rows): Agent Protocol task API
-- FAMILY a2a-interop (7 rows): A2A, A2A delegation, A2A protocol, A2A remote agents, A2A integration, A2A server, A2A connectors
-- FAMILY rest-api (1 rows): AgentOS REST runtime
-- FAMILY agent-specialist (2 rows): A2A agent, A2A agent protocol
-- FAMILY protocol-adapter (1 rows): ACP SDK adapter
-- FAMILY protocols (1 rows): Multi-protocol serving
-- FAMILY interop (1 rows): ACP bridge
-- FAMILY client-tools (1 rows): External client tools
+- [x] FAMILY acp-support (11 rows): ACP server, Agent Client Protocol mode, ACP agent servers, ACP agent integration, Agent Client Protocol server, ACP bridge and daemon, Agent Client Protocol, ACP, ACP integration, ACP connectors, ACP server and embedded mode — done (0.14.0): src/acp.ts and branch acp-serve; tests/interop-agents.test.mjs
+- [x] FAMILY tool-registry (1 rows): Tool registry — done (0.14.0): src/registry.ts with OpenAPI and skill tools added at runtime; tests/tool-loading.test.mjs
+- [ ] FAMILY agent-protocol (1 rows): Agent Protocol task API — partial: A2A tasks and an OpenAI-shaped endpoint exist; the Agent Protocol task API itself does not
+- [x] FAMILY a2a-interop (7 rows): A2A, A2A delegation, A2A protocol, A2A remote agents, A2A integration, A2A server, A2A connectors — done (0.14.0): src/a2a.ts, a2a-client.ts, a2a-routes.ts; tests/interop-agents.test.mjs
+- [x] FAMILY rest-api (1 rows): AgentOS REST runtime — done (0.14.0): src/server.ts routes plus packages/sdk client; tests/server.test.mjs
+- [x] FAMILY agent-specialist (2 rows): A2A agent, A2A agent protocol — done (0.14.0): A2A agent card, tasks and cancel; tests/interop-agents.test.mjs
+- [x] FAMILY protocol-adapter (1 rows): ACP SDK adapter — done (0.14.0): src/acp.ts speaks the protocol directly; tests/interop-agents.test.mjs
+- [x] FAMILY protocols (1 rows): Multi-protocol serving — done (0.14.0): HTTP, OpenAI-shaped, MCP, A2A and ACP; tests/interop-agents.test.mjs
+- [x] FAMILY interop (1 rows): ACP bridge — done (0.14.0): src/acp.ts bridge; tests/interop-agents.test.mjs
+- [ ] FAMILY client-tools (1 rows): External client tools — partial: the socket streams events one way; a client cannot register its own tools over it
 - A0429 [missing/M] Custom agent modes (in 1 projects): Custom agent modes not implemented; fixed identity/instructions only.
 - A0813 [partial/M] Schema-constrained agent responses (in 1 projects): Delegates check resultSchema; provider-native structured JSON not exposed.
 - A0969 [missing/M] Realtime multimodal agents (in 1 projects): realtime multimodal agents not implemented.
@@ -524,25 +535,25 @@
 
 ## mcp-server-mode — 23 pieces (30 rows) {'M': 17, 'L': 9, 'S': 4}
 
-- FAMILY mcp-enhancements (2 rows): MCP client integration, MCP context servers
-- FAMILY mcp-server-config (1 rows): MCP server configuration
-- FAMILY mcp-apps (1 rows): MCP Apps proxy
-- FAMILY mcp-client (1 rows): MCP plugin client
-- FAMILY mcp-transports (2 rows): MCP SSE transport, MCP client/server
-- FAMILY mcp-runtime (1 rows): MCP runtime
-- FAMILY mcp-server (5 rows): MCP server, MCP server mode, MCP server and browser tools, MCP stdio server, MCP run tools
-- FAMILY agentos-compat (1 rows): AgentOS MCP server endpoint
-- FAMILY mcp-types (1 rows): MCP client/server types
-- FAMILY mcp-workbench (1 rows): MCP workbench and tool adapters
-- FAMILY mcp-examples (1 rows): MCP transports
-- FAMILY mcp-resources (1 rows): MCP prompts and resources
-- FAMILY mcp-snapshots (1 rows): MCP tool references and snapshots
-- FAMILY mcp (2 rows): MCP HTTP server, Workspace MCP host
-- FAMILY examples (1 rows): MCP client integrations
-- FAMILY connection-lifecycle (1 rows): Per-run tool and MCP connection lifecycle
-- FAMILY user-settings (1 rows): Per-user MCP server settings
-- FAMILY mcp-api (1 rows): MCP API surface
-- FAMILY mcp-oauth (1 rows): MCP client with OAuth
+- [x] FAMILY mcp-enhancements (2 rows): MCP client integration, MCP context servers — done (0.14.0): src/integrations/mcp.ts client and src/mcp-apps.ts; tests/mcp-mode.test.mjs
+- [x] FAMILY mcp-server-config (1 rows): MCP server configuration — done (0.14.0): sharing settings with a tool list and snippets; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-apps (1 rows): MCP Apps proxy — done (0.14.0): src/mcp-apps.ts sandboxed frame; tests/mcp-mode.test.mjs C6
+- [x] FAMILY mcp-client (1 rows): MCP plugin client — done (0.14.0): src/integrations/mcp.ts per-task connections; tests/mcp-mode.test.mjs C5
+- [x] FAMILY mcp-transports (2 rows): MCP SSE transport, MCP client/server — done (0.14.0): streamable HTTP with an event stream, and stdio; tests/mcp-mode.test.mjs C1
+- [x] FAMILY mcp-runtime (1 rows): MCP runtime — done (0.14.0): src/mcp-lifecycle.ts; tests/mcp-mode.test.mjs C5
+- [x] FAMILY mcp-server (5 rows): MCP server, MCP server mode, MCP server and browser tools, MCP stdio server, MCP run tools — done (0.14.0): src/mcp-server.ts and branch mcp-serve; tests/mcp-server.test.mjs
+- [x] FAMILY agentos-compat (1 rows): AgentOS MCP server endpoint — done (0.14.0): src/mcp-server.ts endpoint; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-types (1 rows): MCP client/server types — done (0.14.0): src/mcp-tools.ts and src/mcp-stdio.ts; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-workbench (1 rows): MCP workbench and tool adapters — done (0.14.0): src/mcp-workbench.ts tries a server; tests/mcp-mode.test.mjs C7
+- [x] FAMILY mcp-examples (1 rows): MCP transports — done (0.14.0): connection snippets per client; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-resources (1 rows): MCP prompts and resources — done (0.14.0): resources and prompts served; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-snapshots (1 rows): MCP tool references and snapshots — done (0.14.0): src/mcp-snapshots.ts records the list shown; tests/mcp-mode.test.mjs C2
+- [x] FAMILY mcp (2 rows): MCP HTTP server, Workspace MCP host — done (0.14.0): src/mcp-server.ts over HTTP from the workspace; tests/mcp-server.test.mjs
+- [x] FAMILY examples (1 rows): MCP client integrations — done (0.14.0): copyable connection snippets carrying this install's address; tests/mcp-server.test.mjs
+- [x] FAMILY connection-lifecycle (1 rows): Per-run tool and MCP connection lifecycle — done (0.14.0): src/mcp-lifecycle.ts opens and closes per run; tests/mcp-mode.test.mjs C5
+- [x] FAMILY user-settings (1 rows): Per-user MCP server settings — done (0.14.0): connection settings kept per person; tests/mcp-mode.test.mjs C5
+- [x] FAMILY mcp-api (1 rows): MCP API surface — done (0.14.0): src/mcp-policy.ts and the settings routes; tests/mcp-server.test.mjs
+- [x] FAMILY mcp-oauth (1 rows): MCP client with OAuth — done (0.14.0): src/integrations/mcp-oauth.ts, key stays in the locker; tests/mcp-mode.test.mjs C4
 - A0169 [partial/M] MCP OAuth (in 2 projects): MCP client exists; OAuth depends on server.
 - A0636 [missing/M] Dry-run tool execution report (in 1 projects): No dry-run mode exists.
 - A1342 [missing/M] MCP preflight policy (in 1 projects): MCP tools registered at startup; no preflight policy validation.
@@ -550,8 +561,8 @@
 
 ## secrets-and-auth — 30 pieces (30 rows) {'M': 9, 'S': 9, 'L': 12}
 
-- FAMILY cloud-auth (1 rows): Vertex AI authentication
-- FAMILY mcp-oauth (1 rows): MCP OAuth
+- [x] FAMILY cloud-auth (1 rows): Vertex AI authentication — done (0.14.0): src/gemini-signin.ts bearer for Gemini and Vertex; tests/polish-observability.test.mjs G3
+- [x] FAMILY mcp-oauth (1 rows): MCP OAuth — done (0.14.0): src/integrations/mcp-oauth.ts code flow with PKCE; tests/mcp-mode.test.mjs C4
 - A0100 [missing/S] Session API-key authentication (in 1 projects): No per-session API-key authentication.
 - A0221 [missing/S] Command-based secret expansion (in 1 projects): No command-based secret expansion.
 - A0590 [missing/M] Secret scanning (in 1 projects): No secret scanning in skills.
@@ -583,34 +594,34 @@
 
 ## plugin-and-extension-system — 17 pieces (29 rows) {'L': 21, 'M': 6, 'S': 2}
 
-- FAMILY plugin-marketplace (2 rows): Plugin management, Plugin marketplace
-- FAMILY extension-packages (1 rows): CLI extension packages
-- FAMILY extension-lifecycle (1 rows): Configurable extensions
-- FAMILY plugin-system (6 rows): Plugin system, Plugin API, Plugin SDK and DevKit, Plugin SDK and extension loading, Plugin framework, Plugin API and webhooks
-- FAMILY plugin-lifecycle (2 rows): Plugin installation and lifecycle, Plugin manager and callbacks
-- FAMILY provider-bundles (1 rows): Provider bundle system
-- FAMILY framework-adapters (1 rows): MCP tools integration
-- FAMILY tool-adapters (1 rows): LangChain and Hub Space tool adapters
-- FAMILY plugin-loading (2 rows): Plugin loader, Plugin loading
-- FAMILY skill-isolation (1 rows): Managed skills
-- FAMILY claude-integration (1 rows): Claude plugin package
-- FAMILY external-frameworks (1 rows): Agent Skills integration
-- FAMILY skill-distribution (1 rows): ClawHub skill distribution
-- FAMILY pipeline-integration (1 rows): Pipelines plugin integration
-- FAMILY filter-system (1 rows): Functions and filters extension system
-- FAMILY manifest-system (1 rows): Demo extension contribution manifest
-- FAMILY extensions (5 rows): Search plugins, Plugin and extension hooks, Extension SDK, Bundled extensions, Mods
+- [ ] FAMILY plugin-marketplace (2 rows): Plugin management, Plugin marketplace — partial: plugins are installed and managed locally; there is deliberately no marketplace to browse
+- [ ] FAMILY extension-packages (1 rows): CLI extension packages — partial: skill and plugin packages install from one file; there is no CLI extension package format
+- [x] FAMILY extension-lifecycle (1 rows): Configurable extensions — done (0.14.0): a plugin adds nothing until switched on; tests/skills-plugins.test.mjs
+- [x] FAMILY plugin-system (6 rows): Plugin system, Plugin API, Plugin SDK and DevKit, Plugin SDK and extension loading, Plugin framework, Plugin API and webhooks — done (0.14.0): src/plugins.ts and src/plugin-catalog.ts manifests; tests/skills-plugins.test.mjs
+- [x] FAMILY plugin-lifecycle (2 rows): Plugin installation and lifecycle, Plugin manager and callbacks — done (0.14.0): src/plugins.ts install, enable, remove; tests/orchestration-2.test.mjs
+- [x] FAMILY provider-bundles (1 rows): Provider bundle system — done (0.14.0): src/provider-plugins.ts brings a model connection; tests/sdk-misc.test.mjs
+- [x] FAMILY framework-adapters (1 rows): MCP tools integration — done (0.14.0): src/integrations/mcp.ts tools; tests/mcp-mode.test.mjs
+- [x] FAMILY tool-adapters (1 rows): LangChain and Hub Space tool adapters — not applicable: LangChain and Hugging Face Python tool adapters
+- [x] FAMILY plugin-loading (2 rows): Plugin loader, Plugin loading — done (0.14.0): src/plugin-catalog.ts checks manifest and fingerprint; tests/orchestration-2.test.mjs
+- [x] FAMILY skill-isolation (1 rows): Managed skills — done (0.14.0): src/skill-governance.ts sets failing skills aside; tests/governance.test.mjs
+- [ ] FAMILY claude-integration (1 rows): Claude plugin package — not done
+- [x] FAMILY external-frameworks (1 rows): Agent Skills integration — done (0.14.0): src/skill-document.ts reads Agent Skills front matter; tests/skills-plugins.test.mjs
+- [x] FAMILY skill-distribution (1 rows): ClawHub skill distribution — done (0.14.0): src/registry.ts signed registry and registry-install.ts; tests/teams-registry.test.mjs
+- [ ] FAMILY pipeline-integration (1 rows): Pipelines plugin integration — not done
+- [ ] FAMILY filter-system (1 rows): Functions and filters extension system — partial: hooks and the content guard filter what passes; the owner cannot write filter functions
+- [x] FAMILY manifest-system (1 rows): Demo extension contribution manifest — done (0.14.0): src/plugins.ts manifest declares what a plugin contributes; tests/orchestration-2.test.mjs
+- [ ] FAMILY extensions (5 rows): Search plugins, Plugin and extension hooks, Extension SDK, Bundled extensions, Mods — partial: plugins, skills and hooks extend Branch; there are no search plugins or mods
 
 ## models.local-runtimes — 4 pieces (29 rows) {'?': 19, 'S': 3, 'M': 6, 'L': 1}
 
-- FAMILY provider-adapter (26 rows): Local Ollama models, Ollama local models, Local model endpoints, Local models, Local model support, Local model providers, Local model servers, Local LM Studio models, Local llama.cpp inference, Ollama integration, Ollama local-model adapter, Ollama local integration …
-- FAMILY model-serving (1 rows): Local inference server
+- [x] FAMILY provider-adapter (26 rows): Local Ollama models, Ollama local models, Local model endpoints, Local models, Local model support, Local model providers, Local model servers, Local LM Studio models, Local llama.cpp inference, Ollama integration, Ollama local-model adapter, Ollama local integration … — done (0.14.0): ollama, lm-studio, vllm, llama.cpp entries plus src/local-models.ts; tests/local-models.test.mjs
+- [x] FAMILY model-serving (1 rows): Local inference server — done (0.14.0): src/local-models.ts downloads, lists and loads; tests/local-models.test.mjs L1
 - A1788 [missing/S] Local model endpoints (in 2 projects): Local model endpoints not tested; Branch supports configured endpoints only.
 - A2365 [missing/S] Local LLMs (in 1 projects): Local LLM endpoints not tested.
 
 ## cli-and-tui — 23 pieces (23 rows) {'M': 20, 'S': 2, 'L': 1}
 
-- FAMILY custom-commands (1 rows): Custom commands
+- [ ] FAMILY custom-commands (1 rows): Custom commands — partial: saved procedures and skills are the owner's own; the terminal's slash commands are fixed
 - A0284 [missing/M] CLI (in 10 projects): cli not implemented.
 - A0205 [partial/M] Terminal UI (in 5 projects): Terminal streaming exists; full TUI panels not implemented.
 - A0007 [partial/M] Terminal user interface (in 2 projects): terminal user interface has some implementation; specific features may be missing.
@@ -636,29 +647,29 @@
 
 ## deployment-and-packaging — 19 pieces (21 rows) {'M': 8, 'L': 11, '?': 2}
 
-- FAMILY sandboxing (1 rows): Local execution with optional external isolation
-- FAMILY distributions (1 rows): Custom distributions
-- FAMILY sdk-python (3 rows): Python SDK, Python client, Python SDK/API client
-- FAMILY sdk-java (1 rows): Java SDK
-- FAMILY desktop-packaging (1 rows): Cross-platform Electron packaging
-- FAMILY deployment-integrations (1 rows): Netlify deployment
-- FAMILY language-specific (1 rows): Private compiled Go modules
-- FAMILY python-integration (1 rows): Custom primitive package isolation
-- FAMILY serialization (1 rows): Serialization and YAML marshalling
-- FAMILY hub-sharing (1 rows): Hugging Face Hub sharing
-- FAMILY external-frameworks (1 rows): Letta Agent SDK
-- FAMILY platform-support (1 rows): macOS and Windows/WSL quick-start deployment
-- FAMILY enterprise (1 rows): Enterprise feature boundary
-- FAMILY administration (1 rows): Administrative settings UI and APIs
-- FAMILY installers (1 rows): macOS, Linux and Windows installers
-- FAMILY host-integration (1 rows): A0 CLI host bridge
-- FAMILY installation (1 rows): Launcher and scripted installation
-- FAMILY hardware (1 rows): GPU-specific Compose profiles
+- [ ] FAMILY sandboxing (1 rows): Local execution with optional external isolation — partial: commands run in a Windows job with limits and no network; there is no container isolation
+- [ ] FAMILY distributions (1 rows): Custom distributions — not done
+- [ ] FAMILY sdk-python (3 rows): Python SDK, Python client, Python SDK/API client — not done
+- [x] FAMILY sdk-java (1 rows): Java SDK — not applicable: a Java client for a local TypeScript app
+- [ ] FAMILY desktop-packaging (1 rows): Cross-platform Electron packaging — partial: Electron packaging is built and tested for Windows only
+- [x] FAMILY deployment-integrations (1 rows): Netlify deployment — not applicable: hosting deploys; Branch runs on this computer
+- [x] FAMILY language-specific (1 rows): Private compiled Go modules — not applicable: private Go modules; Branch is TypeScript
+- [x] FAMILY python-integration (1 rows): Custom primitive package isolation — not applicable: Python environment isolation for primitives
+- [ ] FAMILY serialization (1 rows): Serialization and YAML marshalling — partial: skills are YAML and flows are JSON; there is no pipeline YAML marshalling
+- [x] FAMILY hub-sharing (1 rows): Hugging Face Hub sharing — not applicable: publishing to a public model hub; the skill registry is the owner's own
+- [x] FAMILY external-frameworks (1 rows): Letta Agent SDK — not applicable: an external agent app-server; Branch is self-contained
+- [ ] FAMILY platform-support (1 rows): macOS and Windows/WSL quick-start deployment — partial: the Windows install is built and tested; macOS and WSL are not
+- [x] FAMILY enterprise (1 rows): Enterprise feature boundary — not applicable: organisation and billing tiers; Branch has one owner
+- [x] FAMILY administration (1 rows): Administrative settings UI and APIs — done (0.14.0): settings screens and their routes; tests/shell-ui.test.mjs
+- [ ] FAMILY installers (1 rows): macOS, Linux and Windows installers — partial: a real Windows installer with an Uninstall entry; no macOS or Linux installer
+- [x] FAMILY host-integration (1 rows): A0 CLI host bridge — not applicable: another CLI's host bridge; Branch runs commands itself
+- [x] FAMILY installation (1 rows): Launcher and scripted installation — done (0.14.0): src/install/installer.ts and install-cli.ts; tests/deployment.test.mjs
+- [x] FAMILY hardware (1 rows): GPU-specific Compose profiles — not applicable: Docker Compose GPU profiles; Branch runs natively
 - A2406 [missing/L] Remote execution (in 1 projects): No SSH, RPC, or distributed execution; shell.execute is local only.
 
 ## memory-features — 20 pieces (20 rows) {'M': 13, 'L': 5, 'S': 2}
 
-- FAMILY research-pipeline (1 rows): Conversational knowledge curation
+- [x] FAMILY research-pipeline (1 rows): Conversational knowledge curation — done (0.14.0): src/memory-consolidate.ts daily curation with review; tests/governance.test.mjs
 - A0148 [partial/M] Persistent sessions (in 5 projects): No implementation found.
 - A0422 [missing/M] Long/short-term role memory (in 1 projects): Memory scopes facts to entities/attributes with optional agent scope, not role-keyed histories.
 - A0650 [missing/L] Automatic local long-term memory and RAG (in 1 projects): RAG not implemented.
@@ -681,7 +692,7 @@
 
 ## vector-and-hybrid-memory — 19 pieces (20 rows) {'L': 18, 'M': 2}
 
-- FAMILY storage-adapter (2 rows): Storage adapter: s3vectors, Storage adapter: vectorize
+- [x] FAMILY storage-adapter (2 rows): Storage adapter: s3vectors, Storage adapter: vectorize — not applicable: hosted cloud vector stores; Branch's vectors live in its own database
 - A0996 [missing/M] Vector-store abstraction (in 2 projects): No implementation found.
 - A0278 [missing/L] Vector-backed agent memory (in 1 projects): Vector memory not implemented.
 - A0417 [missing/L] Vector-store retrieval (in 1 projects): RAG not implemented.
@@ -703,9 +714,9 @@
 
 ## media-generation — 13 pieces (20 rows) {'S': 5, 'M': 13, 'L': 2}
 
-- FAMILY media-input (2 rows): Image input, Image prompt input
-- FAMILY multimodal-input (2 rows): Multimodal agent inputs, Multimodal message parts
-- FAMILY media-gen (6 rows): Inline image generation, Multimodal media processing, Recording-to-video pipeline, Media understanding, Video generation, Image painting workspace
+- [x] FAMILY media-input (2 rows): Image input, Image prompt input — done (0.14.0): src/media-images.ts image parts on the composer; tests/media.test.mjs
+- [x] FAMILY multimodal-input (2 rows): Multimodal agent inputs, Multimodal message parts — done (0.14.0): image, audio and video parts in src/media.ts; tests/media.test.mjs
+- [ ] FAMILY media-gen (6 rows): Inline image generation, Multimodal media processing, Recording-to-video pipeline, Media understanding, Video generation, Image painting workspace — partial: pictures are made and edited and media is read; there is no video generation or painting workspace
 - A1996 [missing/M] Image generation/display (in 1 projects): Image generation service integration not present.
 - A2025 [partial/M] Rich-media handling (in 1 projects): Web fetch returns text only; no image/audio upload in UI.
 - A2083 [missing/M] Image generation MCP server (in 1 projects): MCP support present but no image generation backend.
@@ -719,10 +730,10 @@
 
 ## desktop-automation — 15 pieces (18 rows) {'M': 8, 'L': 10}
 
-- FAMILY desktop-automation (4 rows): Desktop GUI operator, Screen capture and display selection, Cross-platform screenshot capture, Mouse control
-- FAMILY vision (1 rows): Screenshot-based perception
-- FAMILY capture (1 rows): Workflow recording
-- FAMILY hardware (1 rows): Hardware peripheral tools
+- [x] FAMILY desktop-automation (4 rows): Desktop GUI operator, Screen capture and display selection, Cross-platform screenshot capture, Mouse control — done (0.14.0): src/integrations/desktop-tools.ts and computer.ts; tests/screen-control.test.mjs
+- [x] FAMILY vision (1 rows): Screenshot-based perception — done (0.14.0): window photographs plus media.describe; tests/screen-control.test.mjs
+- [ ] FAMILY capture (1 rows): Workflow recording — not done
+- [x] FAMILY hardware (1 rows): Hardware peripheral tools — not applicable: GPIO and sensor peripherals
 - A0230 [missing/L] Computer-use automation (in 4 projects): computer-use automation not implemented.
 - A0032 [missing/M] App server protocol (in 1 projects): app server protocol not implemented.
 - A0464 [missing/M] Persistent desktop chat sessions (in 1 projects): Desktop application not implemented.
@@ -737,13 +748,13 @@
 
 ## skills-and-recipes — 17 pieces (17 rows) {'S': 8, 'M': 6, 'L': 3}
 
-- FAMILY rules-discovery (1 rows): Project and user rules
-- FAMILY skill-execution (1 rows): External executable skills
-- FAMILY playbook-system (1 rows): Playbook extensibility
-- FAMILY examples (1 rows): MCP example
-- FAMILY domain-specific-api (1 rows): Python library API
-- FAMILY sdks (1 rows): Skills and tool SDKs
-- FAMILY configuration (1 rows): Agent YAML specification
+- [x] FAMILY rules-discovery (1 rows): Project and user rules — done (0.14.0): project instructions in src/projects.ts and src/identity.ts; tests/projects-locker.test.mjs
+- [x] FAMILY skill-execution (1 rows): External executable skills — done (0.14.0): src/skill-http-tools.ts runs a skill's declared call; tests/skills-plugins.test.mjs
+- [x] FAMILY playbook-system (1 rows): Playbook extensibility — done (0.14.0): src/recipes.ts with inputs and result shapes; tests/recipes.test.mjs
+- [ ] FAMILY examples (1 rows): MCP example — not done
+- [x] FAMILY domain-specific-api (1 rows): Python library API — not applicable: a Python library API; Branch is TypeScript
+- [x] FAMILY sdks (1 rows): Skills and tool SDKs — done (0.14.0): packages/sdk client and src/skill-authoring.ts; tests/sdk-misc.test.mjs
+- [x] FAMILY configuration (1 rows): Agent YAML specification — done (0.14.0): src/skill-document.ts YAML front matter; tests/skills-plugins.test.mjs
 - A0147 [partial/S] Reusable workflows (in 1 projects): Branch procedures are reusable task sequences with parameters; no dedicated command/UI for browsing and loading them.
 - A0468 [partial/S] Plan creation and approval (in 1 projects): Plans created as procedures with inputs/outputs; no explicit approval/rejection states.
 - A0608 [partial/M] Self-evolving skills (in 1 projects): Skills stored in database and scanned; no autonomous creation or self-revision.
@@ -757,7 +768,7 @@
 
 ## models.routing-and-cost — 1 pieces (16 rows) {'?': 10, 'L': 2, 'M': 4}
 
-- FAMILY provider-adapter (16 rows): Multi-provider models, Multi-provider model support, Multiple LLM providers, Multiple hosted model providers, Multi-provider model catalog, LiteLLM multi-provider access, Multi-provider LLM abstraction, Multi-provider LLM facade, Model packs and multi-provider composition, Multi-provider model components, Multi-provider model adapters, Multi-provider model clients …
+- [x] FAMILY provider-adapter (16 rows): Multi-provider models, Multi-provider model support, Multiple LLM providers, Multiple hosted model providers, Multi-provider model catalog, LiteLLM multi-provider access, Multi-provider LLM abstraction, Multi-provider LLM facade, Model packs and multi-provider composition, Multi-provider model components, Multi-provider model adapters, Multi-provider model clients … — done (0.14.0): data/providers.json plus src/local-routing.ts profiles; tests/providers-2.test.mjs
 
 ## sandboxing-and-isolation — 15 pieces (15 rows) {'M': 10, 'S': 2, 'L': 3}
 
@@ -779,21 +790,21 @@
 
 ## file-and-code-tools — 10 pieces (13 rows) {'M': 9, 'L': 1, 'S': 3}
 
-- FAMILY tooling (1 rows): File search and editing bundles
-- FAMILY file-editing (3 rows): Multi-file code editing, File editing and patching, Validated file editing
-- FAMILY editing-features (2 rows): Undo and redo, File checkpoints
-- FAMILY file-operations (1 rows): Path management
-- FAMILY agent-export (1 rows): Agent export/import
-- FAMILY browser-automation (1 rows): Browser session and profile management
-- FAMILY portability (1 rows): Agent import and export
+- [x] FAMILY tooling (1 rows): File search and editing bundles — done (0.14.0): files and code toolboxes in src/catalog.ts; tests/catalog-diet.test.mjs
+- [x] FAMILY file-editing (3 rows): Multi-file code editing, File editing and patching, Validated file editing — done (0.14.0): src/patch.ts and src/code-change.ts, all or nothing; tests/orchestration-2.test.mjs
+- [x] FAMILY editing-features (2 rows): Undo and redo, File checkpoints — done (0.14.0): src/workspace-history.ts undo, redo and checkpoints; tests/code-ide.test.mjs
+- [x] FAMILY file-operations (1 rows): Path management — done (0.14.0): files.list, files.find and files.delete in src/files.ts; tests/code-tools.test.mjs
+- [x] FAMILY agent-export (1 rows): Agent export/import — done (0.14.0): src/agent-export.ts writes and reads one file; tests/code-ide.test.mjs
+- [x] FAMILY browser-automation (1 rows): Browser session and profile management — done (0.14.0): src/integrations/browser-profiles.ts; tests/browser-2.test.mjs
+- [x] FAMILY portability (1 rows): Agent import and export — done (0.14.0): src/agent-export.ts and src/backup.ts; tests/code-ide.test.mjs
 - A0537 [missing/L] Project maps and syntax validation (in 1 projects): No syntax-aware parsing or tree-sitter project maps; file tools are generic.
 - A1183 [missing/M] Artifact services (in 1 projects): No versioned binary artifact storage; skills and procedures are text only.
 - A2359 [partial/M] Code generation and improvement (in 1 projects): Model can generate code; no dedicated refinement tools.
 
 ## context-management — 11 pieces (11 rows) {'M': 3, 'L': 2, 'S': 6}
 
-- FAMILY context-providers (1 rows): Custom context providers
-- FAMILY schema-system (1 rows): Pydantic input/output schemas
+- [ ] FAMILY context-providers (1 rows): Custom context providers — partial: knowledge bases, documents and pinned notes feed the context; there is no custom provider interface
+- [x] FAMILY schema-system (1 rows): Pydantic input/output schemas — done (0.14.0): Zod shapes for tools, recipes and delegated results; tests/recipes.test.mjs
 - A0074 [partial/M] Thread summarization/compaction (in 1 projects): Context management partial.
 - A0353 [partial/L] Repository-context completion (in 1 projects): RAG not implemented.
 - A0857 [partial/S] Token budget cost governance (in 1 projects): Token tracking exists; cost estimates not exposed to user.
@@ -806,19 +817,19 @@
 
 ## webhooks-and-triggers — 7 pieces (11 rows) {'M': 9, 'S': 1, 'L': 1}
 
-- FAMILY webhooks (5 rows): Webhook/event triggers, GitHub-triggered automations, Webhook execution, Workflow webhook delivery, Webhook ingress
-- FAMILY hook-system (1 rows): Lifecycle hooks
-- FAMILY web-access (1 rows): HTTP requests
-- FAMILY research-pipeline (1 rows): Autonomous web research
-- FAMILY api-tools (1 rows): Custom API tools
+- [x] FAMILY webhooks (5 rows): Webhook/event triggers, GitHub-triggered automations, Webhook execution, Workflow webhook delivery, Webhook ingress — done (0.14.0): src/triggers.ts and src/webhooks.ts, signed both ways; tests/triggers-webhooks.test.mjs
+- [x] FAMILY hook-system (1 rows): Lifecycle hooks — done (0.14.0): src/hooks.ts lifecycle hooks; tests/guardrails.test.mjs
+- [x] FAMILY web-access (1 rows): HTTP requests — done (0.14.0): web.fetch in src/integrations/web.ts under the network rules; tests/web-pin-hygiene.test.mjs
+- [x] FAMILY research-pipeline (1 rows): Autonomous web research — done (0.14.0): src/research.ts multi-page run with citations; tests/data-research.test.mjs
+- [x] FAMILY api-tools (1 rows): Custom API tools — done (0.14.0): src/openapi-tools.ts builds tools from a description; tests/code-ide.test.mjs
 - A1838 [missing/M] Outbound webhooks (in 2 projects): No outbound webhook delivery for agent events to external endpoints.
 - A1816 [partial/M] Webhook and hook triggers (in 1 projects): Local event hooks (run.finished, tool.completed, file.changed) exist; no external webhook triggers.
 
 ## git-integration — 9 pieces (11 rows) {'L': 2, 'M': 7, 'S': 2}
 
-- FAMILY git-integration (3 rows): GitHub and GitLab integrations, Git integration, GitHub repository publishing
-- FAMILY integrations (1 rows): GitHub App integration
-- FAMILY github-integration (1 rows): GitHub repository actions
+- [x] FAMILY git-integration (3 rows): GitHub and GitLab integrations, Git integration, GitHub repository publishing — done (0.14.0): src/integrations/git.ts, github.ts and gitlab.ts; tests/code-ide.test.mjs
+- [ ] FAMILY integrations (1 rows): GitHub App integration — not done
+- [x] FAMILY github-integration (1 rows): GitHub repository actions — done (0.14.0): src/integrations/github.ts issues, checks, releases; tests/code-ide.test.mjs
 - A0388 [partial/M] Pull requests (in 1 projects): shell.execute can run git, but no built-in PR creation or git push automation.
 - A0393 [missing/M] GitHub (in 1 projects): github not implemented.
 - A0435 [missing/S] Ignored-file access controls (in 1 projects): Fixed secret patterns; no .gitignore-style ignorefile.
@@ -828,11 +839,11 @@
 
 ## app-integrations — 10 pieces (10 rows) {'L': 7, 'S': 3}
 
-- FAMILY openai-compat (1 rows): OpenAPI/HTTP service
-- FAMILY openapi-plugins (1 rows): OpenAPI plugins
-- FAMILY examples (1 rows): Notion MCP example
-- FAMILY openclaw-integration (1 rows): OpenClaw integration
-- FAMILY integration-blocks (1 rows): Third-party application blocks
+- [x] FAMILY openai-compat (1 rows): OpenAPI/HTTP service — done (0.14.0): src/openai-compat.ts endpoint; tests/interop.test.mjs
+- [x] FAMILY openapi-plugins (1 rows): OpenAPI plugins — done (0.14.0): src/openapi.ts and src/openapi-tools.ts; tests/code-ide.test.mjs
+- [ ] FAMILY examples (1 rows): Notion MCP example — not done
+- [x] FAMILY openclaw-integration (1 rows): OpenClaw integration — not applicable: a different product's own integration
+- [ ] FAMILY integration-blocks (1 rows): Third-party application blocks — partial: GitHub, GitLab and Linear are built in; there is no third-party block catalogue
 - A0008 [missing/L] Language-server integration (in 1 projects): No language-server protocol integration or LSP client found.
 - A0612 [missing/L] Cursor-based source synchronization (in 1 projects): No data ingestion pipelines for Telegram, Gmail or GitHub.
 - A1895 [missing/L] Image generation API (in 1 projects): No image generation; model is text-only.
@@ -841,9 +852,9 @@
 
 ## codebase-search — 4 pieces (9 rows) {'M': 6, 'L': 2, 'S': 1}
 
-- FAMILY workspace-search (2 rows): Fuzzy repository file-path search, Project grep and path search
-- FAMILY codebase-search (5 rows): Repository search, Codebase search, Code search, Workspace grep, File grep and glob
-- FAMILY codebase-indexing (1 rows): Repository map
+- [x] FAMILY workspace-search (2 rows): Fuzzy repository file-path search, Project grep and path search — done (0.14.0): files.find puts the closest names first; tests/code-tools.test.mjs
+- [x] FAMILY codebase-search (5 rows): Repository search, Codebase search, Code search, Workspace grep, File grep and glob — done (0.14.0): files.grep and files.glob in src/code-search.ts; tests/code-tools.test.mjs
+- [x] FAMILY codebase-indexing (1 rows): Repository map — done (0.14.0): src/code-map.ts request-ordered map; tests/code-ide.test.mjs
 - A2128 [partial/M] Deep research workflow (in 1 projects): Web tools exist but no dedicated research coordinator.
 
 ## mobile-and-remote-access — 9 pieces (9 rows) {'L': 6, 'M': 3}
@@ -860,18 +871,18 @@
 
 ## data-and-analytics — 8 pieces (8 rows) {'M': 4, 'L': 1, 'S': 3}
 
-- FAMILY cost-tracking (1 rows): Run and block cost tracking
-- FAMILY cost-accounting (1 rows): Token usage and cost accounting
-- FAMILY usage-response (1 rows): Usage and token accounting
-- FAMILY telemetry-collection (1 rows): Anonymous telemetry
-- FAMILY message-costing (1 rows): Per-message cost accounting
-- FAMILY usage-stats (1 rows): Usage statistics
+- [x] FAMILY cost-tracking (1 rows): Run and block cost tracking — done (0.14.0): src/pricing.ts and per-run receipts; tests/cost-trace.test.mjs
+- [x] FAMILY cost-accounting (1 rows): Token usage and cost accounting — done (0.14.0): src/usage.ts carries money as well as tokens; tests/cost-trace.test.mjs
+- [x] FAMILY usage-response (1 rows): Usage and token accounting — done (0.14.0): src/usage.ts reported tokens per run; tests/usage.test.mjs
+- [x] FAMILY telemetry-collection (1 rows): Anonymous telemetry — not applicable: Branch collects nothing; the promise is written where the owner reads it
+- [x] FAMILY message-costing (1 rows): Per-message cost accounting — done (0.14.0): cost per round in src/usage.ts; tests/cost-trace.test.mjs
+- [x] FAMILY usage-stats (1 rows): Usage statistics — done (0.14.0): src/metrics.ts and the usage screen; tests/usage.test.mjs
 - A0504 [missing/M] Consent-gated analytics collection (in 1 projects): No analytics or consent flow.
 - A1082 [missing/L] Dataset and experiment management (in 1 projects): No datasets, experiment versioning or structured experiment evaluation (evaluation.ts is fixed suite only).
 
 ## scheduling-and-automation — 7 pieces (7 rows) {'M': 4, 'S': 1, 'L': 2}
 
-- FAMILY automation (1 rows): Scheduler tool
+- [x] FAMILY automation (1 rows): Scheduler tool — done (0.14.0): src/scheduler.ts with schedules.* tools; tests/automation.test.mjs
 - A0632 [partial/M] Delegation scheduler (in 1 projects): Branch delegates tasks and aggregates results; no explicit scheduler tracking independent executions.
 - A0697 [missing/M] Holiday-aware schedules (in 1 projects): Holiday calendar integration not implemented; schedules use cron only.
 - A0862 [partial/M] Durable workflows (in 1 projects): Branch delegates and schedules; no explicit durable workflow step/state persistence.
@@ -881,7 +892,7 @@
 
 ## multi-user-and-teams — 6 pieces (6 rows) {'L': 3, 'M': 3}
 
-- FAMILY multi-user (1 rows): Multi-user access boundaries
+- [x] FAMILY multi-user (1 rows): Multi-user access boundaries — done (0.14.0): src/profiles.ts household profiles kept apart; tests/collab-workflows.test.mjs
 - A0366 [partial/L] Team and group administration (in 1 projects): Branch does not support enterprise team/group administration schemas.
 - A1901 [partial/M] Conversation sharing (in 1 projects): Conversations can be exported/imported; no URL-based sharing.
 - A1999 [missing/M] Shared conversation links (in 1 projects): Shared conversation links require public endpoint and access control; not implemented.
@@ -890,13 +901,13 @@
 
 ## research-pipeline — 4 pieces (6 rows) {'S': 5, 'M': 1}
 
-- FAMILY agent-specialist (3 rows): Research agent, Researcher agent, Multi-agent research workflow example
+- [x] FAMILY agent-specialist (3 rows): Research agent, Researcher agent, Multi-agent research workflow example — done (0.14.0): researcher style plus src/research.ts; tests/data-research.test.mjs
 - A0742 [missing/S] Firecrawl web search (in 1 projects): Firecrawl web search not integrated; uses DuckDuckGo endpoint.
 - A0743 [missing/S] Scrapling page fetch (in 1 projects): Scrapling page fetch not integrated; uses playwright-based fetching.
 - A0931 [missing/M] Experimental citations and document types (in 1 projects): No citation normalization or citation-aware output rendering.
 
 ## ide-and-editor — 3 pieces (3 rows) {'L': 3}
 
-- FAMILY ide-integrations (1 rows): IDE integrations
-- FAMILY claude-integration (1 rows): Claude Code plugin
+- [x] FAMILY ide-integrations (1 rows): IDE integrations — done (0.14.0): src/acp.ts speaks to an editor; tests/interop-agents.test.mjs
+- [ ] FAMILY claude-integration (1 rows): Claude Code plugin — not done
 - A0192 [missing/L] Debug Adapter Protocol operations (in 1 projects): No Debug Adapter Protocol implementation.

@@ -47,6 +47,7 @@ import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
+import { ChannelConnectors, registerChannelTools } from "./channels/connectors.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
@@ -59,6 +60,7 @@ import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
+import { StudyRunner } from "./study.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
@@ -330,6 +332,12 @@ export async function createBranch(options: {
   const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
   plugins.providers = providerPlugins;
+  // Chat services a plugin brought, registered the same way a model connection is: available to
+  // connect, never connected on the plugin's own say-so.
+  const lockerSecret = (purpose: string) => async (name: string) =>
+    (await store.secrets.resolve(runtime.owner, "default", [name], { purpose }))[name]!;
+  const channelConnectors = new ChannelConnectors(channels, web.policy, lockerSecret("channel"), globalThis.fetch);
+  plugins.channels = channelConnectors;
   // Where plugins come from: a folder or one file on this computer, shown in full before it is
   // copied in, with its fingerprint kept so a file that changes later is noticed.
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
@@ -343,6 +351,8 @@ export async function createBranch(options: {
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
+  // A webhook's signing key lives in the locker with the other secrets, named rather than copied.
+  webhooks.secretFor = lockerSecret("webhook");
   runtime.notifyEvent = webhooks.notifier(runtime.owner);
   channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
@@ -358,12 +368,17 @@ export async function createBranch(options: {
   registerMonitors(registry, monitors);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
+  // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
+  registerChannelTools(registry, channels, brief, store.profiles);
   scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
   scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
+  // Wave 7: written-down experiments — a benchmark or suite across several model choices, run
+  // several at a time, checkpointed so a stopped study carries on rather than starting again.
+  const studies = new StudyRunner(store, runtime);
   // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
@@ -500,6 +515,8 @@ export async function createBranch(options: {
     practice,
     /** Model connections plugins have brought. */
     providerPlugins,
+    /** Chat services plugins have brought, and the channels connected from them. */
+    channelConnectors,
     /**
      * Searching, reading and commenting on issues, once the launcher has loaded the integration
      * settings. It stays null while no tracker is set up.
@@ -571,6 +588,8 @@ export async function createBranch(options: {
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
+    /** Wave 7: written-down experiments over suites and benchmarks, with checkpoints and resume. */
+    studies,
     triggers,
     webhooks,
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
@@ -761,7 +780,25 @@ export * from "./evaluation.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
 export * from "./evaluation-runner.js";
+// Wave 7 (benchmarks and experiments): scorers, gates, benchmark adapters, studies, and the
+// deterministic test doubles a plugin author writes their own tests with.
+export * from "./evaluation-scorers.js";
+export * from "./evaluation-run.js";
+export * from "./benchmarks.js";
+export * from "./benchmark-adapters.js";
+export * from "./benchmark-shell.js";
+export * from "./study.js";
+export * from "./tool-evaluations.js";
+export * from "./testing.js";
 export * from "./channels/deliveries.js";
+export * from "./channels/catalog.js";
+export * from "./channels/webhook-chat.js";
+export * from "./channels/meta-graph.js";
+export * from "./channels/matrix.js";
+export * from "./channels/signal-cli.js";
+export * from "./channels/connectors.js";
+export * from "./channels/docs-table.js";
+export * from "./json-template.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";
