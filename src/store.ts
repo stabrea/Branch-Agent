@@ -438,7 +438,7 @@ export class Store {
   ): Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }> {
     return this.db
       .prepare(
-        "SELECT id, run_id as runId, payload_summary as payloadSummary, status, created_at as createdAt FROM trigger_log WHERE trigger_id = ? AND owner = ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT id, run_id as runId, payload_summary as payloadSummary, status, created_at as createdAt FROM trigger_log WHERE trigger_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
       )
       .all(triggerId, owner, limit) as Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }>;
   }
@@ -463,7 +463,7 @@ export class Store {
   ): Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }> {
     return this.db
       .prepare(
-        "SELECT id, event_type as eventType, status, attempt, next_retry_at as nextRetryAt, created_at as createdAt FROM delivery_log WHERE webhook_id = ? AND owner = ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT id, event_type as eventType, status, attempt, next_retry_at as nextRetryAt, created_at as createdAt FROM delivery_log WHERE webhook_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
       )
       .all(webhookId, owner, limit) as Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }>;
   }

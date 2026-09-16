@@ -1598,10 +1598,15 @@ if (window.branchDesktop) {
     $("model-settings-note").textContent = "Connection saved. Quit from the tray and reopen Branch Agent to apply it.";
   });
 }
+let automations = null;
+import("./automations.js").then((module) => {
+  automations = module;
+  if (state) renderAutomations();
+}).catch(() => {});
 function renderAutomations() {
   const container = $("automations-container");
-  if (!container || typeof showAutomations !== "function") return;
-  container.replaceChildren(showAutomations());
+  if (!container || !automations || !state) return;
+  container.replaceChildren(automations.showAutomations(state, { el, api, toast, refresh }));
 }
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});

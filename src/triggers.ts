@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
-import type { Store } from "./store.js";
+import type { Store, SavedRecord } from "./store.js";
 import type { Runtime } from "./runtime.js";
-import { substitute, placeholders } from "./recipes.js";
+import { substitute } from "./recipes.js";
 
 /**
  * Inbound triggers: external apps fire webhooks to POST /api/triggers/:id/fire to start runs.
@@ -25,7 +25,7 @@ export interface TriggerState {
   id: string;
   name: string;
   prompt: string;
-  sessionId?: string;
+  sessionId?: string | undefined;
   enabled: boolean;
   rateLimitPerMinute: number;
   secret: string;
@@ -42,10 +42,13 @@ export interface BodyWithRaw {
 }
 
 /**
- * Read request body with raw buffer for HMAC verification.
- * Enforces the 256 KB limit specified in the requirements.
+ * Reads a request body, keeping the exact bytes so a signature can be checked against them,
+ * and refusing anything over the size limit.
  */
-export async function readBodyWithRaw(request: any, maximumBytes = 256 * 1024): Promise<BodyWithRaw> {
+export async function readBodyWithRaw(
+  request: AsyncIterable<Buffer | string>,
+  maximumBytes = 256 * 1024,
+): Promise<BodyWithRaw> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   const tooLarge = () => new Error(`Request exceeds ${maximumBytes / 1024} KiB`);
@@ -93,25 +96,18 @@ export class Triggers {
    * session ID. A random secret is generated and returned. The trigger starts enabled.
    */
   create(context: ToolContext, input: unknown): TriggerState {
-    if (!context.permissions.has("triggers.manage"))
-      throw new Error("Permission denied: triggers.manage");
-
+    // Owner-only setting: the gate is the local session token, as for channels and teams.
     const definition = TriggerSchema.parse(input);
     const id = randomUUID();
-    const secret = randomBytes(24).toString("hex");
-    const now = new Date().toISOString();
-
-    const data: TriggerConfig = {
+    this.store.save("triggers", context.owner, id, {
       name: definition.name,
       prompt: definition.prompt,
-      sessionId: definition.sessionId,
+      ...(definition.sessionId ? { sessionId: definition.sessionId } : {}),
       enabled: true,
       rateLimitPerMinute: definition.rateLimitPerMinute,
-      secret,
-    };
-
-    this.store.save("triggers", context.owner, id, data);
-    return { id, createdAt: now, updatedAt: now, ...data };
+      secret: definition.secret ?? randomBytes(24).toString("hex"),
+    });
+    return this.get(context.owner, id)!;
   }
 
   /**
@@ -119,28 +115,14 @@ export class Triggers {
    */
   get(owner: string, id: string): TriggerState | undefined {
     const record = this.store.get("triggers", owner, id);
-    if (!record) return undefined;
-    const data = record.data as TriggerConfig;
-    return {
-      id,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      ...data,
-    };
+    return record ? hydrate(record) : undefined;
   }
 
   /**
    * List all triggers for the owner.
    */
   list(owner: string): TriggerState[] {
-    return this.store
-      .list("triggers", owner)
-      .map((record) => ({
-        id: record.id,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
-        ...(record.data as TriggerConfig),
-      }));
+    return this.store.list("triggers", owner).map(hydrate);
   }
 
   /**
@@ -150,13 +132,25 @@ export class Triggers {
     const trigger = this.get(owner, id);
     if (!trigger) throw new Error("Trigger not found");
 
-    const newSecret = randomBytes(24).toString("hex");
-    this.store.save("triggers", owner, id, {
-      ...trigger,
-      secret: newSecret,
-    });
+    const secret = randomBytes(24).toString("hex");
+    this.saveState(owner, id, { ...trigger, secret });
+    return secret;
+  }
 
-    return newSecret;
+  /**
+   * Turn a trigger on or off. A trigger that is off refuses every incoming request.
+   */
+  setEnabled(owner: string, id: string, enabled: boolean): TriggerState {
+    const trigger = this.get(owner, id);
+    if (!trigger) throw new Error("Trigger not found");
+    this.saveState(owner, id, { ...trigger, enabled });
+    return this.get(owner, id)!;
+  }
+
+  /** Writes only the stored fields; the row's own id and timestamps never go into the blob. */
+  private saveState(owner: string, id: string, state: TriggerState): void {
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...data } = state;
+    this.store.save("triggers", owner, id, data);
   }
 
   /**
@@ -251,7 +245,7 @@ export class Triggers {
   /**
    * Get the trigger log (limited to last 50 entries).
    */
-  getLog(triggerId: string, owner: string): Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }> {
+  getLog(triggerId: string, owner: string): ReturnType<Store["getTriggerLog"]> {
     return this.store.getTriggerLog(triggerId, owner);
   }
 
@@ -315,7 +309,24 @@ export class Triggers {
 
     this.logFire(triggerId, owner, run.id, JSON.stringify(payload).slice(0, 256), run.status);
     this.store.event(run.id, "trigger.fired", { triggerId, trigger: trigger.name });
+    this.runtime.notifyEvent("trigger.fired", { triggerId, name: trigger.name, runId: run.id, status: run.status });
 
     return { runId: run.id, status: run.status };
   }
+}
+
+/** Row columns win over the stored blob, so a stale copy inside the blob can never leak out. */
+function hydrate(record: SavedRecord): TriggerState {
+  const data = record.data as Partial<TriggerState>;
+  return {
+    name: String(data.name ?? ""),
+    prompt: String(data.prompt ?? ""),
+    ...(data.sessionId ? { sessionId: data.sessionId } : {}),
+    enabled: data.enabled !== false,
+    rateLimitPerMinute: data.rateLimitPerMinute ?? 30,
+    secret: String(data.secret ?? ""),
+    id: record.id,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
 }

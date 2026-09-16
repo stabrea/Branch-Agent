@@ -1,194 +1,181 @@
-// Triggers and webhooks UI component for automations
-// Shows "When something happens elsewhere" (triggers) and "Tell another app" (webhooks)
+// Automations panel: inbound triggers ("when something happens elsewhere") and
+// outbound webhooks ("let another app know"). app.js imports this and passes the
+// current state plus its own small helpers, so nothing here depends on globals.
 
-let automationsPanel = null;
+/**
+ * Builds the panel. `helpers` supplies el, api, toast and refresh from app.js.
+ */
+export function showAutomations(state, helpers) {
+  const panel = helpers.el("div", undefined, "automations-panel");
+  panel.appendChild(triggersSection(state.triggers ?? [], helpers));
+  panel.appendChild(webhooksSection(state.webhooks ?? [], helpers));
+  return panel;
+}
 
-function showAutomations() {
-  const state = globalState;
-  const div = el("div", undefined, "automations-panel");
-
-  // Triggers section: When something happens elsewhere
-  const triggersSection = el("div", undefined, "automations-section");
-  triggersSection.appendChild(el("h3", "When something happens elsewhere"));
-  const triggersDesc = el("p", "Let other apps start work here. Each trigger gets its own URL and secret.", "automations-desc");
-  triggersSection.appendChild(triggersDesc);
-
-  if (state.triggers && state.triggers.length > 0) {
-    const triggersList = el("div", undefined, "automations-list");
-    for (const trigger of state.triggers) {
-      const item = el("div", undefined, "automations-item");
-      const header = el("div", undefined, "automations-item-header");
-
-      const nameEl = el("span", trigger.name, "automations-name");
-      header.appendChild(nameEl);
-
-      const enableSwitch = el("input");
-      enableSwitch.type = "checkbox";
-      enableSwitch.checked = trigger.enabled;
-      enableSwitch.className = "automations-toggle";
-      enableSwitch.onchange = async () => {
-        // TODO: Wire up enable/disable toggle
-        console.log("Toggle trigger:", trigger.id);
-      };
-      header.appendChild(enableSwitch);
-
-      item.appendChild(header);
-
-      const controls = el("div", undefined, "automations-controls");
-
-      const copyUrl = el("button", "Copy URL", "automations-btn-small");
-      copyUrl.onclick = () => {
-        const url = `${window.location.origin}/api/triggers/${trigger.id}/fire`;
-        navigator.clipboard.writeText(url);
-        toast("URL copied");
-      };
-      controls.appendChild(copyUrl);
-
-      const copySecret = el("button", "Copy secret", "automations-btn-small");
-      copySecret.onclick = () => {
-        navigator.clipboard.writeText(trigger.secret);
-        toast("Secret copied");
-      };
-      controls.appendChild(copySecret);
-
-      const rotateSecret = el("button", "Rotate secret", "automations-btn-small");
-      rotateSecret.onclick = async () => {
-        const result = await api("triggers/" + trigger.id + "/rotate-secret", {});
-        if (result.secret) {
-          toast("Secret rotated");
-          refresh();
-        }
-      };
-      controls.appendChild(rotateSecret);
-
-      item.appendChild(controls);
-
-      // Fire log
-      const logBtn = el("button", "Fire log", "automations-btn-small");
-      logBtn.onclick = async () => {
-        const log = await api("triggers/" + trigger.id + "/log");
-        if (log.log) {
-          const logText = log.log.map(entry =>
-            `${entry.createdAt}: ${entry.status} (run: ${entry.runId || "—"})`
-          ).join("\n");
-          alert(logText || "No fires yet");
-        }
-      };
-      item.appendChild(logBtn);
-
-      triggersList.appendChild(item);
+/** Runs a click handler, shows whatever went wrong instead of failing silently. */
+function onClick(helpers, node, handler) {
+  node.type = "button";
+  node.addEventListener("click", async () => {
+    node.disabled = true;
+    try {
+      await handler();
+    } catch (error) {
+      helpers.toast(error.message);
+    } finally {
+      node.disabled = false;
     }
-    triggersSection.appendChild(triggersList);
-  } else {
-    triggersSection.appendChild(el("p", "No triggers yet.", "automations-empty"));
+  });
+  return node;
+}
+
+function smallButton(helpers, label, handler) {
+  return onClick(helpers, helpers.el("button", label, "automations-btn-small"), handler);
+}
+
+/** A place under one item where its recent activity is written, instead of a pop-up. */
+function logArea(helpers) {
+  const area = helpers.el("pre", undefined, "automations-log");
+  area.hidden = true;
+  return area;
+}
+function writeLog(area, lines, empty) {
+  area.textContent = lines.length ? lines.join("\n") : empty;
+  area.hidden = false;
+}
+
+function section(helpers, title, description) {
+  const node = helpers.el("div", undefined, "automations-section");
+  node.appendChild(helpers.el("h3", title));
+  node.appendChild(helpers.el("p", description, "automations-desc"));
+  return node;
+}
+
+function triggersSection(triggers, helpers) {
+  const { el, api, toast, refresh } = helpers;
+  const wrap = section(
+    helpers,
+    "When something happens elsewhere",
+    "Let another app start a task here. Each one gets its own web address and a secret only that app should know.",
+  );
+  if (!triggers.length) wrap.appendChild(el("p", "Nothing set up yet.", "automations-empty"));
+  else {
+    const list = el("div", undefined, "automations-list");
+    for (const trigger of triggers) list.appendChild(triggerItem(trigger, helpers));
+    wrap.appendChild(list);
   }
-
-  const createTrigger = el("button", "Create trigger", "automations-btn");
-  createTrigger.onclick = async () => {
-    const name = prompt("Trigger name:");
+  wrap.appendChild(onClick(helpers, el("button", "Add one", "automations-btn"), async () => {
+    const name = window.prompt("What should this be called?");
     if (!name) return;
-    const prompt_text = prompt("Prompt template (use {{payload}} or {{field.path}}):");
-    if (!prompt_text) return;
-    const result = await api("triggers", { name, prompt: prompt_text });
-    if (result.id) {
-      toast("Trigger created");
-      refresh();
-    }
-  };
-  triggersSection.appendChild(createTrigger);
+    const text = window.prompt("What should the assistant do? Use {{payload}} for everything the app sends, or {{field.name}} for one part of it.");
+    if (!text) return;
+    await api("triggers", { name, prompt: text });
+    toast("Added. Copy its web address and secret into the other app.");
+    await refresh();
+  }));
+  return wrap;
+}
 
-  div.appendChild(triggersSection);
+function triggerItem(trigger, helpers) {
+  const { el, api, toast, refresh } = helpers;
+  const item = el("div", undefined, "automations-item");
+  const header = el("div", undefined, "automations-item-header");
+  header.appendChild(el("span", trigger.name + (trigger.enabled ? "" : " (turned off)"), trigger.enabled ? "automations-name" : "automations-name automations-disabled"));
+  item.appendChild(header);
+  item.appendChild(el("div", `${window.location.origin}/api/triggers/${trigger.id}/fire`, "automations-url"));
 
-  // Webhooks section: Tell another app
-  const webhooksSection = el("div", undefined, "automations-section");
-  webhooksSection.appendChild(el("h3", "Tell another app"));
-  const webhooksDesc = el("p", "Notify external endpoints when things happen. Delivery is signed with your secret.", "automations-desc");
-  webhooksSection.appendChild(webhooksDesc);
+  const log = logArea(helpers);
+  const controls = el("div", undefined, "automations-controls");
+  controls.appendChild(smallButton(helpers, "Copy web address", async () => {
+    await navigator.clipboard.writeText(`${window.location.origin}/api/triggers/${trigger.id}/fire`);
+    toast("Web address copied.");
+  }));
+  controls.appendChild(smallButton(helpers, "Copy secret", async () => {
+    await navigator.clipboard.writeText(trigger.secret);
+    toast("Secret copied. Paste it into the other app; do not share it anywhere else.");
+  }));
+  controls.appendChild(smallButton(helpers, "Make a new secret", async () => {
+    await api(`triggers/${trigger.id}/rotate-secret`, {});
+    toast("New secret made. The old one no longer works.");
+    await refresh();
+  }));
+  controls.appendChild(smallButton(helpers, trigger.enabled ? "Turn off" : "Turn on", async () => {
+    await api(`triggers/${trigger.id}/enabled`, { enabled: !trigger.enabled });
+    await refresh();
+  }));
+  controls.appendChild(smallButton(helpers, "Recent activity", async () => {
+    const { log: entries } = await api(`triggers/${trigger.id}/log`);
+    writeLog(log, entries.map((e) => `${e.createdAt} — ${e.status}${e.runId ? ` (task ${e.runId})` : ""}`), "Nothing has come in yet.");
+  }));
+  controls.appendChild(smallButton(helpers, "Remove", async () => {
+    if (!window.confirm(`Remove "${trigger.name}"? The other app will stop being able to start tasks.`)) return;
+    await api(`triggers/${trigger.id}/remove`, {});
+    toast("Removed.");
+    await refresh();
+  }));
+  item.appendChild(controls);
+  item.appendChild(log);
+  return item;
+}
 
-  if (state.webhooks && state.webhooks.length > 0) {
-    const webhooksList = el("div", undefined, "automations-list");
-    for (const webhook of state.webhooks) {
-      const item = el("div", undefined, "automations-item");
-      const header = el("div", undefined, "automations-item-header");
-
-      const statusEl = el("span", webhook.name, "automations-name");
-      if (!webhook.enabled) {
-        statusEl.textContent += " (disabled)";
-        statusEl.className += " automations-disabled";
-      }
-      header.appendChild(statusEl);
-
-      item.appendChild(header);
-
-      const url = el("div", webhook.url, "automations-url");
-      item.appendChild(url);
-
-      const events = el("div", "Events: " + (webhook.events ? webhook.events.join(", ") : "none"), "automations-events");
-      item.appendChild(events);
-
-      const controls = el("div", undefined, "automations-controls");
-
-      const testBtn = el("button", "Test", "automations-btn-small");
-      testBtn.onclick = async () => {
-        const result = await api("webhooks/" + webhook.id + "/test", {});
-        const msg = result.ok ? `Success: ${result.message}` : `Failed: ${result.message}`;
-        alert(msg);
-      };
-      controls.appendChild(testBtn);
-
-      const logBtn = el("button", "Delivery log", "automations-btn-small");
-      logBtn.onclick = async () => {
-        const log = await api("webhooks/" + webhook.id + "/log");
-        if (log.log) {
-          const logText = log.log.map(entry =>
-            `${entry.createdAt}: ${entry.eventType} - ${entry.status} (attempt ${entry.attempt})`
-          ).join("\n");
-          alert(logText || "No deliveries yet");
-        }
-      };
-      controls.appendChild(logBtn);
-
-      if (!webhook.enabled) {
-        const enableBtn = el("button", "Turn back on", "automations-btn-small");
-        enableBtn.onclick = async () => {
-          const result = await api("webhooks/" + webhook.id + "/enable", {});
-          if (result.enabled) {
-            toast("Webhook enabled");
-            refresh();
-          }
-        };
-        controls.appendChild(enableBtn);
-      }
-
-      item.appendChild(controls);
-      webhooksList.appendChild(item);
-    }
-    webhooksSection.appendChild(webhooksList);
-  } else {
-    webhooksSection.appendChild(el("p", "No webhooks yet.", "automations-empty"));
+function webhooksSection(webhooks, helpers) {
+  const { el, api, toast, refresh } = helpers;
+  const wrap = section(
+    helpers,
+    "Let another app know",
+    "Send a message to another app when something happens here, such as a task finishing or a question waiting for you.",
+  );
+  if (!webhooks.length) wrap.appendChild(el("p", "Nothing set up yet.", "automations-empty"));
+  else {
+    const list = el("div", undefined, "automations-list");
+    for (const webhook of webhooks) list.appendChild(webhookItem(webhook, helpers));
+    wrap.appendChild(list);
   }
-
-  const createWebhook = el("button", "Create webhook", "automations-btn");
-  createWebhook.onclick = async () => {
-    const name = prompt("Webhook name:");
+  wrap.appendChild(onClick(helpers, el("button", "Add one", "automations-btn"), async () => {
+    const name = window.prompt("What should this be called?");
     if (!name) return;
-    const url = prompt("Webhook URL:");
+    const url = window.prompt("Which web address should we send to?");
     if (!url) return;
-    const secret = prompt("Secret (optional, leave blank for none):");
-    const result = await api("webhooks", {
-      name,
-      url,
-      secret: secret || undefined,
-      events: ["run.completed", "run.failed"] // Default events
-    });
-    if (result.id) {
-      toast("Webhook created");
-      refresh();
-    }
-  };
-  webhooksSection.appendChild(createWebhook);
+    const secret = window.prompt("Shared secret, so the other app can check the message really came from here (optional):");
+    await api("webhooks", { name, url, ...(secret ? { secret } : {}), events: ["run.completed", "run.failed"] });
+    toast("Added. It will be told when a task finishes.");
+    await refresh();
+  }));
+  return wrap;
+}
 
-  div.appendChild(webhooksSection);
+function webhookItem(webhook, helpers) {
+  const { el, api, toast, refresh } = helpers;
+  const item = el("div", undefined, "automations-item");
+  const header = el("div", undefined, "automations-item-header");
+  header.appendChild(el("span", webhook.name + (webhook.enabled ? "" : " (turned off)"), webhook.enabled ? "automations-name" : "automations-name automations-disabled"));
+  item.appendChild(header);
+  item.appendChild(el("div", webhook.url, "automations-url"));
+  item.appendChild(el("div", "Tells it about: " + (webhook.events?.length ? webhook.events.join(", ") : "nothing yet"), "automations-events"));
+  if (webhook.disabledReason) item.appendChild(el("div", webhook.disabledReason, "automations-events"));
 
-  return div;
+  const log = logArea(helpers);
+  const controls = el("div", undefined, "automations-controls");
+  controls.appendChild(smallButton(helpers, "Send a test", async () => {
+    const result = await api(`webhooks/${webhook.id}/test`, {});
+    toast(result.ok ? `The other app answered: ${result.message}` : `It did not work: ${result.message}`);
+  }));
+  controls.appendChild(smallButton(helpers, "Delivery history", async () => {
+    const { log: entries } = await api(`webhooks/${webhook.id}/log`);
+    writeLog(log, entries.map((e) => `${e.createdAt} — ${e.eventType}: ${e.status} (try ${e.attempt})`), "Nothing has been sent yet.");
+  }));
+  if (!webhook.enabled)
+    controls.appendChild(smallButton(helpers, "Turn back on", async () => {
+      await api(`webhooks/${webhook.id}/enable`, {});
+      toast("Turned back on.");
+      await refresh();
+    }));
+  controls.appendChild(smallButton(helpers, "Remove", async () => {
+    if (!window.confirm(`Remove "${webhook.name}"? That app will stop being told about anything.`)) return;
+    await api(`webhooks/${webhook.id}/remove`, {});
+    toast("Removed.");
+    await refresh();
+  }));
+  item.appendChild(controls);
+  item.appendChild(log);
+  return item;
 }

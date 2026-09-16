@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import type { WebhookNotifier } from "../webhooks.js";
 
 /**
  * The delivery ledger: every outbound channel message is written down before it is sent, split
@@ -51,6 +52,8 @@ export function backoffMs(attempts: number): number {
 
 export class Deliveries {
   private next: number | undefined;
+  /** Announces a given-up chunk to outbound webhooks; a no-op until `createBranch` connects them. */
+  notifyEvent: WebhookNotifier = () => undefined;
   constructor(private readonly store: Store, private readonly owner: string, public now: () => Date = () => new Date()) {}
   private nextOrder(): number {
     this.next ??= this.list().reduce((max, d) => Math.max(max, d.order + 1), 0);
@@ -102,6 +105,7 @@ export class Deliveries {
       const lastError = (error instanceof Error ? error.message : String(error)).slice(0, 500);
       this.save(row.id, { ...this.data(row), status: dead ? "dead" : "pending", attempts, lastError,
         nextAt: new Date(this.now().getTime() + backoffMs(attempts)).toISOString() });
+      if (dead) this.notifyEvent("delivery.failed", { deliveryId: row.id, channel: row.channel, chatId: row.chatId, attempts, error: lastError });
       return dead ? "dead" : "failed";
     }
   }

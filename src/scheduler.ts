@@ -123,6 +123,7 @@ export class Scheduler {
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
+      this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
       const delivery = await this.deliverResult(data, run);
       const repeats = run.status === "completed" && (typeof data.intervalMs === "number" || typeof data.dailyAt === "string");
       const nextDue = !advance ? String(data.dueAt)

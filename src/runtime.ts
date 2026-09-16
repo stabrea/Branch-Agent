@@ -21,6 +21,7 @@ import type {
 } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import type { WebhookNotifier } from "./webhooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
@@ -92,6 +93,8 @@ export class Runtime {
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
   readonly reliability: ReliabilityOptions;
+  /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
+  notifyEvent: WebhookNotifier = () => undefined;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -405,7 +408,10 @@ export class Runtime {
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
-      if (error instanceof NeedsInputError) this.store.event(run.id, "attention.needed", { question: error.question });
+      if (error instanceof NeedsInputError) {
+        this.store.event(run.id, "attention.needed", { question: error.question });
+        this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
+      }
     }
     const settled = await this.settleRun(run, context, status, output);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
@@ -478,6 +484,7 @@ export class Runtime {
   private finish(run: Run, status: Run["status"], output: string): Run {
     const finished = this.store.finish(run.id, status, output);
     this.store.event(run.id, "run.finished", { status, output });
+    this.notifyEvent(status === "completed" ? "run.completed" : "run.failed", { runId: run.id, sessionId: run.sessionId, status });
     return finished;
   }
   private async loop(

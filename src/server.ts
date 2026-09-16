@@ -110,6 +110,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -507,19 +508,27 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
   const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
   return { runId: run.id, status: run.status };
 }
+const triggerBodyLimit = 256 * 1024;
 async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
   const trigger = app.triggers.get(app.runtime.owner, triggerId);
   if (!trigger) throw new HttpError(404, "Trigger not found");
+  if (Number(request.headers["content-length"] ?? 0) > triggerBodyLimit)
+    throw new HttpError(413, `Request exceeds ${triggerBodyLimit / 1024} KiB`);
 
-  const { raw, parsed } = await readBodyWithRaw(request);
-  const contentLength = Number(request.headers["content-length"] ?? 0);
-  if (contentLength > 256 * 1024) throw new HttpError(413, "Request exceeds 256 KiB");
+  const { raw, parsed } = await readBodyWithRaw(request, triggerBodyLimit).catch((error: unknown) => {
+    const message = errorText(error);
+    throw new HttpError(message.includes("exceeds") ? 413 : 400, message);
+  });
 
   const verified = app.triggers.verify(trigger, request.headers, raw);
   if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
 
-  const result = await app.triggers.fire(app.runtime.owner, triggerId, parsed);
-  return result;
+  return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
+    const message = errorText(error);
+    if (message.includes("disabled")) throw new HttpError(403, message);
+    if (message.includes("Rate limit")) throw new HttpError(429, message);
+    throw error;
+  });
 }
 async function triggersApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
@@ -531,7 +540,7 @@ async function triggersApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && path === "/api/triggers")
     return app.triggers.create(context, await readBody(request));
 
-  const match = /^\/api\/triggers\/([a-f0-9-]{36})(?:\/(log|rotate-secret|remove))?$/.exec(path);
+  const match = /^\/api\/triggers\/([a-f0-9-]{36})(?:\/(log|rotate-secret|enabled|remove))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
 
   const trigger = app.triggers.get(owner, match[1]!);
@@ -549,7 +558,12 @@ async function triggersApi(app: Branch, request: IncomingMessage, path: string):
     return { secret };
   }
 
-  if (request.method === "DELETE" && match[2] === "remove") {
+  if (request.method === "POST" && match[2] === "enabled") {
+    const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
+    return app.triggers.setEnabled(owner, match[1]!, enabled);
+  }
+
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
     app.triggers.remove(owner, match[1]!);
     return { removed: true };
   }
@@ -583,7 +597,7 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
     return app.webhooks.test(owner, match[1]!);
   }
 
-  if (request.method === "DELETE" && match[2] === "remove") {
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
     app.webhooks.remove(owner, match[1]!);
     return { removed: true };
   }

@@ -2,13 +2,14 @@
 
 ## Batch 19 (wave 1) — webhooks-and-triggers
 
-Six builders in parallel branches (wave1/*). Current branch: webhooks and triggers.
-- Inbound triggers: POST /api/triggers/:id/fire with bearer or HMAC verification, rate limiting, prompt template substitution with {{payload}} and {{field.path}}
-- Outbound webhooks: deliver on run.completed/failed/schedule.fired/trigger.fired/approval.needed with HMAC signatures, retry with exponential backoff, auto-disable after 5 consecutive failures
-- Store: added trigger_log and delivery_log tables; triggers and webhooks as record tables
-- Routes: CRUD for both, /api/triggers/:id/log and /api/webhooks/:id/log, /api/triggers/:id/rotate-secret, /api/webhooks/:id/test and /api/webhooks/:id/enable
-- Fire route unauthenticated (before authorize()) with per-trigger secret; respects isExecution() for budget accounting
-- Tests: trigger verification (bearer + HMAC), placeholder substitution, rate limiting, webhook delivery failure and auto-disable (blocked by test environment zod resolution issue; code complete)
+Six builders in parallel branches (wave1/*). This branch adds the two directions of event-driven automation, and they are wired to the places events actually happen rather than left as an unconnected library.
+
+- Inbound triggers (`src/triggers.ts`): `POST /api/triggers/:id/fire` proves itself with a bearer secret or an HMAC-SHA256 signature over the exact request bytes, fills `{{payload}}` and `{{field.path}}` into the trigger's prompt, and starts a run. Rate limit per trigger, 256 KiB body cap (413), off switch (403), over-limit (429), and a per-trigger log of every attempt with its run id.
+- Outbound webhooks (`src/webhooks.ts`): `Webhooks.notify` fans one event out to every webhook that asked for it. Three attempts with 5 s then 10 s pauses (the pauses are a settable field so tests do not wait), auto-off after five consecutive give-ups with a plain-language reason, reset on success, HMAC signature over the exact bytes sent, and a delivery log. Every address goes through the shared network policy.
+- Event wiring: `Runtime.notifyEvent` and `Deliveries.notifyEvent` are no-op fields that `createBranch` points at the webhook fan-out. `run.completed`/`run.failed` from `Runtime.finish` (one call site, reading status), `approval.needed` next to the existing `attention.needed` event, `schedule.fired` in `Scheduler.execute`, `trigger.fired` in `Triggers.fire`, `delivery.failed` where the channel delivery ledger parks a dead letter. All fire-and-forget with errors swallowed: a webhook can never disturb a run. Payloads carry ids and status, never the task's text.
+- Store: `trigger_log` and `delivery_log` tables, `triggers` and `webhooks` record tables; both logs order by row id so ties within a millisecond stay deterministic.
+- UI (`public/automations.js`): rewritten as a real module that `app.js` imports and hands `state` plus its helpers. Three bugs fixed from the first pass — the panel never rendered (module scope), `/automations.js` was not in the server's static asset list, and creating either kind failed on a permission that no tool ever registers. Triggers and webhooks are owner-only settings behind the session token now, like channels and teams. Logs render in the panel instead of a pop-up; wording rewritten for a non-technical owner.
+- Tests (`tests/triggers-webhooks.test.mjs`, 18): a real loopback endpoint receives `run.completed` with a valid signature, a failing run sends `run.failed`, a trigger fire sends `trigger.fired` and shows the run id in its log, a schedule sends `schedule.fired`, a stopped-to-ask run sends `approval.needed`, a dead chat message sends `delivery.failed`; bad signature, off trigger, rate limit, oversize body, retry-then-success, auto-off after five failures, private-address refusal under the default policy, and a headless browser check that the panel renders and its buttons reach the routes.
 
 Items marked done: A1838 (outbound webhooks), A1816 (webhook/trigger fire system).
 

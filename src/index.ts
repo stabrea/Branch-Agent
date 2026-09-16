@@ -108,6 +108,8 @@ export async function createBranch(options: {
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
+  runtime.notifyEvent = webhooks.notifier(runtime.owner);
+  channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);

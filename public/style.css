@@ -1019,3 +1019,4 @@ summary {
 .automations-btn, .automations-btn-small { padding: 0.45rem 0.75rem; border: 1px solid var(--line); border-radius: 0.4rem; background: var(--well); color: var(--text); font: inherit; cursor: pointer; font-size: 0.9rem; }
 .automations-btn-small { font-size: 0.8rem; padding: 0.35rem 0.6rem; }
 .automations-btn:hover, .automations-btn-small:hover { border-color: var(--copper); background: var(--hover); }
+.automations-log { margin: 0.5rem 0 0; padding: 0.5rem; border-radius: 0.4rem; background: var(--well); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow: auto; }
