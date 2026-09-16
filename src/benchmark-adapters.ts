@@ -12,9 +12,9 @@ import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { join, dirname } from "node:path";
 import { parsePatch, applyHunks } from "./patch.js";
 import { normaliseAnswer } from "./evaluation-scorers.js";
-import { findBash, runBenchmarkCommand } from "./benchmark-shell.js";
+import { findBash, findGit, runBenchmarkCommand } from "./benchmark-shell.js";
 import {
-  field, judgeFail, judgePass, jsonlFiles, readJsonl, safeId,
+  field, judgeFail, judgePass, jsonlFiles, readJsonl, safeId, withinFolder,
   type BenchmarkAdapter, type BenchmarkJudgement, type BenchmarkResult, type BenchmarkTask, type PreparedTask,
 } from "./benchmarks.js";
 
@@ -42,7 +42,7 @@ async function fromJsonl(
  * case, spacing and trailing punctuation are taken off — the benchmark's own rule.
  */
 export const gaiaAdapter: BenchmarkAdapter = {
-  id: "gaia", name: "GAIA", format: "metadata.jsonl with Question, Final answer and file_name",
+  id: "gaia", name: "GAIA", runsPrograms: false, format: "metadata.jsonl with Question, Final answer and file_name",
   layout: "<folder>/metadata.jsonl, and any attached files beside it",
   discover: (directory) => fromJsonl(directory, (raw, index) => {
     const question = field(raw, "Question", "question");
@@ -58,10 +58,13 @@ export const gaiaAdapter: BenchmarkAdapter = {
     await mkdir(into, { recursive: true });
     const attachment = field(task.raw, "file_name", "file");
     if (!attachment) return prepared(into, task.prompt);
-    const source = join(directory, attachment);
+    const source = withinFolder(directory, attachment), destination = withinFolder(into, attachment);
+    if (!source || !destination)
+      return prepared(into, task.prompt, [], `This question names the file ${attachment}, which points outside ${directory}. A dataset may only name files inside its own folder.`);
     if (!(await exists(source)))
       return prepared(into, task.prompt, [], `This question comes with the file ${attachment}, and it is not in ${directory}. Put it there and run again.`);
-    await cp(source, join(into, attachment));
+    await mkdir(dirname(destination), { recursive: true });
+    await cp(source, destination);
     return prepared(into, `${task.prompt}\n\nThe file ${attachment} is in your workspace.`, [attachment]);
   },
   async judge(task, result) {
@@ -86,7 +89,7 @@ function lastLine(answer: string): string {
  * it. The tests are run as a program in the workspace, under the ordinary command limits.
  */
 export const codeTasksAdapter: BenchmarkAdapter = {
-  id: "code-tasks", name: "Code tasks (APPS, MBPP, HumanEval)",
+  id: "code-tasks", name: "Code tasks (APPS, MBPP, HumanEval)", runsPrograms: true,
   format: "JSONL with prompt, entry_point, test (or test_list) and an optional language",
   layout: "<folder>/*.jsonl",
   discover: (directory) => fromJsonl(directory, (raw, index) => {
@@ -137,7 +140,7 @@ async function runCodeTests(task: BenchmarkTask, workspace: string): Promise<Ben
  * owner's own checkout is never touched.
  */
 export const sweBenchAdapter: BenchmarkAdapter = {
-  id: "swe-bench", name: "SWE-bench (Lite and Verified)",
+  id: "swe-bench", name: "SWE-bench (Lite and Verified)", runsPrograms: true,
   format: "JSONL with instance_id, repo, base_commit, problem_statement and test_patch",
   layout: "<folder>/*.jsonl, and the repositories themselves in <folder>/repos/<owner>__<name>",
   discover: (directory) => fromJsonl(directory, (raw, index) => {
@@ -151,7 +154,9 @@ export const sweBenchAdapter: BenchmarkAdapter = {
   }),
   async prepare(task, into, directory) {
     const repo = field(task.raw, "repo");
-    const source = join(directory, "repos", repo.replace(/\//g, "__"));
+    const source = withinFolder(join(directory, "repos"), repo.replace(/\//g, "__"));
+    if (!source)
+      return prepared(into, task.prompt, [], `This instance names the repository ${repo}, which points outside ${join(directory, "repos")}. A dataset may only name repositories inside its own folder.`);
     if (!(await exists(source)))
       return prepared(into, task.prompt, [], `The repository ${repo} is not on this computer. Put a copy at ${source} and run again. Nothing is downloaded for you.`);
     await mkdir(dirname(into), { recursive: true });
@@ -172,11 +177,11 @@ async function runSweTests(task: BenchmarkTask, workspace: string): Promise<Benc
     const problem = await applyTestPatch(workspace, patch);
     if (problem) return judgeFail(problem);
   }
-  const command = field(task.raw, "test_command") || "";
+  // The tests are always run by this copy of Node. A dataset never says which program to start:
+  // a downloaded file must not be able to choose what runs on this computer.
   const names = [...asList(task.raw.FAIL_TO_PASS), ...asList(task.raw.PASS_TO_PASS)];
-  if (!command && !names.length) return judgeFail("This instance names no tests to run, so it cannot be marked");
-  const [executable, ...args] = command ? command.split(/\s+/) : ["node", "--test", ...names];
-  const outcome = await runBenchmarkCommand(executable!, args, workspace);
+  if (!names.length) return judgeFail("This instance names no tests to run, so it cannot be marked");
+  const outcome = await runBenchmarkCommand(process.execPath, ["--test", ...names], workspace);
   if (outcome.status !== "completed") return judgeFail(`The tests did not finish (${outcome.status})`, outcome.stderr.slice(0, 300));
   return outcome.exitCode === 0 ? judgePass() : judgeFail("The benchmark's tests still fail", (outcome.stderr || outcome.stdout).slice(0, 300));
 }
@@ -212,7 +217,7 @@ async function applyTestPatch(workspace: string, patch: string): Promise<string 
  * is refused by name, because a score against today's version of a shopping site is not a score.
  */
 export const webTasksAdapter: BenchmarkAdapter = {
-  id: "web-tasks", name: "Web tasks (WebVoyager, BrowserGym)",
+  id: "web-tasks", name: "Web tasks (WebVoyager, BrowserGym)", runsPrograms: false,
   format: "JSONL with id, ques (or question), web (the address) and answer; pages saved in pages/",
   layout: "<folder>/*.jsonl, and the saved pages in <folder>/pages/<name>.html",
   discover: (directory) => fromJsonl(directory, (raw, index) => {
@@ -227,7 +232,9 @@ export const webTasksAdapter: BenchmarkAdapter = {
   async prepare(task, into, directory) {
     await mkdir(into, { recursive: true });
     const page = field(task.raw, "page", "local_page") || `${task.id}.html`;
-    const source = join(directory, "pages", page);
+    const source = withinFolder(join(directory, "pages"), page), destination = withinFolder(into, page);
+    if (!source || !destination)
+      return prepared(into, task.prompt, [], `This task names the page ${page}, which points outside ${join(directory, "pages")}. A dataset may only name files inside its own folder.`);
     if (!(await exists(source)))
       return prepared(into, task.prompt, [], `This task needs the website ${field(task.raw, "web") || "it names"}, which is not saved here. Save the page as ${source} to run it, or leave it out: Branch Agent never opens a live benchmark site.`);
     await cp(source, join(into, page));
@@ -248,7 +255,7 @@ export const webTasksAdapter: BenchmarkAdapter = {
  * finished, so it cannot read them while it works.
  */
 export const terminalBenchAdapter: BenchmarkAdapter = {
-  id: "terminal-bench", name: "terminal-bench",
+  id: "terminal-bench", name: "terminal-bench", runsPrograms: true,
   format: "one folder per task, each with task.md and tests.sh",
   layout: "<folder>/<task name>/task.md and <folder>/<task name>/tests.sh",
   async discover(directory) {

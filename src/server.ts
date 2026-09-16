@@ -54,11 +54,6 @@ import { notIntegratedBenchmarks } from "./benchmarks.js";
 import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
 import { runToolEvaluations } from "./tool-evaluations.js";
 
-/** A study result without its thousands of rows, for the list on the Evaluation screen. */
-const studySummary = (result: StudyRunResult) => ({
-  id: result.id, studyId: result.studyId, name: result.name, startedAt: result.startedAt,
-  rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
-});
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
 // shown, connection lifecycle, the "try a server" bench, and small pages an outside server sends.
@@ -206,6 +201,12 @@ function authorize(
   limits?.onFailure(from);
   throw new HttpError(401, "Local session token required");
 }
+/** A study result without its thousands of rows, for the list on the Evaluation screen. */
+const studySummary = (result: StudyRunResult) => ({
+  id: result.id, studyId: result.studyId, name: result.name, startedAt: result.startedAt,
+  rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
+});
+
 async function staticFile(
   path: string,
   response: ServerResponse,

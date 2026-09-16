@@ -731,8 +731,13 @@ branch eval --suite everyday --gate '{"minAccuracy":0.9,"maxRegressions":0}'
 branch eval --suite everyday --gate release-gate.json
 ```
 
-Everything in a gate is optional, and a gate with nothing set passes. When a gate is given, the
-command's exit code is the gate's verdict and nothing else.
+Everything in a gate is optional, and a gate with nothing set passes. The gate is checked against
+the schema above, so a misspelled name is a plain error rather than a bar that quietly never
+applies.
+
+Exit codes for `branch eval --suite`: **0** when it passed, **1** when it did not. With no `--gate`,
+"passed" means every task passed. With `--gate`, the gate's verdict is the exit code and nothing
+else — a run can have a failing task and still exit 0 when the bar it was given was cleared.
 
 ### Where dataset files go
 
@@ -748,9 +753,22 @@ SWE-bench never clones anything from the internet. If the repository an instance
 already at `repos/<owner>__<name>`, that task is refused and the message says exactly where to put
 it. When it is there, it is **copied** into a folder of its own inside the workspace, so your own
 checkout is never touched, and the copy is moved to the instance's base commit when it is a real Git
-checkout. Judging puts the instance's own `test_patch` back over the assistant's work and runs the
-named tests, so the assistant cannot pass by editing the tests. Tests run with the same time,
-memory, processor and output limits every other command gets, and with no way out to the internet.
+checkout — a local move of a copy that is already here, never a fetch, so no sign-in is ever
+involved. Judging puts the instance's own `test_patch` back over the assistant's work and runs the
+named tests (`FAIL_TO_PASS` and `PASS_TO_PASS`), so the assistant cannot pass by editing the tests.
+
+Four rules hold for every benchmark that decides by running something:
+
+- **The owner switches it on first.** Marking by running the tests a dataset ships is starting a
+  program on this computer, so it waits on the same switch small scripts use (Settings → running
+  small scripts). Until then those tasks are refused by name and nothing is run.
+- **A dataset never chooses what runs.** The tests are run by this copy of Node, by the bash you
+  pointed at, or by your own Git — each named in full — and the program is started with no `PATH`,
+  so nothing in a downloaded file can decide which program on this computer starts.
+- **A dataset never points outside its own folder.** A record naming `..\..\somewhere` as its
+  attachment, its saved page or its repository is refused rather than followed.
+- **Same limits as any other command**: the same time, memory, processor and output ceilings, in a
+  job the operating system enforces, with no way out to the internet.
 
 Web tasks are run against pages you have saved next to the dataset. A task that points at a live
 website is refused by name: a score against today's version of a shopping site is not a score
@@ -780,7 +798,9 @@ A study is saved with `POST /api/studies`:
 ```
 
 `source` can instead be `{ "kind": "suite", "suite": "everyday" }`. `concurrency` is how many tasks
-run at once and is never more than the eight the whole app allows. `bestOfN` runs each task that
+run at once, from 1 to 4. The whole app allows eight pieces of work at once; a running study holds
+one of those eight for as long as it lasts and its own tasks do not take places of their own, so the
+cap is set at half to keep a study plus ordinary work under that ceiling. `bestOfN` runs each task that
 many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
 stops the study when it has spent that much, and says so.
 
@@ -803,6 +823,10 @@ Best-of-3 is three hundred and sixty runs. Set `limit` and `maxDollars` before t
 checks what comes back against what the tool is documented to do. No model is involved, so it takes
 a moment and costs nothing, and it belongs in a build script. The cases are plain JSON in
 `data/tool-evaluations/`.
+
+The cases call the real tools, so they leave real traces: a small file in the workspace and a couple
+of notes in memory. That is deliberate — a check that stubbed the tool out would not be checking the
+tool — but it is why the cases are kept few and obvious.
 
 ### Writing your own tests against Branch Agent
 

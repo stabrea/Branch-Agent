@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
-import { maximumActiveExecutions } from "./execution-limit.js";
+import { codeRunSettings } from "./code-run.js";
 import { estimateCost, pricingSettings } from "./pricing.js";
 import { findSuite } from "./evaluation-suites.js";
 import { readTrajectory, runtimeJudge, scoreTrajectory } from "./evaluation-run.js";
@@ -39,8 +39,13 @@ export const StudySchema = z.object({
   presets: z.array(z.string().min(1).max(64)).min(1).max(4),
   /** How many times each task is repeated for each model choice. */
   repeats: z.number().int().min(1).max(5).default(1),
-  /** How many tasks run at once. Never more than the whole app allows. */
-  concurrency: z.number().int().min(1).max(maximumActiveExecutions).default(2),
+  /**
+   * How many tasks run at once. Capped at half the eight this computer allows altogether, because
+   * a running study holds one of those eight places for as long as it lasts and its own tasks do
+   * not take places of their own: the cap is what keeps a study plus ordinary work under that
+   * ceiling.
+   */
+  concurrency: z.number().int().min(1).max(4).default(2),
   /** How many more goes a task gets after an error that is not the model's fault. */
   retries: z.number().int().min(0).max(3).default(1),
   /** Stop the study when it has cost this much. Left out, only the task count limits it. */
@@ -86,7 +91,12 @@ export function* studyLines(result: StudyRunResult): Generator<string> {
 }
 
 /** One task a study runs, whatever it came from. */
-interface StudyTask { id: string; prompt: string; expected?: string | undefined; scorers?: unknown[] | undefined; judge?: ((answer: string) => Promise<{ pass: boolean; reasons: string[] }>) | undefined }
+interface StudyTask {
+  id: string; prompt: string; expected?: string | undefined; scorers?: unknown[] | undefined;
+  judge?: ((answer: string) => Promise<{ pass: boolean; reasons: string[] }>) | undefined;
+  /** Why this task cannot be run on this computer. Set, it is failed without asking the model. */
+  refusal?: string | undefined;
+}
 
 export class StudyRunner {
   private readonly judgeCache = new Map<string, { score: number; reason: string }>();
@@ -176,6 +186,9 @@ export class StudyRunner {
   }
 
   private async once(study: Study, task: StudyTask, preset: string): Promise<Omit<StudyCell, "taskId" | "preset" | "repeat" | "attempts">> {
+    // A task that cannot be run here is failed straight away: asking the model to attempt it would
+    // cost money and hide the reason behind whatever it happened to answer.
+    if (task.refusal) return { passed: false, score: 0, ms: 0, tokens: 0, dollars: 0, runId: null, reasons: [task.refusal] };
     const began = Date.now();
     const run = await this.runtime.run({
       prompt: task.prompt, model: preset, budget: { maxSteps: study.maxSteps, maxTokens: study.maxTokens },
@@ -211,26 +224,30 @@ export class StudyRunner {
     }
     const adapter = findBenchmarkAdapter(study.source.benchmark);
     const directory = study.source.directory;
-    const found = chosen((await adapter.discover(directory)).map((task) => ({ id: task.id, prompt: task.prompt, expected: task.expected })));
-    const byId = new Map((await adapter.discover(directory)).map((task) => [task.id, task]));
-    return Promise.all(found.map((task) => this.benchmarkTask(adapter, byId.get(task.id)!, directory, study)));
+    const all = await adapter.discover(directory);
+    const picked = (study.subset.length ? study.subset.flatMap((id) => all.filter((task) => task.id === id)) : all).slice(0, study.limit);
+    return Promise.all(picked.map((task) => this.benchmarkTask(adapter, task, directory, study)));
   }
 
   /** One benchmark task: a folder of its own inside the workspace, and the benchmark's own judge. */
   private async benchmarkTask(adapter: BenchmarkAdapter, task: BenchmarkTask, directory: string, study: Study): Promise<StudyTask> {
     const into = join(this.runtime.workspace, "benchmarks", study.id, task.id);
-    const ready = await adapter.prepare(task, into, directory);
+    // A benchmark that decides right and wrong by running the tests it ships is starting a program
+    // on this computer, so it waits on the same switch a small script does.
+    const blocked = adapter.runsPrograms && !codeRunSettings(this.store, this.owner).enabled
+      ? `${adapter.name} is marked by running the tests it ships, which means starting a program on this computer. That is switched off. The owner turns on running small scripts in Settings first.`
+      : null;
+    const ready = blocked ? { workspace: into, prompt: task.prompt, files: [], refusal: blocked } : await adapter.prepare(task, into, directory);
     const where = join("benchmarks", study.id, task.id).replace(/\\/g, "/");
     return {
       id: task.id,
       prompt: ready.refusal ? ready.prompt : `${ready.prompt}\n\nWork in the folder ${where} of your workspace.`,
       expected: task.expected,
-      judge: ready.refusal
-        ? async () => ({ pass: false, reasons: [ready.refusal!] })
-        : async (answer: string) => {
-          const judged = await adapter.judge(task, { answer, workspace: into }, directory);
-          return { pass: judged.pass, reasons: judged.reasons };
-        },
+      ...(ready.refusal ? { refusal: ready.refusal } : {}),
+      judge: async (answer: string) => {
+        const judged = await adapter.judge(task, { answer, workspace: into }, directory);
+        return { pass: judged.pass, reasons: judged.reasons };
+      },
     };
   }
 

@@ -225,10 +225,15 @@ async function scoreRubric(
   ].filter(Boolean).join("\n\n");
   const key = createHash("sha256").update(prompt).digest("hex");
   const cached = context.judgeCache?.get(key);
-  const graded = cached ?? readGrade(await context.judge(prompt).catch((error: unknown) => `The grader could not be asked: ${error instanceof Error ? error.message : String(error)}`));
+  if (cached) return { score: cached.score, pass: cached.score >= spec.pass, reasons: [cached.reason] };
+  let answered: string;
+  // A grader that could not be reached is this run's bad luck, not this answer's verdict, so it is
+  // never remembered: the next task asks again instead of inheriting the failure.
+  try { answered = await context.judge(prompt); }
+  catch (error) { return fail(`The grader could not be asked: ${error instanceof Error ? error.message : String(error)}`); }
+  const graded = readGrade(answered);
   context.judgeCache?.set(key, graded);
-  const passed = graded.score >= spec.pass;
-  return { score: graded.score, pass: passed, reasons: [graded.reason] };
+  return { score: graded.score, pass: graded.score >= spec.pass, reasons: [graded.reason] };
 }
 
 /**

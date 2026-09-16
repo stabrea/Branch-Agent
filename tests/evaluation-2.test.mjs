@@ -504,6 +504,41 @@ test("the benchmark and study routes are on the web front door", async (t) => {
   assert.equal(checks.summary.passed, checks.summary.total);
 });
 
+/* ------------------- integration review: confinement and the owner's switch */
+
+test("a benchmark that runs the tests it ships waits for the owner's switch", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-switch-"));
+  const { app } = await studyFixture(t, [["adds two numbers", [say("done")]]], root);
+  removeLast(t, root);
+  app.studies.save({
+    id: "code-sample", name: "Code sample", presets: ["fast"],
+    source: { kind: "benchmark", benchmark: "code-tasks", directory: join(fixtures, "code-tasks") },
+  });
+  const refused = await app.studies.run("code-sample");
+  assert.equal(refused.cells.every((cell) => !cell.passed), true);
+  assert.match(refused.cells[0].reasons[0], /switched off/);
+  assert.match(refused.cells[0].reasons[0], /running small scripts/);
+});
+
+test("a dataset may not name a file outside its own folder", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "branch-escape-"));
+  const workspace = await mkdtemp(join(tmpdir(), "branch-escape-into-"));
+  t.after(async () => { await rm(directory, { recursive: true, force: true }); await rm(workspace, { recursive: true, force: true }); });
+  const record = { task_id: "escape", Question: "Read the file.", "Final answer": "x", file_name: "..\\..\\secret.txt" };
+  await writeFile(join(directory, "metadata.jsonl"), JSON.stringify(record) + "\n");
+  const gaia = findBenchmarkAdapter("gaia");
+  const [one] = await gaia.discover(directory);
+  assert.match((await gaia.prepare(one, workspace, directory)).refusal, /points outside/);
+  const swe = findBenchmarkAdapter("swe-bench");
+  const away = await swe.prepare({ id: "away", prompt: "fix it", tags: [], raw: { repo: "..\\..\\elsewhere" } }, workspace, directory);
+  assert.match(away.refusal, /points outside/);
+});
+
+test("a benchmark may only start a program named in full", async () => {
+  const { runBenchmarkCommand } = await import("../dist/index.js");
+  await assert.rejects(runBenchmarkCommand("git", ["status"], tmpdir()), /named in full/);
+});
+
 test("a scripted tool double records what it was called with", async (t) => {
   const { app } = await fixture(t, [["write a note", [callTool("double.note", { text: "hello" }), say("done")]]]);
   const { ScriptedTools } = await import("../dist/index.js");

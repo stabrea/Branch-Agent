@@ -8,7 +8,7 @@
  * integrated; they are listed here with what they would need, rather than half-supported.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { ScoredTrajectory } from "./evaluation-scorers.js";
 
 /** One task read out of a benchmark's own files. `raw` keeps the record exactly as it was read. */
@@ -41,6 +41,8 @@ export interface BenchmarkJudgement { pass: boolean; score: number; reasons: str
 export interface BenchmarkAdapter {
   readonly id: string;
   readonly name: string;
+  /** True when this benchmark is marked by starting a program, which the owner has to allow. */
+  readonly runsPrograms: boolean;
   /** What the adapter reads, so the documentation and the error messages agree with each other. */
   readonly format: string;
   /** Where the owner puts the files, relative to the benchmark folder. */
@@ -88,6 +90,16 @@ export function field(raw: Record<string, unknown>, ...names: string[]): string 
     if (typeof value === "number") return String(value);
   }
   return "";
+}
+
+/**
+ * A path built from a name that came out of a dataset, kept inside the folder it belongs to, or
+ * null. A downloaded record that names `..\..\somewhere` is refused rather than followed, so a
+ * file somebody else wrote can never point the program at the rest of this computer.
+ */
+export function withinFolder(base: string, ...parts: string[]): string | null {
+  const root = resolve(base), full = resolve(root, ...parts), rel = relative(root, full);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)) ? full : null;
 }
 
 /** A task id that the rest of the program will accept: lower case, letters, digits and dashes. */
