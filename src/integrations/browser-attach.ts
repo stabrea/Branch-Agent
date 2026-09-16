@@ -72,9 +72,10 @@ export interface AttachedBrowser {
  * Connects to a browser the owner already started. The first window it finds is the one that is
  * used, because that is where their sign-ins live: a fresh one would know nobody.
  */
-export async function attach(port: number, connect = chromium.connectOverCDP): Promise<AttachedBrowser> {
+export async function attach(port: number,
+  connect: (url: string) => Promise<Browser> = url => chromium.connectOverCDP(url, { timeout: 10000 })): Promise<AttachedBrowser> {
   let browser: Browser;
-  try { browser = await connect(`http://127.0.0.1:${port}`, { timeout: 10000 }); }
+  try { browser = await connect(`http://127.0.0.1:${port}`); }
   catch (error) {
     throw new Error(`Branch could not find a browser listening on door ${port}. Start Chrome or Edge with `
       + `--remote-debugging-port=${port} first. (${error instanceof Error ? error.message : String(error)})`);

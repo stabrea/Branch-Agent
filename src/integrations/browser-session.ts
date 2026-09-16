@@ -17,6 +17,8 @@ export interface SessionOptions {
    * tabs against the website list, and lets go again at the end.
    */
   attached?: { context: BrowserContext; detach: () => Promise<void> } | undefined;
+  /** Run before every step. Used while a recording is being made, to empty password boxes first. */
+  beforeAction?: ((page: Page) => Promise<void>) | undefined;
 }
 
 export class BrowserSession {
@@ -114,7 +116,9 @@ export class BrowserSession {
       await (this.opening ??= this.open());
       this.checkOpen();
       context.signal.throwIfAborted();
-      const result = await action(this.pages[this.active] ?? this.pages[0]!);
+      const page = this.pages[this.active] ?? this.pages[0]!;
+      if (this.options.beforeAction) await this.options.beforeAction(page);
+      const result = await action(page);
       await this.settle(graceMs);
       return result;
     } finally { this.busy = false; }

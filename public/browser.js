@@ -68,4 +68,35 @@ $("browser-signin")?.addEventListener("click", async () => {
   finally { $("browser-signin").disabled = false; }
 });
 
+// Letting Branch work in the browser the person already has open. Nothing here is on by default,
+// and the switch is read again by the assistant before every single use.
+const attachSay = (message) => { $("browser-attach-status").textContent = message; };
+
+async function refreshAttach() {
+  if (!$("browser-attach-enabled")) return;
+  try {
+    const { settings, refusedSites } = await api("browser/attach");
+    $("browser-attach-enabled").checked = settings.enabled;
+    $("browser-attach-port").value = String(settings.port);
+    $("browser-attach-run").value = settings.runId || "";
+    attachSay(settings.enabled
+      ? `On${settings.runId ? ` for task ${settings.runId}` : ""}. It turns itself off fifteen minutes after you switch it on. ${refusedSites} banking and password websites are refused outright.`
+      : "Off. Branch uses its own fresh browser, which no website knows you in.");
+  } catch (error) { attachSay(error.message); }
+}
+
+async function saveAttach() {
+  const port = Number($("browser-attach-port").value) || 9222;
+  try {
+    await api("browser/attach", { enabled: $("browser-attach-enabled").checked, port,
+      runId: $("browser-attach-run").value.trim() });
+    await refreshAttach();
+  } catch (error) { attachSay(error.message); }
+}
+
+$("browser-attach-enabled")?.addEventListener("change", saveAttach);
+$("browser-attach-port")?.addEventListener("change", saveAttach);
+$("browser-attach-run")?.addEventListener("change", saveAttach);
+
 void refresh();
+void refreshAttach();

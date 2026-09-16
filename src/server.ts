@@ -17,6 +17,9 @@ import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { PackageInstallSchema } from "./skill-packages.js";
+import { browserSkillList, browserSkillPackage } from "./browser-skills.js";
+import { readAttachSettings, saveAttachSettings } from "./integrations/browser-attach.js";
+import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
 import { healthReport } from "./health.js";
@@ -1253,6 +1256,13 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
     const bytes = Buffer.from(body.file, "base64");
     return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
   }
+  // Wave 7: the three browser skills that come with Branch. Listing shows what they are; installing
+  // puts one in as an ordinary skill package, switched off until the owner turns it on.
+  if (request.method === "GET" && path === "/api/skills/browser") return { skills: browserSkillList() };
+  if (request.method === "POST" && path === "/api/skills/browser") {
+    const body = (await readBody(request)) as { name?: unknown };
+    return app.skillPackages.install(browserSkillPackage(String(body.name ?? "")), true);
+  }
   if (request.method === "POST" && path === "/api/skills/draft-from-runs")
     return draftFromRuns(app.store, owner, app.runtime, await readBody(request));
   const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft|pack|test))?$/.exec(path);
@@ -1742,6 +1752,12 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/browser/profiles")
     return { profiles: await app.browserProfiles.list(owner), canSignIn: !!app.browser };
+  // Wave 7: "Let Branch use my browser for this task". Off unless the owner turns it on, tied to
+  // one task, and it runs out on its own after a quarter of an hour.
+  if (request.method === "GET" && path === "/api/browser/attach")
+    return { settings: readAttachSettings(app.store, owner), refusedSites: refusedHosts.length };
+  if (request.method === "POST" && path === "/api/browser/attach")
+    return { settings: saveAttachSettings(app.store, owner, await readBody(request)) };
   const body = (await readBody(request)) as { name?: unknown; url?: unknown };
   const name = String(body.name ?? "");
   if (request.method === "POST" && path === "/api/browser/profiles")

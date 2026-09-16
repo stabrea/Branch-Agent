@@ -13,7 +13,7 @@ import { AnnotateSchema, MarkRegistry, annotate, clearMarks } from './browser-ma
 import { ExtractSchemaSchema, extractSchema } from './browser-schema.js';
 import { resolve as healResolve, type HealTarget } from './browser-heal.js';
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, type AttachedBrowser } from './browser-attach.js';
-import { startRecording } from './browser-trace.js';
+import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 
 export const BrowserConfigSchema = z.object({
@@ -297,7 +297,9 @@ export class BranchBrowser {
   async startRecording(context: ToolContext) {
     const entry = this.entry(context);
     await entry.session.record(startRecording);
-    return { recording: true, note: 'Pictures of each step are kept. The page\'s own markup is not, so no password can get into the file.' };
+    entry.session.options.beforeAction = page => clearPasswordValues(page);
+    return { recording: true,
+      note: 'Pictures of each step are kept; the page\'s own markup is not, and password boxes are emptied before every step, so no password can get into the file.' };
   }
   /** Ends the recording and keeps it beside the task's other files. */
   async keepRecording(context: ToolContext) {
@@ -305,6 +307,7 @@ export class BranchBrowser {
     if (!artifacts) throw new Error('Recordings are switched off because there is nowhere to keep the file');
     const entry = this.entry(context);
     const bytes = await entry.session.keepRecording();
+    entry.session.options.beforeAction = undefined;
     const kept = await artifacts.write(context.runId, `browser-recording-${randomUUID().slice(0, 8)}.zip`,
       'application/zip', bytes);
     return { ...kept, note: 'Open this in Playwright\'s trace viewer to watch what the browser did.' };

@@ -969,6 +969,16 @@
             <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
             <p id="browser-status" class="subtle" role="status"></p>
             <div id="browser-profiles" class="card-list"></div>
+            <hr />
+            <h3>Letting Branch use the browser you already have open</h3>
+            <p>Instead of its own fresh browser, Branch can work in the browser <em>you</em> are already using, so every website you are signed in to already knows you. <strong>Be careful with this one.</strong> While it is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. It is only on for one task, it turns itself off after fifteen minutes, and banks and password websites are always refused. Branch works in a new tab of its own and closes only that tab; your own tabs are never touched, and it still never types a password.</p>
+            <p class="subtle">To use this, start Chrome or Edge yourself with its debugging door open — close it first, then start it with <code>--remote-debugging-port=9222</code> — and put that same number below.</p>
+            <label for="browser-attach-port">Debugging door number</label>
+            <input id="browser-attach-port" type="number" min="1024" max="65535" step="1" value="9222" />
+            <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
+            <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
+            <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
+            <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
