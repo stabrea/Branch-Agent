@@ -153,7 +153,7 @@ export class BranchBrowser {
     const entry = this.entry(context), origin = new URL(url).origin;
     // In the owner's own browser the refusals that keep the screen control away from banks and
     // password managers apply to website names too.
-    const refused = entry.borrowed ? attachedAddressRefusal(url) : null;
+    const refused = entry.borrowed ? attachedAddressRefusal(url, '', this.extraRefusedHosts(context.owner)) : null;
     if (refused) throw new Error(refused);
     if (!entry.origins.has(origin) && entry.origins.size >= this.config.maxOriginsPerRun)
       throw new Error(originStop(this.config.maxOriginsPerRun));
@@ -287,8 +287,12 @@ export class BranchBrowser {
     entry.borrowed = attached;
     entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
     // Every request Branch's own tab makes is checked, not only the addresses it is asked to open.
-    entry.session.options.guardUrl = url => attachedAddressRefusal(url);
+    entry.session.options.guardUrl = url => attachedAddressRefusal(url, '', settings.extraRefusedHosts);
     return this.borrowedReport(entry);
+  }
+  /** The extra websites the owner added to the refused list; none, when settings are not kept. */
+  private extraRefusedHosts(owner: string): readonly string[] {
+    return this.store ? readAttachSettings(this.store, owner).extraRefusedHosts : [];
   }
   private borrowedReport(entry: RunEntry) {
     const attached = entry.borrowed!;

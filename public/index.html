@@ -1006,6 +1006,9 @@
             <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
             <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
             <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
+            <label for="browser-attach-refused">More websites it must never open in your browser (one per line)</label>
+            <textarea id="browser-attach-refused" rows="3" placeholder="my-credit-union.example"></textarea>
+            <p class="subtle">These are added to the banking and password websites Branch already refuses. Nothing you type here can take one of those off the list.</p>
             <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">

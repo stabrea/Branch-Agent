@@ -79,6 +79,7 @@ async function refreshAttach() {
     $("browser-attach-enabled").checked = settings.enabled;
     $("browser-attach-port").value = String(settings.port);
     $("browser-attach-run").value = settings.runId || "";
+    $("browser-attach-refused").value = (settings.extraRefusedHosts || []).join("\n");
     attachSay(settings.enabled
       ? `On${settings.runId ? ` for task ${settings.runId}` : ""}. It turns itself off fifteen minutes after you switch it on. ${refusedSites} banking and password websites are refused outright.`
       : "Off. Branch uses its own fresh browser, which no website knows you in.");
@@ -88,8 +89,9 @@ async function refreshAttach() {
 async function saveAttach() {
   const port = Number($("browser-attach-port").value) || 9222;
   try {
+    const extraRefusedHosts = $("browser-attach-refused").value.split(/[\n,]/).map((line) => line.trim()).filter(Boolean);
     await api("browser/attach", { enabled: $("browser-attach-enabled").checked, port,
-      runId: $("browser-attach-run").value.trim() });
+      runId: $("browser-attach-run").value.trim(), extraRefusedHosts });
     await refreshAttach();
   } catch (error) { attachSay(error.message); }
 }
@@ -97,6 +99,7 @@ async function saveAttach() {
 $("browser-attach-enabled")?.addEventListener("change", saveAttach);
 $("browser-attach-port")?.addEventListener("change", saveAttach);
 $("browser-attach-run")?.addEventListener("change", saveAttach);
+$("browser-attach-refused")?.addEventListener("change", saveAttach);
 
 void refresh();
 void refreshAttach();
