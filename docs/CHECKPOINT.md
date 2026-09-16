@@ -1559,3 +1559,49 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+
+## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
+
+Everything that turns "it feels better" into a number two people can check. `src/evaluation-scorers.ts`
+adds an `Evaluator` shape — `score(task, trajectory, answer)` giving a score, a pass and its reasons
+— with twelve built-in scorers: exact (normalised), contains, regex, JSON shape, a number within a
+tolerance, a URL pattern, file-exists and file-contains, "this tool was called with these
+arguments", a budget over rounds/time/tokens/money, a model-graded rubric (cached, and refusing to
+guess when no connection is chosen), and `finished`, the completion review that catches an answer
+which quietly gave up. A suite task carries them as `"scorers": [...]`. `src/evaluation-run.ts` reads
+a finished task back as a trajectory and holds the gates: thresholds that fail a whole run, with
+`branch eval --suite x --gate '{...}'` making the exit code the gate's verdict so a release script
+can stop on it.
+
+`src/benchmarks.ts` and `src/benchmark-adapters.ts` add a `BenchmarkAdapter`
+(`discover`/`prepare`/`judge`) and five adapters that read the published formats from files the
+owner already has: SWE-bench Lite/Verified (refuses by name when the repository is not at
+`repos/<owner>__<name>`, copies it rather than touching it, applies the instance's own `test_patch`
+before running the named tests), GAIA, APPS/MBPP/HumanEval-style code tasks, WebVoyager/BrowserGym
+tasks against pages saved next to the dataset, and terminal-bench folders. Tests run through
+`src/benchmark-shell.ts`, under the same job limits and dead proxies every other command gets.
+Nothing is ever downloaded. OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld and
+the live BrowserGym environments are listed by name as **not** integrated, with what each would need.
+
+`src/study.ts` is the experiment: a study of source, subset, model choices, repeats, concurrency,
+retries and a money cap; the runner works through the matrix several at a time, writes every cell
+down as it lands so a stopped study carries on rather than restarting, keeps the best of N tries, and
+tabulates. `compareStudies` reports the difference over the tasks two studies share with a 95% range
+from a seeded bootstrap — no library, and the same answer every time. `src/tool-evaluations.ts`
+calls each tool directly with a known input (`branch eval tools`). `src/testing.ts` exports
+`ScriptedProvider` and `ScriptedTools` so contributors and plugin authors can write deterministic
+tests. Every evaluation and study task's trace is tagged (`branch.evaluation.suite`,
+`branch.study.id`) through a new additive `traceAttributes` on `RunOptions`.
+
+Routes: `GET /api/evaluation/benchmarks`, `GET|POST /api/studies`, `POST /api/studies/run`,
+`POST /api/studies/compare`, `POST /api/evaluation/tools`. UI: `public/studies.js`, a card under the
+existing evaluation card on Usage. Docs: "Measuring the assistant" in `docs/configuration.md`.
+
+Tests: `tests/evaluation-2.test.mjs` (25) and `tests/testing-utilities.test.mjs` (3, importing only
+the public entry point), with synthetic samples for all five adapters in
+`tests/fixtures/benchmarks/`. No new dependency.
+
+Known gaps: the code-task adapter runs the JavaScript splits and says so for Python rather than
+guessing at an interpreter; terminal-bench needs a bash on the machine and names what to install
+when there is none; a study over a benchmark prepares each task inside the one workspace rather than
+a sandbox of its own.

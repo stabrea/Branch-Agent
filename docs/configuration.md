@@ -594,6 +594,159 @@ exits non-zero when one fails; `branch eval --suite <id> --compare a,b` prints t
 `branch eval` with no suite still runs the original three-task standard suite.
 The Usage screen has a card for picking a suite and running it.
 
+## Measuring the assistant
+
+There are three different things here, and they are easy to mix up.
+
+A **suite** is a handful of your own tasks with the right answers written down. It is how you tell
+whether a change made the assistant better or worse at the work you actually do. Suites are the
+section above.
+
+A **benchmark** is somebody else's published set of tasks, used so a number here can be put beside a
+number in a paper. Branch Agent never downloads one. You download the dataset yourself, put it in a
+folder, and point at that folder; the program only reads files that are already on this computer.
+
+A **study** is a written-down experiment: a benchmark or suite, a subset of its tasks, the model
+choices to try, how many repeats, and what it may cost. Running a study works through every
+combination several at a time and writes each result down as it lands, so a study you stop — or one
+that stops itself when the power goes — carries on from where it was rather than starting again.
+
+### Scorers
+
+A task can be decided by one or more scorers. Every scorer gives a score from 0 to 1, a pass or
+fail, and its reasons in plain words; a task passes only when every one of its scorers passes. Put
+them on a task in a suite file as `"scorers": [...]`:
+
+`exact` (the answer, once case, spacing and trailing punctuation are taken off), `contains`,
+`regex`, `json-schema`, `numeric` (with a tolerance), `url` (a pattern the address must match),
+`file-exists` and `file-contains` (inside the workspace), `tool-called` (optionally `withArgs`, so
+you can say a tool must have been used with particular arguments), `budget` (`maxSteps`, `maxMs`,
+`maxTokens`, `maxDollars` — the rounds, time, tokens and money a task may use), `finished` (did it
+actually do the work, or did it say it could not — the completion checks you already use, plus the
+phrases an answer uses when it has quietly given up), and `rubric`.
+
+`rubric` is the only one that costs money: it asks the model in use to grade a free-text answer
+against words you write. It refuses to guess when no model connection has been chosen, and the same
+question is only ever paid for once within a run. Everything else is decided without a model, which
+is what makes a result two people can check against each other.
+
+`GET /api/evaluation/benchmarks` lists the scorers, the benchmarks that can be read, and the ones
+that cannot.
+
+### Gates
+
+A gate is the bar a run has to clear, for a release script that should stop when it is not cleared.
+`POST /api/evaluation/run { suite, gates: { minAccuracy, maxDollars, maxMeanMs, maxRegressions,
+mustPass: [taskId] } }`, or on the command line:
+
+```
+branch eval --suite everyday --gate '{"minAccuracy":0.9,"maxRegressions":0}'
+branch eval --suite everyday --gate release-gate.json
+```
+
+Everything in a gate is optional, and a gate with nothing set passes. When a gate is given, the
+command's exit code is the gate's verdict and nothing else.
+
+### Where dataset files go
+
+| Benchmark | What it reads | Where to put it |
+| --- | --- | --- |
+| SWE-bench (Lite, Verified) | the instances JSONL | `<folder>/*.jsonl`, and each repository at `<folder>/repos/<owner>__<name>` |
+| GAIA | `metadata.jsonl` | `<folder>/metadata.jsonl`, with any attached files beside it |
+| Code tasks (APPS, MBPP, HumanEval) | a JSONL of prompt, entry point and tests | `<folder>/*.jsonl` |
+| Web tasks (WebVoyager, BrowserGym) | a JSONL of questions and answers | `<folder>/*.jsonl`, with each saved page at `<folder>/pages/<name>.html` |
+| terminal-bench | one folder per task | `<folder>/<task>/task.md` and `<folder>/<task>/tests.sh` |
+
+SWE-bench never clones anything from the internet. If the repository an instance names is not
+already at `repos/<owner>__<name>`, that task is refused and the message says exactly where to put
+it. When it is there, it is **copied** into a folder of its own inside the workspace, so your own
+checkout is never touched, and the copy is moved to the instance's base commit when it is a real Git
+checkout. Judging puts the instance's own `test_patch` back over the assistant's work and runs the
+named tests, so the assistant cannot pass by editing the tests. Tests run with the same time,
+memory, processor and output limits every other command gets, and with no way out to the internet.
+
+Web tasks are run against pages you have saved next to the dataset. A task that points at a live
+website is refused by name: a score against today's version of a shopping site is not a score
+anybody can repeat. terminal-bench tasks are marked by running their `tests.sh`, which needs a bash
+on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the one you have.
+
+### What is not supported, and why
+
+OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
+environments are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
+Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
+what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
+what each would need, rather than half-supported.
+
+### Studies
+
+A study is saved with `POST /api/studies`:
+
+```json
+{
+  "id": "gaia-level-one", "name": "GAIA, level one, two models",
+  "source": { "kind": "benchmark", "benchmark": "gaia", "directory": "C:/datasets/gaia" },
+  "presets": ["fast", "careful"], "limit": 20, "repeats": 1,
+  "concurrency": 2, "retries": 1, "maxDollars": 2, "bestOfN": 1
+}
+```
+
+`source` can instead be `{ "kind": "suite", "suite": "everyday" }`. `concurrency` is how many tasks
+run at once and is never more than the eight the whole app allows. `bestOfN` runs each task that
+many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
+stops the study when it has spent that much, and says so.
+
+`POST /api/studies/run { id, fresh }` runs it — without `fresh`, anything already finished is kept.
+`GET /api/studies` lists the studies and past results. `POST /api/studies/compare { a, b }` takes two
+result ids and reports the difference over the tasks both ran, with the range that difference is
+very likely to be in, worked out by resampling the tasks two thousand times. When the range includes
+zero, nothing is claimed.
+
+On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
+result per line), and `branch study compare <result id> <result id>`.
+
+**Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
+by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and
+Best-of-3 is three hundred and sixty runs. Set `limit` and `maxDollars` before the first one.
+
+### Checking the tools themselves
+
+`branch eval tools` (or `POST /api/evaluation/tools`) calls each tool directly with a known input and
+checks what comes back against what the tool is documented to do. No model is involved, so it takes
+a moment and costs nothing, and it belongs in a build script. The cases are plain JSON in
+`data/tool-evaluations/`.
+
+### Writing your own tests against Branch Agent
+
+`ScriptedProvider` and `ScriptedTools` are part of the package, so a plugin or skill author can
+write tests with no model, no key and no network:
+
+```js
+import { createBranch, ScriptedProvider, ScriptedTools, say, callTool } from "branch-agent";
+
+const provider = new ScriptedProvider([
+  ["greet Ada", [callTool("notes.add", { name: "Ada" }), say("I have greeted Ada.")]],
+]);
+const app = await createBranch({ workspace, dataDir, provider });
+const doubles = new ScriptedTools().reply("notes.add", { greeted: "Ada" });
+doubles.register(app.registry, ["notes.add"], "memory.write");
+await app.runtime.run({ prompt: "Please greet Ada for me.", permissions: ["memory.write"] });
+doubles.calledWith("notes.add"); // [{ name: "Ada" }]
+```
+
+A scripted model answers by *what it was asked* — each route is a phrase to look for in the newest
+question — not by how many times it has been called, so one task cannot shift another task's script.
+
+### Traces
+
+Every evaluation task and every study task is a trace of its own, labelled with
+`branch.evaluation.suite` and `branch.evaluation.task`, or `branch.study.id`, `branch.benchmark.id`
+and `branch.study.task`. An export can then be narrowed to one suite, one study or one task months
+later.
+
+The Usage screen shows the experiments you have written down under the card for running a suite.
+
 ## Skill governance and consolidation
 
 `GET|POST /api/governance` holds `excludeAfterFailures`, `windowMinutes`, `recoveryAfterMinutes` and `demoteAfterFailures`. A skill with a repeating failure pattern is set aside (`skill.set_aside`, `skill.excluded` on later runs), gets one recovery trial after the cool-off (`skill.recovery_trial`, `skill.recovered`), and is demoted when failures pile up (`skill.demoted`); `POST /api/governance/set-aside/:skillId/restore` lets it back in. `POST /api/skills/:id/benchmark { baselineVersion, candidateVersion, tasks, seed }` records per-task outcomes and costs; `POST /api/skills/:id/draft { runId }` saves an inactive draft version from a task. `consolidateDaily` in the learning settings (or `POST /api/memory/consolidate`) digests completed tasks since a cursor into memory suggestions.
