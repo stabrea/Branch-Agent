@@ -217,6 +217,30 @@ test("files.find puts the closest file names first", async (t) => {
   assert.equal((await app.runtime.executeTool("files.find", { query: "prof", limit: 1 })).files.length, 1);
 });
 
+test("a big workspace comes back bounded and says there is more, instead of failing", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await mkdir(join(workspace, "bulk"), { recursive: true });
+  const name = "a_rather_long_generated_name_so_each_answer_entry_costs_real_bytes";
+  for (let i = 0; i < 500; i++)
+    await writeFile(join(workspace, "bulk", `${name}-${String(i).padStart(4, "0")}.ts`),
+      `export const ${name}_${i} = ${i};\n`);
+  await put(workspace, "many-matches.ts", Array.from({ length: 300 }, (_, i) => `const marker${i} = "look here";`).join("\n"));
+
+  const listed = await app.runtime.executeTool("files.glob", { patterns: ["bulk/*.ts"] });
+  assert.equal(listed.moreAvailable, true, "the answer is cut short rather than overflowing");
+  assert.ok(listed.files.length > 0 && listed.files.length < 500);
+  const mapped = await app.runtime.executeTool("workspace.map", { path: "bulk", limit: 400 });
+  assert.equal(mapped.moreAvailable, true);
+  assert.ok(mapped.files.length < 400);
+  const found = await app.runtime.executeTool("files.grep", {
+    query: "look here", context: 2, maxResults: 200, glob: ["many-matches.ts"],
+  });
+  assert.equal(found.moreAvailable, true);
+  assert.ok(found.matches.length > 0 && found.matches.length <= 200);
+  for (const answer of [listed, mapped, found])
+    assert.ok(JSON.stringify(answer).length < 65536, "every answer fits the tool output limit");
+});
+
 test("every tool stays inside the workspace and the write tools need permission", async (t) => {
   const { app, workspace } = await fixture(t);
   await put(workspace, "inside.txt", "line\n");
