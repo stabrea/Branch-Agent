@@ -307,6 +307,24 @@ test("R3 an attached knowledge base reaches the model before the task, with numb
   assert.match(system, /Sources in your knowledge bases/);
   const event = app.store.events(run.id).find((item) => item.kind === "documents.retrieved");
   assert.ok(event, "the task records that passages were put in front of it");
+
+  app.documents.configure("local", { useDocuments: false });
+  provider.requests.length = 0;
+  const off = await app.runtime.run({ prompt: "How much paid leave is there?", permissions: [] });
+  const quiet = provider.requests[0].filter((message) => message.role === "system").map((message) => message.content).join("\n");
+  assert.doesNotMatch(quiet, /twenty days of paid leave/, "turning the documents switch off turns knowledge bases off too");
+  assert.equal(app.store.events(off.id).some((item) => item.kind === "documents.retrieved"), false);
+});
+
+test("R4 a file no reader can turn into text is counted rather than passed over in silence", async (t) => {
+  const { app, workspace } = await fixture(t, scripted());
+  await writeFile(join(workspace, "handbook.md"), handbook, "utf8");
+  await writeFile(join(workspace, "empty.txt"), "   ", "utf8");
+  const made = app.knowledgeBases.create("local", { name: "Work", sources: [{ kind: "folder", path: "." }] });
+  const progress = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(progress.files, 2);
+  assert.match(progress.status, /1 file could not be read/);
+  assert.equal(app.knowledgeBases.one("local", made.id).documents, 1);
 });
 
 test("R5 a paraphrase the words miss is found by meaning, through the shared store of readings", async (t) => {

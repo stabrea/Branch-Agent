@@ -243,16 +243,22 @@ export class KnowledgeBases {
     report({});
     this.clearChunks(owner, current.id);
     await this.vectors.removeCollection(owner, current.id);
+    let skipped = 0;
     for (const path of paths) {
       signal.throwIfAborted();
       const chunks = await this.readFileChunks(path).catch(() => [] as Chunk[]);
+      if (!chunks.length) skipped++;
       this.writeChunks(owner, current.id, path, chunks);
       report({ filesDone: progress.filesDone + 1, chunks: progress.chunks + chunks.length });
     }
     const meaning = await this.embedCollection(owner, current.id, signal, runId);
-    report({ embedded: meaning.embedded, status: meaning.note || "Ready", finished: true, ...(meaning.error ? { error: meaning.error } : {}) });
+    // A file too large, or one no reader could turn into text, is counted here rather than passed over
+    // in silence, so the owner can see why a folder came out smaller than they expected.
+    const skippedNote = skipped ? `${skipped} file${skipped === 1 ? "" : "s"} could not be read (too large, or no readable text).` : "";
+    const note = [meaning.note, skippedNote].filter(Boolean).join(" ");
+    report({ embedded: meaning.embedded, status: note || "Ready", finished: true, ...(meaning.error ? { error: meaning.error } : {}) });
     this.db.prepare("UPDATE kb_collections SET last_indexed_at=?, model=?, note=?, updated_at=? WHERE owner=? AND id=?")
-      .run(new Date().toISOString(), meaning.model, meaning.note, new Date().toISOString(), owner, current.id);
+      .run(new Date().toISOString(), meaning.model, note, new Date().toISOString(), owner, current.id);
     return progress;
   }
   private async readFileChunks(path: string): Promise<Chunk[]> {

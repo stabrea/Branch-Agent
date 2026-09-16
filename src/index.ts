@@ -267,11 +267,14 @@ export async function createBranch(options: {
   // Facts written during a task are compared by meaning as soon as it finishes, never during it.
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   const documentContext = documents;
-  // A knowledge base the owner attached is put in front of a task first; documents follow.
+  // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
+  // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
   runtime.documents = {
-    contextFor: async (owner, prompt, signal) =>
-      (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
-      ?? documentContext.contextFor(owner, prompt, signal),
+    contextFor: async (owner, prompt, signal) => {
+      if (documentContext.settings(owner).useDocuments === false) return null;
+      return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
+        ?? documentContext.contextFor(owner, prompt, signal);
+    },
   };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
   // A safe folder of made-up files to try things in before pointing the app at real work.

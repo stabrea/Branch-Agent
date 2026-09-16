@@ -1278,7 +1278,11 @@ one, and the ranking is the same on every build. That order and the order by mea
 reciprocal rank fusion, and the second pass from the reranking settings puts the best first. Every
 result names its file, its heading path and its page where one was known. A knowledge base you tick
 **Use this when answering** is put in front of every task with numbered sources, the way your own
-documents already can be.
+documents already can be; an attached knowledge base is offered before the document library, and the
+documents fall in behind it when it has nothing to say. Turning **Use my documents when answering**
+off at the top of the panel turns knowledge bases off as well, so that one switch always means "put
+none of my own writing in front of my tasks". A file that is too large or that no reader could turn
+into text is counted in the knowledge base's note rather than passed over in silence.
 
 **Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
 the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
