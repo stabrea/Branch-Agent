@@ -75,6 +75,8 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const asked = FromPresetSchema.parse(input);
   const entry = catalogEntry(asked.provider);
   if (!entry) throw new Error(`Branch does not know a model service called "${asked.provider}"`);
+  if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
+    throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
   const call = deps.fetchImpl ?? globalThis.fetch;
   const built = buildConnection({
     provider: asked.provider, key: asked.key, extras: asked.extras,
@@ -84,8 +86,10 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const list = modelsAddress(entry, built.baseUrl);
   const found = list ? await probeList(deps, list, asked.key, entry.auth, call) : null;
   if (!list) await probeChat(built.provider);
+  // Named after the connection, not the service, so a second key for the same service does not
+  // quietly replace the first one.
   const id = uniqueId(deps.models, asked.provider);
-  if (asked.key) await deps.locker.set(deps.owner, connectionProject, secretNameFor(asked.provider), asked.key);
+  if (asked.key) await deps.locker.set(deps.owner, connectionProject, secretNameFor(id), asked.key);
   deps.models.register({
     id, name: asked.name || entry.name, provider: built.provider, model: built.model, catalogId: entry.id,
   });
@@ -93,7 +97,7 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
     id, name: asked.name || entry.name, provider: entry.id, model: built.model,
     models: found ?? [], modelsFound: found ? found.length : null,
     can: entry.capabilities,
-    secret: { project: connectionProject, name: secretNameFor(asked.provider) },
+    secret: { project: connectionProject, name: secretNameFor(id) },
     message: found
       ? `${entry.name} answered and listed ${found.length} model(s). It is set up as "${id}".`
       : `${entry.name} answered a small test request. It is set up as "${id}", and it does not publish a list of models.`,

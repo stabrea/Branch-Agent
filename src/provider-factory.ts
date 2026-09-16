@@ -71,13 +71,16 @@ function adapterFor(
 ): Provider {
   switch (entry.shape) {
     case "openai-chat":
-      return new OpenAIProvider({ endpoint: baseUrl, model, apiKey: key || "local" });
+      return new OpenAIProvider({ endpoint: baseUrl, model, apiKey: key || "local", ...(fetchImpl ? { fetchImpl } : {}) });
     case "openai-responses":
       return new OpenAIResponsesProvider({ endpoint: baseUrl, model, apiKey: key, ...(fetchImpl ? { fetchImpl } : {}) });
     case "anthropic-messages":
-      return new AnthropicProvider({ endpoint: baseUrl, model, apiKey: key });
+      return new AnthropicProvider({ endpoint: baseUrl, model, apiKey: key, ...(fetchImpl ? { fetchImpl } : {}) });
     case "gemini":
-      return new GeminiProvider({ endpoint: baseUrl, model, apiKey: key, ...(entry.auth === "bearer" ? { bearer: true } : {}) });
+      return new GeminiProvider({
+        endpoint: baseUrl, model, apiKey: key,
+        ...(entry.auth === "bearer" ? { bearer: true } : {}), ...(fetchImpl ? { fetchImpl } : {}),
+      });
     case "azure-openai":
       return new AzureOpenAIProvider({
         endpoint: baseUrl, model, apiKey: key,

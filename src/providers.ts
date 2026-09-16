@@ -17,6 +17,11 @@ export interface ProviderOptions {
   endpoint: string;
   model: string;
   apiKey: string;
+  /**
+   * The fetch every request goes through. The factory hands in one wrapped by the owner's network
+   * rules and by the health record, so a completion is checked and written down like anything else.
+   */
+  fetchImpl?: typeof globalThis.fetch | undefined;
 }
 const usageNumber = z.number().int().nonnegative();
 const openaiResponse = z.object({
@@ -128,7 +133,8 @@ async function post(
   signal: AbortSignal,
   consume?: (data: string) => void,
 ): Promise<unknown> {
-  const response = await fetch(options.endpoint.replace(/\/$/, "") + path, {
+  const call = options.fetchImpl ?? globalThis.fetch;
+  const response = await call(options.endpoint.replace(/\/$/, "") + path, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),

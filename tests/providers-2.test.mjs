@@ -175,12 +175,15 @@ for (const entry of catalogEntries()) {
 }
 
 /** Builds a connection from a catalog line whose address has been pointed at a fake. */
-function buildConnectionAgainst(entry, extras) {
+function buildConnectionAgainst(entry, extras, policy) {
   const { useCatalog, providerCatalog: real } = catalogModule;
   const original = real();
   useCatalog({ ...original, services: original.services.map((s) => (s.id === entry.id ? entry : s)) });
   try {
-    return buildConnection({ provider: entry.id, key: "test-key", extras, model: entry.defaultModel });
+    return buildConnection({
+      provider: entry.id, key: "test-key", extras, model: entry.defaultModel,
+      ...(policy ? { policy } : {}),
+    });
   } finally {
     useCatalog(original);
   }
@@ -464,7 +467,72 @@ test("from-preset probes the service before storing anything, and never logs the
   assert.equal(models.presets.get("groq").catalogId, "groq");
   assert.deepEqual(store.locker.names("local", connectionProject).map((row) => row.name), ["GROQ_KEY"]);
   assert.ok(!JSON.stringify(result).includes("sk-secret-value"), "the key is never handed back");
-  assert.ok(!JSON.stringify(seen).includes("sk-secret-value") === false, "the key does reach the service itself");
+  assert.ok(JSON.stringify(seen).includes("sk-secret-value"), "the key does reach the service itself");
+});
+
+test("a service with no list of models is checked by asking it for one small reply", async (t) => {
+  const { origin, seen } = await fake(t, (req, res) => json(res, { choices: [{ message: { content: "OK" } }] }));
+  const store = await withStore(t);
+  const models = router(t, [stub("demo", undefined)]);
+  const original = providerCatalog();
+  // Portkey publishes no list of models, so from-preset has to use the connection to check the key.
+  catalogModule.useCatalog({ ...original, services: original.services.map((s) => (s.id === "portkey" ? { ...s, baseUrl: `${origin}/v1` } : s)) });
+  t.after(() => catalogModule.useCatalog(original));
+  const result = await connectFromPreset(
+    { models, locker: store.locker, owner: "local", policy: localPolicy() },
+    { provider: "portkey", key: "pk-secret" },
+  );
+  assert.equal(result.modelsFound, null);
+  assert.match(result.message, /answered a small test request/);
+  assert.equal(seen[0].url, "/v1/chat/completions", "the check was a real completion");
+  assert.deepEqual(store.locker.names("local", connectionProject).map((row) => row.name), ["PORTKEY_KEY"]);
+});
+
+test("a second connection to the same service does not overwrite the first one's key", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { data: [{ id: "one" }] }));
+  const store = await withStore(t);
+  const models = router(t, [stub("demo", undefined)]);
+  const original = providerCatalog();
+  catalogModule.useCatalog({ ...original, services: original.services.map((s) => (s.id === "groq" ? { ...s, baseUrl: `${origin}/v1` } : s)) });
+  t.after(() => catalogModule.useCatalog(original));
+  const deps = { models, locker: store.locker, owner: "local", policy: localPolicy() };
+  const first = await connectFromPreset(deps, { provider: "groq", key: "one" });
+  const second = await connectFromPreset(deps, { provider: "groq", key: "two" });
+  assert.equal(first.id, "groq");
+  assert.equal(second.id, "groq-2");
+  assert.deepEqual(store.locker.names("local", connectionProject).map((row) => row.name), ["GROQ_2_KEY", "GROQ_KEY"]);
+});
+
+test("a service that only compares passages is refused as a connection, in plain words", async (t) => {
+  const store = await withStore(t);
+  const models = router(t, [stub("demo", undefined)]);
+  await assert.rejects(
+    connectFromPreset({ models, locker: store.locker, owner: "local", policy: localPolicy() }, { provider: "voyageai", key: "k" }),
+    /does not hold conversations/);
+});
+
+test("a completion on the ordinary OpenAI shape goes through the network rules and is written down", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { choices: [{ message: { content: "hi" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  // The owner's default rules refuse this computer's own addresses; a completion must obey them.
+  const strict = buildConnection({ provider: "custom", key: "k", extras: { baseUrl: `${origin}/v1` }, policy: new NetworkPolicy({}) });
+  await assert.rejects(strict.provider.complete(request), /private or local address|may not reach/);
+
+  const health = new ProviderHealth();
+  const watched = buildConnection({
+    provider: "custom", key: "k", extras: { baseUrl: `${origin}/v1` },
+    policy: localPolicy(), fetchImpl: health.watch("mine"),
+  });
+  assert.equal((await watched.provider.complete(request)).content, "hi");
+  assert.notEqual(health.get("mine").latencyMs, null, "the completion itself was written down");
+  assert.equal(health.get("mine").consecutiveFailures, 0);
+});
+
+test("Anthropic and Gemini connections obey the network rules too", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { content: [{ type: "text", text: "hi" }] }));
+  const strictAnthropic = buildConnectionAgainst({ ...catalogEntry("anthropic"), baseUrl: `${origin}/v1` }, {}, new NetworkPolicy({}));
+  await assert.rejects(strictAnthropic.provider.complete(request), /private or local address|may not reach/);
+  const strictGemini = buildConnectionAgainst({ ...catalogEntry("gemini"), baseUrl: origin }, {}, new NetworkPolicy({}));
+  await assert.rejects(strictGemini.provider.complete(request), /private or local address|may not reach/);
 });
 
 test("a key the service refuses is not stored and the reason is in plain words", async (t) => {
