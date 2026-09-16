@@ -17,7 +17,6 @@ export const TriggerSchema = z
     sessionId: z.string().uuid().optional(),
     enabled: z.boolean().default(true),
     rateLimitPerMinute: z.number().int().min(1).max(100).default(30),
-    secret: z.string().min(24).optional(),
   })
   .strict();
 export type TriggerConfig = z.infer<typeof TriggerSchema>;
@@ -105,7 +104,7 @@ export class Triggers {
       ...(definition.sessionId ? { sessionId: definition.sessionId } : {}),
       enabled: true,
       rateLimitPerMinute: definition.rateLimitPerMinute,
-      secret: definition.secret ?? randomBytes(24).toString("hex"),
+      secret: randomBytes(24).toString("hex"),
     });
     return this.get(context.owner, id)!;
   }
