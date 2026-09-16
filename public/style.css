@@ -1010,3 +1010,29 @@ summary {
 .update-panel .progress { margin: 12px 0 8px; }
 .progress.indeterminate .progress-bar { width: 40% !important; animation: update-slide 1.2s ease-in-out infinite alternate; }
 @keyframes update-slide { from { transform: translateX(-20%); } to { transform: translateX(170%); } }
+
+/* Documents: the drop area, and the highlighted words inside a found passage. */
+#documents-drop { border-style: dashed; transition: border-color 120ms ease, background 120ms ease; }
+#documents-drop.dropping { border-color: var(--good); background: var(--well); }
+#documents-drop input[type="file"] { margin-top: 10px; font-size: 12px; }
+#documents-results mark { background: #86d6a02e; color: inherit; border-radius: 3px; padding: 0 2px; }
+
+/* Automations: triggers and webhooks */
+.automations-panel { display: grid; gap: 1.5rem; margin-top: 0.5rem; }
+.automations-section { padding: 1rem; border: 1px solid var(--line); border-radius: 0.75rem; background: var(--well); }
+.automations-section h3 { margin: 0 0 0.5rem; font-size: 1rem; font-weight: 600; }
+.automations-desc { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; }
+.automations-empty { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.automations-list { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
+.automations-item { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--ground); }
+.automations-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.automations-name { font-weight: 500; }
+.automations-disabled { color: var(--muted); text-decoration: line-through; }
+.automations-toggle { margin: 0; }
+.automations-url { font-size: 0.85rem; color: var(--muted); font-family: monospace; word-break: break-all; margin: 0.25rem 0; }
+.automations-events { font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0; }
+.automations-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+.automations-btn, .automations-btn-small { padding: 0.45rem 0.75rem; border: 1px solid var(--line); border-radius: 0.4rem; background: var(--well); color: var(--text); font: inherit; cursor: pointer; font-size: 0.9rem; }
+.automations-btn-small { font-size: 0.8rem; padding: 0.35rem 0.6rem; }
+.automations-btn:hover, .automations-btn-small:hover { border-color: var(--copper); background: var(--hover); }
+.automations-log { margin: 0.5rem 0 0; padding: 0.5rem; border-radius: 0.4rem; background: var(--well); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow: auto; }

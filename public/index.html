@@ -29,6 +29,7 @@
         ><button class="nav" data-view="usage">Usage</button
         ><button class="nav" data-view="memory">Memory</button
         ><button class="nav" data-view="skills">Skills</button
+        ><button class="nav" data-view="documents">Documents</button
         ><button class="nav" data-view="specialists">Specialists</button
         ><button class="nav" data-view="procedures">Procedures</button
         ><button class="nav" data-view="schedules">Schedules</button
@@ -336,6 +337,7 @@
             <button>Schedule</button>
           </form>
           <div id="schedules-list" class="card-list"></div>
+          <div id="automations-container"></div>
         </section>
         <section id="skills" class="view" hidden>
           <p class="section-intro">Install a single SKILL.md file. Bundled scripts and assets are not imported. Skills do not grant tool permissions; allowed-tools metadata is informational.</p>
@@ -377,6 +379,37 @@
             <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
             <p id="skill-status" role="status"></p>
           </form>
+        </section>
+        <section id="documents" class="view" hidden>
+          <p class="section-intro">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, web pages, notes, tables and plain text can be read. PDFs are listed but need a helper first.</p>
+          <div class="card">
+            <label class="check-row"><input type="checkbox" id="documents-use" /> Use my documents when answering</label>
+            <p class="subtle" id="documents-meaning"></p>
+          </div>
+          <form id="documents-path-form" class="card">
+            <h3>Add a file from your workspace</h3>
+            <label for="documents-path">Where the file is, inside your workspace</label>
+            <div class="input-row">
+              <input id="documents-path" type="text" maxlength="500" placeholder="notes/handbook.docx" />
+              <button type="submit">Add this file</button>
+            </div>
+          </form>
+          <div class="card" id="documents-drop">
+            <h3>Or drop files here</h3>
+            <p class="subtle">Drag files onto this box, or choose them below. Up to 20 MB each.</p>
+            <input id="documents-file" type="file" multiple accept=".txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pdf" />
+          </div>
+          <form id="documents-search-form" class="card">
+            <h3>Search your documents</h3>
+            <label for="documents-query">What are you looking for?</label>
+            <div class="input-row">
+              <input id="documents-query" type="search" maxlength="500" placeholder="holiday policy" />
+              <button type="submit">Search</button>
+            </div>
+            <div id="documents-results" class="card-list"></div>
+          </form>
+          <p id="documents-status" role="status"></p>
+          <div id="documents-list" class="card-list"></div>
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>
@@ -508,6 +541,20 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <section id="mcp-card" class="card">
+            <h2>Sharing with other AI tools</h2>
+            <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
+            <div class="check-list"><label class="check"><input type="checkbox" id="mcp-enabled" /> Let other AI tools use Branch</label></div>
+            <p id="mcp-status" class="subtle" role="status"></p>
+            <details id="mcp-choose" hidden>
+              <summary>Choose which of Branch's tools they may use</summary>
+              <p class="subtle">They can always ask Branch a question in plain words. Tick a tool to let them use it directly. Tools marked <em>can change things</em> write files, run commands or change your settings, so leave those unticked unless you mean it.</p>
+              <div id="mcp-tools" class="check-list"></div>
+            </details>
+            <h3>How to connect</h3>
+            <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
+            <div id="mcp-connection" class="card-list"></div>
+          </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
             <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
@@ -621,6 +668,8 @@
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/usage.js"></script>
+    <script src="/documents.js" type="module"></script>
+    <script src="/mcp.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
 </html>

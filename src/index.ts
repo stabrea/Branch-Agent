@@ -12,6 +12,7 @@ import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
+import { startMcpServer } from "./mcp-server.js";
 import { createRequire } from "node:module";
 import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
@@ -22,6 +23,8 @@ import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
+import { Triggers } from "./triggers.js";
+import { Webhooks } from "./webhooks.js";
 import { SkillRegistry } from "./registry-install.js";
 import { Evaluation } from "./evaluation.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
@@ -29,6 +32,7 @@ import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
+import { DocumentLibrary, registerDocuments } from "./documents.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -67,11 +71,13 @@ export async function createBranch(options: {
   const registry = new ToolRegistry();
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
+  let documents: DocumentLibrary | undefined;
   registerFiles(registry, files, {
     before: (path, context) => history.before(path, context),
     after: async (path, context, token) => {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
+      try { await documents?.refreshPath(context.owner, path, context.signal); } catch { /* indexing never fails a file change */ }
     },
   });
   registerWorkspaceHistory(registry, history);
@@ -90,6 +96,9 @@ export async function createBranch(options: {
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
+  documents = new DocumentLibrary(store, runtime.models, files);
+  registerDocuments(registry, documents);
+  runtime.documents = documents;
   registry.register({
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
@@ -104,6 +113,10 @@ export async function createBranch(options: {
   const teams = new Teams(store, runtime.owner);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   const evaluation = new Evaluation(store, runtime.owner);
+  const triggers = new Triggers(store, runtime);
+  const webhooks = new Webhooks(store, web.policy);
+  runtime.notifyEvent = webhooks.notifier(runtime.owner);
+  channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
@@ -114,6 +127,8 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
+  // Nothing is shared with other AI tools until the owner turns it on in Settings.
+  const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -121,10 +136,12 @@ export async function createBranch(options: {
     runtime,
     files,
     knowledge,
+    documents,
     scheduler,
     chatgpt,
     version,
     userAgent,
+    mcpServer,
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
@@ -134,6 +151,8 @@ export async function createBranch(options: {
     teams,
     skillRegistry,
     evaluation,
+    triggers,
+    webhooks,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -202,3 +221,5 @@ export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";
+export * from "./triggers.js";
+export * from "./webhooks.js";

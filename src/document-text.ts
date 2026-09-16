@@ -1,0 +1,131 @@
+import { inflateRawSync } from "node:zlib";
+
+/**
+ * Turning a saved file into plain text for the document library. Word and spreadsheet files are
+ * ZIP containers of XML, so a small reader for stored and deflated entries is enough; nothing here
+ * runs code from the file or reaches the network. PDFs are reported as needing a helper.
+ */
+export type DocumentType = "txt" | "md" | "html" | "csv" | "json" | "docx" | "xlsx" | "pdf";
+const byExtension: Record<string, DocumentType> = {
+  txt: "txt", text: "txt", log: "txt", md: "md", markdown: "md", html: "html", htm: "html",
+  csv: "csv", tsv: "csv", json: "json", docx: "docx", docm: "docx", xlsx: "xlsx", xlsm: "xlsx", pdf: "pdf",
+};
+/** The kind of file a name points at; anything unknown is read as plain text. */
+export function documentType(name: string): DocumentType {
+  return byExtension[name.toLowerCase().split(".").pop() ?? ""] ?? "txt";
+}
+
+export class ZipReader {
+  constructor(private readonly data: Buffer) {}
+  private centralDirectory(): number {
+    const signature = 0x06054b50;
+    for (let pos = this.data.length - 22; pos >= 0; pos--)
+      if (this.data.readUInt32LE(pos) === signature) return this.data.readUInt32LE(pos + 16);
+    throw new Error("This file is not a readable Word or spreadsheet document");
+  }
+  /** The bytes of one entry, or null when the container has no such entry. */
+  entry(path: string): Buffer | null {
+    let pos = this.centralDirectory();
+    while (pos + 46 <= this.data.length && this.data.readUInt32LE(pos) === 0x02014b50) {
+      const nameLength = this.data.readUInt16LE(pos + 28);
+      const name = this.data.toString("utf8", pos + 46, pos + 46 + nameLength);
+      if (name === path) return this.read(this.data.readUInt32LE(pos + 42));
+      pos += 46 + nameLength + this.data.readUInt16LE(pos + 30) + this.data.readUInt16LE(pos + 32);
+    }
+    return null;
+  }
+  private read(header: number): Buffer {
+    if (this.data.readUInt32LE(header) !== 0x04034b50) throw new Error("Damaged document entry");
+    const method = this.data.readUInt16LE(header + 8), size = this.data.readUInt32LE(header + 18);
+    const start = header + 30 + this.data.readUInt16LE(header + 26) + this.data.readUInt16LE(header + 28);
+    const body = this.data.subarray(start, start + size);
+    if (method === 0) return Buffer.from(body);
+    if (method === 8) return inflateRawSync(body);
+    throw new Error("This document uses a compression method the assistant cannot read");
+  }
+}
+
+const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+export function decodeEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
+    if (body.startsWith("#x") || body.startsWith("#X")) return codePoint(parseInt(body.slice(2), 16), whole);
+    if (body.startsWith("#")) return codePoint(parseInt(body.slice(1), 10), whole);
+    return entities[body.toLowerCase()] ?? whole;
+  });
+}
+function codePoint(value: number, whole: string): string {
+  return Number.isInteger(value) && value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : whole;
+}
+/** Runs of spaces become one; tabs and line breaks are kept, because they carry the layout. */
+const collapse = (value: string): string => value.replace(/[  ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+/** Readable page text: scripts, styles and comments are dropped, block ends become line breaks. */
+export function htmlText(html: string): string {
+  const body = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/(p|div|li|tr|h[1-6]|section|article|blockquote)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n");
+  return collapse(decodeEntities(body.replace(/<[^>]*>/g, " ")));
+}
+
+export function docxText(buffer: Buffer): string {
+  const xml = new ZipReader(buffer).entry("word/document.xml");
+  if (!xml) throw new Error("This Word file has no readable document part");
+  const body = xml.toString("utf8")
+    .replace(/<w:tab\b[^>]*\/?>/g, "\t")
+    .replace(/<w:br\b[^>]*\/?>/g, "\n")
+    .replace(/<\/w:p>/g, "\n");
+  return collapse(decodeEntities(body.replace(/<[^>]*>/g, "")));
+}
+
+/** Every `<t>` run inside each shared string, so rich text keeps all of its words. */
+export function sharedStrings(xml: string): string[] {
+  return [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((item) =>
+    decodeEntities([...(item[1] ?? "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((run) => run[1] ?? "").join("")),
+  );
+}
+/** One line per row, cells separated by tabs; shared, inline and plain values are all kept. */
+export function sheetText(xml: string, strings: string[]): string {
+  const rows: string[] = [];
+  for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells: string[] = [];
+    for (const cell of (row[1] ?? "").matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g))
+      cells.push(cellText(cell[1] ?? "", cell[2] ?? "", strings));
+    if (cells.some((cell) => cell !== "")) rows.push(cells.join("\t"));
+  }
+  return rows.join("\n");
+}
+function cellText(attributes: string, body: string, strings: string[]): string {
+  const type = /\bt="([^"]+)"/.exec(attributes)?.[1] ?? "n";
+  if (type === "inlineStr")
+    return decodeEntities([...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((run) => run[1] ?? "").join(""));
+  const value = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? "";
+  if (type === "s") return strings[Number(value)] ?? "";
+  return decodeEntities(value);
+}
+export function xlsxText(buffer: Buffer): string {
+  const zip = new ZipReader(buffer);
+  const shared = zip.entry("xl/sharedStrings.xml");
+  const strings = shared ? sharedStrings(shared.toString("utf8")) : [];
+  const sheets: string[] = [];
+  for (let index = 1; index <= 8; index++) {
+    const sheet = zip.entry(`xl/worksheets/sheet${index}.xml`);
+    if (!sheet) break;
+    const text = sheetText(sheet.toString("utf8"), strings);
+    if (text) sheets.push(text);
+  }
+  if (!sheets.length) throw new Error("This spreadsheet has no readable cells");
+  return sheets.join("\n\n");
+}
+
+/** Plain text for a saved file. PDFs return null: they need a helper the assistant does not have. */
+export function extractText(buffer: Buffer, type: DocumentType): string | null {
+  switch (type) {
+    case "pdf": return null;
+    case "html": return htmlText(buffer.toString("utf8"));
+    case "docx": return docxText(buffer);
+    case "xlsx": return xlsxText(buffer);
+    default: return collapse(buffer.toString("utf8"));
+  }
+}

@@ -4,6 +4,19 @@
 
 `src/usage.ts` (UsageStore class): aggregates runs and events by date to produce daily token consumption, estimated costs, and failure counts; tracks per-model and per-conversation usage; optional caching table for incremental refresh by event-id watermark (only terminal runs included). `GET /api/usage?range=7d|30d|90d|all&by=day|model|conversation|source` returns aggregated usage; `GET /api/runs/:id/timeline` returns a timestamped sequence of model calls, tool invocations, retries, and stalls from events, with durations (uses clipToolResult pattern for clipped output, future option for OTel-compatible trace export). Routes: `POST /api/usage/budget` to set optional monthly token budget and pause switch; `GET /api/usage/budget` to read it. Runtime budget enforcement at run-start in runtime.ts (not in Budget class — different concern). `GET /api/usage/export.csv` in rawApi() for download. `public/usage.js` builds the view with summary cards, daily cost canvas chart, table by model, budget form, export button. UI integrates into index.html nav and app.js titles; public/style.css variables reused. Tests: aggregation over fixture store with multiple runs/receipts across days and models, incremental refresh (adding a run updates only the new day), terminal-run filtering, reported-vs-estimated token selection, timeline event ordering and durations. Costs: derived at aggregate time from tokens × preset pricing (no cost column added to storage; no second source of truth). Items done: A0202 (usage tracked, display added), A0269 (display added), A0346, A0638 (cost estimation not implemented, left as future work following design constraint), A0929 (user-facing aggregation added), A0972 (timeline export added).
 
+## Batch 19 (wave 1) — webhooks-and-triggers
+
+Six builders in parallel branches (wave1/*). This branch adds the two directions of event-driven automation, and they are wired to the places events actually happen rather than left as an unconnected library.
+
+- Inbound triggers (`src/triggers.ts`): `POST /api/triggers/:id/fire` proves itself with a bearer secret or an HMAC-SHA256 signature over the exact request bytes, fills `{{payload}}` and `{{field.path}}` into the trigger's prompt, and starts a run. Rate limit per trigger, 256 KiB body cap (413), off switch (403), over-limit (429), and a per-trigger log of every attempt with its run id.
+- Outbound webhooks (`src/webhooks.ts`): `Webhooks.notify` fans one event out to every webhook that asked for it. Three attempts with 5 s then 10 s pauses (the pauses are a settable field so tests do not wait), auto-off after five consecutive give-ups with a plain-language reason, reset on success, HMAC signature over the exact bytes sent, and a delivery log. Every address goes through the shared network policy.
+- Event wiring: `Runtime.notifyEvent` and `Deliveries.notifyEvent` are no-op fields that `createBranch` points at the webhook fan-out. `run.completed`/`run.failed` from `Runtime.finish` (one call site, reading status), `approval.needed` next to the existing `attention.needed` event, `schedule.fired` in `Scheduler.execute`, `trigger.fired` in `Triggers.fire`, `delivery.failed` where the channel delivery ledger parks a dead letter. All fire-and-forget with errors swallowed: a webhook can never disturb a run. Payloads carry ids and status, never the task's text.
+- Store: `trigger_log` and `delivery_log` tables, `triggers` and `webhooks` record tables; both logs order by row id so ties within a millisecond stay deterministic.
+- UI (`public/automations.js`): rewritten as a real module that `app.js` imports and hands `state` plus its helpers. Three bugs fixed from the first pass — the panel never rendered (module scope), `/automations.js` was not in the server's static asset list, and creating either kind failed on a permission that no tool ever registers. Triggers and webhooks are owner-only settings behind the session token now, like channels and teams. Logs render in the panel instead of a pop-up; wording rewritten for a non-technical owner.
+- Tests (`tests/triggers-webhooks.test.mjs`, 18): a real loopback endpoint receives `run.completed` with a valid signature, a failing run sends `run.failed`, a trigger fire sends `trigger.fired` and shows the run id in its log, a schedule sends `schedule.fired`, a stopped-to-ask run sends `approval.needed`, a dead chat message sends `delivery.failed`; bad signature, off trigger, rate limit, oversize body, retry-then-success, auto-off after five failures, private-address refusal under the default policy, and a headless browser check that the panel renders and its buttons reach the routes.
+
+Items marked done: A1838 (outbound webhooks), A1816 (webhook/trigger fire system).
+
 ## Where things stand
 
 The user's standing instruction: keep improving locally and publish to GitHub only at checkpoints
@@ -37,6 +50,12 @@ from **Settings → Updates**. Do not merge or release every batch.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
 - Copy rule: plain language for non-technical people, no developer jargon in the interface.
 
+## Batch 19 (wave 1) — MCP server mode
+
+Five parallel agents build independent feature areas of wave 1:
+- **MCP server mode** (`wave1/mcp-server`): JSON-RPC 2.0 over HTTP/stdio exposes tools, resources, and prompts to other AI tools (Claude Desktop, Claude Code, Cursor) with session state, permission gates, and rate limits. Handler at `/mcp`, connection helper at `/api/mcp/connection`, settings at `/api/mcp/settings`. Tested: protocol negotiation, session tracking, auth, tool/resource/prompt listing, and exposure policy.
+- **Documentation, Providers, Voice, Webhooks**: Four more agents building in parallel.
+
 ## Tracking on GitHub
 
 Nothing lives only in chat. Open work is tracked as checklists:
@@ -54,6 +73,28 @@ Nothing lives only in chat. Open work is tracked as checklists:
 ## Batches 7–9 ship as 0.5.0
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
+
+## Batch 19 (wave 1) — documents
+
+`src/documents.ts` (library, settings, search, retrieval), `src/document-text.ts` (ZIP reader, docx/xlsx/HTML/plain
+extraction), `src/document-embeddings.ts` (batched `/embeddings` client, cosine, reciprocal rank fusion),
+`public/documents.js` + a Documents view. Passages live in `document_chunks` (integer `chunk_id`) with a standalone
+FTS5 table `document_search` maintained by explicit inserts and deletes — no `content=` external-content table, so
+there is no delete-with-old-values dance; `PRAGMA compile_options` is checked at startup and a build without FTS5
+falls back to LIKE with a printed warning. Meaning-based search is optional: `OpenAIProvider.embeddings()` returns
+`{ endpoint, apiKey }` (every other provider gives nothing, detected by duck typing in `providerEmbeddings`), vectors
+are stored as Float32 blobs, and the wording and meaning orders are fused with RRF (k=60). Embedding calls reuse the
+provider URL rule (`assertProviderEndpoint`, extracted from `validateOptions`) rather than `NetworkPolicy`, because a
+local provider on loopback is legitimate here and the traffic goes to the provider's own address. Retrieval is
+injected in `Runtime.loop` right after `openingMessages`, before the stored turns, only for the owner's own runs
+(`depth === 0`, no `agent`), capped at 900 characters per passage; it is evented, never fatal. A document made from a
+workspace file is rebuilt through the existing `registerFiles` `after` hook. Uploads arrive base64-encoded in JSON
+(`readBody` cap 28 MB for the 20 MB file limit) rather than through `rawApi`, which is for handlers that write their
+own response. A file the assistant rewrites is re-indexed for words straight away but is *not* re-embedded on every
+write (the hook would otherwise put a provider round trip inside `files.write`); the document says so and the next
+deliberate **Read the file again** restores meaning matching. The earlier `wave1/documents` attempt's chunk table is
+dropped on first open and its documents are marked failed with a note to add them again; that shape never shipped in a
+release.
 
 ## Batch 18 (local, unreleased): teams, linked chats, reconciliation gate, skill registry, evaluation suite, hand-over via Task Scheduler
 
@@ -104,6 +145,26 @@ Follow-up: receipts + first-launch version check for Branch (issue #18).
 
 Version 0.7.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip via
 System32 tar.exe; two-space checksum file. Coverage 85 implemented, 20 partial, 63 missing, 1 external.
+
+## Batch 19 (wave 1) — sharing with other AI tools (MCP server mode)
+
+`src/mcp-server.ts` is the whole dispatcher (initialize with version negotiation, ping, tools, resources,
+prompts) and now reads its exposure policy from `settings/mcp-sharing` on every call instead of a set
+frozen at construction — the Settings switch was previously decorative. Default is off with nothing
+shared; `branch.ask` is always offered. `src/mcp-stdio.ts` adds the second transport and `branch
+mcp-serve` in `src/cli.ts` runs it: newline-delimited JSON-RPC on stdin/stdout, notifications get no
+reply, every human-readable line goes to stderr, clean exit when stdin ends. Conversations are exposed
+as `conversation://<uuid>` resources (title from the first message, date, transcript as plain
+`role: text` lines capped at 64 KiB, ownership checked). Every `tools/call` is now its own recorded
+task with `source: "mcp"` and a signed receipt, so shared work shows in Activity and
+`/api/runs/:id/receipts` like local work; the tool context's permissions are derived from the exposed
+tools' permissions rather than their names (they only coincided for `files.read`), and the concurrency
+counter is now in-flight rather than lifetime. `public/mcp.js` plus one card in `index.html` and one
+line in `app.js` give the owner a switch, a tool list where read-only tools are pre-ticked and the rest
+are labelled "can change things", and copyable settings for Claude Desktop, Claude Code and Cursor
+built from this server's real address and key (`GET /api/mcp/connection`, which now reports the stdio
+command — the packaged executable with `ELECTRON_RUN_AS_NODE` when the app is packaged, otherwise
+`branch mcp-serve`). Tests: `tests/mcp-server.test.mjs` (21).
 
 ## Batch 15 (released in 0.7.0): time-qualified facts, memory scopes, admission switch, tidy-up view
 

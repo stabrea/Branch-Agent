@@ -6,7 +6,8 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -22,7 +23,9 @@ import { allPresets, findPreset } from "./providers/presets.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { readBodyWithRaw } from "./triggers.js";
 import { standardSuite } from "./evaluation.js";
+import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -113,7 +116,12 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
+    "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
+    "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
+    "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
@@ -322,6 +330,8 @@ function state(app: Branch): unknown {
     specialists: app.store.list("specialists", owner),
     procedures: app.store.list("procedures", owner),
     schedules: app.store.list("schedules", owner),
+    triggers: app.triggers.list(owner),
+    webhooks: app.webhooks.list(owner),
     tools: app.registry.descriptions(new Set(app.registry.permissions())),
   };
 }
@@ -329,9 +339,12 @@ async function api(
   app: Branch,
   request: IncomingMessage,
   path: string,
+  dataDir: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
+  if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
+  if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -341,6 +354,9 @@ async function api(
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
+  if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
+  if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -632,6 +648,107 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
   const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
   return { runId: run.id, status: run.status };
 }
+const triggerBodyLimit = 256 * 1024;
+async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
+  const trigger = app.triggers.get(app.runtime.owner, triggerId);
+  if (!trigger) throw new HttpError(404, "Trigger not found");
+  if (Number(request.headers["content-length"] ?? 0) > triggerBodyLimit)
+    throw new HttpError(413, `Request exceeds ${triggerBodyLimit / 1024} KiB`);
+
+  const { raw, parsed } = await readBodyWithRaw(request, triggerBodyLimit).catch((error: unknown) => {
+    const message = errorText(error);
+    throw new HttpError(message.includes("exceeds") ? 413 : 400, message);
+  });
+
+  const verified = app.triggers.verify(trigger, request.headers, raw);
+  if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
+
+  return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
+    const message = errorText(error);
+    if (message.includes("disabled")) throw new HttpError(403, message);
+    if (message.includes("Rate limit")) throw new HttpError(429, message);
+    throw error;
+  });
+}
+async function triggersApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  const context = app.runtime.context();
+
+  if (request.method === "GET" && path === "/api/triggers")
+    return { triggers: app.triggers.list(owner) };
+
+  if (request.method === "POST" && path === "/api/triggers")
+    return app.triggers.create(context, await readBody(request));
+
+  const match = /^\/api\/triggers\/([a-f0-9-]{36})(?:\/(log|rotate-secret|enabled|remove))?$/.exec(path);
+  if (!match) throw new HttpError(404, "Endpoint not found");
+
+  const trigger = app.triggers.get(owner, match[1]!);
+  if (!trigger) throw new HttpError(404, "Trigger not found");
+
+  if (request.method === "GET" && !match[2])
+    return trigger;
+
+  if (request.method === "GET" && match[2] === "log")
+    return { log: app.triggers.getLog(match[1]!, owner) };
+
+  if (request.method === "POST" && match[2] === "rotate-secret") {
+    z.object({}).strict().parse(await readBody(request));
+    const secret = app.triggers.rotateSecret(owner, match[1]!);
+    return { secret };
+  }
+
+  if (request.method === "POST" && match[2] === "enabled") {
+    const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
+    return app.triggers.setEnabled(owner, match[1]!, enabled);
+  }
+
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
+    app.triggers.remove(owner, match[1]!);
+    return { removed: true };
+  }
+
+  throw new HttpError(404, "Endpoint not found");
+}
+async function webhooksApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  const context = app.runtime.context();
+
+  if (request.method === "GET" && path === "/api/webhooks")
+    return { webhooks: app.webhooks.list(owner) };
+
+  if (request.method === "POST" && path === "/api/webhooks")
+    return app.webhooks.create(context, await readBody(request));
+
+  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable))?$/.exec(path);
+  if (!match) throw new HttpError(404, "Endpoint not found");
+
+  const webhook = app.webhooks.get(owner, match[1]!);
+  if (!webhook) throw new HttpError(404, "Webhook not found");
+
+  if (request.method === "GET" && !match[2])
+    return webhook;
+
+  if (request.method === "GET" && match[2] === "log")
+    return { log: app.webhooks.getLog(match[1]!, owner) };
+
+  if (request.method === "POST" && match[2] === "test") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.webhooks.test(owner, match[1]!);
+  }
+
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
+    app.webhooks.remove(owner, match[1]!);
+    return { removed: true };
+  }
+
+  if (request.method === "POST" && match[2] === "enable") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.webhooks.enable(owner, match[1]!);
+  }
+
+  throw new HttpError(404, "Endpoint not found");
+}
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
@@ -712,6 +829,148 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/** A 20 MB file arrives base64 encoded, which is a third larger again. */
+const documentBodyBytes = 28 * 1024 * 1024;
+async function documentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner, library = app.documents;
+  if (path === "/api/documents/settings") {
+    if (request.method === "GET") return library.settings(owner);
+    if (request.method === "POST") return library.configure(owner, await readBody(request));
+  }
+  if (request.method === "GET" && path === "/api/documents") return library.view(owner);
+  if (request.method === "POST" && path === "/api/documents")
+    return library.add(owner, await readBody(request, documentBodyBytes));
+  if (request.method === "POST" && path === "/api/documents/search")
+    return { results: await library.search(owner, await readBody(request)) };
+  if (request.method === "POST" && path === "/api/documents/reindex") {
+    const { id } = z.object({ id: z.string().min(1).max(100) }).strict().parse(await readBody(request));
+    return library.reindex(owner, id);
+  }
+  const one = /^\/api\/documents\/([a-f0-9-]{36})$/.exec(path);
+  if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
+  throw new HttpError(404, "Endpoint not found");
+}
+async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (path === "/api/mcp/settings") {
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "Sharing is not available");
+    if (request.method === "GET")
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+    if (request.method === "POST") {
+      const sharing = McpSharingSchema.parse(await readBody(request));
+      const known = new Set(app.registry.names());
+      const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools });
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+    }
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+async function handleMcpRequest(
+  app: Branch,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<boolean> {
+  const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  if (path !== "/mcp") return false;
+  if (!["POST", "GET", "DELETE"].includes(request.method ?? "")) return false;
+
+  try {
+    const owner = app.runtime.owner;
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "MCP server not initialized");
+
+    const sessionId = request.headers["mcp-session-id"] as string | undefined;
+
+    if (request.method === "DELETE") {
+      if (sessionId) {
+        mcp.deleteSession(sessionId);
+      }
+      response.writeHead(204);
+      response.end();
+      return true;
+    }
+
+    if (request.method === "GET") {
+      throw new HttpError(405, "Use POST for JSON-RPC requests");
+    }
+
+    const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
+
+    if (request.method === "POST" && body) {
+      const JsonRpcSchema = z
+        .object({
+          jsonrpc: z.literal("2.0"),
+          id: z.union([z.string(), z.number()]),
+          method: z.string(),
+          params: z.record(z.string(), z.unknown()).optional().default({}),
+        })
+        .strict();
+      const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
+      const result = await mcp.handle(jsonRpcRequest, sessionId);
+      const session = mcp.getSession(sessionId);
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "mcp-protocol-version": session.protocolVersion,
+      });
+      response.end(JSON.stringify(result));
+      return true;
+    }
+
+    throw new HttpError(405, "Only POST is supported for MCP");
+  } catch (e) {
+    if (!response.headersSent) {
+      const status = e instanceof HttpError ? e.status : 400;
+      send(response, status, { error: errorText(e) });
+    } else {
+      response.end();
+    }
+    return true;
+  }
+}
+/**
+ * How another AI tool starts Branch as a child program on this machine. The child is given this
+ * install's data and workspace paths, because it inherits the other tool's working directory.
+ */
+function stdioCommand(dataDir: string, workspace: string): {
+  command: string; args: string[]; env: Record<string, string>; packaged: boolean;
+} {
+  const cli = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
+  const packaged = Boolean(process.versions.electron) && !(process as { defaultApp?: boolean }).defaultApp;
+  const env = { BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: workspace };
+  return packaged
+    ? { command: process.execPath, args: [cli, "mcp-serve"], env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, packaged }
+    : { command: "branch", args: ["mcp-serve"], env, packaged };
+}
+/** Ready-to-paste settings for the other AI tool, using this server's own address and key. */
+function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: string): unknown {
+  const url = `http://${request.headers.host ?? "127.0.0.1:3210"}`;
+  const token = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY";
+  const stdio = stdioCommand(dataDir, app.runtime.workspace);
+  const stdioConfig = JSON.stringify({ mcpServers: { branch: {
+    command: stdio.command, args: stdio.args, env: stdio.env,
+  } } }, null, 2);
+  const httpConfig = JSON.stringify({ mcpServers: { branch: {
+    type: "http", url: `${url}/mcp`, headers: { Authorization: `Bearer ${token}` },
+  } } }, null, 2);
+  return {
+    httpEndpoint: `${url}/mcp`,
+    bearerToken: token,
+    stdio: { ...stdio, configExample: stdioConfig },
+    claudeDesktop: {
+      configExample: stdioConfig,
+      note: "Paste this into Claude Desktop's settings file, then restart it. On Windows the file is %APPDATA%/Claude/claude_desktop_config.json; on macOS and Linux it is ~/.config/Claude/claude_desktop_config.json. Claude Desktop starts its own copy of Branch, so close this app first — two copies cannot share the same records.",
+    },
+    claudeCode: {
+      configExample: `claude mcp add --transport http branch ${url}/mcp --header "Authorization: Bearer ${token}"`,
+      note: "Run this once in a terminal. Claude Code then talks to Branch while Branch is open.",
+    },
+    cursor: {
+      configExample: httpConfig,
+      note: "Paste this into Cursor's MCP settings. It talks to Branch over this computer's own address, so Branch has to be open.",
+    },
+  };
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -731,14 +990,20 @@ export async function startServer(
         send(response, 200, await hook(app, request, path));
         return;
       }
+      const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
+      if (triggerFireMatch && request.method === "POST") {
+        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
+        return;
+      }
       authorize(request, url, token);
+      if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
         throw new HttpError(429, "Too many active executions");
       if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
-        send(response, 200, await api(app, request, path));
+        send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
         if (executes) executions--;
       }
@@ -865,7 +1130,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
   );
 }
 function configureLimits(server: Server): void {
