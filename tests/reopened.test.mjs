@@ -323,3 +323,34 @@ test("A1465 screen control stops with the Windows sentence before it touches any
   // Nothing was attempted: the refusal happens before the notice goes up or an action is counted.
   assert.ok(!app.store.events(context.runId).some((event) => event.kind === "desktop.started"));
 });
+
+// ---------------------------------------------------------------- A1629
+
+test("A1629 a command nobody has ruled on is asked about, and saying yes settles it for good", async (t) => {
+  const { app } = await fixture(t);
+  const { evaluatePolicy, readPolicy, savePolicy } = await import("../dist/policy.js");
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  const command = (target) => ({ tool: "shell.execute", target, readOnly: false, resource: resourceOf("shell.execute", "shell.execute", target, {}) });
+
+  // Out of the box, with no rules at all, a command is a question rather than a guess.
+  const fresh = readPolicy(app.store, app.runtime.owner);
+  assert.equal(fresh.unmatchedCommands, "ask", "asking is what a fresh install does");
+  const asked = evaluatePolicy(fresh, command("rm -rf notes"));
+  assert.equal(asked.decision, "ask");
+  assert.equal(asked.rule.remember, "always", "so answering it once settles that command for good");
+
+  // Everything else that nothing matches is still simply allowed; only commands changed.
+  assert.equal(evaluatePolicy(fresh, { tool: "files.write", target: "a.txt", readOnly: false, resource: { kind: "path", value: "a.txt" } }).decision, "allow");
+  assert.equal(evaluatePolicy(fresh, { tool: "web.fetch", target: "example.org", readOnly: true, resource: { kind: "host", value: "example.org" } }).decision, "allow");
+
+  // A rule that does match still decides, whichever way it goes.
+  const ruled = savePolicy(app.store, app.runtime.owner,
+    { rules: [{ tool: "shell.execute", match: "*", applies: "any", decision: "allow", remember: "session", resource: { kind: "command", pattern: "git" } }] });
+  assert.equal(evaluatePolicy(ruled, command("git status")).decision, "allow");
+  assert.equal(evaluatePolicy(ruled, command("rm -rf notes")).decision, "ask", "a rule about git says nothing about rm");
+
+  // An owner who would rather have the old behaviour back can say so, and it comes back.
+  const back = savePolicy(app.store, app.runtime.owner, { unmatchedCommands: "allow" });
+  assert.equal(evaluatePolicy(back, command("rm -rf notes")).decision, "allow");
+  assert.equal(back.rules.length, 1, "and the rules they already had are untouched");
+});

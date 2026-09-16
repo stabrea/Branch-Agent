@@ -64,6 +64,12 @@ export const PolicySchema = z
     preset: PolicyPresetSchema.default("off"),
     rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).default([]),
     limits: PolicyLimitsSchema.prefault({}),
+    /**
+     * A command on this computer that no rule says anything about: ask first, which is the default,
+     * or let it through the way everything else that nothing matches is let through. A command is
+     * the one thing that can do absolutely anything, so it is the one thing not left to silence.
+     */
+    unmatchedCommands: z.enum(["ask", "allow"]).default("ask"),
   })
   .strict();
 export type Policy = z.infer<typeof PolicySchema>;
@@ -72,6 +78,7 @@ export const PolicyInputSchema = z
     preset: PolicyPresetSchema.optional(),
     rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
     limits: PolicyLimitsSchema.partial().optional(),
+    unmatchedCommands: z.enum(["ask", "allow"]).optional(),
   })
   .strict();
 
@@ -182,7 +189,22 @@ export function evaluatePolicy(policy: Policy, request: PolicyRequest): PolicyOu
   const named = policy.rules.filter((rule) => rule.resource);
   const broad = policy.rules.filter((rule) => !rule.resource);
   for (const rule of [...named, ...broad]) if (ruleCovers(rule, request)) return { decision: rule.decision, rule };
-  return { decision: "allow", rule: null };
+  return unmatched(policy, request);
+}
+/**
+ * Nothing matched. Everywhere else that means "go ahead", which is how Branch Agent has always
+ * behaved and still does. A command on this computer is the exception: it can do anything at all,
+ * including things no tool of Branch's own offers, so a command nobody has decided about is put to
+ * the person rather than run on a guess. Saying yes to it writes a standing rule for that command,
+ * so it is one question the first time and nothing afterwards.
+ */
+function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
+  if (request.resource?.kind !== "command" || policy.unmatchedCommands === "allow")
+    return { decision: "allow", rule: null };
+  return {
+    decision: "ask",
+    rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask", remember: "always" },
+  };
 }
 
 /**
@@ -209,6 +231,7 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
     preset: value.preset ?? (value.rules ? "custom" : current.preset),
     rules: value.rules ?? (value.preset ? presetRules(value.preset) : current.rules),
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
+    unmatchedCommands: value.unmatchedCommands ?? current.unmatchedCommands,
   };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });

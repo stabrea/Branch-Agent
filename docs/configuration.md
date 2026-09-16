@@ -2807,3 +2807,17 @@ sentence naming the page that turns it on (`ms-settings:privacy-microphone`,
 Only an outright "no" stops anything: a computer that keeps no such setting answers "nothing to say"
 and Branch carries on exactly as before. New route: `GET /api/os-permissions`. Branch never asks
 Windows to grant a permission — only you can do that.
+
+## Commands nobody has ruled on (batch 26, wave 8)
+
+A command on this computer is the one thing that can do absolutely anything, including things none
+of Branch's own tools offer. Until now, a command that no rule mentioned was simply run. It is now
+put to you instead, whatever preset you are on, and answering yes writes a standing rule for that
+command — so it is one question the first time and nothing afterwards.
+
+**What changes for you.** If you have been using Branch already, the first time it wants to run each
+kind of command you will see one extra question, naming the command. Say "yes, always" and you will
+not be asked about that one again. Nothing else changed: a file, a web page or a message that no
+rule mentions is still simply allowed, exactly as before. If you would rather have the old behaviour
+back, set `unmatchedCommands` to `allow` on the approval settings; the rules you already have are
+untouched either way.

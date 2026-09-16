@@ -8,6 +8,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy } from "./policy.js";
+import { resourceOf } from "./policy-resources.js";
 
 export const TryToolSchema = z
   .object({
@@ -50,7 +51,10 @@ export async function tryTool(
   const permission = registry.permissionOf(input.name);
   if (!permission) return { status: "refused", reason: `There is no tool called ${input.name}.`, tool: input.name, target: "" };
   const target = registry.targetOf(input.name, input.arguments, context) || policyTarget(input.name, input.arguments);
-  const { decision } = evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission) });
+  // What the call is about goes in too, so trying a command by hand is decided exactly as a
+  // command the assistant asked for would be — a command nobody has ruled on is asked about.
+  const resource = resourceOf(input.name, permission, target, input.arguments);
+  const { decision } = evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource });
   if (decision === "deny")
     return { status: "refused", reason: `Your settings do not allow ${input.name}${target ? ` on ${target}` : ""}.`, tool: input.name, target };
   if (decision === "ask" && !input.confirm)
