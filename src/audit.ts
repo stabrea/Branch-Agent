@@ -25,6 +25,11 @@ export const auditActions = [
   "network.connected",
   // Batch 26 (wave 8): one of the owner's own checks stopped a tool call, or held it for a yes.
   "hook.blocked",
+  // Batch 26 (wave 8): a conversation, or one person messaging from outside, reached the ceiling
+  // the owner set for a minute or an hour, and was held back or turned away.
+  "limit.reached",
+  // Batch 26 (wave 8): old conversations were offered for deletion, exported, or deleted.
+  "history.pruned",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -91,6 +96,8 @@ const actionLabels: Record<AuditAction, string> = {
   "skill.forced": "You switched on a drafted skill without trying it first",
   "network.connected": "A connection that stays open was made to a service outside this computer",
   "hook.blocked": "One of your own checks stopped something, or asked you about it first",
+  "limit.reached": "Something reached the limit you set for a minute or an hour",
+  "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

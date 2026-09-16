@@ -91,6 +91,53 @@ export class BrowserProfiles {
       throw error;
     }
   }
+
+  /**
+   * A saved sign-in packed up to be carried to another computer. It stays encrypted the whole way:
+   * the bundle is sealed with a key of its own, derived from this device's locker key and the
+   * passphrase the owner types, so the file on its own is no use to anybody. The cookie values
+   * never pass through the assistant, here or anywhere else.
+   */
+  async export(owner: string, name: string, passphrase: string): Promise<Buffer> {
+    passphraseSchema.parse(passphrase);
+    const state = await this.decrypt(owner, name);
+    if (!state) throw new Error(`There is no saved sign-in called "${name}"`);
+    const salt = randomBytes(16), iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', await this.bundleKey(passphrase, salt), iv);
+    const plain = Buffer.from(JSON.stringify({ name, ...state }), 'utf8');
+    const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+    return Buffer.concat([Buffer.from(bundleMagic, 'utf8'), salt, iv, cipher.getAuthTag(), body]);
+  }
+
+  /** The other half: a bundle read back in under a name of the owner's choosing. */
+  async import(owner: string, bundle: Buffer, passphrase: string, name?: string): Promise<ProfileInfo> {
+    passphraseSchema.parse(passphrase);
+    const magic = bundleMagic.length;
+    if (bundle.byteLength < magic + 44 || bundle.subarray(0, magic).toString('utf8') !== bundleMagic)
+      throw new Error('That file is not a saved sign-in exported from Branch');
+    const salt = bundle.subarray(magic, magic + 16), iv = bundle.subarray(magic + 16, magic + 28);
+    const decipher = createDecipheriv('aes-256-gcm', await this.bundleKey(passphrase, salt), iv);
+    decipher.setAuthTag(bundle.subarray(magic + 28, magic + 44));
+    let parsed: z.infer<typeof BundleSchema>;
+    try {
+      parsed = BundleSchema.parse(JSON.parse(
+        Buffer.concat([decipher.update(bundle.subarray(magic + 44)), decipher.final()]).toString('utf8')));
+    } catch { throw new Error('That sign-in could not be opened. Check the passphrase, and that the file came from this household.'); }
+    return this.save(owner, name ?? parsed.name, { cookies: parsed.cookies, origins: parsed.origins });
+  }
+
+  /** A key for one bundle: this device's locker key, the owner's passphrase and a fresh salt. */
+  private async bundleKey(passphrase: string, salt: Buffer): Promise<Buffer> {
+    return createHmac('sha256', await this.key()).update(salt).update(Buffer.from(passphrase, 'utf8')).digest();
+  }
 }
+/** The first bytes of an exported sign-in, so a file that is not one is said so rather than guessed at. */
+const bundleMagic = 'branch-signin-v1';
+const passphraseSchema = z.string().min(8).max(200);
+const BundleSchema = z.object({
+  name: profileNameSchema,
+  cookies: z.array(z.unknown()).max(500).default([]),
+  origins: z.array(z.unknown()).max(200).default([]),
+}).loose();
 const describe = (name: string, state: StorageState, savedAt: string): ProfileInfo =>
   ({ name, savedAt, cookies: state.cookies.length, sites: state.origins.length });
