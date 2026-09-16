@@ -409,6 +409,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.12.0 (2026-09-16)
+
+Secrets vault and session lock, models on this computer, pictures and sound, shareable skills and plugins, A2A/ACP interop, evaluation suites with history. Published from `release/0.12.0` (PR #98); the in-app update from 0.11.0 was rehearsed on a staged copy with no console window and the previous copy kept.
+
 ## Batch 23 (wave 4) — talking to assistants other people built
 
 Branch could be used by other AI tools over MCP; now it can also be one agent among several.

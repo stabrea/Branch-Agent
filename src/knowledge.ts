@@ -11,6 +11,7 @@ import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 
 export const CheckSchema = z
   .object({ path: z.string().min(1).max(500), expected: z.string().max(32768) })
@@ -192,11 +193,27 @@ export class Knowledge {
       this.store.event(context.runId, "procedure.inputs_bound", { names: Object.keys(values), recipe: definition.name });
     return { ...definition, preconditions: substitute(definition.preconditions, values), steps: substitute(definition.steps, values) };
   }
+  /**
+   * The owner's approval policy, checked over every step before the first one runs. A recipe is
+   * replayed as a whole, so the question has to come before anything happens: when the owner says
+   * yes and the recipe is tried again, no step is done twice.
+   */
+  private gateSteps(context: ToolContext, definition: Procedure, source: ToolSource): void {
+    for (const [index, step] of definition.steps.entries()) {
+      const check = this.runtime.checkPolicy(step.tool, step.args, context);
+      if (check.decision === "allow") continue;
+      this.store.event(context.runId, check.decision === "deny" ? "policy.denied" : "policy.ask",
+        { name: step.tool, label: check.label, target: check.target, source: { ...source, index } });
+      if (check.decision === "deny") throw new PolicyRefusedError(step.tool, check.label);
+      throw new ApprovalRequiredError(step.tool, check.target, check.label, check.remember);
+    }
+  }
   private async executeProcedure(
     context: ToolContext,
     definition: Procedure,
     source: ToolSource,
   ): Promise<unknown[]> {
+    this.gateSteps(context, definition, source);
     await this.checkFiles(
       context,
       definition.preconditions,

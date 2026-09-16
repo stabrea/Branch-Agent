@@ -41,11 +41,12 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
-  ApprovalGate, RateLimiter, jsonWriteProblem, simulatedResult, sleepFor,
+  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, jsonWriteProblem,
+  refusedByPolicy, simulatedResult, sleepFor,
 } from "./approvals.js";
 import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
-  type Policy, type PolicyRemember, type RunSource,
+  type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
 import { Tracer } from "./tracing.js";
@@ -66,6 +67,17 @@ import { Orchestration, type ConductOptions } from "./orchestration.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
+/** What the approval policy says about one tool call, before anything is done about it. */
+export interface PolicyCheck {
+  decision: PolicyDecision;
+  /** What is about to happen, in plain language. */
+  label: string;
+  /** What it would touch: a path, a command, or a web address's host. */
+  target: string;
+  readOnly: boolean;
+  /** What a yes to this would be remembered as, unless the person picks differently. */
+  remember: PolicyRemember;
+}
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
@@ -202,6 +214,8 @@ export class Runtime {
       source?: RunSource;
       /** The task whose shared scratch area this context uses; its own run by default. */
       scratchRoot?: string;
+      /** Where answers already given are remembered, when this is not a conversation. */
+      approvalKey?: string;
     } = {},
   ): ToolContext {
     return {
@@ -215,6 +229,7 @@ export class Runtime {
       ...(options.scratchRoot ?? options.runId ? { scratchRoot: options.scratchRoot ?? options.runId! } : {}),
       ...(options.dryRun ? { dryRun: true } : {}),
       ...(options.source ? { source: options.source } : {}),
+      ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -1178,8 +1193,56 @@ export class Runtime {
   policy(source: RunSource = "owner"): Policy {
     return cappedPolicy(readPolicy(this.store, this.owner), source);
   }
+  /**
+   * Where answers already given are remembered for this piece of work: the conversation, or the
+   * name a workflow gave when there is no conversation behind it.
+   */
   private sessionOf(context: ToolContext): string {
-    return this.store.run(context.runId)?.sessionId ?? context.runId;
+    return context.approvalKey ?? this.store.run(context.runId)?.sessionId ?? context.runId;
+  }
+  /**
+   * What the approval policy says about one tool call, with the answers already given taken into
+   * account. The same reckoning a model's turn goes through, for the places that are not one: a
+   * saved workflow's tool step, and every step of a procedure being replayed.
+   */
+  checkPolicy(tool: string, args: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+    const permission = this.registry.permissionOf(tool);
+    const readOnly = isReadOnlyPermission(permission);
+    const target = this.registry.targetOf(tool, args, context);
+    const label = describeToolCall(tool, args);
+    const source: RunSource = context.source ?? "owner";
+    // What the call is about — a folder, a website, a messaging account, a command — so a rule the
+    // owner wrote about that one thing is considered before the broad ones.
+    const resource = resourceOf(tool, permission, target, args);
+    const { decision, rule } = evaluatePolicy(this.policy(source), { tool, target, readOnly, resource });
+    // An answer given earlier stands in for the question, never for a rule that already decided:
+    // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
+    // it was given for, so a changed command is asked about again.
+    const answered = decision === "ask"
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
+    return { decision: answered ?? decision, label, target, readOnly,
+      remember: source === "owner" ? rule?.remember ?? "session" : "session" };
+  }
+  /**
+   * Records the owner's yes to a question something outside a conversation stopped on (a saved
+   * workflow's step). "always" also writes it into the policy as a rule, exactly as answering a
+   * paused task does, and the same row goes into the record of what was allowed.
+   */
+  grantApproval(
+    key: string,
+    about: { tool: string; target: string; label: string; source: RunSource; runId?: string },
+    remember: PolicyRemember = "session",
+  ): void {
+    if (remember === "always" && about.source !== "owner")
+      throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (remember !== "never") this.approvals.remember(key, about.tool, about.target, "allow");
+    if (remember === "always")
+      addPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" });
+    audit(this.store, this.owner, {
+      action: "approval.decided", actor: this.owner,
+      subject: `${about.tool}${about.target ? ` on ${about.target}` : ""}`,
+      reason: about.label, source: about.source, runId: about.runId ?? null, outcome: "allowed",
+    });
   }
   /**
    * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task
@@ -1203,49 +1266,49 @@ export class Runtime {
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
   private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
-    const permission = this.registry.permissionOf(call.name);
-    const readOnly = isReadOnlyPermission(permission);
-    const target = this.registry.targetOf(call.name, args, context);
-    const label = describeToolCall(call.name, args);
-    const source: RunSource = context.source ?? "owner";
-    // What the call is about — a folder, a website, a messaging account, a command — so a rule the
-    // owner wrote about that one thing is considered before the broad ones.
-    const resource = resourceOf(call.name, permission, target, args);
+    // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
+    // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision, rule } = evaluatePolicy(this.policy(source), { tool: call.name, target, readOnly, resource });
-    // An answer given earlier in the conversation stands in for the question, never for a rule that
-    // already decided: switching to a stricter setting takes effect at once. The answer is bound to
-    // the exact bytes it was given for, so a changed command is asked about again.
-    const outcome = (decision === "ask" ? this.approvals.answer(this.sessionOf(context), call.name, target, fingerprint) : undefined) ?? decision;
+    const { decision, label, target, readOnly, remember } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
-      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: outcome });
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision });
       return simulatedResult(label);
     }
-    if (outcome === "allow") return null;
-    if (outcome === "deny") {
+    if (decision === "allow") return null;
+    if (decision === "deny") {
       this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
-      return { ok: false, error: `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.` };
+      return { ok: false, error: refusedByPolicy(label) };
     }
-    const remember: PolicyRemember = source === "owner" ? rule?.remember ?? "session" : "session";
-    return this.askApproval(call, context, { label, target, source, remember, fingerprint });
+    const source: RunSource = context.source ?? "owner";
+    return this.askApproval(context, { tool: call.name, label, target, source, remember,
+      // The exact request, cleaned of any saved password or key, is what the person is shown and
+      // what their yes is bound to.
+      bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
   }
   /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
-  private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember; fingerprint: string }): never {
+  private askApproval(
+    context: ToolContext,
+    about: {
+      tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember;
+      /** The exact request the person is shown, and the fingerprint their yes is bound to. */
+      bytes?: string; fingerprint?: string;
+    },
+    callId?: string,
+  ): never {
     const { source, remember } = about;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
-    const question = `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
+    const question = approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
-    this.approvals.ask({ runId: context.runId, sessionId, tool: call.name, target,
+    this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
-      // The exact request, cleaned of any saved password or key, is what the person is shown and
-      // what their yes is bound to.
-      bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
+      ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
+      ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
-    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember,
-      question, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
+    this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
+      question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
   }
   /**
@@ -1330,6 +1393,13 @@ export class Runtime {
       span?.end("ok");
       return { ok: true, result };
     } catch (e) {
+      // A step inside the tool (a recipe's own steps) reached something to ask about first: the
+      // conversation pauses on that step's question, exactly as if the model had called it itself.
+      if (e instanceof ApprovalRequiredError) {
+        span?.end("error", "waiting for the person");
+        this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
+          source: context.source ?? "owner", remember: e.remember }, call.id);
+      }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
         span?.end("error", e instanceof NeedsInputError ? "waiting for the person" : errorText(e));
         throw e;

@@ -72,6 +72,7 @@ import type { IssueAccess } from "./integrations/issue-tools.js";
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
 import { RunQueue } from "./run-queue.js";
+import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
 
 export async function createBranch(options: {
@@ -252,7 +253,14 @@ export async function createBranch(options: {
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
   registerWorkflows(registry, workflows);
-  const runQueue = new RunQueue(store, runtime);
+  // One count of what is working at once, shared by the web routes and the waiting line.
+  const executions = new ExecutionLimit();
+  const runQueue = new RunQueue(store, runtime, executions);
+  // Whenever anything finishes — a task from the line or a request from the app's own screen — the
+  // line is looked at again, so a task never sits waiting for room that is already there.
+  executions.onRoom = () => {
+    try { runQueue.drain(runtime.owner); } catch { /* the line must never break a finished request */ }
+  };
   const calendar = new CalendarSettingsStore(store, dataDir);
   await calendar.seed();
   scheduler.calendar = calendar;
@@ -385,6 +393,8 @@ export async function createBranch(options: {
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
     workflows,
     runQueue,
+    /** How much may be going on at once, counted once for the whole app. */
+    executions,
     calendar,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
@@ -582,5 +592,6 @@ export * from "./labels.js";
 export * from "./conversation-share.js";
 export * from "./workflows.js";
 export * from "./run-queue.js";
+export * from "./execution-limit.js";
 export * from "./calendar.js";
 export * from "./profiles.js";

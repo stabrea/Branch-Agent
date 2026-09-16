@@ -5,6 +5,7 @@ import type { Run } from "./contracts.js";
 import type { RunOptions } from "./runtime.js";
 import { ShareRequestSchema, ShareLinkSchema } from "./conversation-share.js";
 import { labelTargets } from "./labels.js";
+import { PolicyRememberSchema } from "./policy.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -113,10 +114,15 @@ async function workflowsApi(app: Branch, request: IncomingMessage, path: string,
   if (!match) return notCollab;
   if (request.method === "GET" && !match[2]) return workflows.view(owner, match[1]!);
   if (request.method !== "POST") return notCollab;
-  await body();
+  const sent = await body();
   if (match[2] === "run") return workflows.run(owner, match[1]!);
   if (match[2] === "pause") return workflows.pause(owner, match[1]!);
-  if (match[2] === "resume") return workflows.resume(owner, match[1]!);
+  if (match[2] === "resume") {
+    // Carrying on a workflow that stopped to ask is the owner saying yes, from their own screen.
+    // They may say it just for this workflow (the default) or keep it as a standing rule.
+    const remember = PolicyRememberSchema.safeParse((sent as { remember?: unknown } | null)?.remember);
+    return workflows.resume(owner, match[1]!, remember.success ? { remember: remember.data } : {});
+  }
   if (match[2] === "remove") return workflows.remove(owner, match[1]!);
   return notCollab;
 }

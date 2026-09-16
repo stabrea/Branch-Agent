@@ -46,6 +46,38 @@ export const sessionGrantMs = 60 * 60 * 1000;
 
 const answerKey = (tool: string, target: string): string => `${tool}\u0000${target}`;
 
+/** The refusal a "deny" rule gives back, in the one wording the whole app uses. */
+export const refusedByPolicy = (label: string): string =>
+  `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.`;
+/** The question a tool call that needs a yes is put as, in the one wording the whole app uses. */
+export const approvalQuestion = (label: string, target: string): string =>
+  `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
+
+/**
+ * Raised when something that is not a model's turn — a saved workflow's tool step, a step of a
+ * procedure being replayed — reaches a tool the approval policy says to ask about first. Whoever
+ * called decides how the question is put: a conversation pauses, a workflow stops where it is.
+ */
+/** Raised in the same places when the settings refuse the tool outright: trying again cannot help. */
+export class PolicyRefusedError extends Error {
+  override name = "PolicyRefusedError";
+  constructor(readonly tool: string, readonly label: string) {
+    super(refusedByPolicy(label));
+  }
+}
+
+export class ApprovalRequiredError extends Error {
+  override name = "ApprovalRequiredError";
+  constructor(
+    readonly tool: string,
+    readonly target: string,
+    readonly label: string,
+    readonly remember: PolicyRemember = "session",
+  ) {
+    super(approvalQuestion(label, target));
+  }
+}
+
 export class ApprovalGate {
   private readonly answers = new Map<string, Map<string, SessionGrant>>();
   private readonly pending = new Map<string, PendingApproval>();
