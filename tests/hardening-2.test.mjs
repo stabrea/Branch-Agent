@@ -451,6 +451,30 @@ test("a task that only stopped to ask keeps what it started, and a pinned server
   assert.equal(await app.languageServers.closeRun(waiting.id), 0);
 });
 
+test("a single tool press is not a task ending, so what it started stays up", async (t) => {
+  const { app } = await fixture(t);
+  const { saveLanguageServerSettings } = await import("../dist/index.js");
+  const { fileURLToPath } = await import("node:url");
+  const { writeFile } = await import("node:fs/promises");
+  const fixtures = join(fileURLToPath(import.meta.url), "..", "fixtures");
+  await saveLanguageServerSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    servers: { fake: { path: process.execPath, args: [join(fixtures, "fake-language-server.mjs")], languages: ["TypeScript"] } } });
+  t.after(() => app.languageServers.stopAll());
+  await writeFile(join(app.files.base, "three.ts"), "export const three = 3;\n");
+
+  // Pressing a tool by hand makes a run of its own with no conversation behind it. Tidying up
+  // there would stop the debugger between "start it" and "look at the variables".
+  const pressed = app.store.createRun(app.runtime.owner, "diagnostics");
+  assert.equal(app.store.messages(pressed.sessionId).length, 0);
+  await app.languageServers.diagnostics({ path: "three.ts", waitMs: 200 }, pressed.id);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 1);
+
+  app.store.finish(pressed.id, "completed", "done");
+  await delay(400);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 1,
+    "one tool press ending is not the owner's task ending");
+});
+
 // ---------------------------------------------------------------------------
 // 6. A service the owner turned into tools is still there after a restart, and
 //    "forget this service" really forgets it. Nothing is fetched on the way back.
