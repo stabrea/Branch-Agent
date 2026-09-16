@@ -46,7 +46,9 @@ const detectors: Detector[] = [
   { kind: "iban", pattern: /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, accept: (match) => mod97(match) },
   { kind: "email", pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g },
   { kind: "national-id", pattern: /\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g },
-  { kind: "phone", pattern: /(?:\+\d{1,3}[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b/g },
+  // The look-behind keeps a run of ordinary digits (a build number, a timestamp) from being
+  // read as a telephone number: a match has to start where a number starts.
+  { kind: "phone", pattern: /(?<![\d)])(?:\+\d{1,3}[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}\b/g },
 ];
 const label: Record<PiiKind, string> = {
   email: "email address", phone: "phone number", card: "card number",

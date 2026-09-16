@@ -53,6 +53,10 @@ export class OAuthConnections {
   /** Starts a sign-in: the address to open, and a promise that settles when the service answers. */
   async start(input: unknown): Promise<OAuthStart> {
     const provider = OAuthProviderSchema.parse(input);
+    // The sign-in page is opened in the person's own browser, so it has to be an ordinary web
+    // address and nothing else; the address the key comes from is checked again by the policy.
+    webAddress(provider.authorizeUrl, "sign-in page");
+    webAddress(provider.tokenUrl, "sign-in address");
     await this.cancel(provider.id);
     const verifier = base64url(randomBytes(32)), state = base64url(randomBytes(24));
     const server = createServer();
@@ -173,6 +177,12 @@ export class OAuthConnections {
   }
 }
 
+/** An ordinary web address, and nothing else: no file, no script, no other scheme. */
+function webAddress(value: string, what: string): void {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error(`The ${what} is not a web address`); }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`The ${what} must start with https://`);
+}
 function reply(response: import("node:http").ServerResponse, status: number, message: string): void {
   const page = `<!doctype html><meta charset="utf-8"><title>Branch Agent</title><body style="font:16px system-ui;padding:3rem">${message}</body>`;
   response.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(page);
