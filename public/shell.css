@@ -1072,3 +1072,6 @@ details.tool-step > summary:hover {
     bottom: 16px;
   }
 }
+
+.rail-home { color: inherit; text-decoration: none; }
+.rail-home:hover, .rail-home:focus-visible { text-decoration: underline; }

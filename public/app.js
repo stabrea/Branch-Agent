@@ -9,7 +9,7 @@ export function toast(message) {
   }, 6000);
 }
 const desktop = new URLSearchParams(location.search).get("desktop") === "1";
-if (desktop) document.querySelector(".brand").href = "/?desktop=1";
+if (desktop) for (const home of document.querySelectorAll(".rail-home")) home.href = "/?desktop=1";
 let savedAppearance;
 let historyReadRevision = 0;
 let conversationBusy = false;
