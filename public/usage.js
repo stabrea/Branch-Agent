@@ -206,6 +206,7 @@ async function render() {
   renderBudget(view);
   renderPricing(view);
   renderExport(view);
+  await window.branchEvaluation?.renderInto(view);
 }
 
 window.branchUsage = { render };
