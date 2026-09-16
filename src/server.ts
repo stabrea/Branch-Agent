@@ -28,6 +28,7 @@ import { readBodyWithRaw } from "./triggers.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
+import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
@@ -377,6 +378,12 @@ async function api(
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
+  // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
+  if (path.startsWith("/api/agents/"))
+    return remoteAgentsApi(app.remoteAgents, request, path, () => readBody(request), {
+      base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
+      token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
+    });
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -1013,7 +1020,7 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
       const sharing = McpSharingSchema.parse(await readBody(request));
       const known = new Set(app.registry.names());
       const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
-      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools });
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a: sharing.a2a });
       return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     }
   }
@@ -1203,6 +1210,9 @@ export async function startServer(
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // Talking to other assistants: the card and the task endpoint, which streams when asked to.
+  if (path === "/a2a" || path === "/.well-known/agent.json")
+    if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
@@ -1332,7 +1342,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

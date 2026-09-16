@@ -1,0 +1,218 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { z } from "zod";
+import { Budget, errorText, type ToolContext } from "./contracts.js";
+import { RateLimiter } from "./approvals.js";
+import type { NetworkPolicy } from "./network-policy.js";
+import type { ToolRegistry } from "./registry.js";
+import type { Store } from "./store.js";
+
+/**
+ * The other side of A2A: assistants elsewhere that this one may hand a piece of work to. The owner
+ * adds one by its card address, which is read through the same address rules as everything else on
+ * the network. Only the words of the task are sent — never a file, a secret, or anything the
+ * assistant has read — and the answer comes back as plain text, recorded with a receipt like any
+ * other step. A remote assistant is a stranger: it gets a small allowance and a hard time limit.
+ */
+const CardSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(2000).default(""),
+  url: z.string().url().max(2000),
+  version: z.string().max(60).default(""),
+  skills: z.array(z.object({ id: z.string().max(200), name: z.string().max(200).optional() }).passthrough()).max(100).default([]),
+}).passthrough();
+export const RemoteAgentSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000),
+  cardUrl: z.string().max(2000),
+  url: z.string().max(2000),
+  skills: z.array(z.string().max(200)).max(100),
+  /** The key that install handed out, when it needs one. Kept beside the other settings. */
+  key: z.string().max(400).optional(),
+  addedAt: z.string(),
+}).strict();
+export type RemoteAgent = z.infer<typeof RemoteAgentSchema>;
+
+const recordId = (id: string) => `remote-agent:${id}`;
+const cardPath = "/.well-known/agent.json";
+export const defaultAskTimeoutMs = 60000;
+export const maximumAskTimeoutMs = 120000;
+/** How many tasks may be sent to one outside assistant in a minute. */
+export const askesPerMinute = 10;
+
+export const RemoteActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("list") }).strict(),
+  z.object({
+    action: z.literal("add"),
+    cardUrl: z.string().trim().min(1).max(2000),
+    key: z.string().trim().max(400).optional(),
+  }).strict(),
+  z.object({ action: z.literal("remove"), agent: z.string().trim().min(1).max(200) }).strict(),
+]);
+export const AskSchema = z.object({
+  agent: z.string().trim().min(1).max(200),
+  task: z.string().trim().min(1).max(8000),
+  timeoutMs: z.number().int().min(1000).max(maximumAskTimeoutMs).optional(),
+}).strict();
+
+export class RemoteAgents {
+  private readonly rates = new RateLimiter();
+  constructor(
+    private readonly store: Store,
+    private readonly owner: string,
+    private readonly policy: NetworkPolicy,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+  ) {}
+
+  private guarded(): typeof fetch { return this.policy.guard(this.fetchImpl); }
+
+  list(): RemoteAgent[] {
+    return this.store.list("settings", this.owner)
+      .filter((record) => record.id.startsWith("remote-agent:"))
+      .flatMap((record) => { const parsed = RemoteAgentSchema.safeParse(record.data); return parsed.success ? [parsed.data] : []; })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Finds an assistant by its id or by its name, so a person can say "ask Ada". */
+  find(reference: string): RemoteAgent {
+    const wanted = reference.trim().toLowerCase();
+    const match = this.list().find((agent) => agent.id === reference || agent.name.toLowerCase() === wanted);
+    if (!match) throw new Error(`No outside assistant called "${reference}" has been added`);
+    return match;
+  }
+
+  /** Reads another assistant's card and saves it, so the owner can see what they are adding. */
+  async add(input: unknown): Promise<RemoteAgent> {
+    const parsed = RemoteActionSchema.parse({ action: "add", ...(input as object) });
+    if (parsed.action !== "add") throw new Error("Not an add");
+    const cardUrl = new URL(parsed.cardUrl.includes("/.well-known/") ? parsed.cardUrl : new URL(cardPath, parsed.cardUrl).href);
+    const card = await this.readCard(cardUrl.href, parsed.key);
+    const agent: RemoteAgent = {
+      id: randomUUID(), name: card.name, description: card.description, cardUrl: cardUrl.href,
+      url: card.url, skills: card.skills.map((skill) => String(skill.name ?? skill.id)).slice(0, 100),
+      ...(parsed.key ? { key: parsed.key } : {}), addedAt: new Date().toISOString(),
+    };
+    this.store.save("settings", this.owner, recordId(agent.id), { ...agent });
+    return agent;
+  }
+
+  /** Fetches and checks one card. Every hop goes through the owner's address rules. */
+  private async readCard(cardUrl: string, key?: string): Promise<z.infer<typeof CardSchema>> {
+    const response = await this.guarded()(cardUrl, {
+      headers: { accept: "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`${cardUrl} answered ${response.status}; that assistant may not be sharing itself`);
+    return CardSchema.parse(await response.json());
+  }
+
+  remove(reference: string): { removed: boolean; name: string } {
+    const agent = this.find(reference);
+    return { removed: this.store.delete("settings", this.owner, recordId(agent.id)), name: agent.name };
+  }
+
+  /**
+   * Hands one piece of work to an outside assistant and waits for its answer. Only the words of the
+   * task are sent. The wait is bounded, and so is how often one assistant can be asked.
+   */
+  async ask(input: unknown, signal?: AbortSignal): Promise<{ agent: string; state: string; answer: string; taskId: string }> {
+    const { agent: reference, task, timeoutMs } = AskSchema.parse(input);
+    const agent = this.find(reference);
+    const wait = this.rates.waitMs(agent.id, askesPerMinute);
+    if (wait > 0) throw new Error(`${agent.name} has already been asked ${askesPerMinute} times this minute; wait a moment.`);
+    this.rates.record(agent.id);
+    const taskId = randomUUID();
+    const body = { jsonrpc: "2.0", id: taskId, method: "tasks/send",
+      params: { id: taskId, message: { role: "user", parts: [{ type: "text", text: task }] } } };
+    const limit = AbortSignal.timeout(timeoutMs ?? defaultAskTimeoutMs);
+    const response = await this.guarded()(agent.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json", ...(agent.key ? { authorization: `Bearer ${agent.key}` } : {}) },
+      body: JSON.stringify(body),
+      signal: signal ? AbortSignal.any([signal, limit]) : limit,
+    });
+    return { agent: agent.name, taskId, ...readAnswer(await response.json()) };
+  }
+
+  /**
+   * Looks for other assistants on addresses the owner types in, one by one. Nothing is scanned or
+   * broadcast: only the exact addresses given are asked for their card.
+   */
+  async discover(targets: string[]): Promise<{ found: unknown[]; refused: { target: string; reason: string }[] }> {
+    const found: unknown[] = [], refused: { target: string; reason: string }[] = [];
+    for (const target of targets.slice(0, 20)) {
+      try {
+        const base = /^https?:\/\//.test(target) ? target : `http://${target}`;
+        const cardUrl = new URL(cardPath, base).href;
+        const card = await this.readCard(cardUrl);
+        found.push({ target, cardUrl, name: card.name, description: card.description, url: card.url });
+      } catch (error) {
+        refused.push({ target, reason: errorText(error) });
+      }
+    }
+    return { found, refused };
+  }
+
+  /**
+   * A link the owner can hand to another Branch install so the two can add each other. It carries
+   * this install's card address and its key, so treat it exactly like a password.
+   */
+  pairing(base: string, key: string): { code: string; cardUrl: string; shareUrl: string } {
+    const saved = this.store.get("settings", this.owner, "remote-agent-pairing")?.data as { code?: string } | undefined;
+    const code = typeof saved?.code === "string" && /^[0-9a-f]{12}$/.test(saved.code) ? saved.code : randomBytes(6).toString("hex");
+    this.store.save("settings", this.owner, "remote-agent-pairing", { code, createdAt: new Date().toISOString() });
+    const cardUrl = `${base}${cardPath}`;
+    return { code, cardUrl, shareUrl: `branch://add-agent?card=${encodeURIComponent(cardUrl)}&key=${encodeURIComponent(key)}&code=${code}` };
+  }
+
+  /** Adds an assistant from a link another install shared, rather than typing the parts out. */
+  async pair(link: string): Promise<RemoteAgent> {
+    const url = new URL(z.string().trim().min(1).max(4000).parse(link));
+    if (url.protocol !== "branch:") throw new Error("That is not a Branch pairing link");
+    const cardUrl = url.searchParams.get("card"), key = url.searchParams.get("key") ?? undefined;
+    if (!cardUrl) throw new Error("That pairing link does not say where the other assistant is");
+    return this.add({ cardUrl, ...(key ? { key } : {}) });
+  }
+}
+
+/** Pulls the plain answer out of the other assistant's reply, whatever shape of task it sent back. */
+export function readAnswer(payload: unknown): { state: string; answer: string } {
+  const body = payload as { error?: { message?: string }; result?: { status?: { state?: string; message?: { parts?: { type?: string; text?: string }[] } }; artifacts?: { parts?: { type?: string; text?: string }[] }[] } };
+  if (body?.error) throw new Error(body.error.message ?? "The other assistant refused the task");
+  const result = body?.result;
+  if (!result) throw new Error("The other assistant sent an answer Branch could not read");
+  const fromArtifacts = (result.artifacts ?? []).flatMap((artifact) => artifact.parts ?? []);
+  const parts = fromArtifacts.length ? fromArtifacts : result.status?.message?.parts ?? [];
+  const answer = parts.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n").trim();
+  return { state: result.status?.state ?? "unknown", answer };
+}
+
+/** The two tools: keeping the list of outside assistants, and handing one of them a piece of work. */
+export function registerRemoteAgents(registry: ToolRegistry, agents: RemoteAgents): void {
+  registry.register<z.infer<typeof RemoteActionSchema>>({
+    name: "agents.remote", permission: "agents.manage",
+    description: "Add, list or remove an assistant elsewhere that this one may hand work to. Adding one reads its card at the address given.",
+    parameters: RemoteActionSchema,
+    execute: async (args) => {
+      if (args.action === "list") return { agents: agents.list().map(({ key: _key, ...rest }) => rest) };
+      if (args.action === "remove") return agents.remove(args.agent);
+      const { key: _key, ...added } = await agents.add(args);
+      return added;
+    },
+  });
+  registry.register<z.infer<typeof AskSchema>>({
+    name: "agents.ask", permission: "agents.ask",
+    description: "Hand one piece of work to an assistant elsewhere and wait for its answer. Only the words of the task are sent: no files, no secrets, nothing this assistant has read.",
+    parameters: AskSchema,
+    execute: async (args, context) => askWithBudget(agents, args, context),
+    target: (args) => args.agent,
+  });
+}
+
+/** The answer counts against the task's own allowance, so a remote assistant cannot run it dry. */
+async function askWithBudget(agents: RemoteAgents, args: z.infer<typeof AskSchema>, context: ToolContext): Promise<unknown> {
+  const result = await agents.ask(args, context.signal);
+  chargeAnswer(context.budget, result.answer);
+  return result;
+}
+const chargeAnswer = (budget: Budget, answer: string): void => budget.charge(Math.ceil(answer.length / 4));
