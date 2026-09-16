@@ -1313,6 +1313,37 @@ local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a
 (reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
 source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
 plugin-and-extension-system (#70) leftovers.
+## Batch 20 (wave 7) — browser automation, second pass: marks, shapes, healing, your own browser
+
+Everything a page offers is now numbered (`src/integrations/browser-marks.ts`): a "set of marks"
+overlay plus a text map such as `[3] button "Save"`, with numbers derived from role, accessible
+name and an index-free ancestor path, kept in a per-run `MarkRegistry`, so a re-render keeps them.
+`browser.shape` (`browser-schema.ts`) reads a page into a zod shape built from the caller's field
+list and refuses off-schema rows by field name rather than guessing. `browser.act`
+(`browser-heal.ts`) resolves by selector → role → text → mark id, at most four ways, recording
+`foundBy`/`attempts`/`healed` on a span through a new optional `BranchBrowser.tracer`.
+`browser.borrow` (`browser-attach.ts`) attaches to the owner's own Chrome/Edge over CDP and works
+in `browser.contexts()[0]` — a fresh context would know nobody — with routing applied per-page so
+their tabs are untouched, `detach()` disconnecting rather than closing, storage-state export
+refused, and a `refusedHosts` list exported beside `refusedTitles` in `desktop-config.ts` (the
+window list matches titles, which a hostname would never trip). The switch is per-run and expires
+in fifteen minutes (`/api/browser/attach`, settings card in the existing browser card).
+`browser.recording` (`browser-trace.ts`) writes a Playwright trace with `snapshots:false` — a
+snapshot resource carries `value="…"` of a password box — and empties password values before every
+step, because Playwright's action log records `locator resolved to <input … value="…">`. Proven by
+inflating the zip with a local central-directory reader, never by grepping compressed bytes.
+`computer.look|press|type` (`computer.ts`) routes to page or window through the same methods that
+count the caps, and re-checks `desktop.view`/`desktop.control` so the browser permission is not a
+way round the screen one. `web.search` gained pluggable backends (`web-search.ts`: SearXNG, Brave,
+Tavily, Exa, Serper, DuckDuckGo fallback) as pure request/parse functions — note the type-only
+import back into `web.ts`, which would otherwise be a cycle. Three skill packages ship as string
+constants in `src/browser-skills.ts` (`/api/skills/browser`). `tests/browser-2.test.mjs` covers it
+in 12 tests against local fixtures and a headless Chromium the test itself starts with a debugging
+port. Pre-existing and left alone: `browser.upload` already confined paths through `files.checked`
+(A1639) and `browser.screenshot` already returned the `RunArtifacts.imageIn` shape the runtime
+shows the model, selector included (A2129). Not built: remote/cloud browsers, Python `browser-use`.
+Covers browser-automation (#62).
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

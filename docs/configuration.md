@@ -105,6 +105,27 @@ SDK callers can pass `retryPolicy` to `createBranch`: `maxRetries` accepts 0–2
 
 `GET /api/tools` lists the tools that exist right now with their permission and readiness; closing an integration removes its tools from the list.
 
+### Where "search the web" actually goes
+
+`web.search` goes to whichever service the `web.search` block names. Whatever is chosen, the request still goes through the same network settings every other outbound call goes through.
+
+| `backend` | Needs | Honest note |
+| --- | --- | --- |
+| `duckduckgo` (default) | nothing | A scrape of a public results page. No promises attached, rate-limited by whoever runs it, and on a busy day it returns nothing at all. Fine for the occasional look; not for work that depends on search. |
+| `searxng` | `searxngUrl` | Your own SearXNG, on your own machine or network. Nothing is shared with anyone else. |
+| `brave` | `keySecret` | Brave Search. |
+| `tavily` | `keySecret` | Tavily, built for assistants. |
+| `exa` | `keySecret` | Exa, good at finding pages by meaning. |
+| `serper` | `keySecret` | Serper, which fetches Google results. |
+
+`keySecret` names a secret in the locker — the key itself never goes into the settings file. A paid service chosen without its key refuses with a sentence saying which secret to save.
+
+```json
+{ "web": { "search": { "backend": "tavily", "keySecret": "TAVILY_API_KEY" } } }
+```
+
+`searchEndpoint` still sets the address the free fallback uses, so anything already set up keeps working.
+
 ### Pinned skills and memory retention
 
 Above the composer, **Pinned skill** keeps one enabled skill's full instructions in every turn of that conversation until unpinned (`GET|POST /api/sessions/:id/skill`). `POST /api/memory/hygiene {olderThanDays, action: "preview"|"archive"|"purge"}` reports or removes facts not updated within the period; archived facts are listed by `GET /api/memory/archive` and restored with `POST /api/memory/archive/:id/restore`.
@@ -164,6 +185,68 @@ A task asks for one by name with `browser.profile { action: "use", name }`, whic
 Routes: `GET /api/browser/profiles`, `POST /api/browser/profiles` with `{ "name": "my-bank" }`, `POST /api/browser/profiles/remove`, `POST /api/browser/signin` with `{ "name": "my-bank", "url": "https://example.com/login" }`.
 
 Under the "Just do it inside my workspace" approval preset, `browser.upload` asks first, alongside clicking, typing and opening a new website; taking a picture, waiting and pulling out rows count as reading and are never held up.
+
+### Numbering the things on a page
+
+Guessing at selectors is how browser tasks go wrong. `browser.annotate { draw?, limit? }` numbers everything on the page you can press or type into, draws a small red label beside each one, and hands back a short list such as `[3] button "Save"`. The assistant can then say "press 3".
+
+A number belongs to the *thing*, not to its place. It is worked out from what the thing is, what it is called, and the kinds of boxes it sits inside — never from its position — so a page that throws its contents away and draws them again keeps its numbers, and a genuinely new thing gets a new one. The numbers last for one task and are forgotten when the task ends.
+
+The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
+
+**The honest limit:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here.
+
+### Data in the shape you asked for
+
+`browser.shape { rows?, fields, limit? }` reads the page into an exact shape. Each field says where to read it (`selector`, or `attribute` for something like a link's address), and what kind of thing it is: `text`, `number`, `boolean`, `date` or `url`. `rows` names the repeated block — a table row, a card — and without it the page is read once.
+
+What comes back has already been checked. A field marked `required` that is missing, or a number that is really words, makes the whole call a refusal that names the failing field, so the assistant fixes its request instead of acting on a guess. A field not marked required comes back as `null` rather than invented.
+
+### Actions that heal themselves
+
+Websites are rewritten constantly and remembered selectors rot. `browser.act { action: click | fill | check, selector?, name?, mark?, value? }` tries up to four ways in order: the exact selector, the thing's name as a button, the words showing on it, then its number from `browser.annotate`. The result says which way worked (`foundBy`) and how many were tried, and the same goes into the task's trace with `healed: true` when it was not the selector — so a step that keeps healing shows up and can be fixed properly.
+
+It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. Typing into a password box is refused here as everywhere else.
+
+### Using the browser you already have open
+
+Branch normally uses a fresh browser that no website knows you in. **Settings → Websites you stay signed in to → Letting Branch use the browser you already have open** lets it work in *your* browser instead, so everything you are signed in to already knows you.
+
+**The plain risk:** while this is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. Three things hold it back, and you should read all three before turning it on:
+
+- It is on for **one task**, named by its task number, and it **turns itself off after fifteen minutes**. A different task has to ask again.
+- Banks, brokers and password managers are **always refused**, by the same list of refusals the screen-and-keyboard control uses, extended to website names. Anything whose name contains "bank", "vault" or "password" is refused too.
+- Branch opens **a new tab of its own** and closes only that tab. Your own tabs are never watched, never redirected and never closed; when the task ends Branch stops listening rather than shutting anything down. Your cookies are never copied into a saved sign-in.
+
+To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
+
+Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`.
+
+**The honest limits:** this only works with Chrome or Edge, only on this computer, and only when you started the browser with that door open — Branch never starts it for you and never opens one you can see. A browser started the ordinary way cannot be borrowed.
+
+### Keeping a recording of a task
+
+`browser.recording { action: "start" }` then `{ action: "keep" }` writes a Playwright trace beside the task's other files. Open it in Playwright's trace viewer to watch what happened step by step.
+
+What goes in: the steps taken and a picture of the window at each one. What deliberately does not: **a copy of the page's own markup**. A password box carries its contents in the markup even when it looks blacked out on screen, so markup snapshots are switched off outright. On top of that, password boxes are **emptied before every step** while a recording is being made, because the recorder writes down a description of whatever a step points at and that description would otherwise carry the contents with it. So if a website had already filled a password box on the page, a recording clears it.
+
+This is checked by unpacking the recording and searching the readable text inside — searching the packed file would prove nothing, because everything inside it is squashed.
+
+### One way of saying "look at this, press that"
+
+`computer.look`, `computer.press` and `computer.type` take `at: "page"` or `at: "window"` and hand the work to the browser tools or to the screen-and-keyboard tools. Both underlying sets stay exactly as they are; this is a shorter way of saying the common thing, not a replacement.
+
+Nothing is bypassed: each one goes through the very method the underlying tool uses, so the same limits are counted and the same refusals apply. Reaching a window needs the screen permission **as well**, checked separately, so a task allowed to browse cannot reach your windows through the short way. Whichever half is not configured in this launch says so plainly when it is asked for.
+
+### Browser skills that come with Branch
+
+Three ready-made skills are shipped as ordinary skill packages: **search and summarise the top results**, **fill a form from a document**, and **watch a page for a change** (which tells the assistant to use the existing watcher rather than browse in a loop). They are instructions and nothing else — no web calls, no recipes — and arrive switched off like any other skill.
+
+`GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
+
+### Not built
+
+Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer. There is no Python `browser-use` runtime and no sandboxed remote computer either.
 
 ## Channels (Telegram)
 
