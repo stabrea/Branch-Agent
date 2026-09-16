@@ -45,7 +45,7 @@ const shapes: Record<SpecialistStyle, StyleShape> = {
     groups: ["web", "research", "documents", "memory"], summary: "Looks things up and names its sources.", plan: false, scratch: false, readOnly: false,
   },
   coder: {
-    instructions: "\n\nYou change code. Read before you write, make the change with code.patch or code.change_set so it is all-or-nothing and can be put back, and say what the project's check said afterwards.",
+    instructions: "\n\nYou change code. Start by calling code.map with \"request\" set to what you have been asked for: it puts the files most likely to hold the answer first, so you read two files rather than twenty. Read before you write, make the change with code.patch or code.change_set so it is all-or-nothing and can be put back, and say what the project's check said afterwards.",
     groups: ["code", "git", "files"], summary: "Reads and changes code, one reversible change at a time.", plan: false, scratch: false, readOnly: false,
   },
 };
