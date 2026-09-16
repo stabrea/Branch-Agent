@@ -121,11 +121,17 @@ export class McpSession {
   logLevel = 'info';
   /** The tool list written down for this connection, if one was. */
   snapshotId?: string;
+  /** When this connection last said anything, so the quietest one is dropped first at the cap. */
+  lastSeen = Date.now();
 
   constructor(id?: string) {
-    this.id = id ?? randomBytes(8).toString('hex');
+    // Long enough that a name cannot be guessed: 24 random bytes, far past the 128 bits asked for.
+    this.id = id ?? randomBytes(24).toString('hex');
   }
 }
+
+/** How many conversations are kept at once. At the cap the quietest one is dropped. */
+const SESSION_LIMIT = 100;
 
 /** A resource only shows up when the owner's approval settings would allow the matching tool. */
 interface ResourceScope { uri: string; name: string; description: string; mimeType: string; tool: string; permission: string }
@@ -167,9 +173,24 @@ export class McpServer {
 
   /** Get or create a session for a given session ID. */
   getSession(sessionId?: string): McpSession {
-    const id = sessionId ?? randomBytes(8).toString('hex');
-    if (!this.sessions.has(id)) this.sessions.set(id, new McpSession(id));
-    return this.sessions.get(id)!;
+    const id = sessionId ?? randomBytes(24).toString('hex');
+    const found = this.sessions.get(id);
+    if (found) { found.lastSeen = Date.now(); return found; }
+    // A name nobody has used before opens a new conversation, but only so many may be open, or a
+    // caller that made one up every time would fill this computer's memory.
+    while (this.sessions.size >= SESSION_LIMIT) {
+      const quietest = [...this.sessions.values()].sort((a, b) => a.lastSeen - b.lastSeen)[0];
+      if (!quietest) break;
+      this.deleteSession(quietest.id);
+    }
+    const created = new McpSession(id);
+    this.sessions.set(id, created);
+    return created;
+  }
+
+  /** Whether this is a conversation Branch actually opened, rather than a name somebody made up. */
+  hasSession(sessionId: string): boolean {
+    return this.sessions.has(sessionId);
   }
 
   /** Delete a session and end its state. */

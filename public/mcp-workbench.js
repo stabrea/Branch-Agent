@@ -49,7 +49,7 @@ async function renderConnections() {
   $("mcp-max-servers").value = String(state.settings.maxConcurrentServers);
   box.replaceChildren();
   if (!state.servers.length) {
-    box.append(el("p", "No outside server is connected. One is opened the moment a task needs it.", "subtle"));
+    box.append(el("p", "Nothing to show. Servers you set up in the connections file are opened when Branch starts; this list only covers servers opened while a task needs them.", "subtle"));
     return;
   }
   for (const server of state.servers) {

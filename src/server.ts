@@ -1354,14 +1354,19 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
       return { settings: saveLifecycleSettings(app.store, scope, await readBody(request)), servers: app.mcpConnections.health() };
   }
   if (path === "/api/mcp/signin" && request.method === "POST") {
+    app.store.profiles.requireOwner("Signing in to another AI tool's server");
     // The address to open in the owner's own browser; the key lands in the locker, never here.
     const started = await mcpSignIn(await readBody(request), {
       store: app.store, owner: app.runtime.owner, connections: app.oauth, policy: app.web.policy,
     });
     return { url: started.url, redirectUri: started.redirectUri, expiresInMs: started.expiresInMs };
   }
-  if (path === "/api/mcp/try" && request.method === "POST")
+  if (path === "/api/mcp/try" && request.method === "POST") {
+    // Trying a server starts a program on this computer, or reaches out to a web address, so it
+    // stays with the owner even where several people share the app.
+    app.store.profiles.requireOwner("Trying another AI tool's server");
     return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+  }
   if (path === "/api/mcp/app" && request.method === "POST") {
     const resource = AppResourceSchema.parse(await readBody(request, 512_000));
     return { url: `/mcp-app/${holdApp(resource)}` };
@@ -1377,7 +1382,8 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
 const heldApps = new Map<string, { resource: AppResource; until: number }>();
 function holdApp(resource: AppResource): string {
   for (const [id, held] of heldApps) if (held.until < Date.now()) heldApps.delete(id);
-  if (heldApps.size > 20) heldApps.clear();
+  // At the limit the oldest waiting page goes, rather than every page anyone is still looking at.
+  while (heldApps.size > 20) heldApps.delete(heldApps.keys().next().value!);
   const id = randomBytes(24).toString("base64url");
   heldApps.set(id, { resource, until: Date.now() + 300_000 });
   return id;
@@ -1386,8 +1392,10 @@ export function mcpAppPage(request: IncomingMessage, response: ServerResponse, p
   const match = /^\/mcp-app\/([A-Za-z0-9_-]{32,48})$/.exec(path);
   if (!match || request.method !== "GET") return false;
   const held = heldApps.get(match[1]!);
+  // The name is good for one fetch. It is handed over without the session key, so it stops working
+  // the moment it has been used, as well as after five minutes.
+  heldApps.delete(match[1]!);
   if (!held || held.until < Date.now()) {
-    heldApps.delete(match[1]!);
     send(response, 404, { error: "That page has expired. Open it again from Settings." });
     return true;
   }
@@ -1421,12 +1429,18 @@ async function handleMcpRequest(
       return true;
     }
 
+    // A name Branch never handed out is not a conversation. Only the very first message may bring
+    // one of its own; after that a made-up name is refused, rather than quietly opening a second
+    // conversation or letting anything read a stream it was never given.
+    const unknownSession = sessionId !== undefined && !mcp.hasSession(sessionId);
+
     if (request.method === "GET") {
       // The spec's streaming half: a client that says it wants an event stream gets one, and
       // messages Branch starts itself — "the tools have changed", "that task has finished" — come
       // down it. A plain GET is still refused, because a plain GET cannot carry them.
       if (!/text\/event-stream/i.test(String(request.headers.accept ?? "")))
         throw new HttpError(405, "Use POST for JSON-RPC requests, or ask for text/event-stream to open a stream");
+      if (unknownSession) throw new HttpError(404, "That conversation is not open. Send initialize first.");
       openEventStream(mcp, request, response, sessionId);
       return true;
     }
@@ -1443,6 +1457,8 @@ async function handleMcpRequest(
         })
         .strict();
       const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
+      if (unknownSession && jsonRpcRequest.method !== "initialize")
+        throw new HttpError(404, "That conversation is not open. Send initialize first.");
       // A client that did not bring a conversation of its own is given one, named in the reply to
       // its first message, so everything it does afterwards is kept together.
       const opened = !sessionId && jsonRpcRequest.method === "initialize" ? mcp.getSession().id : undefined;
@@ -1890,7 +1906,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

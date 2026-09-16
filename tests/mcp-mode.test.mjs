@@ -118,6 +118,17 @@ test("C1: the modern transport gives a session, an event stream, and a plain err
 
   const plain = await fetch(`${url}/mcp`, { headers: headers(url, token) });
   assert.equal(plain.status, 405, "a GET that does not ask for a stream is still refused");
+
+  // The name of a conversation has to be one Branch handed out. It is long enough not to be
+  // guessed, and a name nobody was given opens nothing and reads nobody else's stream.
+  assert.ok(sessionId.length >= 32, `a conversation's name is not guessable: ${sessionId.length} characters`);
+  const invented = "0".repeat(48);
+  const strayStream = await fetch(`${url}/mcp`, {
+    headers: headers(url, token, { accept: "text/event-stream", "mcp-session-id": invented }),
+  });
+  assert.equal(strayStream.status, 404, "a made-up name cannot open a stream");
+  const strayCall = await rpc(url, token, { jsonrpc: "2.0", id: 4, method: "tools/list", params: {} }, invented);
+  assert.equal(strayCall.response.status, 404, "nor make a call");
 });
 
 test("C1: a new skill's tools make Branch tell every connected client the list has changed", async (t) => {

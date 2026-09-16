@@ -1305,9 +1305,13 @@ is now scoped: it is listed and readable only when the settings would allow the 
 same thing, and a refused one answers "unknown resource" rather than admitting it exists. Prompts
 read the real saved-procedure shape (`definition.parameters`) and carry their blanks; a missing
 required one is refused by name.
-**As a client.** `src/mcp-lifecycle.ts` opens somebody else's server the first time a task needs it
-and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an idle connection
-before refusing a busy one, retry with growing backoff, and per-profile settings. `src/integrations/
+**As a client.** `src/mcp-lifecycle.ts` is a manager that opens somebody else's server when a task
+calls `acquire` and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an
+idle connection before refusing a busy one, retry with growing backoff, and per-profile settings.
+**It is not on the production path yet**: `loadIntegrations` still connects every configured MCP
+server eagerly at startup, and nothing calls `acquire`, so `known()` and `health()` are empty on a
+normal install and the Connections card and `mcp.servers` say so. Wiring it up means deferring tool
+registration too, because discovery happens at connect; that is a batch of its own. `src/integrations/
 mcp-oauth.ts` does RFC 8414 discovery and RFC 7591 dynamic client registration, then hands a
 synthesised provider to the existing `OAuthConnections` so PKCE and the locker are unchanged; the
 identity is remembered so a second sign-in does not register twice. `src/mcp-workbench.ts` is
