@@ -123,6 +123,11 @@ async function staticFile(
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
+    // App shell (wave 2): tokens, layout, appearance.
+    "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
+    "/shell.css": ["shell.css", "text/css; charset=utf-8"],
+    "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
+    "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
     "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],

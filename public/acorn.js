@@ -55,14 +55,42 @@ function rotation(yaw, pitch) {
   };
 }
 
+/* The acorn takes its three colours from the token layer, so it follows the
+   theme and the highlight colour chosen in Appearance. */
+let paletteKey = "", paletteCache = null;
+/** A token as red, green and blue, with any transparency laid over `over`. */
+function channels(token, over = [0, 0, 0]) {
+  const probe = document.createElement("span");
+  probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  document.body.append(probe);
+  const parts = (getComputedStyle(probe).color.match(/[\d.]+/g) ?? []).map(Number);
+  probe.remove();
+  const alpha = parts.length > 3 ? parts[3] : 1;
+  return parts
+    .slice(0, 3)
+    .map((part, index) => Math.round(part * alpha + over[index] * (1 - alpha)));
+}
+function themePalette() {
+  const look = document.documentElement.dataset;
+  const key = `${look.theme}/${look.accent}`;
+  if (key !== paletteKey) {
+    paletteKey = key;
+    const ground = channels("--ground");
+    paletteCache = [
+      channels("--text", ground),
+      channels("--copper", ground),
+      channels("--faint", ground),
+    ];
+  }
+  return paletteCache;
+}
+
 function render(canvas, yaw, pitch) {
   const context = canvas.getContext("2d");
   const width = canvas.width, height = canvas.height;
   const image = context.createImageData(width, height);
   const rotate = rotation(yaw, pitch), lighting = rotate(light);
-  const palette = document.documentElement.dataset.theme === "daylight"
-    ? [[36, 70, 50], [200, 94, 38], [80, 104, 88]]
-    : [[226, 236, 229], [240, 152, 98], [170, 190, 178]];
+  const palette = themePalette();
   const unit = Math.max(2.75 / height, 1.95 / width);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const u = (x + .5 - width / 2) * unit, v = (height / 2 - y - .5) * unit - .1;

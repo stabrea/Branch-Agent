@@ -407,3 +407,22 @@ Routes, all behind the local session token like the other owner-only settings: `
 Run only one Branch Agent process per data directory. SQLite stores conversations, memory, procedures, specialists and schedules. Schedules execute while the process is running. Missed interval occurrences coalesce into one execution. Interrupted or failed tasks are recorded; external side effects are not automatically retried.
 
 Local HTTP authorization is single-owner access, not a multi-user tenancy system. Built-in file restrictions are not an operating-system sandbox for separately configured programs.
+
+## Appearance and the app shell
+
+`GET /api/state` returns a `preferences` record and `POST /api/preferences` replaces it. The
+record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
+`followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
+(`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
+`reduceMotion` and `showAcorn`. Every field has a default, so a record saved by an older version
+still loads. Settings → Appearance changes all of them; each choice shows at once and Save keeps
+it.
+
+Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
+Settings) has its own button in the icon column on the left, so nothing hides behind a drop-down.
+Ctrl+K opens a search box that jumps to a section, a saved conversation, a recipe, a skill, or an
+action such as starting a conversation or checking for updates. Ctrl+N starts a conversation,
+Ctrl+, opens Appearance, and Esc closes whatever is open. The conversation rail is filled from
+`POST /api/sessions/search`. The interface files `/tokens.css`, `/shell.css`, `/shell.js` and
+`/appearance.js` are served from the same local allowlist as the rest of the interface. See
+[design.md](design.md) for the tokens and the layout.

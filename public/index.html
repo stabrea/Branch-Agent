@@ -5,15 +5,20 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <title>Branch Agent — Your personal assistant</title>
+    <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/shell.css" />
   </head>
   <body>
     <div class="topbar">
       <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> Branch Agent <span class="topbar-by">by</span> <span class="topbar-maker">KeepOak</span></span
       ><span class="topbar-caption">Your personal assistant</span
-      ><button id="appearance-shortcut" class="text-button">
-        ◐ Appearance
-      </button>
+      ><span class="topbar-actions"
+        ><button id="rail-toggle" class="text-button" type="button" aria-pressed="true">Conversations</button
+        ><button id="cmd-open" class="text-button" type="button">Search everything ⌃K</button
+        ><button id="aside-toggle" class="text-button" type="button" aria-pressed="true">Overview</button
+        ><button id="appearance-shortcut" class="text-button">◐ Appearance</button></span
+      >
     </div>
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="Branch Agent home"
@@ -40,6 +45,14 @@
         <p id="provider">Connect to begin</p>
         <button id="lock" class="text-button" hidden>Lock session</button>
       </div>
+    </aside>
+    <!-- Conversation rail (public/shell.js fills it). -->
+    <aside class="rail" id="conversation-rail" aria-label="Conversations">
+      <div class="rail-actions">
+        <button id="rail-new" class="rail-new" type="button">＋ New conversation</button>
+        <button id="rail-find" class="rail-find" type="button">Find anything <kbd>Ctrl K</kbd></button>
+      </div>
+      <div class="rail-scroll" id="rail-list" aria-live="polite"></div>
     </aside>
     <main>
       <header>
@@ -429,13 +442,50 @@
             <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
             <p id="identity-status" role="status"></p>
           </form>
+          <!-- Appearance (public/appearance.js). Changes show at once; Save keeps them. -->
           <form id="settings-form" class="card">
-            <label for="appearance">Appearance</label>
-            <select id="appearance">
-              <option value="forest">Forest</option>
-              <option value="daylight">Daylight</option>
-            </select>
-            <p class="subtle">Saved on this device for your next visit.</p>
+            <h2>Appearance</h2>
+            <p>Change how Branch Agent looks. Everything you pick shows straight away.</p>
+            <div class="appearance-grid">
+              <div class="appearance-field">
+                <label for="appearance">Appearance</label>
+                <select id="appearance">
+                  <option value="forest">Forest</option>
+                  <option value="daylight">Daylight</option>
+                </select>
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-follow" /> Follow the light or dark setting on this
+                  computer</label
+                >
+              </div>
+              <div class="appearance-field">
+                <span id="accent-label">Highlight colour</span>
+                <div class="choice-row" id="accent-choices" role="group" aria-labelledby="accent-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="text-size-label">Text size</span>
+                <div class="choice-row" id="text-size-choices" role="group" aria-labelledby="text-size-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="density-label">Spacing</span>
+                <div class="choice-row" id="density-choices" role="group" aria-labelledby="density-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="font-label">Lettering</span>
+                <div class="choice-row" id="font-choices" role="group" aria-labelledby="font-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="extras-label">Movement and artwork</span>
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-motion" /> Keep things still (no sliding or
+                  spinning)</label
+                >
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-acorn" /> Show the acorn</label
+                >
+              </div>
+            </div>
+            <p class="appearance-note">Saved with this workspace, so it looks the same the next time you open it.</p>
             <button>Save appearance</button>
           </form>
           <form id="voice-settings-form" class="card">
@@ -667,6 +717,7 @@
     <script src="/update-screen.js"></script>
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
+    <script src="/shell.js" type="module"></script>
     <script src="/usage.js"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>

@@ -345,6 +345,26 @@ available and free (offline); higher-quality voice from provider is optional. Vo
 read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
 read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
+## Batch 20 (wave 2) — app shell, tokens and appearance
+
+The browser and desktop interface was rebuilt around the approved KeepOak redesign. A token layer
+(`public/tokens.css`) is now the only place a colour is written down: Forest and Daylight themes
+copied from `site.css` and `app/portal.css`, five accents (copper, leaf, earth, slate, ink) copied
+from `site.css`, `app/appearance.css` and `public-theme.css`, plus scales for text size, spacing,
+radius, focus rings and motion. `public/shell.css` replaces the old fixed-position layout with a
+four-column grid on `body`: a thin icon column carrying every section (Settings at its foot, no
+drop-down anywhere), a conversation rail grouped by Today/Yesterday/Earlier, one main pane with a
+sticky title bar, and a context pane; both side panes fold away from the top bar and the choice is
+remembered. `public/shell.js` adds the icons, the rail (fed by `POST /api/sessions/search`) and a
+command palette on Ctrl+K covering sections, conversations, recipes, skills and the top actions,
+with Ctrl+N, Ctrl+, and Esc. Under 1000 px the rail slides over the page; under 720 px the icon
+column becomes a bottom bar and the page still never scrolls sideways at 400 px.
+`public/appearance.js` and an extended `PreferencesSchema` add seven appearance controls (theme
+including "follow this computer", highlight colour, text size, spacing, lettering, keep things
+still, show the acorn) that apply instantly and persist through `POST /api/preferences`. New
+static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
+`tests/shell-ui.test.mjs`.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
