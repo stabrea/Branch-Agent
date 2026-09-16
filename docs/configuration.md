@@ -3001,3 +3001,170 @@ recorded here as deliberately out of scope rather than left open for ever.
 - **app-building (App-builder SDK MCP server)** — Branch is itself an MCP server (`branch mcp-serve`,
   `src/mcp-server.ts`), so another tool can drive it; and the artifact frame below is the same
   sandbox that shows a small page an MCP server sends back.
+
+## Artifacts: what a reply can show as well as say (batch 22, wave 8)
+
+When a reply carries a fenced `html`, `svg` or `chart` block, Branch shows it as a card beside the
+words rather than leaving markup to read. Four buttons sit under it: **Open larger**, **Copy code**,
+**Save to workspace**, and — for a `javascript` or `python` block — **Run this script**.
+
+**A page or a drawing goes into a frame that is sealed shut.** It is served from Branch's own
+address at `/artifact/<name>`, under the same content policy an MCP app gets (`src/mcp-apps.ts`):
+`sandbox` with nothing after it, which gives the page an origin of its own and stops every script,
+plus `default-src 'none'`, which refuses every fetch. The frame itself carries `sandbox=""` — no
+`allow-same-origin` — so it cannot reach the page around it, the session key, or the network.
+Unlike an MCP app's address, an artifact's is **not** used up by the first fetch: a frame may
+reload and "Open larger" may show the same one again. It expires after ten minutes.
+
+The app's own colours are passed in as CSS variables, read off the running page, so an artifact
+matches the theme instead of fighting it. Every value is checked against a short pattern first.
+
+**A script is never run by the frame.** The frame runs nothing at all. The button is a button on
+Branch's own page, and it goes through `POST /api/tools/try` to `code.run`, which is off until the
+owner switches it on in Settings → Developer and which stops to ask like any other tool.
+
+**Charts** are drawn in the page from a `chart` block — `{"type":"bar|line|pie","title":…,"data":
+[{"label":…,"value":…}]}`. The number under the pointer is written out in words, the same numbers
+can be shown as a table instead, and **Save as a picture** turns the drawing into a PNG using the
+browser's own canvas. Nothing is drawn on this computer's side and no drawing library is loaded.
+
+**Save to workspace** keeps the artifact beside the task it came out of (`POST /api/artifacts/save`),
+where the Documents section lists it under "Made by the assistant".
+
+Routes: `POST /api/artifacts/page` mints an address, `GET /artifact/<name>` serves it,
+`POST /api/artifacts/save` keeps one. Files: `src/artifact-pages.ts`, `public/artifacts.js`,
+`public/charts.js`.
+
+## Save as report (batch 22, wave 8)
+
+Any task can be written out to keep or hand on, from Activity → **Save a task as a report**:
+
+- **Save as notes** — Markdown: headings and prose, nothing a reader needs a program to open.
+- **Save as a page** — one self-contained HTML page with its colours written into it and no script
+  at all, the same renderer a shared conversation uses (`src/conversation-share.ts`).
+- **Open the print view** — the same page with print rules, opened in a window of its own. This is
+  how a PDF is made: the browser's own "Save as PDF". Branch never draws a PDF on this computer.
+- **Save every step** — one task's whole trajectory as a page: every step it took, what came back,
+  and how it ended.
+
+Every form goes through the same redaction pass that guards a shared conversation, so a key that
+appeared in a tool result does not leave in a file the owner emails on; the result says how many
+things were blanked out. Routes: `POST /api/reports`, `GET /api/reports/episode/<task>`. Files:
+`src/reports.ts`, `public/reports.js`.
+
+## The to-do list (batch 22, wave 8)
+
+A plain list of what is still to be done, in the context pane beside the conversation. The
+assistant writes its plan there as it works (`todos.add`, `todos.done`, `todos.list`) and the owner
+can type a line of their own. An item with a day on it can be turned into a **reminder**, which puts
+it in the schedules — the one part of the app that keeps time. The to-do list grows no clock of its
+own.
+
+Routes: `GET`/`POST /api/todos`, `POST /api/todos/<id>/done`, `POST /api/todos/<id>/remind`,
+`DELETE /api/todos/<id>`. Files: `src/todos.ts`, `public/todos.js`.
+
+## The flow editor (batch 22, wave 8)
+
+Under Procedures, **Change a flow** turns the wave-7 picture into something the owner can change.
+Add a step, take one away, move one earlier or later, and fill in the boxes that kind of step needs —
+the side form shows only those, because the saved shape (`src/workflows.ts`) refuses a prompt step
+with no prompt and a branch step with no words to look for. The picture above the list redraws as
+you type; nothing is saved until Save, which sends exactly a name, a line about it and the steps to
+`PUT /api/flows/<id>`.
+
+Under the picture, **While it runs** shows each step, where it has got to and when it started. It is
+read from `GET /api/flows/<id>` while a flow is working. The note each finished step sends goes out
+over a webhook to whoever asked to hear about it (`flow.node`), not to this page, so asking the app
+how the flow is getting on is the honest way to keep the timeline current.
+
+Beside it, **How often should it repeat?** offers a rhythm and a time and writes the answer out in
+plain words — "every weekday at 09:00" — before filling in the schedule boxes below. Files:
+`public/flow-editor.js`.
+
+## Your notes folder (the Obsidian bridge) (batch 22, wave 8)
+
+The owner uses Obsidian, and Obsidian's own files are ordinary Markdown in an ordinary folder. So
+this is a **folder bridge and nothing more**: there is no Obsidian plugin here, nothing is installed
+into Obsidian, and Obsidian does not have to be running.
+
+Switch it on in Settings → **Your notes folder**, name the folder in full, and name the subfolder
+Branch may write into. Branch then writes memory facts, knowledge cards, saved reports and
+conversation exports there as Markdown notes with front matter carrying Branch's own numbers, and
+reads back the notes tagged `#branch` as documents it can search.
+
+Three rules make it safe to point at a folder full of the owner's own writing:
+
+1. **Confined.** Every path is resolved for real — following any shortcut — and must still sit inside
+   the folder named, with the separator part of the comparison, so `notes-other` is never mistaken
+   for `notes`.
+2. **Never overwritten.** Each note carries a hash of what Branch wrote. If the file no longer
+   matches it, the owner has edited it, and the new version is written beside it as
+   `<name>.branch-conflict.md`. Nothing the owner typed is lost.
+3. **Only what it is given.** Reading back takes only notes carrying `#branch`, so pointing at a
+   whole vault does not pull private writing into the assistant's documents.
+
+Tools: `obsidian.sync`, `obsidian.read`. Routes: `GET`/`POST /api/obsidian`,
+`POST /api/obsidian/write`, `GET /api/obsidian/notes`. File: `src/obsidian.ts`.
+
+## Reaching Branch from other pages (batch 22, wave 8)
+
+Two ways in from outside Branch's own window, both **off until the owner switches them on** in
+Settings → **Reaching Branch from other pages**, and both for the owner's own pages and their own
+browser. Neither is for publishing anywhere.
+
+Both obey the same rule: they may only talk to the **paired remote listener**, with the key pairing
+gave the owner, and they refuse a loopback address outright. The key the app's own page uses on this
+computer is the whole of Branch's authority here, and a page next door must not be able to borrow it.
+
+- **The small ask box** — `public/widget.js`, included by a page of the owner's own:
+
+      <script src="http://your-machine.tailnet.ts.net:8765/widget.js"
+              data-branch="http://your-machine.tailnet.ts.net:8765"
+              data-key="the key pairing gave you"></script>
+
+  It reads its address and key off that tag and nowhere else — never out of the page it sits on, and
+  never out of any storage.
+
+- **The browser extension** — `extras/browser-extension/`, an unsigned Manifest V3 folder with a
+  popup that sends the current page's address, title and selection to Branch as a task. Load it by
+  hand: `chrome://extensions` → Developer mode → **Load unpacked**. Install steps and the reasons
+  behind them are in that folder's README.
+
+Route: `GET`/`POST /api/embeds`. File: `src/embeds.ts`.
+
+## The record, how busy a connection is, and what asking twice saved (batch 22, wave 8)
+
+Three readings of things the app already writes down:
+
+- **The record** (Activity → *The record of what happened*): every step every task took, narrowed by
+  the kind of step, by the task, or by when it happened, and saved as a file of one line each — the
+  shape a log file has, so it opens in anything. `GET /api/log`, `GET /api/log/export`.
+- **How busy each connection is** (Usage): how many calls went to each model service in the last
+  minute and the last hour, beside the allowance that service reports in its own answers
+  (`x-ratelimit-*`). `GET /api/request-rates`.
+- **What asking twice saved** (Usage): every round answered out of the kept-answers store, with what
+  it would have cost had it been sent. `GET /api/cached-answers`.
+
+The terminal view now says what each finished task used as well, and what it cost, so the figures
+are not the web app's alone. File: `src/dashboards.ts`, `public/logs.js`.
+
+## Watches that tell you something (batch 22, wave 8)
+
+A page watch already sends its news wherever the owner asked — the activity list, or a chat they
+have connected (`monitor.create`, `notifyVia: {channel, chatId}`). Wave 8 adds a **screen watch**:
+Branch takes a picture of one rectangle every so often and says when it looks different.
+
+This is the most intrusive thing in the app, so it is fenced three ways: it is off until the owner
+switches it on, it refuses to run unless **using your screen** is switched on as well, and it keeps a
+fingerprint of the picture rather than the picture — nothing that was on screen is written to disk.
+A password manager showing on screen stops it outright, as it stops any other picture of the screen.
+
+Tools: `monitors.screen.create`, `monitors.screen.check`. File: `src/screen-watch.ts`.
+
+## Asking a specialist one question (batch 22, wave 8)
+
+The composer has a **Who should answer** picker beside the Temporary toggle. Leave it on "Your
+assistant" and nothing changes. Choose a specialist and that one message goes to it; the reply is
+signed with that specialist's name instead of the assistant's, and the next message goes back to the
+assistant unless the specialist is chosen again. What the owner typed is what they see: the
+delegation is machinery and is not shown back to them. File: `public/app.js`.
