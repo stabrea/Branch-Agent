@@ -71,7 +71,9 @@ const reviewInstructions = "You review a finished task. Reply with JSON only: {\
  */
 export const compactionThreshold = 14000;
 const compactionKeep = 6;
-const contextLimit = 16000;
+/** Hard cap on one request's estimated tokens; kept well above the compaction threshold so that
+ *  three clipped tool results still fit after the catalog. Raised with the threshold (wave 5). */
+const contextLimit = 20000;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
 /** What is written into the conversation in place of the picture itself; the bytes are never stored. */
 export function picturesNote(images?: ImagePart[]): string {
