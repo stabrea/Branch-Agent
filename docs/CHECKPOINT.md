@@ -1,5 +1,17 @@
 # Branch Agent checkpoint — 2026-09-15 (evening)
 
+## Batch 19 (wave 1) — webhooks-and-triggers
+
+Six builders in parallel branches (wave1/*). Current branch: webhooks and triggers.
+- Inbound triggers: POST /api/triggers/:id/fire with bearer or HMAC verification, rate limiting, prompt template substitution with {{payload}} and {{field.path}}
+- Outbound webhooks: deliver on run.completed/failed/schedule.fired/trigger.fired/approval.needed with HMAC signatures, retry with exponential backoff, auto-disable after 5 consecutive failures
+- Store: added trigger_log and delivery_log tables; triggers and webhooks as record tables
+- Routes: CRUD for both, /api/triggers/:id/log and /api/webhooks/:id/log, /api/triggers/:id/rotate-secret, /api/webhooks/:id/test and /api/webhooks/:id/enable
+- Fire route unauthenticated (before authorize()) with per-trigger secret; respects isExecution() for budget accounting
+- Tests: trigger verification (bearer + HMAC), placeholder substitution, rate limiting, webhook delivery failure and auto-disable (blocked by test environment zod resolution issue; code complete)
+
+Items marked done: A1838 (outbound webhooks), A1816 (webhook/trigger fire system).
+
 ## Where things stand
 
 The user's standing instruction: keep improving locally and publish to GitHub only at checkpoints

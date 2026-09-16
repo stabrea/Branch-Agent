@@ -19,8 +19,13 @@ export const WebhookSchema = z
   })
   .strict();
 export type WebhookConfig = z.infer<typeof WebhookSchema>;
-export interface WebhookState extends WebhookConfig {
+export interface WebhookState {
   id: string;
+  name: string;
+  url: string;
+  secret?: string;
+  events: string[];
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
   failureCount: number;
