@@ -186,9 +186,17 @@ export async function loadMediaSettings() {
   const { settings, prices, pricedAt } = await request("/api/media/settings");
   $("media-image-model").value = settings.imageModel;
   $("media-folder").value = settings.folder;
+  // The price quoted is the one for the model actually chosen, not whichever the table lists first.
+  const named = settings.imageModel;
+  const listed = named ? (prices[named] ?? prices[named.toLowerCase()]) : undefined;
+  const amounts = Object.values(prices);
+  const lead = !named
+    ? `About $${Math.min(...amounts).toFixed(2)}–$${Math.max(...amounts).toFixed(2)} for one 1024×1024 picture with the common models (list prices as of ${pricedAt}).`
+    : listed === undefined
+      ? `There is no price on file for ${named}.`
+      : `About $${listed.toFixed(2)} for one 1024×1024 picture with ${named} (list price as of ${pricedAt}).`;
   $("media-prices").textContent =
-    `About $${Object.values(prices)[0]?.toFixed(2) ?? "0.04"} for one standard picture with the common models (list prices as of ${pricedAt}). ` +
-    "A model with no price on file is reported as unknown rather than free.";
+    `${lead} A picture at any other size, or one made by a model with no price on file, is reported as unknown rather than free.`;
 }
 function wireSettings() {
   const form = $("media-form");
