@@ -183,7 +183,7 @@ export interface ToolContext {
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
-  source?: "owner" | "trigger" | "schedule" | "mcp";
+  source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

@@ -34,6 +34,8 @@ export const McpSharingSchema = z
   .object({
     enabled: z.boolean().default(false),
     exposedTools: z.array(z.string().min(1).max(100)).max(200).default([]),
+    /** Also answer assistants elsewhere over the agent-to-agent protocol, from the same shared list. */
+    a2a: z.boolean().default(false),
   })
   .strict();
 export type McpSharing = z.infer<typeof McpSharingSchema>;
@@ -128,7 +130,7 @@ export class McpServer {
     const saved = this.store.get('settings', this.runtime.owner, 'mcp-sharing');
     const parsed = saved ? McpSharingSchema.safeParse(saved.data) : undefined;
     if (parsed?.success) return parsed.data;
-    return { enabled: this.options.enabled, exposedTools: [...this.options.exposedTools] };
+    return { enabled: this.options.enabled, exposedTools: [...this.options.exposedTools], a2a: false };
   }
 
   private exposed(): Set<string> {

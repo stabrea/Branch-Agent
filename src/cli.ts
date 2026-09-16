@@ -13,6 +13,7 @@ import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
+import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
 import { readFile, writeFile } from "node:fs/promises";
 
@@ -73,9 +74,9 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve", "acp-serve"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | acp-serve | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -108,6 +109,9 @@ async function main(): Promise<void> {
       return;
     } else if (command === "mcp-serve") {
       await serveMcpStdio(app.mcpServer);
+      return;
+    } else if (command === "acp-serve") {
+      await serveAcpStdio(app.runtime, app.store);
       return;
     }
     if (command === "doctor") {

@@ -19,6 +19,8 @@ import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
+import { A2aServer } from "./a2a.js";
+import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
 import { createRequire } from "node:module";
 import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
@@ -167,6 +169,10 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
+  const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
+  const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
+  registerRemoteAgents(registry, remoteAgents);
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -183,6 +189,10 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    /** Answering assistants elsewhere over the agent-to-agent protocol. */
+    a2a,
+    /** Assistants elsewhere this one may hand work to. */
+    remoteAgents,
     artifacts,
     browserProfiles,
     /**
@@ -274,6 +284,9 @@ export * from "./code-edit.js";
 export * from "./backup.js";
 export * from "./health.js";
 export * from "./openai-compat.js";
+export * from "./a2a.js";
+export * from "./a2a-client.js";
+export * from "./acp.js";
 export * from "./streams.js";
 export * from "./recipes.js";
 export * from "./templates.js";

@@ -56,7 +56,7 @@ export const PolicyInputSchema = z
   .strict();
 
 /** Where a task came from. Anything but the owner's own app or command line is held to the "Ask before changes" preset. */
-export type RunSource = "owner" | "trigger" | "schedule" | "mcp";
+export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
 
 interface PresetDefinition { label: string; description: string; rules: z.input<typeof PolicyRuleSchema>[] }
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
