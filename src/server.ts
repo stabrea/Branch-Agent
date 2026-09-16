@@ -24,6 +24,7 @@ import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
+import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
@@ -703,6 +704,34 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
   const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
   return { runId: run.id, status: run.status };
 }
+/**
+ * WhatsApp sends messages to this address instead of holding a connection open, so the route has
+ * to work without the app's session token. WhatsApp checks the address once with a challenge it
+ * expects echoed back as plain text, and signs every later request with the app secret.
+ */
+async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  if (!match) return false;
+  const adapter = app.channels.adapter(match[1]!);
+  if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  if (request.method === "GET") {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const challenge = tryOr(() => adapter.verify(query), 403);
+    response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    response.end(challenge);
+    return true;
+  }
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const signature = request.headers["x-hub-signature-256"];
+  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
+    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  send(response, 200, result);
+  return true;
+}
+function tryOr<T>(work: () => T, status: number): T {
+  try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
+}
 const triggerBodyLimit = 256 * 1024;
 async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
   const trigger = app.triggers.get(app.runtime.owner, triggerId);
@@ -1058,6 +1087,7 @@ export async function startServer(
         send(response, 200, await hook(app, request, path));
         return;
       }
+      if (await whatsAppWebhook(app, request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1199,7 +1229,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {
