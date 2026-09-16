@@ -1270,8 +1270,12 @@ therefore one trace.
 ### Sending traces somewhere you run
 `GET`/`POST /api/tracing/settings` holds `enabled` (false until you change it), `destination`
 (`otlp`, `langfuse` or `langsmith`), `endpoint`, `headers`, `batchSize`, `retries` and
-`serviceName`. `POST /api/tracing/test` sends the last five spans so you can see whether they
-arrive. Turning sending on without an address is refused rather than half-done.
+`serviceName`. Once it is on, each task sends its own steps as soon as it finishes, and
+`POST /api/tracing/test` sends the last five so you can check the address before relying on it.
+Turning sending on without an address is refused rather than half-done.
+`includeErrors` adds the crashes Branch recorded — an uncaught failure in the engine, with the
+stack scrubbed — to what goes out, which is the whole of "send crash reports to my own endpoint":
+they go to *your* address and nowhere else, and there is no third-party crash service involved.
 A header value may be `secret://<project>/<NAME>` instead of the key itself. The real value is
 looked up from the locker at the moment of the call and is never in the settings, never in a log
 and never in an error message. Every send — successful or not — is written into the record of what

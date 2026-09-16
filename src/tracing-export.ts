@@ -33,7 +33,7 @@ export const TraceExportSettingsSchema = z
     retries: z.number().int().min(0).max(5).default(2),
     /** The name this install shows up under in the tracing tool. */
     serviceName: z.string().trim().min(1).max(80).default("branch-agent"),
-    /** Send uncaught errors as spans too. */
+    /** Send the crashes recorded as error spans along with a finished task's own steps. */
     includeErrors: z.boolean().default(false),
   })
   .strict();

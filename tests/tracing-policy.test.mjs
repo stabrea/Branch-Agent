@@ -332,6 +332,34 @@ test("T2: sends are batched and tried again, and the key in a header is never in
   assert.equal(app.store.audit.list(owner, { action: "data.exported" })[0].outcome, "failed");
 });
 
+test("T2: a finished task sends its own steps, and crashes go too when asked for", async (t) => {
+  const { app } = await fixture(t, [calls(write("c1", "sent.txt", "x")), say("done")]);
+  const collector = await fakeCollector(t);
+  const owner = app.runtime.owner;
+  // While sending is off, a finished task sends nothing at all.
+  const quiet = await app.runtime.run({ prompt: "write it" });
+  assert.equal(collector.seen.length, 0);
+  assert.ok(!app.store.events(quiet.id).some((event) => event.kind.startsWith("trace.sent")));
+
+  saveTraceExportSettings(app.store, owner, { enabled: true, endpoint: collector.url, includeErrors: true });
+  // One recorded crash, of the kind an uncaught failure in the engine leaves behind.
+  app.store.spans.begin({
+    traceId: "e".repeat(32), spanId: "f".repeat(16), parentSpanId: "", runId: "", owner,
+    kind: "error", name: "branch.uncaught_error", startedAt: new Date().toISOString(),
+    endedAt: new Date().toISOString(), status: "error", message: "Error: something gave way",
+    attributes: { "exception.type": "Error" },
+  });
+  app.runtime.models.default.provider.reset();
+  const run = await app.runtime.run({ prompt: "write it again" });
+  for (let i = 0; i < 40 && !collector.seen.length; i++) await new Promise((r) => setTimeout(r, 25));
+  assert.ok(collector.seen.length > 0, "the task's steps went out on their own");
+  const sent = collector.seen[0].body.resourceSpans[0].scopeSpans[0].spans;
+  assert.ok(sent.some((span) => span.attributes.some((a) => a.key === "branch.run.id" && a.value.stringValue === run.id)));
+  assert.ok(sent.some((span) => span.name === "branch.uncaught_error"), "the crash rode along, because it was asked for");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(app.store.events(run.id).some((event) => event.kind === "trace.sent"), "and the task says so in its own timeline");
+});
+
 test("T2: a collector on this computer is refused until private addresses are allowed", async (t) => {
   const { app } = await fixture(t, [say("ok")], { web: {} });
   const collector = await fakeCollector(t);

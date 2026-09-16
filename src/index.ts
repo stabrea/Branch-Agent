@@ -40,7 +40,7 @@ import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
-import { TraceExporter } from "./tracing-export.js";
+import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -270,6 +270,19 @@ export async function createBranch(options: {
       store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
   });
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
+  // A finished task's spans go out on their own once sending is on; the exporter itself does
+  // nothing at all while it is off, so this stays quiet until the owner turns it on.
+  runtime.exportSpans = async (runId) => {
+    const settings = traceExportSettings(store, runtime.owner);
+    if (!settings.enabled) return;
+    const spans = store.spans.forRun(runId).filter((span) => span.endedAt !== null);
+    if (!spans.length) return;
+    const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
+    const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    const failed = results.find((result) => !result.ok);
+    store.event(runId, failed ? "trace.send_failed" : "trace.sent",
+      failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
+  };
   let closing: Promise<void> | undefined;
   return {
     store,

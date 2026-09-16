@@ -625,7 +625,21 @@ export class Runtime {
     }
     const settled = this.finish(run, status, output);
     this.saveTrace(run.id);
+    this.sendSpans(run.id);
     return settled;
+  }
+  /**
+   * Sends the task's spans to the address the owner chose, when they have turned that on. Like the
+   * trace file, this never fails a task: it happens after the answer is in and a failure is only
+   * noted. `createBranch` connects it; on its own nothing is sent anywhere.
+   */
+  exportSpans: (runId: string) => Promise<void> = async () => undefined;
+  private sendSpans(runId: string): void {
+    // A runtime that is shutting down refuses new background work, and a send that cannot start is
+    // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
+    void this.track(() => this.exportSpans(runId)
+      .catch((error) => this.store.event(runId, "trace.send_failed", { error: this.hideSecrets(errorText(error)) })))
+      .catch(() => undefined);
   }
   /**
    * Writes the task's trace file when the owner has turned that on. Nothing here may fail a task:
