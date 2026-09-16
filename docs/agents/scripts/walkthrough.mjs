@@ -42,6 +42,9 @@ console.log("views:", views.join(", "));
 console.log("console errors:", errors.length, errors.slice(0, 10));
 console.log("checks:", JSON.stringify(report.filter((r) => r.check)));
 try { await browser.close(); } catch {}
-const staged = install.replace(/\//g, "\\\\");
-execSync(`powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${staged}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`, { stdio: "ignore" });
+// The path is written with single backslashes: doubling them made the -like match nothing, so
+// every walked copy stayed running and a later test borrowed its debugging port by mistake.
+const staged = install.replace(/\//g, "\\");
+const left = execSync(`powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${staged}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 800; @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '${staged}*' }).Count"`).toString().trim();
+console.log("walked copies left running:", left);
 process.exit(0);
