@@ -80,6 +80,10 @@ await Promise.all([
   import("./playground.js").then((module) => {
     $("playground")?.addEventListener("toggle", () => void module.renderPlayground());
   }),
+  /* Wave 7: how the assistant finds its tools, drawn only when the owner opens that section. */
+  import("./tool-catalog.js").then((module) => {
+    $("tool-catalog")?.addEventListener("toggle", () => void module.renderToolCatalog());
+  }),
 ]);
 wireOfflineBanner();
 registerServiceWorker();

@@ -100,7 +100,7 @@ export class Plugins {
     try {
       for (const tool of plugin.tools ?? []) {
         this.registry.register({
-          name: tool.name, description: tool.description, permission: tool.permission,
+          name: tool.name, description: tool.description, permission: tool.permission, external: true,
           parameters: schemaFor(ParametersSchema.parse(tool.input ?? {})),
           execute: async (args, context) => tool.run(args, context),
         });

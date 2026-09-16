@@ -24,6 +24,8 @@ import { UsageStore } from "./usage.js";
 import { Labels } from "./labels.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
+// Wave 7 (tool loading): what this computer has learned about which tools a request needs.
+import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
@@ -52,6 +54,8 @@ export class Store {
   readonly labels: Labels;
   readonly shares: ShareLinks;
   readonly profiles: Profiles;
+  /** Wave 7: which tools past tasks needed, and what has been learned about them. */
+  readonly toolUsage: ToolUsage;
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
@@ -96,6 +100,7 @@ export class Store {
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
     this.labels = new Labels(this.db);
+    this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
     this.profiles = new Profiles(this.db, "local");
     this.memories = new MemoryFacts(this.db);
@@ -256,6 +261,8 @@ export class Store {
     try {
       this.db.prepare("DELETE FROM events WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
       this.db.prepare("DELETE FROM usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)").run(sessionId);
+      // Wave 7: what this conversation taught about which tools a request needs goes with it.
+      this.toolUsage.forgetSession(sessionId);
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
@@ -522,7 +529,12 @@ export class Store {
   exportMemory(owner: string) { return this.memories.export(owner); }
   importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
   forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }
-  forgetMemory(owner: string, input: unknown) { return this.memories.forget(owner, input); }
+  forgetMemory(owner: string, input: unknown) {
+    const forgotten = this.memories.forget(owner, input);
+    // Wave 7: forgetting what a conversation said also forgets what it taught about tools.
+    this.toolUsage.forgetSession(forgotten.sessionId);
+    return forgotten;
+  }
   memorySuppressed(owner: string, sessionId: string) { return this.memories.suppressed(owner, sessionId); }
   memoryHygiene(owner: string, input: unknown, now?: number) { return this.memories.hygiene(owner, input, now); }
   archivedMemory(owner: string) { return this.memories.archived(owner); }
