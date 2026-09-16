@@ -15,6 +15,10 @@ export const ProjectSchema = z.object({
   repository: z.string().max(500).default(""),
   /** A folder inside the workspace that this project's files live in; empty means the whole workspace. */
   folder: z.string().max(200).regex(/^(?!.*(^|\/)\.\.(\/|$))[^\\:\0]*$/, "Use a relative folder name inside the workspace").transform((v) => v.replace(/^\/+|\/+$/g, "")).default(""),
+  /** The way of working this project's tasks start from, when it has one (see src/model-profiles.ts). */
+  profile: z.string().trim().max(64).nullable().default(null),
+  /** Which collections of the person's own documents this project's tasks look in first. */
+  knowledgeBases: z.array(z.string().trim().min(1).max(80)).max(16).default([]),
 }).strict();
 export type Project = z.infer<typeof ProjectSchema>;
 export const defaultProjectId = "default";
@@ -65,7 +69,18 @@ export class Projects {
     const project = this.active(owner);
     return project.instructions ? `\nProject "${project.name}" instructions: ${project.instructions}\n` : "";
   }
+  /**
+   * What the active project brings to a task besides its instructions: the model connection it
+   * prefers, the way of working it starts from, and the document collections to look in first.
+   * Each one is only a starting point — anything chosen for this conversation still wins.
+   */
+  defaults(owner: string): { projectId: string; name: string; modelPreset: string | null; profile: string | null; knowledgeBases: string[] } {
+    const project = this.active(owner);
+    return { projectId: project.id, name: project.name, modelPreset: project.modelPreset,
+      profile: project.profile, knowledgeBases: project.knowledgeBases };
+  }
   private defaultProject(): Project {
-    return { id: defaultProjectId, name: "Default", instructions: "", modelPreset: null, repository: "", folder: "" };
+    return { id: defaultProjectId, name: "Default", instructions: "", modelPreset: null, repository: "",
+      folder: "", profile: null, knowledgeBases: [] };
   }
 }

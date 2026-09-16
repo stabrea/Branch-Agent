@@ -513,6 +513,8 @@ async function refresh() {
   void window.branchRules?.render();
   void window.branchMisc?.render();
   void window.branchDiagnostics?.render();
+  // Wave 8: the Lockdown switch, and the shape branched conversations make.
+  void window.branchOther?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {

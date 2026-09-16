@@ -42,6 +42,9 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
           <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
+        <!-- Wave 8: the one Lockdown switch, and the shape branched conversations make. -->
+        <section class="rail-group" id="lockdown-panel" data-group="lockdown" hidden></section>
+        <section class="rail-group" id="branch-tree" data-group="branches" hidden></section>
         <section class="rail-group" data-group="sections">
           <h2><button class="group-head" type="button" data-toggle="sections" aria-expanded="true"><span data-t="rail.sections">Sections</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
           <nav aria-label="Sections" id="sections-nav">
@@ -1356,5 +1359,6 @@
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
+    <script src="/other.js" type="module"></script>
   </body>
 </html>
