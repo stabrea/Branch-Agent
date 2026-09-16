@@ -388,7 +388,7 @@ test("D20 what is remembered is mirrored into the workspace and that folder is r
   const { app, workspace, context } = await fixture(t);
   await app.registry.execute("memory.put", { text: "Prefers tea to coffee", source: "said so", kind: "preference" }, context);
   await app.registry.execute("memory.put", { text: "The gate code is on the fob", source: "said so", kind: "fact-about-world" }, context);
-  const written = await app.registry.execute("memory.mirror", {}, context);
+  const written = await app.memoryMirror.regenerate("local");
   assert.equal(written.wrote, true);
   assert.equal(written.facts, 2);
   const preference = await readFile(join(workspace, mirrorFolder, "preference.md"), "utf8");
@@ -396,7 +396,7 @@ test("D20 what is remembered is mirrored into the workspace and that folder is r
   assert.match(preference, /Do not edit/);
   assert.match(await readFile(join(workspace, mirrorFolder, "README.md"), "utf8"), /Obsidian/);
   // Asked again with nothing changed, it says so rather than rewriting the folder.
-  assert.equal((await app.registry.execute("memory.mirror", {}, context)).wrote, false);
+  assert.equal((await app.memoryMirror.regenerate("local")).wrote, false);
   // And the assistant's own file tools refuse to change it.
   await assert.rejects(() => app.registry.execute("files.write",
     { path: `${mirrorFolder}/preference.md`, content: "mine now" }, context), new RegExp("undone the next time"));
@@ -405,7 +405,7 @@ test("D20 what is remembered is mirrored into the workspace and that folder is r
   // A fact removed leaves no note behind it.
   const facts = app.store.list("memory", "local");
   for (const fact of facts) app.store.delete("memory", "local", fact.id);
-  const empty = await app.registry.execute("memory.mirror", { force: true }, context);
+  const empty = await app.memoryMirror.regenerate("local", { force: true });
   assert.equal(empty.facts, 0);
   await assert.rejects(() => readFile(join(workspace, mirrorFolder, "preference.md"), "utf8"));
 });
@@ -434,12 +434,19 @@ test("D22 every new tool falls in a real toolbox and the panel's routes answer",
   const { app } = await fixture(t);
   const { inferToolGroup } = await import("../dist/catalog.js");
   const added = ["documents.write", "documents.edit", "knowledge.summarise", "knowledge.graph", "knowledge.map",
-    "knowledge.pictures", "knowledge.manage", "knowledge.refresh", "memory.mirror",
+    "knowledge.pictures", "knowledge.manage", "knowledge.refresh",
     "scratch.text.add", "scratch.text.search", "scratch.text.list"];
   for (const name of added) {
     assert.ok(app.registry.names().includes(name), `${name} is registered`);
-    assert.notEqual(inferToolGroup(name), "other", `${name} has a toolbox of its own`);
+    assert.notEqual(inferToolGroup(name), "other", `${name} has a toolbox of its own by name`);
+    assert.notEqual(app.registry.groupOf(name), "other", `${name} is filed in a real toolbox`);
   }
+  // The text held for one job is a documents tool, not a memory one: nothing here is remembered.
+  for (const name of ["scratch.text.add", "scratch.text.search", "scratch.text.list"])
+    assert.equal(app.registry.groupOf(name), "documents", `${name} is in the documents toolbox`);
+  // The mirror folder is read-only to the assistant, so there is no tool that writes it either.
+  assert.ok(!app.registry.names().some((name) => name === "memory.mirror"),
+    "the mirror is written by the app, never called by the assistant");
   const { knowledgeExtrasApi } = await import("../dist/knowledge-more.js");
   const view = await knowledgeExtrasApi(app.knowledgeParts, app.store, "local", "GET", "/api/knowledge/extras", async () => ({}));
   assert.ok(Array.isArray(view.graphs) && Array.isArray(view.sizes));

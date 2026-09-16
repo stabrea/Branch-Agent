@@ -117,11 +117,16 @@ const readme = (facts: number, notes: number): string =>
   + `for example — shows them alongside your own notes.\n\nOne note per kind of fact:\n`
   + `${factKinds.map((kind) => `- \`${kind}.md\` — ${kindTitles[kind]}`).join("\n")}\n`;
 
+/**
+ * The mirror is deliberately **not** a tool the assistant can call. The folder is read-only to the
+ * assistant's own file tools for the reason given above, and handing it a second way to write the
+ * very folder it may not edit would take that back. So it keeps itself up to date instead: after
+ * every task that finished, the notes are written again if what is remembered has changed, and the
+ * fingerprint above means an unchanged store costs nothing. The owner can also ask for it by hand
+ * from the Memory screen (`POST /api/memory/mirror`).
+ */
 export function registerMemoryMirror(registry: ToolRegistry, mirror: MemoryMirror): void {
-  registry.register({
-    name: "memory.mirror", group: "memory", permission: "files.write",
-    description: `Write what is remembered into the workspace "${mirrorFolder}" folder as Markdown, one note per kind of fact. Rewritten each time; read-only to the assistant.`,
-    parameters: MirrorSchema,
-    execute: async (input, context) => mirror.regenerate(context.owner, input),
+  registry.onRunFinished(async (context) => {
+    await mirror.regenerate(context.owner).catch(() => undefined);
   });
 }

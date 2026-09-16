@@ -1161,6 +1161,10 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
+  // Batch 27 (wave 8): write the Markdown mirror of what is remembered by hand. It also writes
+  // itself after every task, so this is for the owner who wants it now.
+  if (request.method === "POST" && path === "/api/memory/mirror")
+    return app.memoryMirror.regenerate(owner, await readBody(request));
   const decide = /^\/api\/memory\/proposals\/([a-f0-9-]{36})\/(accept|reject)$/.exec(path);
   if (decide && request.method === "POST") return app.store.review.decide(owner, decide[1]!, decide[2] === "accept");
   if (request.method === "GET" && path === "/api/memory/versions")
