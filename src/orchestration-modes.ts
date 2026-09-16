@@ -204,21 +204,21 @@ export class Handoffs {
 export function registerOrchestrationModes(registry: ToolRegistry, runtime: Runtime, knowledge: Knowledge): void {
   registry.register({
     name: "delegate.supervise",
-    description: "One specialist splits the job between the workers you name and writes the answer they send back.",
+    description: "One specialist splits the job between the workers you name and writes the answer.",
     permission: "specialists.use",
     parameters: SuperviseSchema,
     execute: async (a, c) => runSupervised(runtime, knowledge, c, a),
   });
   registry.register({
     name: "delegate.swarm",
-    description: "Several specialists work down one list; each takes the next free item.",
+    description: "Several specialists work down one list, each taking the next free item.",
     permission: "specialists.use",
     parameters: SwarmSchema,
     execute: async (a, c) => runSwarm(runtime, knowledge, c, a),
   });
   registry.register({
     name: "delegate.route",
-    description: "Send a request to whichever of several specialists it belongs to.",
+    description: "Send a request to whichever specialist it belongs to.",
     permission: "specialists.use",
     parameters: RouteSchema,
     execute: async (a, c) => runRouted(runtime, knowledge, c, a),

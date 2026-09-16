@@ -123,7 +123,7 @@ export function registerOrchestration(registry: ToolRegistry, runtime: Runtime, 
   });
   registry.register({
     name: "delegate.handoff",
-    description: "Hand the rest of this work to a named specialist, briefed in full, saying why. Its answer comes back.",
+    description: "Hand the rest of this work to a named specialist, briefed in full, saying why.",
     permission: "specialists.use",
     parameters: z.object({
       specialist: z.string().min(1).max(200),
