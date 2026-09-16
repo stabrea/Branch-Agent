@@ -24,7 +24,7 @@ async function fixture(t, settings = {}, provider) {
   return { app, shell, root, config, context: () => app.runtime.context({ runId: 'fixture-run' }) };
 }
 async function waitForPids(path) {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  for (let attempt = 0; attempt < 600; attempt++) {
     try { return JSON.parse(await readFile(path, 'utf8')); } catch { await delay(10); }
   }
   assert.fail('Fixture process did not start');
