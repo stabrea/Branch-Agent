@@ -17,6 +17,11 @@ export const backupTables = [
   "labels", "project_notes", "workflows", "workflow_state",
   // Wave 7 (tool loading): what this computer has learned about which tools a request needs.
   "tool_usage", "tool_notes",
+  // Wave 7: the knowledge bases themselves — their names, the folders they point at and whether they
+  // are in use. Their passages, vectors and cached readings are left out on purpose: those are worked
+  // out again from the person's own files by pressing "Read it again", and they would multiply the
+  // size of a backup for nothing.
+  "kb_collections",
 ] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 export const BackupArchiveSchema = z.object({

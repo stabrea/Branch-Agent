@@ -206,6 +206,8 @@ async function render() {
   renderBudget(view);
   renderPricing(view);
   renderExport(view);
+  // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.
+  await window.branchRules?.renderHealth(view);
   await window.branchEvaluation?.renderInto(view);
 }
 

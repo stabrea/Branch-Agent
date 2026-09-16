@@ -33,6 +33,7 @@ import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
+import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
@@ -45,7 +46,9 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
-import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
+import { voiceSettings, saveVoiceSettings } from "./voice.js";
+import { voiceApi } from "./voice-api.js";
+import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
@@ -58,6 +61,9 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+// Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
+import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { audit } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -146,7 +152,11 @@ export function hostAllowed(
   if (!host || !hosts.includes(host)) return false;
   return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
 }
-function authorize(request: IncomingMessage, url: string, token: string, extra: readonly string[] = []): void {
+function authorize(
+  request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
+  /** Batch 19 (wave 7): counts wrong keys per place, so the key cannot be guessed at speed. */
+  limits?: { limiter: AuthLimiter; onFailure: (source: string) => void },
+): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
   if (!hostAllowed(request.headers.host, request.headers.origin, url, extra))
@@ -154,11 +164,16 @@ function authorize(request: IncomingMessage, url: string, token: string, extra: 
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
-  if (
-    supplied.length !== token.length ||
-    !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
-  )
-    throw new HttpError(401, "Local session token required");
+  const correct =
+    supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
+  const from = requestSource(request.socket?.remoteAddress);
+  // The right key is checked first and clears the count at once, so the owner's own app can never
+  // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
+  if (correct) { limits?.limiter.succeed(from); return; }
+  const waiting = limits?.limiter.refusal(from, "key");
+  if (waiting) throw new HttpError(429, waiting);
+  limits?.onFailure(from);
+  throw new HttpError(401, "Local session token required");
 }
 async function staticFile(
   path: string,
@@ -171,7 +186,10 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
@@ -182,6 +200,7 @@ async function staticFile(
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
+    "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
     "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
@@ -462,6 +481,11 @@ async function api(
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 19 (wave 7): spans, sending traces out, and the approval rules read as sentences.
+  if (handlesTracingPath(path))
+    return tracingApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -496,6 +520,13 @@ async function api(
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
+  if (path.startsWith("/api/knowledge")) {
+    const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    throw new HttpError(404, "Not found");
+  }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
     return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
@@ -527,8 +558,11 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
-  if (request.method === "POST" && path === "/api/voice/settings")
-    return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
+  // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
+  // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
+  if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+    return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
@@ -654,8 +688,10 @@ async function api(
     return { policy: savePolicy(app.store, app.runtime.owner, await readBody(request)) };
   if (request.method === "POST" && path === "/api/policy/approve") {
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
-      remember: PolicyRememberSchema.default("session") }).strict().parse(await readBody(request));
-    return app.runtime.approve(input.sessionId, input.decision, input.remember);
+      remember: PolicyRememberSchema.default("session"),
+      // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
@@ -1419,6 +1455,8 @@ export async function startServer(
     executable?: string | null; installRoot?: string | null;
     /** Announce this engine to other launches, so a second window joins it instead of starting again. */
     presence?: "app" | "daemon";
+    /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
+    authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -1427,6 +1465,9 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
+  // place is made to wait, with a line written into the record of what the assistant was allowed to do.
+  const authLimiter = new AuthLimiter(options.authLimits);
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
@@ -1448,7 +1489,10 @@ export async function startServer(
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
-      authorize(request, url, token, remote.allowedHosts());
+      authorize(request, url, token, remote.allowedHosts(), {
+        limiter: authLimiter,
+        onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
+      });
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
@@ -1531,6 +1575,8 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
+  if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
@@ -1573,13 +1619,15 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     }
     const audio = new Uint8Array(Buffer.concat(chunks));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
+      // One service decides which route writes this out, and refuses outright when the owner has
+      // said audio must stay on this computer. The length comes from the recorder, for the cost.
+      const seconds = Number(new URL(request.url ?? "/", "http://local").searchParams.get("seconds"));
+      const written = await app.voice.transcribe(app.runtime.owner, {
+        bytes: audio, mediaType: (contentType.split(";")[0] ?? "audio/webm").trim(), name: "recording",
+        ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
+      });
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ text }));
+      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1587,15 +1635,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/speak") {
-    const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
+    const body = z.object({
+      text: z.string().max(4000), voice: z.string().max(80).optional(), speed: z.number().min(0.5).max(2).optional(),
+    }).strict().parse(await readBody(request));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
-      response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
-      response.end(Buffer.from(audio));
+      const spoken = await app.voice.speak(app.runtime.owner, {
+        text: body.text, voice: body.voice ?? "", speed: body.speed ?? 1,
+      });
+      response.writeHead(200, {
+        "content-type": spoken.mediaType, "cache-control": "no-store",
+        "x-voice-route": spoken.route, "x-voice-name": encodeURIComponent(spoken.voice),
+      });
+      response.end(Buffer.from(spoken.bytes));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1727,9 +1778,16 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   response.end(body);
   return true;
 }
+/** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+function voiceDeps(app: Branch) {
+  return {
+    store: app.store, models: app.runtime.models, owner: app.runtime.owner,
+    voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+  };
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

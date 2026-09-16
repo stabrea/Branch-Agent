@@ -40,6 +40,8 @@ import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
+import { recordUncaughtErrors } from "./tracing.js";
+import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -52,6 +54,8 @@ import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
+import { VoiceService, registerVoice } from "./voice-service.js";
+import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
@@ -64,6 +68,11 @@ import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
+// Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
+import { KnowledgeBases } from "./knowledge-bases.js";
+import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
+import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
 import { ProviderPlugins } from "./provider-plugins.js";
 import type { IssueAccess } from "./integrations/issue-tools.js";
@@ -188,7 +197,23 @@ export async function createBranch(options: {
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
+  // Wave 7: one place that turns speech into words and words into speech, whichever service does
+  // the work, plus switching model in one conversation. Voice notes on chat apps come through here.
+  const voice = new VoiceService(store, runtime.models, web.policy, web.policy.guard(globalThis.fetch));
+  registerVoice(registry, voice, store);
+  registerModelSwitch(registry, store, runtime.models);
+  media.voice = voice;
   const channels = new ChannelRouter(store, runtime);
+  channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
+  channels.speakReply = async (text) => {
+    const settings = voice.settings(runtime.owner);
+    // "Keep audio on this computer" wins over every other voice choice, including this one: a
+    // spoken reply made here would still be uploaded to the chat app, and the Voice screen tells
+    // the owner nothing containing sound leaves. The words are sent instead, as they always are.
+    if (!settings.replyWithVoiceOnChannels || settings.keepAudioOnThisComputer) return null;
+    const spoken = await voice.speak(runtime.owner, { text: text.slice(0, 1500), voice: "", speed: 1 });
+    return { bytes: spoken.bytes, mediaType: spoken.mediaType };
+  };
   // Personal details and, when the owner switches it on, a content check, either side of the model.
   const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
@@ -201,6 +226,11 @@ export async function createBranch(options: {
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
   };
+  // Spans are written straight to their own table rather than through the event log, so the same
+  // scrubber is put in front of them explicitly: no attribute can carry a saved password or key.
+  runtime.tracer.scrub = (value) => runtime.hideSecrets(value);
+  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker.
+  sessionLock.onLock = () => runtime.approvals.forgetAll();
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
@@ -221,6 +251,9 @@ export async function createBranch(options: {
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
+  // One trace crosses the boundary: a delivery and a question to another assistant both carry the
+  // traceparent of the task behind them.
+  webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   runtime.notifyEvent = webhooks.notifier(runtime.owner);
   channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
@@ -268,14 +301,59 @@ export async function createBranch(options: {
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
+  remoteAgents.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   registerRemoteAgents(registry, remoteAgents);
   // Documents and saved facts are both asked the same way, and the best answer is put first.
   const retrieval = new Retrieval(store, runtime.owner, runtime.models);
   retrieval.add(new DocumentRetriever(documents));
   retrieval.add(new MemoryRetriever(memory.retrieval));
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // Knowledge bases. Reading passages is charged to the task that asked for it, exactly the way a
+  // model answer is; background reading has no task, so it is recorded as an event instead.
+  const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
+    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
+  knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
+  memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
+  const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
+  // Facts written during a task are compared by meaning as soon as it finishes, never during it.
+  registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  const documentContext = documents;
+  // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
+  // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
+  runtime.documents = {
+    contextFor: async (owner, prompt, signal) => {
+      if (documentContext.settings(owner).useDocuments === false) return null;
+      return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
+        ?? documentContext.contextFor(owner, prompt, signal);
+    },
+  };
+  scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
+  // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as
+  // secret:// references and filled in only at the moment of the call.
+  const traceExport = new TraceExporter({
+    store, owner: runtime.owner, policy: web.policy, version,
+    fillSecrets: (headers) =>
+      store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
+  });
+  const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
+  // A finished task's spans go out on their own once sending is on; the exporter itself does
+  // nothing at all while it is off, so this stays quiet until the owner turns it on.
+  runtime.exportSpans = async (runId) => {
+    const settings = traceExportSettings(store, runtime.owner);
+    if (!settings.enabled) return;
+    const spans = store.spans.forRun(runId).filter((span) => span.endedAt !== null);
+    if (!spans.length) return;
+    const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
+    const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    const failed = results.find((result) => !result.ok);
+    store.event(runId, failed ? "trace.send_failed" : "trace.sent",
+      failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
+  };
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -286,10 +364,16 @@ export async function createBranch(options: {
     documents,
     /** Making and reading pictures, speech and sound files. */
     media,
+    /** Writing speech out and reading text aloud, whichever service does the work. */
+    voice,
     /** Finding, tidying and moving saved facts. */
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
     retrieval,
+    /** Named sets of folders and files, read into passages and searched by words and by meaning. */
+    knowledgeBases,
+    /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
+    consolidation,
     /** The practice workspace: made-up files to try tools on safely. */
     practice,
     /** Model connections plugins have brought. */
@@ -388,7 +472,10 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
+    /** Sending traces and counters to an address the owner chose; off until they turn it on. */
+    traceExport,
     close: () => (closing ??= (async () => {
+      stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
       try {
@@ -485,7 +572,14 @@ export * from "./recipes.js";
 export * from "./templates.js";
 export * from "./network-policy.js";
 export * from "./policy.js";
+export * from "./policy-resources.js";
 export * from "./approvals.js";
+// Batch 19 (wave 7): spans, sending traces out, the metrics page and the auth rate limit.
+export * from "./tracing.js";
+export * from "./tracing-shapes.js";
+export * from "./tracing-export.js";
+export * from "./metrics.js";
+export * from "./auth-limits.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
@@ -526,6 +620,13 @@ export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
 export * from "./memory-hygiene.js";
+export * from "./memory-consolidate.js";
+export * from "./embeddings.js";
+export * from "./vector-store.js";
+export * from "./chunking.js";
+export * from "./bm25.js";
+export * from "./knowledge-bases.js";
+export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
 export * from "./citations.js";
 export * from "./data-table.js";
@@ -538,6 +639,16 @@ export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 export * from "./media.js";
+export * from "./voice.js";
+export * from "./voice-stt.js";
+export * from "./voice-tts.js";
+export * from "./voice-talk.js";
+export * from "./voice-service.js";
+export * from "./voice-api.js";
+export * from "./model-profiles.js";
+export * from "./model-switch.js";
+export * from "./provider-probe.js";
+export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
 export * from "./media-settings.js";

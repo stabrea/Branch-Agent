@@ -39,7 +39,15 @@ export class SessionLock {
   touch(): void {
     if (this.lockedAt === null) this.lastActive = this.now();
   }
-  lock(): SessionLockState { this.lockedAt ??= this.now(); return this.state(); }
+  /**
+   * Called the moment Branch locks, so anything held only for "while I am here" is let go: the
+   * standing yeses given for a conversation end here, as well as the secrets locker closing.
+   */
+  onLock: () => void = () => undefined;
+  lock(): SessionLockState {
+    if (this.lockedAt === null) { this.lockedAt = this.now(); this.onLock(); }
+    return this.state();
+  }
   /** The owner unlocking from their own app; the request already carries the app's session token. */
   unlock(): SessionLockState {
     this.lockedAt = null;
@@ -49,7 +57,7 @@ export class SessionLock {
   locked(): boolean {
     if (this.lockedAt !== null) return true;
     const { idleMinutes } = this.settings();
-    if (idleMinutes > 0 && this.now() - this.lastActive >= idleMinutes * 60_000) this.lockedAt = this.now();
+    if (idleMinutes > 0 && this.now() - this.lastActive >= idleMinutes * 60_000) { this.lockedAt = this.now(); this.onLock(); }
     return this.lockedAt !== null;
   }
   state(): SessionLockState {

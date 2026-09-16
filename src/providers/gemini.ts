@@ -16,6 +16,12 @@ interface GeminiOptions {
   endpoint: string;
   model: string;
   apiKey: string;
+  /**
+   * True when `apiKey` is a sign-in token from Google rather than an API key. A token goes in the
+   * ordinary Authorization header; a key goes in the header Google documents for keys. Neither is
+   * ever put in the address itself, where it would end up in logs.
+   */
+  bearer?: boolean;
 }
 
 function validateOptions(options: GeminiOptions): void {
@@ -44,12 +50,14 @@ async function post(
   consume?: (data: string) => void,
 ): Promise<unknown> {
   const url = new URL(options.endpoint.replace(/\/$/, "") + path);
-  url.searchParams.set("key", options.apiKey);
   const response = await fetch(url.toString(), {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-goog-api-client": "gl-node/20.0 gapic/2.4.0",
+      ...(options.bearer
+        ? { authorization: `Bearer ${options.apiKey}` }
+        : { "x-goog-api-key": options.apiKey }),
     },
     body: JSON.stringify(body),
     signal,
@@ -161,6 +169,14 @@ export class GeminiProvider implements Provider {
 
   constructor(private readonly options: GeminiOptions) {
     validateOptions(options);
+  }
+
+  /**
+   * Gemini writes speech out and reads text aloud through the same address, so the voice service
+   * is handed the same details. `bearer` tells it which header to put the credential in.
+   */
+  audio(): { endpoint: string; apiKey: string; bearer: boolean } {
+    return { endpoint: this.options.endpoint, apiKey: this.options.apiKey, bearer: this.options.bearer === true };
   }
 
   /** Gemini makes pictures through the same address, asking generateContent for an image. */

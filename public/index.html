@@ -231,6 +231,8 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
               ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message" data-t-label="composer.speak"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
+              ><!-- Wave 7: hold to talk, then hear the answer. Everything it does lives in public/voice-talk.js. -->
+              <button id="voice-talk" type="button" class="text-button" title="Hold the button and speak; let go and Branch answers out loud. Press again to stop it talking.">Talk</button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
@@ -251,6 +253,7 @@
             </button>
             <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
           </div>
+          <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
           </div>
         </section>
@@ -554,6 +557,29 @@
           </form>
           <p id="documents-status" role="status"></p>
           <div id="documents-list" class="card-list"></div>
+          <div class="card" id="knowledge-card">
+            <h3>Knowledge</h3>
+            <p class="subtle" id="knowledge-meaning">A knowledge base is a name you give to whole folders of your work, so the assistant can find the right page and tell you where it came from.</p>
+            <form id="knowledge-create-form">
+              <label for="knowledge-name">Name this knowledge base</label>
+              <div class="input-row">
+                <input id="knowledge-name" type="text" maxlength="120" placeholder="Handbook" />
+                <input id="knowledge-folder" type="text" maxlength="500" placeholder="notes" />
+                <button type="submit">Create</button>
+              </div>
+              <p class="subtle">The second box is the folder inside your workspace to read. You can add more folders afterwards.</p>
+            </form>
+            <p id="knowledge-status" role="status"></p>
+            <div id="knowledge-list" class="card-list"></div>
+            <form id="knowledge-search-form">
+              <label for="knowledge-query">Ask your knowledge bases</label>
+              <div class="input-row">
+                <input id="knowledge-query" type="search" maxlength="500" placeholder="what does the handbook say about holiday?" />
+                <button type="submit">Search</button>
+              </div>
+              <div id="knowledge-results" class="card-list"></div>
+            </form>
+          </div>
           <div class="card">
             <h3>Made by the assistant</h3>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
@@ -671,8 +697,57 @@
               <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
             </label>
             <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
+            <!-- Wave 7: which service writes speech out, which reads it aloud, and the one switch
+                 that keeps every recording on this computer. Wired in public/voice-talk.js. -->
+            <label class="check-row">
+              <input id="voice-keep-local" type="checkbox" /> Keep audio on this computer (never send a recording anywhere)
+            </label>
+            <label for="voice-stt-route">Who writes out what you say</label>
+            <select id="voice-stt-route">
+              <option value="auto">Whatever your model provider offers</option>
+              <option value="openai">Your model provider</option>
+              <option value="gemini">Gemini</option>
+              <option value="local">A speech program on this computer</option>
+            </select>
+            <label for="voice-tts-route">Who reads replies aloud</label>
+            <select id="voice-tts-route">
+              <option value="auto">Whatever suits</option>
+              <option value="windows">The voice that comes with Windows (free, works offline)</option>
+              <option value="openai">Your model provider</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <label for="voice-language">Language (leave empty to let it work that out)</label>
+            <input id="voice-language" maxlength="20" placeholder="for example en" />
+            <label for="voice-local-exe">Speech program on this computer (whisper.cpp or faster-whisper)</label>
+            <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
+            <label for="voice-local-model">Its model file or model name</label>
+            <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
+            <label class="check-row">
+              <input id="voice-reply-audio" type="checkbox" /> Answer a voice note on a chat app with a voice note back
+            </label>
+            <p class="subtle" id="voice-where"></p>
+            <p class="subtle" id="voice-prices"></p>
+            <button type="button" id="voice-test-speak">Test reading aloud</button>
+            <button type="button" id="voice-test-record">Test the microphone</button>
             <button type="button" id="voice-settings-save">Save voice settings</button>
+            <p id="voice-status" role="status"></p>
           </form>
+          <!-- Wave 7: named routing profiles and a live check of each connection (public/model-profiles.js). -->
+          <section id="model-profiles-card" class="card">
+            <h2>Which model does what</h2>
+            <p>A profile is a named order of connections: the first one that is set up and working answers. Nothing is routed until you switch one on.</p>
+            <label for="model-profile-active">Profile in use</label>
+            <select id="model-profile-active"><option value="">None — use my usual choice</option></select>
+            <div id="model-profile-list"></div>
+            <p id="model-profile-why" class="subtle"></p>
+            <button type="button" id="model-profile-save">Save profile choice</button>
+          </section>
+          <section id="model-probe-card" class="card">
+            <h2>Check your connections</h2>
+            <p>Asks each connection what it can do right now: whether the key still works, how many models it lists, and whether it can handle speech, pictures and comparing passages.</p>
+            <button type="button" id="model-probe-run">Check every connection</button>
+            <div id="model-probe-list"></div>
+          </section>
           <form id="media-form" class="card">
             <h2>Pictures and sound</h2>
             <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>
@@ -807,6 +882,38 @@
             <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
             <button id="policy-limits-save" type="button">Save these limits</button>
+            <h3>Rules about one particular thing</h3>
+            <p class="subtle">A rule can be about one folder, one website, one messaging account or one command, rather than everything at once. Rules like these are looked at before the broader ones above.</p>
+            <ul id="rules-list" class="check-list"></ul>
+            <p id="rules-empty" class="subtle" hidden>You have not set any rules of your own yet.</p>
+            <label for="rules-tool">Which tool, or * for all of them</label>
+            <input id="rules-tool" maxlength="100" placeholder="e.g. files.write" value="*" />
+            <label for="rules-kind">What is it about?</label>
+            <select id="rules-kind">
+              <option value="any">Anything it touches</option>
+              <option value="path">A folder or file</option>
+              <option value="host">A website</option>
+              <option value="channel">A messaging account</option>
+              <option value="command">A command</option>
+            </select>
+            <label for="rules-pattern">Which one? Leave empty for all</label>
+            <input id="rules-pattern" maxlength="300" placeholder="e.g. finance" />
+            <label for="rules-decision">And then?</label>
+            <select id="rules-decision">
+              <option value="ask">Check with me first</option>
+              <option value="deny">Never allow it</option>
+              <option value="allow">Always allow it</option>
+            </select>
+            <button id="rules-add" type="button">Add this rule</button>
+            <h3>Try a decision out</h3>
+            <p class="subtle">See what would happen before anything really does. Nothing is saved or run.</p>
+            <label for="rules-test-tool">Tool</label>
+            <input id="rules-test-tool" maxlength="100" placeholder="e.g. files.write" />
+            <label for="rules-test-target">What it would touch</label>
+            <input id="rules-test-target" maxlength="500" placeholder="e.g. finance/report.xlsx" />
+            <button id="rules-test-run" type="button">What would happen?</button>
+            <p id="rules-test-answer" class="subtle" role="status"></p>
+            <p id="rules-status" class="subtle" role="status"></p>
             <h3>Or decide a whole kind of thing at once</h3>
             <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
             <div id="approval-categories" class="card-list"></div>
@@ -1053,16 +1160,20 @@
     <script src="/update-screen.js"></script>
     <script src="/deployment.js" type="module"></script>
     <script src="/voice.js"></script>
+    <script src="/voice-talk.js" type="module"></script>
+    <script src="/model-profiles.js" type="module"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
+    <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
+    <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>

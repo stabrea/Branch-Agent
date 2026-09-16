@@ -115,7 +115,12 @@ export class RemoteAgents {
    * Hands one piece of work to an outside assistant and waits for its answer. Only the words of the
    * task are sent. The wait is bounded, and so is how often one assistant can be asked.
    */
-  async ask(input: unknown, signal?: AbortSignal): Promise<{ agent: string; state: string; answer: string; taskId: string }> {
+  /**
+   * The `traceparent` of the task doing the asking, so the work the other assistant does shows up
+   * inside the same trace. `createBranch` connects this; on its own it sends no such header.
+   */
+  traceparentFor: (runId: string) => string | null = () => null;
+  async ask(input: unknown, signal?: AbortSignal, runId?: string): Promise<{ agent: string; state: string; answer: string; taskId: string }> {
     const { agent: reference, task, timeoutMs } = AskSchema.parse(input);
     const agent = this.find(reference);
     const wait = this.rates.waitMs(agent.id, askesPerMinute);
@@ -125,9 +130,11 @@ export class RemoteAgents {
     const body = { jsonrpc: "2.0", id: taskId, method: "tasks/send",
       params: { id: taskId, message: { role: "user", parts: [{ type: "text", text: task }] } } };
     const limit = AbortSignal.timeout(timeoutMs ?? defaultAskTimeoutMs);
+    const traceparent = runId ? this.traceparentFor(runId) : null;
     const response = await this.guarded()(agent.url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json", ...(agent.key ? { authorization: `Bearer ${agent.key}` } : {}) },
+      headers: { "content-type": "application/json", accept: "application/json",
+        ...(traceparent ? { traceparent } : {}), ...(agent.key ? { authorization: `Bearer ${agent.key}` } : {}) },
       body: JSON.stringify(body),
       signal: signal ? AbortSignal.any([signal, limit]) : limit,
     });
@@ -211,7 +218,7 @@ export function registerRemoteAgents(registry: ToolRegistry, agents: RemoteAgent
 
 /** The answer counts against the task's own allowance, so a remote assistant cannot run it dry. */
 async function askWithBudget(agents: RemoteAgents, args: z.infer<typeof AskSchema>, context: ToolContext): Promise<unknown> {
-  const result = await agents.ask(args, context.signal);
+  const result = await agents.ask(args, context.signal, context.runId);
   chargeAnswer(context.budget, result.answer);
   return result;
 }
