@@ -1455,9 +1455,18 @@ exact inverses. **Catalog cost** was the real constraint: the new tools pushed
 `tests/catalog-diet.test.mjs` past its 2500-token guard, so `git.worktree` was replaced by the three
 split tools (convention: replace, do not deprecate), the plan tools were named `plans.*` where they
 belong, and listing and restoring a kept point became owner actions on the existing
-`/api/history/snapshots` routes instead of tools. `tests/code-ide.test.mjs` (28) drives the LSP and
+`/api/history/snapshots` routes instead of tools. `github.list_issues` went the same way, replaced by
+`github.issues`, which did the same thing. `tests/code-ide.test.mjs` (29) drives the LSP and
 DAP clients against stand-in servers written as two small Node scripts, and the GitHub, GitLab and
-OpenAPI work against `node:http` fakes.
+OpenAPI work against `node:http` fakes. What is **not** proved here: nothing has been run against a
+real language server or debug adapter, only the two stand-ins, so the minimal `initialize`
+capabilities and the fixed wait in `code.diagnostics` are the likely first things to need work;
+debugging speaks DAP over stdio only, with no bridge to Chrome DevTools Protocol, so Node's
+`--inspect` is not reachable this way; and `github.publish_repo` is covered only as far as the
+refusal of an address carrying sign-in details and the approval question — the push itself has no
+fake. Audit ids: A0537 (project map), A0008 (language servers), A0192 (debug adapters), A0542 (plan
+branches), A1183 (kept build outputs), A2059 (workspace checkpoints, the undo/redo half). A0435 and
+A2333 were already done in batch 5 and the ignore rules here are the same matcher.
 
 
 ## Next work (local until a checkpoint worth publishing)
