@@ -742,6 +742,16 @@ test("the Talk live button appears only on a connection that can hold a live con
     await rm(root, { recursive: true, force: true });
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  // Nothing may reach for the microphone until the person presses the button, so it is counted
+  // from before the first byte of the page is read.
+  await page.addInitScript(() => {
+    globalThis.branchMicrophoneAsks = 0;
+    const media = navigator.mediaDevices ?? {};
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { ...media, getUserMedia: async () => { globalThis.branchMicrophoneAsks += 1; throw new Error("no microphone in a test"); } },
+    });
+  });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -762,4 +772,6 @@ test("the Talk live button appears only on a connection that can hold a live con
   assert.equal(shown.hidden, false, "the live variant of the button appears");
   assert.equal(shown.label, "Talk live");
   assert.match(shown.title, /stops itself after 10 minutes/, "and says what it will cost before you press it");
+  assert.equal(await page.evaluate(() => globalThis.branchMicrophoneAsks), 0,
+    "and loading the page, connecting and showing the button asked for the microphone not once");
 });
