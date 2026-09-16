@@ -219,3 +219,100 @@ test("a file no reader can make sense of comes back as a reason, not a crash", (
   assert.equal(result.document, null);
   assert.match(result.reason, /\w/);
 });
+
+// ---------------------------------------------------------------- ingestion
+
+const scripted = (answer = "Answered.", extra = {}) => ({
+  name: "docs-memory-2-fixture", requests: [],
+  async complete(input) { this.requests.push(input.messages.map((m) => ({ ...m }))); return { content: answer, toolCalls: [] }; },
+  ...extra,
+});
+async function fixture(t, provider) {
+  const scratch = join(tmpdir(), "Codex-session-files");
+  await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, "branch-docs-memory-2-"));
+  const workspace = join(root, "workspace");
+  await mkdir(workspace, { recursive: true });
+  const app = await createBranch({ workspace, dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  return { app, root, workspace };
+}
+
+test("passages from a deck and a spreadsheet keep the slide and the sheet they came from", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await mkdir(join(workspace, "office"), { recursive: true });
+  await writeFile(join(workspace, "office", "review.pptx"), pptxFixture());
+  await writeFile(join(workspace, "office", "money.xlsx"), xlsxFixture());
+  const made = app.knowledgeBases.create("local", { name: "Office", sources: [{ kind: "folder", path: "office" }] });
+  const progress = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(progress.files, 2);
+  assert.ok(progress.chunks >= 2);
+
+  const slide = await app.knowledgeBases.search("local", { collection: made.id, query: "sales rose per cent" });
+  assert.equal(slide[0].documentName, "review.pptx");
+  assert.equal(slide[0].page, 1, "the passage says which slide it came from");
+  assert.match(slide[0].heading, /Slide 1: Quarter review/);
+
+  const sheet = await app.knowledgeBases.search("local", { collection: made.id, query: "flights" });
+  assert.equal(sheet[0].documentName, "money.xlsx");
+  assert.match(sheet[0].heading, /Sheet: Budget/, "the passage says which sheet it came from");
+});
+
+test("a PDF in a folder is read, and its passages carry the page number", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await mkdir(join(workspace, "papers"), { recursive: true });
+  await writeFile(join(workspace, "papers", "note.pdf"), pdf({ content: "BT /F1 12 Tf 72 700 Td (The roof was mended in May.) Tj ET" }));
+  const made = app.knowledgeBases.create("local", { name: "Papers", sources: [{ kind: "folder", path: "papers" }] });
+  await app.knowledgeBases.reindex("local", made.id);
+  const found = await app.knowledgeBases.search("local", { collection: made.id, query: "roof mended" });
+  assert.equal(found[0].documentName, "note.pdf");
+  assert.equal(found[0].page, 1);
+});
+
+test("reading a folder again leaves files whose contents did not change", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await mkdir(join(workspace, "notes"), { recursive: true });
+  await writeFile(join(workspace, "notes", "one.md"), "# One\n\nThe cat sat on the mat.\n", "utf8");
+  await writeFile(join(workspace, "notes", "two.md"), "# Two\n\nThe dog lay by the door.\n", "utf8");
+  const made = app.knowledgeBases.create("local", { name: "Notes", sources: [{ kind: "folder", path: "notes" }] });
+  const first = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(first.unchanged, 0);
+
+  const again = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(again.unchanged, 2, "nothing changed, so nothing was read again");
+
+  await writeFile(join(workspace, "notes", "two.md"), "# Two\n\nThe dog lay by the gate.\n", "utf8");
+  const third = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(third.unchanged, 1, "only the file that changed was read again");
+  const found = await app.knowledgeBases.search("local", { collection: made.id, query: "gate" });
+  assert.match(found[0].text, /by the gate/);
+});
+
+test("a knowledge base lists what it could not read, with a reason for each", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await mkdir(join(workspace, "mixed"), { recursive: true });
+  await writeFile(join(workspace, "mixed", "good.md"), "# Good\n\nThis one reads fine.\n", "utf8");
+  await writeFile(join(workspace, "mixed", "broken.docx"), Buffer.from("this is not a zip"));
+  await writeFile(join(workspace, "mixed", "scan.pdf"), pdf({ content: "q 200 0 0 100 72 600 cm /Im1 Do Q" }));
+  const made = app.knowledgeBases.create("local", { name: "Mixed", sources: [{ kind: "folder", path: "mixed" }] });
+  const progress = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(progress.files, 3);
+  assert.match(progress.status, /could not be read/);
+
+  const info = app.knowledgeBases.one("local", made.id);
+  assert.deepEqual(info.unread.map((entry) => entry.file).sort(), ["mixed/broken.docx", "mixed/scan.pdf"]);
+  assert.ok(info.unread.some((entry) => /pictures of text/.test(entry.reason)), JSON.stringify(info.unread));
+  assert.equal(info.documents, 1, "the one readable file is still there");
+});
+
+test("the document library reads a Word file and refuses a locked PDF with a reason", async (t) => {
+  const { app } = await fixture(t);
+  const word = await app.documents.add("local", { name: "plan.docx", content: docxFixture().toString("base64") });
+  assert.equal(word.status, "indexed");
+  const found = await app.documents.search("local", { query: "holiday plan flights" });
+  assert.match(found[0].text, /Holiday plan|Flights/);
+
+  const locked = await app.documents.add("local", { name: "secret.pdf", content: pdf({ encrypt: true }).toString("base64") });
+  assert.equal(locked.status, "failed");
+  assert.match(locked.note, /locked with a password/);
+});

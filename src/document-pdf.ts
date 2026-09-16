@@ -259,7 +259,9 @@ export function pdfText(bytes: Buffer): PdfText {
   if ([...objects.values()].some((object) => latin(object.body).includes("/Encrypt"))
     || /\/Encrypt\s+\d+\s+\d+\s+R/.test(latin(bytes.subarray(-4096))))
     throw new PdfLocked("This PDF is locked with a password, so its words cannot be read. Open it with the password and save an unlocked copy first.");
-  const pages = pagesInOrder(objects).map((page, index) => ({
+  const found = pagesInOrder(objects);
+  if (!found.length) throw new Error("No pages could be found in this PDF, so there is nothing to read.");
+  const pages = found.map((page, index) => ({
     page: index + 1, text: readContent(pageContent(objects, page, limits), pageFonts(objects, page)),
   }));
   return { pages, pictures: pages.length > 0 && pages.every((page) => !page.text.trim()), limits };

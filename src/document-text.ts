@@ -17,6 +17,9 @@ const byExtension: Record<string, DocumentType> = {
 export function documentType(name: string): DocumentType {
   return byExtension[name.toLowerCase().split(".").pop() ?? ""] ?? "txt";
 }
+/** Whether the name ends in an extension this build actually knows, rather than falling back. */
+export const knownExtension = (name: string): boolean =>
+  byExtension[name.toLowerCase().split(".").pop() ?? ""] !== undefined;
 
 export class ZipReader {
   constructor(private readonly data: Buffer) {}
