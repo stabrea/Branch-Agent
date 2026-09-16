@@ -1606,9 +1606,10 @@ keep it as the measuring stick the savings are quoted against.
 ## Batch 26 (wave 8) — finishing the rows the ledger verification re-opened
 
 The 2026-09-17 verification (`docs/audit/verification-2026-09-17.md`) re-opened 24 ticked audit ids
-whose code was partial or missing. Seventeen are now built and pinned by `tests/reopened.test.mjs`
-(17 tests, one or two per id, each asserting the behaviour rather than that a symbol exists); seven
-are written down as deliberate non-goals under "What Branch is not" in `docs/configuration.md`.
+whose code was partial or missing. Fifteen are now built and pinned by `tests/reopened.test.mjs`
+(17 tests, one or two per id, each asserting the behaviour rather than that a symbol exists); nine
+are written down instead — seven as deliberate non-goals under "What Branch is not" in
+`docs/configuration.md`, and two as patterns this codebase already covers another way.
 
 **Secrets.** `src/credential-cli.ts` resolves `secret://bitwarden/<item>` and
 `secret://1password/<vault/item/field>` through the owner's own `bw` and `op` command lines at the
