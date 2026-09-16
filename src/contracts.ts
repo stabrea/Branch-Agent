@@ -50,10 +50,13 @@ export interface Message {
 export interface Usage {
   input: number;
   output: number;
+  /** Input tokens the provider served from its own prompt cache, when it reports them. */
+  cachedInput?: number | undefined;
 }
 export const UsageSchema = z.object({
   input: z.number().int().nonnegative(),
   output: z.number().int().nonnegative(),
+  cachedInput: z.number().int().nonnegative().optional(),
 });
 export interface ToolDescription {
   name: string;
@@ -190,6 +193,8 @@ export interface ToolDefinition<T = unknown> {
   description: string;
   parameters: z.ZodType<T>;
   inputSchema?: Record<string, unknown>;
+  /** The toolbox this tool belongs to; worked out from its name when it does not say. */
+  group?: string;
   permission: string;
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */

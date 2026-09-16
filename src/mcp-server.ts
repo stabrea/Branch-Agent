@@ -206,7 +206,9 @@ export class McpServer {
     const exposed = this.exposed();
     if (!exposed.size) return tools;
     const schemas = new Map(
-      this.registry.descriptions(new Set(this.registry.permissions())).map((d) => [d.name, d.parameters]),
+      // Another program's client validates against what it is told, so it gets the full schema, not
+      // the shortened one the model is shown to keep the per-round catalog small.
+      this.registry.descriptions(new Set(this.registry.permissions()), { diet: false }).map((d) => [d.name, d.parameters]),
     );
     for (const tool of this.registry.inventory())
       if (exposed.has(tool.name))

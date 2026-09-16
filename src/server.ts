@@ -396,7 +396,8 @@ function state(app: Branch): unknown {
     schedules: app.store.list("schedules", owner),
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
-    tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    // The app's own tool list is for a person to read, so it keeps the full description.
+    tools: app.registry.descriptions(new Set(app.registry.permissions()), { diet: false }),
     lock: app.sessionLock.state(),
     privacy: app.privacy.settings(),
     secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
