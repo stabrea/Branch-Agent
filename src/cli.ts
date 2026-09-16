@@ -28,6 +28,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+import { probeAll } from "./provider-probe.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -361,7 +362,13 @@ async function printDoctor(
     })));
     return;
   }
-  const health = await healthReport(app, { probeProvider: process.argv.includes("--probe") });
+  const probe = process.argv.includes("--probe");
+  const health = await healthReport(app, { probeProvider: probe });
+  // What each connection can actually do, asked of the service itself. Only with --probe, because
+  // it means one small request per connection.
+  const connections = probe
+    ? await probeAll(app.runtime.models, app.web.policy, app.web.policy.guard(globalThis.fetch))
+    : [];
   console.log(
     JSON.stringify(
       {
@@ -374,6 +381,7 @@ async function printDoctor(
         modelPresets: [...app.runtime.models.presets.values()].map((preset) => ({
           id: preset.id, name: preset.name, provider: preset.provider.name, model: preset.model,
         })),
+        connections,
         registeredTools: app.registry.permissions(),
         networkProviderTested: false,
       },

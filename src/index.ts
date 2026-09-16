@@ -53,6 +53,8 @@ import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
+import { VoiceService, registerVoice } from "./voice-service.js";
+import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
@@ -194,7 +196,23 @@ export async function createBranch(options: {
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
+  // Wave 7: one place that turns speech into words and words into speech, whichever service does
+  // the work, plus switching model in one conversation. Voice notes on chat apps come through here.
+  const voice = new VoiceService(store, runtime.models, web.policy, web.policy.guard(globalThis.fetch));
+  registerVoice(registry, voice, store);
+  registerModelSwitch(registry, store, runtime.models);
+  media.voice = voice;
   const channels = new ChannelRouter(store, runtime);
+  channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
+  channels.speakReply = async (text) => {
+    const settings = voice.settings(runtime.owner);
+    // "Keep audio on this computer" wins over every other voice choice, including this one: a
+    // spoken reply made here would still be uploaded to the chat app, and the Voice screen tells
+    // the owner nothing containing sound leaves. The words are sent instead, as they always are.
+    if (!settings.replyWithVoiceOnChannels || settings.keepAudioOnThisComputer) return null;
+    const spoken = await voice.speak(runtime.owner, { text: text.slice(0, 1500), voice: "", speed: 1 });
+    return { bytes: spoken.bytes, mediaType: spoken.mediaType };
+  };
   // Personal details and, when the owner switches it on, a content check, either side of the model.
   const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
@@ -343,6 +361,8 @@ export async function createBranch(options: {
     documents,
     /** Making and reading pictures, speech and sound files. */
     media,
+    /** Writing speech out and reading text aloud, whichever service does the work. */
+    voice,
     /** Finding, tidying and moving saved facts. */
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
@@ -612,6 +632,16 @@ export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 export * from "./media.js";
+export * from "./voice.js";
+export * from "./voice-stt.js";
+export * from "./voice-tts.js";
+export * from "./voice-talk.js";
+export * from "./voice-service.js";
+export * from "./voice-api.js";
+export * from "./model-profiles.js";
+export * from "./model-switch.js";
+export * from "./provider-probe.js";
+export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
 export * from "./media-settings.js";
