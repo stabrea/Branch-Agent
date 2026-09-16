@@ -1290,3 +1290,46 @@ Tools: `branch-function-check.mjs`, `branch-agent-archive.py`, `branch-public-co
 `branch-agent-pr.md` under `C:/Users/bishi/AppData/Local/Temp/Codex-session-files/`.
 Stop the running packaged app before `npm run package:desktop`; the packager cannot replace a
 running executable.
+
+## Batch 25 (wave 7) — deferred tool loading: unlimited tools, a small context, a catalog that learns
+Wave 6 stopped the catalog growing with the product; it did not stop it growing with the owner's own
+computer, where a couple of connected servers can mean a thousand tools. Measured on this tree, a
+1,000-tool catalog costs **9,577 estimated tokens** a round with toolboxes alone. `src/tool-loading.ts`
+puts every permitted tool in one of three tiers each round — **loaded** (full dieted schema, at most
+`defaultMaxLoaded` = 12 besides core), **indexed** (one line: name, eight-word purpose and anything
+learned, at most 40 lines) and **deferred** (not in the request at all) — under a hard ceiling on the
+whole tool section (`toolBudgetTokens`, default 2,500, in the reliability settings). The same 1,000
+tools now cost **2,159** against **9,507** at the opening round, and 90 tools cost 1,673 against
+1,816: ten times the catalog for 486 more tokens, where toolboxes cost 7,691 more. Over a scripted
+20-round conversation with 1,000 tools the heaviest tool section measured **1,742** tokens, and
+every round is asserted smaller than the same run with toolboxes alone. Enforcement demotes the weakest loaded
+tool to a line, then trims the index, and each step is strictly smaller than the last, so it always
+terminates under the ceiling; `descriptions()` is memoised per round so what `catalog.size` reports
+is exactly what the provider received. `src/tool-index.ts` is the index itself: BM25 over name,
+description, parameter names, toolbox and learned notes, with light stemming ("schedule",
+"schedules", "scheduled" are one word) and a small everyday-synonym table ("make a picture" finds
+`media.image`). A `ToolEmbedder` seam and a sha256 digest per description are declared for the
+embeddings service; nothing implements them yet, so every search here is lexical. Three core tools
+sit beside `tools.expand`, which still works: **`tools.search {query, limit?}`** finds tools by what
+you want to do and loads the matches for the rest of the conversation, **`tools.describe {names}`**
+loads them by exact name, and **`tools.note {tool, note}`** keeps one short thing about a tool. All
+three are handled in `Runtime.callTool` before the registry and read from an index built with
+`descriptions(context.permissions)`, so a narrowed run cannot find a forbidden tool by either route —
+a forbidden name comes back worded exactly like a misspelling. `src/tool-usage.ts` is the learning:
+one `tool_usage` row per finished task holding hashed word shingles of the prompt (never the words),
+the tools searched, the tools called, the outcome and the round count. From it: pre-loading (a
+request like two past ones loads their tools before round 1, reported as
+`catalog.size.preloadedFromHistory`), co-use (tools called together load together), demotion (a tool
+unused for 30 days stops being indexed but stays searchable) and notes (a call that fails on its
+inputs and then works leaves a line, appended to that tool's description and index line). Everything
+is in the same database, travels with the backup (`tool_usage`, `tool_notes`) and is deletable in one
+move. Tools from outside — MCP servers, plugins — are marked `external` on the `ToolDefinition`;
+their descriptions are capped at 200 characters and run through the injection detector as the index
+is built, before they can reach any request, and one that reads like instructions keeps its name and
+loses its words. `ToolRegistry.version` lets a running task notice a server that connects mid-task
+and re-index it (`catalog.reindexed`). A nightly pass on the existing scheduler tick writes one
+plain line into the diagnostics folder (`tools.json`) and the new read-only Settings → Developer
+card (`public/tool-catalog.js`, `GET /api/tools/catalog`). `tests/tool-loading.test.mjs` — 11 tests,
+fakes only — proves the budget with 1,000 tools over 20 rounds, the search-to-call path, permission
+gating of search and describe, a 15-query ranking table, all four learning behaviours, 300 external
+tools indexed and filtered, the backup round trip and the health line. No new dependency.

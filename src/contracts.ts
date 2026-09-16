@@ -201,6 +201,8 @@ export interface ToolDefinition<T = unknown> {
   inputSchema?: Record<string, unknown>;
   /** The toolbox this tool belongs to; worked out from its name when it does not say. */
   group?: string;
+  /** From a connected server, a plugin or a skill package: its description is somebody else's text. */
+  external?: boolean;
   permission: string;
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */

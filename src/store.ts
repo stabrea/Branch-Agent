@@ -24,6 +24,8 @@ import { UsageStore } from "./usage.js";
 import { Labels } from "./labels.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
+// Wave 7 (tool loading): what this computer has learned about which tools a request needs.
+import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
@@ -52,6 +54,8 @@ export class Store {
   readonly labels: Labels;
   readonly shares: ShareLinks;
   readonly profiles: Profiles;
+  /** Wave 7: which tools past tasks needed, and what has been learned about them. */
+  readonly toolUsage: ToolUsage;
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
@@ -96,6 +100,7 @@ export class Store {
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
     this.labels = new Labels(this.db);
+    this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
     this.profiles = new Profiles(this.db, "local");
     this.memories = new MemoryFacts(this.db);

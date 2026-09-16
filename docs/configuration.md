@@ -828,6 +828,58 @@ You do not configure any of this. It shows up in the task's timeline as **catalo
 (which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
 **catalog.size** (how many tools were described this round and what they weighed).
 
+## How the assistant finds its tools
+
+Toolboxes were the first answer to a growing tool list. They are still there, but the assistant no
+longer relies on them, because a computer with a few connected servers on it can easily have a
+thousand tools and no toolbox is small enough to carry that.
+
+Each time the assistant works, every tool it is allowed to use is put in one of three places:
+
+* **Carried** — about a dozen tools, with their full instructions, ready to use straight away.
+* **Named** — a short list, one line each: the tool's name and eight words saying what it does.
+* **Looked up** — everything else. Not in the message at all, and found by searching for it.
+
+When the assistant needs something it is not carrying, it searches for it in its own words — "send
+a message on Discord", "make a picture" — and what it finds becomes available for the rest of that
+conversation. That is what it means when it says it is looking for a tool. It can only ever find
+tools this task was already allowed to use: a tool your settings put out of reach is not in the
+list at all, and reads exactly like a name that does not exist, so nothing is revealed by asking.
+
+**It remembers what worked.** When a task finishes, the computer keeps one line about it: the shape
+of what you asked (as scrambled word pairs, never the words themselves), which tools were looked
+for, which were used, and whether it went well. From that it learns three habits — it carries the
+tools that requests like yours have needed before, it carries tools that are nearly always used
+together, and it stops naming tools nobody has touched for a month (those are still findable by
+searching). It also keeps short notes: if a call fails because something was missing and the next
+one works, or if the assistant is told outright that a tool needs the full path, that line is kept
+and shown with the tool from then on. A note travels with its tool in every later message, so one
+that reads like instructions to the assistant is refused rather than kept.
+
+None of this leaves the computer. It is in the same private database as everything else and travels
+with your backup. **Settings → Developer → How the assistant finds its tools** shows what was
+carried, named and looked up last time, what that weighed, what was made ready before you asked and
+why, and every note — with one button that forgets all of it. Your tools are untouched by that; only
+what was learned about them is deleted.
+
+Once a night the assistant works out a short line about how this is going — how many different
+tools you use, what the tool list weighs in each message, and how often a search found something
+worth using. That line is in the Developer card and in the diagnostics folder (`tools.json`).
+
+Settings and routes:
+
+* `toolBudgetTokens` (reliability settings, default 2,500) — the most the whole tool list may weigh
+  in one message. Tools over the ceiling become a line in the list, then a search away.
+* `GET /api/tools/catalog` — what the card shows. Read-only.
+* `POST /api/tools/forget` `{"what":"history"|"notes"|"all"}` — deletes what was learned.
+* `DELETE /api/tools/notes/<id>` — deletes one note.
+
+The timeline adds **tools.searched** (what was looked for and what came back), **tools.described**
+(tools loaded by exact name), **tools.noted** (a note kept) and **catalog.reindexed** (a server
+connected while the task was working, and its tools went into the index). **catalog.size** now also
+says how many tools were carried, named and looked up, and **catalog.preselected** lists anything
+made ready from past tasks under `preloadedFromHistory`.
+
 Alongside it, each round records a **context.budget** line: the size limit, what the instructions
 cost, what the tool list cost, what the conversation costs, and the room held back for the answer.
 Folding older turns into a summary is now decided on the conversation alone, so adding tools to the

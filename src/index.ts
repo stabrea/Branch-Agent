@@ -13,6 +13,7 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
+import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
@@ -269,6 +270,8 @@ export async function createBranch(options: {
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
+  // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
+  scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
@@ -510,6 +513,10 @@ export * from "./contracts.js";
 export * from "./store.js";
 export * from "./registry.js";
 export * from "./catalog.js";
+// Wave 7 (tool loading): the tiers, the searchable index, and what past tasks taught.
+export * from "./tool-loading.js";
+export * from "./tool-index.js";
+export * from "./tool-usage.js";
 export * from "./runtime.js";
 export * from "./demo.js";
 export * from "./providers.js";
