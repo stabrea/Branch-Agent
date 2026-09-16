@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { errorText } from "./contracts.js";
-import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector } from "./document-embeddings.js";
+import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector, type Embedder } from "./document-embeddings.js";
+import { localEmbedder } from "./local-models.js";
 import { visibleTo, type MemoryRecord } from "./memory.js";
 import type { ModelRouter } from "./models.js";
 import { providerEmbeddings } from "./providers.js";
@@ -86,11 +87,14 @@ export class MemoryRetrieval {
     return value;
   }
   /** The provider's embeddings route, or nothing when there is no key or the owner turned it off. */
-  private client(owner: string): EmbeddingClient | null {
+  private client(owner: string): Embedder | null {
     const settings = this.settings(owner);
     if (!settings.useEmbeddings) return null;
     const route = this.models ? providerEmbeddings(this.models.plan(owner, "").candidates[0]!.provider) : null;
     if (!route) return null;
+    // A model on this computer reads facts through Ollama's own route, not the OpenAI one.
+    const here = localEmbedder(route, settings.embeddingModel);
+    if (here) return here;
     try { return new EmbeddingClient(route.endpoint, route.apiKey, settings.embeddingModel); } catch { return null; }
   }
   meaningSearchReady(owner: string): boolean { return this.client(owner) !== null; }

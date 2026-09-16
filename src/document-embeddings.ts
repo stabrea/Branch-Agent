@@ -12,7 +12,16 @@ const responseSchema = z.object({
   data: z.array(z.object({ index: z.number().int().nonnegative().optional(), embedding: z.array(z.number()).min(1).max(8192) })).min(1),
 });
 
-export class EmbeddingClient {
+/**
+ * Anything that can turn passages into vectors: the provider's own embeddings route, or the model
+ * running on this computer (see src/local-models.ts).
+ */
+export interface Embedder {
+  readonly model: string;
+  embed(texts: string[], signal: AbortSignal): Promise<Float32Array[]>;
+}
+
+export class EmbeddingClient implements Embedder {
   constructor(
     private readonly endpoint: string,
     private readonly apiKey: string,

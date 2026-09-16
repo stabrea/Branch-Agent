@@ -33,6 +33,7 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
+import { routeForTask, routingSettings } from "./local-routing.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -613,6 +614,21 @@ export class Runtime {
     this.notifyEvent(status === "completed" ? "run.completed" : "run.failed", { runId: run.id, sessionId: run.sessionId, status });
     return finished;
   }
+  /**
+   * Per-task routing, when the owner has switched it on: a task that mentions personal details can
+   * stay on this computer, a long or tool-heavy one can go to the cloud model. An explicit choice
+   * for this run or this conversation always wins, so nothing is taken out of the owner's hands.
+   */
+  private routed(run: Run, owner: string, override: RunModelOverride): RunModelOverride {
+    // Off by default, so this costs nothing until the owner asks for it.
+    if (!routingSettings(this.store, owner).enabled) return override;
+    if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
+    const toolCount = this.store.messages(run.sessionId).filter((message) => message.role === "tool").length;
+    const choice = routeForTask(this.store, this.models, owner, { prompt: run.prompt, toolCount });
+    if (!choice.preset) return override;
+    this.store.event(run.id, "model.routed", { preset: choice.preset, kind: choice.kind, reason: choice.reason });
+    return { ...override, preset: choice.preset };
+  }
   private async loop(
     run: Run,
     context: ToolContext,
@@ -625,7 +641,7 @@ export class Runtime {
   ): Promise<string> {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
-    const plan = this.models.plan(context.owner, run.sessionId, override);
+    const plan = this.models.plan(context.owner, run.sessionId, this.routed(run, context.owner, override));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
