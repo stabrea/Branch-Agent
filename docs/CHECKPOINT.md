@@ -409,6 +409,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.14.0 (2026-09-17)
+
+Deferred tool loading, the provider catalog, MCP mode, orchestration pass 2 and the observability pass. Published from `release/0.14.0` (PR #100); the in-app update from 0.13.0 was rehearsed on a staged copy in 47 seconds with no console window and the previous copy kept.
+
 ## Released 0.13.0 (2026-09-17)
 
 Knowledge bases, talk mode and voice notes, installer and background running, phone access over Tailscale, screen control (off by default), traces and metrics, permission rules with resources, shareable pages, labels, durable workflows, queue, holidays, household profiles, terminal UI, SDK, audit record, web UI extras, toolboxes, figures and research. Published from `release/0.13.0` (PR #99); the in-app update from 0.12.0 was rehearsed on a staged copy in 42 seconds with no console window and the previous copy kept.
