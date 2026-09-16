@@ -55,6 +55,9 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+// Durable workflows: a saved list of steps the app works through on its own (built against the
+// wave6/collab-workflows branch, which had not reached staging when this batch was written).
+import { Workflows, registerWorkflows } from "./workflows.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
@@ -219,6 +222,8 @@ export async function createBranch(options: {
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
+  const workflows = new Workflows(store, runtime, knowledge);
+  registerWorkflows(registry, workflows);
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
@@ -336,6 +341,8 @@ export async function createBranch(options: {
     evaluationSuites,
     triggers,
     webhooks,
+    /** Saved workflows: steps the app works through on its own, remembered across restarts. */
+    workflows,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -502,6 +509,7 @@ export * from "./monitors.js";
 export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+export * from "./workflows.js";
 export * from "./media.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";

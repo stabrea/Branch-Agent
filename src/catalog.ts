@@ -19,7 +19,7 @@ export const toolGroups = [
 const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["core", ["user.", "tools.", "answer"]],
   ["files", ["files.", "workspace.", "folders."]],
-  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch."]],
+  ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process."]],
   ["git", ["git.", "github."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
@@ -33,7 +33,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.
   ["schedules", ["schedules.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief."]],
-  ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration."]],
+  ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "workflows.", "flows."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
   ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models."]],
 ];
