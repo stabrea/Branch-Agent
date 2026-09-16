@@ -706,3 +706,79 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+## Using this computer's screen and keyboard
+
+Branch can look at what is on this computer's screen and work the windows on it. It is switched
+off, and while it is off every one of these tools answers with one plain sentence instead of
+trying. Turn it on in **Settings → Using your screen and keyboard**, which writes the setting
+`desktop-control` for your owner record.
+
+Routes: `GET /api/desktop/settings` returns `{ enabled, maxActionsPerRun }`; `POST` to the same
+address changes either field. `enabled` is `false` and `maxActionsPerRun` is `40` until you say
+otherwise. The setting is read again before every single action, so switching it off stops work
+that is already under way rather than waiting for the task to finish.
+
+The tools are `desktop.screenshot` (a picture of one window by part of its name, or of a whole
+screen), `desktop.windows` (list the open windows, or bring one to the front, minimise it or close
+it), `desktop.read` (everything in a window listed by name and kind, so the assistant works from
+words rather than from pixels), `desktop.click`, `desktop.type`, `desktop.key`, `desktop.open`
+(start a program, or open one of your workspace files with whatever usually opens it) and
+`desktop.clipboard`. They sit behind three permissions — `desktop.view`, `desktop.control` and
+`desktop.clipboard` — and none of the three counts as merely looking, so under **Ask before
+changes** every single one stops and asks you first. Photographing your screen is treated as a
+change on purpose.
+
+How it works underneath: one Windows PowerShell script, written once into a private temporary
+folder and called with `-File` so nothing is ever pasted into a command line, driving Windows' own
+accessibility layer (UI Automation) and `user32`. Clicking and typing go through the accessibility
+layer first — a button is pressed by its name, text is placed into a box directly — and fall back
+to a real mouse click or key press only when the program offers nothing better. The script runs
+through the same bounded runner the host-command tool uses, so it is stopped by time, by output
+size, or the moment the task is cancelled. No new dependency; nothing is installed.
+
+While any of this is happening a small notice sits on top of everything with a **Stop** button on
+it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
+the action in flight is cut off and every later one in the same task is refused. `POST
+/api/runs/:id/cancel` does the same thing. Every action is written into Activity as
+`desktop.action` with the name of the window it touched, alongside the ordinary signed receipt.
+
+Windows that are never photographed and never typed into: anything whose title or program looks
+like a password manager (Bitwarden, 1Password, KeePass, LastPass, Dashlane, NordPass, Proton Pass,
+Roboform, Enpass, Keeper), the Windows sign-in and permission prompts (`LogonUI`, `consent`,
+`CredentialUIBroker`, `LockApp`), and anything whose title mentions a password, a passkey, signing
+in, unlocking or Windows Security. The check is made against the title Windows itself reports for
+the window it found, never against what was asked for, so a wildcard cannot creep past it. A
+picture of a whole screen is refused outright while such a window is showing, because a photograph
+of the whole screen cannot hide part of itself. `desktop.type` also refuses text that still has a
+`{{placeholder}}` in it or that points at an environment variable, and the screen tools are never
+given the secrets locker at all, so there is no path by which a saved password could be typed.
+
+### What this cannot do
+
+- **There is no global Esc.** Stopping means the button on the notice, `POST /api/runs/:id/cancel`,
+  or closing Branch. Branch does not listen to your keyboard while you are using it yourself, and
+  building that would mean watching every key you press, which is a worse trade than it sounds.
+- **A whole-screen picture cannot be censored.** Branch can refuse to take one, and does when a
+  password window is showing, but it cannot black out part of a picture it has taken. Prefer asking
+  for one window.
+- **Programs that draw themselves cannot be read.** Games, drawing programs, many Electron apps and
+  anything that paints into a canvas tell Windows' accessibility layer nothing useful.
+  `desktop.read` will come back nearly empty and clicking will fall back to guessing at a point.
+- **Windows running as an administrator are invisible.** Branch runs as you, so a program started
+  with elevated rights cannot be read, clicked or photographed, and Windows gives no error worth
+  repeating when that happens.
+- **Only whole screens, and only one at a time.** `display` picks one of the screens Windows
+  reports; there is no way to ask for a region, and no way to ask for all of them at once.
+- **Windows moves under it.** A program can rebuild its own window between Branch finding it and
+  Branch using it; Branch looks it up once more and tries again, and gives up plainly after that.
+- **Nothing is recorded.** There is no screen recording, no replay of what was done, and no way to
+  watch the screen continuously — only the one picture or reading you asked for.
+- **The refusal list is deliberately clumsy.** Titles are matched loosely, so an ordinary window
+  that merely mentions a password, a passkey or signing in — a web page about password managers, a
+  document called "sign in flow" — is refused as well. That is the error worth making, but it does
+  mean Branch will sometimes refuse a window that was perfectly harmless.
+- **Opening a file cannot be confirmed.** `desktop.open` with a program name reports the program it
+  started. Opening a *file* hands it to Windows, which picks the program and says nothing about
+  what happened, so the answer says so and asks the assistant to look at the open windows instead.
+- **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
