@@ -104,6 +104,22 @@ every rule, `--copper-text` for links and `--font-mono` for code. The "Look insi
 in `--line` filled with `--copper`, small `--faint` text, and below 520 px the cost drops out so
 the bar still fits a phone. Nothing here introduces a colour of its own.
 
+## Help with code (wave 7)
+
+The coder's tools add almost nothing to the interface on purpose. Settings → Developer gains one
+more `<details>` block, "Help with code", holding two checkboxes and two plain text areas — one
+line per program: a short name, the full address of the program, and for a language server the
+kinds of file it handles. No new colour, no new component and no new layout: it borrows the same
+`.check-row`, label and `textarea` rules the rest of that card already uses, and reads and writes
+through `/api/developer/*` in `public/code-ide.js`.
+
+That restraint is the design decision, not an omission. A language server or a debugger is a
+program the owner already chose to install; the screen's job is to say which one, in one line, and
+to make clear that nothing is downloaded and nothing runs until the switch is on. Everything else
+these tools do is shown where the owner already looks: a rename appears as an ordinary multi-file
+change in the approval sheet, and a checkpoint appears in Settings → Workspace snapshots with the
+same "put the workspace back to this" row every other kept point has.
+
 ## Settings → Developer → How the assistant finds its tools
 
 A read-only card, folded away under Developer beside "Try things out", using the same `.card`,

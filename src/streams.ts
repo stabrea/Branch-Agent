@@ -26,3 +26,56 @@ export async function streamRunEvents(store: Store, runId: string, response: Ser
   }
   response.end();
 }
+
+/**
+ * Wave 7: everything happening on this computer, not just one task. The same ordered stream, read
+ * across every task this person owns, so the Activity screen and anything written against the
+ * client library can watch the whole workspace with one connection.
+ *
+ * `kinds` names the kinds of event wanted; an empty list means all of them. `after` is the last id
+ * already seen, so a client that reconnects carries on rather than repeating itself.
+ */
+export async function streamOwnerEvents(
+  store: Store, owner: string, response: ServerResponse,
+  options: {
+    after?: number; kinds?: readonly string[]; pollMs?: number; maxMs?: number;
+    /** Most events one connection may be sent before it is closed. */
+    maxEvents?: number;
+    /** Takes any saved password or key back out before an event is sent (the runtime's own). */
+    scrub?: <T>(value: T) => T;
+  } = {},
+): Promise<void> {
+  // Nobody may ask to be held open longer than the ceiling, nor to be sent an unbounded number of
+  // events: both are capped here, so one connection can never be made to run for ever.
+  const pollMs = options.pollMs ?? 500;
+  const maxMs = Math.min(Math.max(options.maxMs ?? 150000, 1000), 150000);
+  const maxEvents = Math.min(Math.max(options.maxEvents ?? 2000, 1), 5000);
+  const deadline = Date.now() + maxMs;
+  const scrub = options.scrub ?? (<T>(value: T) => value);
+  let sent = 0;
+  const wanted = new Set(options.kinds ?? []);
+  response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", "x-content-type-options": "nosniff" });
+  response.flushHeaders();
+  // Starting from "everything so far" would replay a whole history, so with no `after` the stream
+  // begins at the newest event and reports only what happens from now on.
+  let last = options.after ?? (store.recentEvents(owner, 1)[0]?.id ?? 0);
+  let closed = false;
+  response.on("close", () => { closed = true; });
+  response.write(`event: ready\ndata: ${JSON.stringify({ after: last, kinds: [...wanted] })}\n\n`);
+  while (!closed && Date.now() < deadline) {
+    // recentEvents comes back newest first, so it is turned round to keep the stream in order.
+    const fresh = store.recentEvents(owner, 200).filter((event) => event.id > last).reverse();
+    for (const event of fresh) {
+      last = Math.max(last, event.id);
+      if (wanted.size && !wanted.has(event.kind)) continue;
+      // An event's own body can hold what a tool was asked to do, so it goes out through the same
+      // scrubbing as everything else that leaves this computer.
+      response.write(`id: ${event.id}\nevent: ${event.kind}\ndata: ${JSON.stringify(scrub({ id: event.id, runId: event.runId, kind: event.kind, data: event.data, createdAt: event.createdAt }))}\n\n`);
+      if (++sent >= maxEvents) { closed = true; break; }
+    }
+    if (closed) break;
+    await delay(pollMs);
+  }
+  response.write(`event: end\ndata: ${JSON.stringify({ after: last, sent })}\n\n`);
+  response.end();
+}

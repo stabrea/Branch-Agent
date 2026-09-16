@@ -71,6 +71,40 @@ export function refusalFor(window: Pick<WindowInfo, 'title' | 'program'>): strin
   return null;
 }
 
+/**
+ * The same idea as the refused windows above, written for websites, so that letting Branch borrow
+ * the owner's own signed-in browser can never reach a bank or a password manager. The window list
+ * matches titles and program names, which a website name would never trip, so the sites are named
+ * here beside it and both are checked. Matching covers the site and anything under it, so
+ * "chase.com" covers "secure.chase.com".
+ */
+export const refusedHosts = [
+  'bitwarden.com', 'vault.bitwarden.com', '1password.com', 'lastpass.com', 'dashlane.com',
+  'nordpass.com', 'keeper.io', 'keepersecurity.com', 'enpass.io', 'proton.me', 'roboform.com',
+  'chase.com', 'bankofamerica.com', 'wellsfargo.com', 'citi.com', 'citibank.com', 'usbank.com',
+  'capitalone.com', 'americanexpress.com', 'amex.com', 'discover.com', 'schwab.com',
+  'fidelity.com', 'vanguard.com', 'paypal.com', 'wise.com', 'revolut.com', 'monzo.com',
+  'barclays.co.uk', 'hsbc.com', 'lloydsbank.com', 'natwest.com', 'santander.co.uk',
+  'coinbase.com', 'binance.com', 'kraken.com', 'irs.gov', 'ssa.gov',
+  // Email is how every other account is taken back, so a mailbox is treated like a bank.
+  'mail.google.com', 'gmail.com', 'outlook.com', 'outlook.live.com', 'outlook.office.com',
+  'office.com', 'mail.yahoo.com', 'icloud.com', 'mail.com', 'zoho.com', 'fastmail.com',
+] as const;
+/** Words in a website's name that mean it handles money or sign-ins, whoever runs it. */
+const refusedHostWords = [/\bbank\b/i, /\bbanking\b/i, /\bcredit-?union\b/i, /\bvault\b/i, /password/i];
+
+/** Why this website is out of bounds for the owner's own browser, or null when it may be opened. */
+export function hostRefusalFor(host: string): string | null {
+  const name = host.trim().toLowerCase().replace(/:\d+$/, '');
+  if (!name) return 'No website was named.';
+  const listed = refusedHosts.find((entry) => name === entry || name.endsWith('.' + entry));
+  if (listed)
+    return `${listed} handles money or passwords, so Branch will not use your own browser there. Ask it to do this in its own browser, or do it yourself.`;
+  if (refusedHostWords.some((pattern) => pattern.test(name)))
+    return `"${host}" looks like a bank or a password site, so Branch will not use your own browser there.`;
+  return null;
+}
+
 const windowMatch = z.string().trim().min(1).max(200);
 export const DesktopScreenshotSchema = z.object({
   /** Part of the title of the window to photograph. Leave it out to photograph the whole screen. */

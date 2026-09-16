@@ -4,6 +4,7 @@ export { isPrivateAddress };
 import type { ToolRegistry } from "../registry.js";
 import type { ToolContext } from "../contracts.js";
 import { InjectionPolicySchema, applyContentPolicy, detectInjection, provenance, type ContentWarning, type InjectionPolicy } from "../content-guard.js";
+import { SearchBackendSchema, parseResults, requestFor } from "./web-search.js";
 
 /**
  * Web reading for the assistant: search through a configurable HTML search endpoint and fetch
@@ -16,6 +17,8 @@ export const WebConfigSchema = NetworkPolicySchema.extend({
   timeoutMs: z.number().int().min(1000).max(60000).default(20000),
   /** What to do with page text that reads like instructions to the assistant. */
   injection: InjectionPolicySchema.default("warn"),
+  /** Which search service "search the web" goes to. The default needs nothing set up. */
+  search: SearchBackendSchema.default({ backend: "duckduckgo" }),
 }).strict();
 export type WebConfig = z.infer<typeof WebConfigSchema>;
 export interface WebPage { url: string; title: string; text: string; contentType: string; truncated: boolean; hops: number }
@@ -57,16 +60,28 @@ export class WebAccess {
       return { url: url.toString(), title, text: text.slice(0, maxChars), contentType, truncated: text.length > maxChars, hops };
     }
   }
+  /**
+   * Finds the key a paid search service needs. The launcher sets this; without it only the free
+   * fallback and a SearXNG of the owner's own work, which is what an unconfigured Branch does.
+   */
+  searchKey: ((name: string) => Promise<string>) | undefined;
   async search(query: string, limit = 5): Promise<SearchResult[]> {
-    const endpoint = new URL(this.config.searchEndpoint);
+    const chosen = this.config.search;
+    const key = chosen.keySecret && this.searchKey ? await this.searchKey(chosen.keySecret) : "";
+    if (chosen.backend !== "duckduckgo" && chosen.backend !== "searxng" && !key)
+      throw new Error(`Searching with ${chosen.backend} needs its key. Save a secret called ${chosen.keySecret ?? "the service's key"} first, or choose the free search in Settings.`);
+    const request = requestFor(chosen, query, limit, key, this.config.searchEndpoint);
+    const endpoint = new URL(request.url);
     await this.assertAllowed(endpoint);
     const response = await this.fetchImpl(endpoint, {
-      method: "POST", redirect: "manual", signal: AbortSignal.timeout(this.config.timeoutMs),
-      headers: { "user-agent": this.userAgent, "content-type": "application/x-www-form-urlencoded", accept: "text/html" },
-      body: new URLSearchParams({ q: query, kl: "" }).toString(),
+      method: request.method, redirect: "manual", signal: AbortSignal.timeout(this.config.timeoutMs),
+      headers: { "user-agent": this.userAgent, ...request.headers },
+      ...(request.body === undefined ? {} : { body: request.body }),
     });
     if (!response.ok) throw new Error(`Search answered HTTP ${response.status}`);
-    return parseSearchResults(await this.readBounded(response)).slice(0, limit);
+    const body = await this.readBounded(response);
+    const found = chosen.backend === "duckduckgo" ? parseSearchResults(body) : parseResults(chosen.backend, body);
+    return found.slice(0, limit);
   }
   private async readBounded(response: Response): Promise<string> {
     const reader = response.body?.getReader();

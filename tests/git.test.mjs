@@ -181,9 +181,9 @@ test('parallel copies stay inside .branch-worktrees', { ...needsGit }, async (t)
   await f.file('one.txt', 'a\n');
   await f.app.registry.execute('git.commit', { message: 'start' }, context);
 
-  const added = await f.app.registry.execute('git.worktree', { action: 'add', name: 'experiment', branch: 'experiment' }, context);
+  const added = await f.app.registry.execute('git.worktree_add', { name: 'experiment', branch: 'experiment' }, context);
   assert.equal(added.path, '.branch-worktrees/experiment');
-  const listed = await f.app.registry.execute('git.worktree', { action: 'list' }, context);
+  const listed = await f.app.registry.execute('git.worktree_list', {}, context);
   assert.deepEqual(listed.copies, [{ name: 'experiment' }]);
   assert.ok((await readdir(join(f.app.runtime.workspace, '.branch-worktrees'))).includes('experiment'));
 
@@ -193,11 +193,11 @@ test('parallel copies stay inside .branch-worktrees', { ...needsGit }, async (t)
   assert.deepEqual(saved.files, ['two.txt']);
   assert.equal((await f.app.registry.execute('git.status', {}, context)).changes.length, 0);
 
-  await assert.rejects(f.app.registry.execute('git.worktree', { action: 'add', name: '../escape' }, context));
-  await assert.rejects(f.app.registry.execute('git.worktree', { action: 'add', name: 'C:/elsewhere' }, context));
-  const removed = await f.app.registry.execute('git.worktree', { action: 'remove', name: 'experiment' }, context);
+  await assert.rejects(f.app.registry.execute('git.worktree_add', { name: '../escape' }, context));
+  await assert.rejects(f.app.registry.execute('git.worktree_add', { name: 'C:/elsewhere' }, context));
+  const removed = await f.app.registry.execute('git.worktree_remove', { name: 'experiment' }, context);
   assert.equal(removed.removed, true);
-  assert.deepEqual((await f.app.registry.execute('git.worktree', { action: 'list' }, context)).copies, []);
+  assert.deepEqual((await f.app.registry.execute('git.worktree_list', {}, context)).copies, []);
 });
 
 test('sending work needs the git.remote permission and asks before touching main', { ...needsGit }, async (t) => {
@@ -257,7 +257,7 @@ test('GitHub tools send the token in the header and never leak it', async (t) =>
   const policy = new NetworkPolicy({ allowPrivateAddresses: true, allowedHosts: ['127.0.0.1'] });
   const github = new GitHubAccess({ apiBase: fake.base }, policy, async () => TOKEN);
   registerGitHub(f.app.registry, github);
-  t.after(() => ['github.create_repo', 'github.open_pull_request', 'github.list_issues', 'github.create_issue'].forEach((name) => f.app.registry.unregister(name)));
+  t.after(() => ['github.create_repo', 'github.open_pull_request', 'github.issues', 'github.checks', 'github.release', 'github.create_issue'].forEach((name) => f.app.registry.unregister(name)));
 
   const context = f.app.runtime.context({ runId: 'github-run' });
   const repo = await f.app.registry.execute('github.create_repo', { name: 'notes' }, context);
@@ -268,7 +268,7 @@ test('GitHub tools send the token in the header and never leak it', async (t) =>
 
   const pull = await f.app.registry.execute('github.open_pull_request', { repo: 'acme/notes', title: 'Tidy the notes', base: 'main', head: 'tidy' }, context);
   assert.equal(pull.number, 7);
-  const issues = await f.app.registry.execute('github.list_issues', { repo: 'acme/notes' }, context);
+  const issues = await f.app.registry.execute('github.issues', { repo: 'acme/notes' }, context);
   assert.equal(issues.issues[0].number, 3);
   const raised = await f.app.registry.execute('github.create_issue', { repo: 'acme/notes', title: 'Please fix' }, context);
   assert.equal(raised.number, 4);

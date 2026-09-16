@@ -10,6 +10,8 @@ import type { VoiceService } from "./voice-service.js";
 import { listModels, switchModel } from "./model-switch.js";
 import { profileSettings, routeByProfile, saveProfileSettings, taskKinds } from "./model-profiles.js";
 import { probeAll, probeProvider } from "./provider-probe.js";
+import type { OAuthConnections } from "./oauth.js";
+import { GeminiSignInSchema, geminiSignInNote, registerSignedInGemini } from "./gemini-signin.js";
 
 /**
  * The `/api/voice/*` and `/api/models/*` screens behind one function, so the route table in
@@ -23,6 +25,8 @@ export interface VoiceApiDeps {
   voice: VoiceService;
   policy: NetworkPolicy;
   fetch: typeof globalThis.fetch;
+  /** Wave 7: signing in with Google for Gemini. Absent in tests that do not use it. */
+  oauth?: OAuthConnections;
 }
 
 const switchBody = z.object({ sessionId: z.string().uuid(), model: z.string().trim().min(1).max(120) }).strict();
@@ -45,6 +49,13 @@ export async function voiceApi(
   if (method === "POST" && path === "/api/models/switch") {
     const input = switchBody.parse(await body());
     return switchModel(models, owner, input.sessionId, input.model);
+  }
+  // Wave 7: "Sign in with Google" on the Gemini card. The settings are kept so the card can say
+  // whether a sign-in has been set up at all; the note is never hidden, because signing in only
+  // works against the person's own Google Cloud project.
+  if (path === "/api/models/gemini-signin") {
+    if (method === "GET") return geminiSignInState(store, owner, models);
+    if (method === "POST") return signInWithGoogle(deps, await body());
   }
   if (method === "GET" && path === "/api/models/probe") return { connections: await probeAll(models, deps.policy, deps.fetch) };
   if (method === "POST" && path === "/api/models/probe") {
@@ -82,4 +93,34 @@ export function whereAudioGoes(stt: string, tts: string): string {
     ? "Replies are read aloud by a voice that comes with Windows, which costs nothing."
     : "The words of a reply are sent to your model provider to be read aloud, and you are charged for the characters.");
   return parts.join(" ");
+}
+
+/* ---------- Wave 7: signing in with Google for Gemini ---------- */
+
+const geminiSettingsKey = "gemini-signin";
+
+/** What the Gemini card shows before anybody presses anything. */
+export function geminiSignInState(store: Store, owner: string, models: ModelRouter) {
+  const saved = GeminiSignInSchema.safeParse(store.get("settings", owner, geminiSettingsKey)?.data);
+  const settings = saved.success ? saved.data : GeminiSignInSchema.parse({});
+  return {
+    settings,
+    /** True once a signed-in connection is registered; it goes when Branch restarts. */
+    connected: models.presets.has("google-gemini"),
+    note: geminiSignInNote,
+  };
+}
+
+/**
+ * Signs in and registers the connection. The client id is saved first so the card remembers it,
+ * then a token is asked for. Whatever Google refuses comes back as plain words, and the ordinary
+ * key flow is never taken away.
+ */
+export async function signInWithGoogle(deps: VoiceApiDeps, input: unknown) {
+  const { store, owner, models } = deps;
+  const settings = GeminiSignInSchema.parse(input);
+  store.save("settings", owner, geminiSettingsKey, settings);
+  if (!deps.oauth) throw new Error(`Signing in with Google is not set up on this copy. ${geminiSignInNote}`);
+  const preset = await registerSignedInGemini(deps.oauth, settings, (value) => models.register(value));
+  return { connected: true, preset: { id: preset.id, name: preset.name, model: preset.model }, note: geminiSignInNote };
 }

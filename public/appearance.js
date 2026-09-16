@@ -1,6 +1,7 @@
 /* Appearance settings: theme, highlight colour, text size, spacing, lettering,
    movement and the acorn. Every change shows at once; Save keeps it for next time.
    The record matches PreferencesSchema in src/preferences.ts. */
+import { t } from "/i18n.js";
 
 export const defaultAppearance = {
   appearance: "forest",
@@ -13,27 +14,12 @@ export const defaultAppearance = {
   showAcorn: true,
 };
 
+/* Wave 7: the buttons name their words with a key, so another language covers them too. */
 const CHOICES = {
-  accent: [
-    ["copper", "Copper"],
-    ["leaf", "Leaf"],
-    ["earth", "Earth"],
-    ["slate", "Slate"],
-    ["ink", "Ink"],
-  ],
-  textSize: [
-    ["small", "Small"],
-    ["medium", "Medium"],
-    ["large", "Large"],
-  ],
-  density: [
-    ["comfortable", "Comfortable"],
-    ["compact", "Compact"],
-  ],
-  font: [
-    ["geist", "Branch lettering"],
-    ["system", "This computer's lettering"],
-  ],
+  accent: [["copper"], ["leaf"], ["earth"], ["slate"], ["ink"]],
+  textSize: [["small"], ["medium"], ["large"]],
+  density: [["comfortable"], ["compact"]],
+  font: [["geist"], ["system"]],
 };
 const GROUPS = {
   accent: "accent-choices",
@@ -79,7 +65,7 @@ function render() {
       button.setAttribute("aria-pressed", String(button.value === current[key]));
 }
 
-function choiceButton(key, value, label) {
+function choiceButton(key, value) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "choice";
@@ -90,7 +76,11 @@ function choiceButton(key, value, label) {
     swatch.dataset.swatch = value;
     button.append(swatch);
   }
-  button.append(document.createTextNode(label));
+  /* i18n.js writes this word again whenever the language changes. */
+  const word = document.createElement("span");
+  word.dataset.t = `appearance.${key}.${value}`;
+  word.textContent = t(word.dataset.t);
+  button.append(word);
   button.addEventListener("click", () => change({ [key]: value }));
   return button;
 }
@@ -104,9 +94,7 @@ function change(patch) {
 export function initAppearance(save) {
   persist = save;
   for (const [key, id] of Object.entries(GROUPS))
-    $(id).replaceChildren(
-      ...CHOICES[key].map(([value, label]) => choiceButton(key, value, label)),
-    );
+    $(id).replaceChildren(...CHOICES[key].map(([value]) => choiceButton(key, value)));
   $("appearance").addEventListener("change", () =>
     change({ appearance: $("appearance").value }),
   );

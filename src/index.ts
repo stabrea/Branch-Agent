@@ -25,6 +25,9 @@ import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
+import { registerRunExport } from "./trajectory.js";
+import { meteringTick } from "./metering.js";
+import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
@@ -83,6 +86,7 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
+import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
@@ -100,6 +104,15 @@ import { Workflows, registerWorkflows } from "./workflows.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
+// Wave 7 (a coder's toolbox): the project map, language servers, debug adapters, plan branches,
+// checkpoints with undo and redo, kept build outputs, agent export and OpenAPI-defined tools.
+import { ProjectMap, registerProjectMap } from "./code-map.js";
+import { LanguageServers } from "./language-server.js";
+import { registerLanguageServers } from "./language-server-tools.js";
+import { DebugAdapters, registerDebug } from "./debug-adapter.js";
+import { registerCheckpoints } from "./checkpoints.js";
+import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
+import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -160,13 +173,28 @@ export async function createBranch(options: {
   };
   registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
+  // Points to come back to, the last change put back, and that change put forward again.
+  registerCheckpoints(registry, store, history);
+  // Files a task produced that are not text, kept version by version with their checksums.
+  const keptArtifacts = new KeptArtifacts(join(dataDir, "kept"));
+  registerKeptArtifacts(registry, keptArtifacts, files);
   registerCodeSearch(registry, new WorkspaceSearch(files));
+  // The project map: built once, then kept up to date file by file, and ordered around a request.
+  const projectMap = new ProjectMap(files);
+  registerProjectMap(registry, projectMap);
   const editor = new CodeEditor(files, writeObserver);
   registerCodeEdit(registry, files, editor);
   // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
   // followed by the check the owner set up for this project.
   const codeChanges = new CodeChanges(store, options.owner ?? "local", files, editor, workspace);
   registerCodeChanges(registry, codeChanges);
+  // Language servers and debuggers the owner already has on this computer. Both are switched off
+  // until they turn them on, both are started from a full address and never downloaded, and both
+  // are held under the same job object as every other program the app starts.
+  const languageServers = new LanguageServers(store, options.owner ?? "local", files);
+  registerLanguageServers(registry, languageServers, codeChanges);
+  const debugAdapters = new DebugAdapters(store, options.owner ?? "local", files);
+  registerDebug(registry, debugAdapters);
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -180,6 +208,10 @@ export async function createBranch(options: {
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
   registerDesktop(registry, desktop);
+  // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
+  // The page half is filled in later, if and when a browser is configured for this launch.
+  const computer: ComputerLayers = { window: desktop };
+  registerComputer(registry, computer);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -232,6 +264,15 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // A paid search service's key comes out of the locker for the one request and is written down
+  // nowhere else: the settings file only ever holds the name of the secret, never its value.
+  web.searchKey = async (name: string) => {
+    const project = store.projects.active(runtime.owner).id;
+    const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "web search" }))[name]!;
+    audit(store, runtime.owner, { action: "secret.used", actor: "the search service you chose", subject: `${name} (project ${project})`,
+      reason: "Searching the web needed it", outcome: "handed over" });
+    return value;
+  };
   // Batch 19 (wave 7): the model services the owner added from the catalog are built again from
   // what was written down, with each key taken out of the locker, so they survive a restart.
   await restoreConnections({
@@ -239,6 +280,9 @@ export async function createBranch(options: {
   });
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
+  // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
+  const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
+  registerOpenApiTools(registry, openApiTools);
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
@@ -274,14 +318,22 @@ export async function createBranch(options: {
   // Spans are written straight to their own table rather than through the event log, so the same
   // scrubber is put in front of them explicitly: no attribute can carry a saved password or key.
   runtime.tracer.scrub = (value) => runtime.hideSecrets(value);
-  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker.
-  sessionLock.onLock = () => runtime.approvals.forgetAll();
+  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker,
+  // and lets go of anything an integration was holding on the owner's behalf — above all a browser
+  // of theirs a task had borrowed.
+  const releaseOnLock: (() => Promise<unknown>)[] = [];
+  sessionLock.onLock = () => {
+    runtime.approvals.forgetAll();
+    for (const release of releaseOnLock) void release().catch(() => undefined);
+  };
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
+  // Wave 7: one finished task's full record, in the documented trajectory shape.
+  registerRunExport(registry, store, version);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
@@ -404,6 +456,14 @@ export async function createBranch(options: {
     },
   };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
+  // Wave 7: the month's usage written out as a spreadsheet, into a folder of the owner's own
+  // workspace, on the schedule they set. Nothing leaves this computer.
+  scheduler.onTick.add(async (now) => {
+    await meteringTick({
+      store, owner: runtime.owner, workspace: files.root,
+      overrides: () => pricingSettings(store, runtime.owner).overrides,
+    }, now);
+  });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
   // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as
@@ -534,6 +594,15 @@ export async function createBranch(options: {
     flows,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
+    /** The project map, for the screens that show it and for the tests. */
+    projectMap,
+    /** Services turned into tools from their own OpenAPI description. */
+    openApiTools,
+    /** Files a task produced that are not text, kept version by version. */
+    keptArtifacts,
+    /** Language servers and debuggers the owner set up; both stop when the app closes. */
+    languageServers,
+    debugAdapters,
     /** Programs left running, and the switch that stops them all when the app closes. */
     processes,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
@@ -555,6 +624,10 @@ export async function createBranch(options: {
       files,
       artifacts,
       browserProfiles,
+      computer,
+      store,
+      tracer: runtime.tracer,
+      onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
@@ -567,6 +640,8 @@ export async function createBranch(options: {
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
+      await languageServers.stopAll().catch(() => undefined);
+      await debugAdapters.stopAll().catch(() => undefined);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -696,6 +771,7 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+export * from "./integrations/gitlab.js";
 export * from "./integrations/desktop.js";
 export * from "./integrations/desktop-tools.js";
 export * from "./integrations/desktop-config.js";
@@ -751,6 +827,7 @@ export * from "./voice-api.js";
 export * from "./model-profiles.js";
 export * from "./model-switch.js";
 export * from "./provider-probe.js";
+export * from "./trajectory.js";
 export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
@@ -774,6 +851,18 @@ export * from "./run-queue.js";
 export * from "./execution-limit.js";
 export * from "./calendar.js";
 export * from "./profiles.js";
+// Wave 7 (a coder's toolbox).
+export * from "./code-scanners.js";
+export * from "./code-map.js";
+export * from "./stdio-rpc.js";
+export * from "./language-server.js";
+export * from "./language-server-tools.js";
+export * from "./debug-adapter.js";
+export * from "./checkpoints.js";
+export * from "./build-artifacts.js";
+export * from "./openapi.js";
+export * from "./openapi-tools.js";
+export * from "./agent-export.js";
 // Wave 7 (Branch as a first-class MCP citizen, both ways round).
 export * from "./mcp-policy.js";
 export * from "./mcp-snapshots.js";

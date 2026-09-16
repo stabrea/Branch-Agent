@@ -30,7 +30,18 @@ const messageSchema = z.object({
   entities: z.array(z.object({ type: z.string(), offset: z.number(), length: z.number() })).optional(),
   reply_to_message: z.object({ from: userSchema.optional() }).passthrough().optional(),
 }).passthrough();
-const updateSchema = z.object({ update_id: z.number(), message: messageSchema.optional() }).passthrough();
+/** A button somebody pressed. Telegram sends the button's own `data` back, at most 64 bytes of it. */
+const callbackSchema = z.object({
+  id: z.string(),
+  data: z.string().max(64).optional(),
+  from: userSchema.optional(),
+  message: messageSchema.optional(),
+}).passthrough();
+const updateSchema = z.object({
+  update_id: z.number(),
+  message: messageSchema.optional(),
+  callback_query: callbackSchema.optional(),
+}).passthrough();
 const responseSchema = z.object({ ok: z.boolean(), result: z.unknown().optional(), description: z.string().optional() });
 
 export class TelegramAdapter implements ChannelAdapter {
@@ -83,9 +94,12 @@ export class TelegramAdapter implements ChannelAdapter {
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     while (!this.stopping.signal.aborted) {
       try {
-        const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message"] }, true));
+        // "callback_query" has to be asked for by name, or a pressed button never arrives at all.
+        const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
         for (const update of updates) {
           this.offset = Math.max(this.offset, update.update_id + 1);
+          const pressed = update.callback_query && this.fromButton(update.callback_query);
+          if (pressed) { await onMessage(pressed).catch(() => undefined); continue; }
           const message = update.message && this.inbound(update.message);
           if (message) await onMessage(message).catch(() => undefined);
         }
@@ -95,6 +109,38 @@ export class TelegramAdapter implements ChannelAdapter {
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
+  }
+  /**
+   * A pressed button, as an ordinary addressed message carrying the button's own value. The router
+   * reads it as an answer to whatever this chat's conversation is waiting on; if nothing is waiting
+   * it is a short message like any other. Telegram is told the press landed straight away, so the
+   * button stops spinning whatever happens next.
+   */
+  private fromButton(query: z.infer<typeof callbackSchema>): InboundMessage | null {
+    const chat = query.message?.chat;
+    if (!chat || !query.from || !query.data) return null;
+    void this.call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => undefined);
+    return {
+      channel: this.id, chatId: String(chat.id), chatKind: chat.type === "private" ? "direct" : "group",
+      ...(chat.title ? { chatTitle: chat.title } : {}),
+      senderId: String(query.from.id),
+      senderName: query.from.username ?? query.from.first_name ?? String(query.from.id),
+      text: query.data, addressed: true, messageId: String(query.message?.message_id ?? query.id),
+    };
+  }
+  /**
+   * A question with buttons to press. Each button's `data` is the answer plus the fingerprint of
+   * the exact request, which fits inside Telegram's 64-byte limit; the conversation the answer
+   * belongs to is worked out from the chat, not carried in the button.
+   */
+  async sendButtons(chatId: string, text: string, buttons: { label: string; value: string }[], replyToMessageId?: string): Promise<string | undefined> {
+    const result = await this.call("sendMessage", {
+      chat_id: Number(chatId), text,
+      reply_markup: { inline_keyboard: [buttons.map((button) => ({ text: button.label, callback_data: button.value }))] },
+      ...(replyToMessageId ? { reply_parameters: { message_id: Number(replyToMessageId), allow_sending_without_reply: true } } : {}),
+    });
+    const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
+    return parsed.success ? String(parsed.data.message_id) : undefined;
   }
   private inbound(message: z.infer<typeof messageSchema>): InboundMessage | null {
     const spoken = message.voice ?? message.audio;

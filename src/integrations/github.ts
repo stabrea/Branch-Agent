@@ -101,6 +101,35 @@ export class GitHubAccess {
     const added = (await this.request("POST", `repos/${input.repo}/issues/${input.number}/comments`, { body: input.body.slice(0, 8000) })) as Record<string, unknown>;
     return { tracker: "github", key: `${input.repo}#${input.number}`, added: Boolean(added.id), address: String(added.html_url ?? "") };
   }
+  /** Whether the automatic checks on one commit or branch passed, in plain words. */
+  async checks(input: { repo: string; ref: string }): Promise<unknown> {
+    const answer = (await this.request("GET", `repos/${input.repo}/commits/${encodeURIComponent(input.ref)}/check-runs?per_page=30`)) as { check_runs?: Record<string, unknown>[] };
+    const runs = (answer.check_runs ?? []).slice(0, 30).map((run) => ({
+      name: String(run.name ?? "").slice(0, 120), status: String(run.status ?? ""),
+      result: String(run.conclusion ?? "still going"), address: String(run.details_url ?? ""),
+    }));
+    const failed = runs.filter((run) => ["failure", "timed_out", "cancelled", "action_required"].includes(run.result));
+    return {
+      repository: input.repo, ref: input.ref, checks: runs,
+      allPassed: runs.length > 0 && failed.length === 0,
+      summary: !runs.length ? "No checks have run on this yet."
+        : failed.length ? `${failed.length} of ${runs.length} checks did not pass: ${failed.map((run) => run.name).join(", ").slice(0, 200)}`
+        : `All ${runs.length} checks passed.`,
+    };
+  }
+  /** The published releases of a repository, newest first. */
+  async releases(input: { repo: string; limit: number }): Promise<unknown> {
+    const list = (await this.request("GET", `repos/${input.repo}/releases?per_page=${input.limit}`)) as Record<string, unknown>[];
+    return {
+      repository: input.repo,
+      releases: (Array.isArray(list) ? list : []).slice(0, input.limit).map((release) => ({
+        tag: String(release.tag_name ?? ""), name: String(release.name ?? "").slice(0, 200),
+        draft: Boolean(release.draft), prerelease: Boolean(release.prerelease),
+        at: String(release.published_at ?? release.created_at ?? ""), address: String(release.html_url ?? ""),
+        notes: String(release.body ?? "").slice(0, 2000),
+      })),
+    };
+  }
   async createIssue(input: { repo: string; title: string; body?: string | undefined }): Promise<unknown> {
     const created = (await this.request("POST", `repos/${input.repo}/issues`, { title: input.title, body: input.body ?? "" })) as Record<string, unknown>;
     return { repository: input.repo, number: created.number, title: created.title, address: created.html_url };
