@@ -20,6 +20,7 @@ import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
+import { Hooks } from "./hooks.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
@@ -96,6 +97,8 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
+  const hooks = new Hooks(store, runtime.owner);
+  store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
@@ -121,11 +124,14 @@ export async function createBranch(options: {
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
     channels,
     web,
+    hooks,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
+      hooks,
+      context: (runId: string) => runtime.context({ runId }),
     },
     close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
   };
@@ -175,6 +181,10 @@ export * from "./openai-compat.js";
 export * from "./streams.js";
 export * from "./recipes.js";
 export * from "./templates.js";
+export * from "./network-policy.js";
+export * from "./hooks.js";
+export * from "./ws.js";
+export * from "./integrations/process-usage.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";

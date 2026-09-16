@@ -47,6 +47,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 16 (local, unreleased): resource limits, shared network policy, hooks, WebSocket, channel test
+
+`src/integrations/process-usage.ts` (sampled memory/CPU, `watchUsage`) used by `ShellProcess`;
+`src/network-policy.ts` (host + host/path rules, `guard(fetch)`) owned by `WebAccess.policy` and shared
+with `BranchBrowser.policy` and `connectMcp(..., policy)`; `src/hooks.ts` fed by `store.onEvent`, hooks run
+through the shell integration's aliases (bootstrap `hookRunner`); `src/ws.ts` minimal RFC 6455 server on
+`server.on("upgrade")`; `POST /api/channels/test`. Also the Hermes capability audit (120 agents) became
+issues #29–#52 (index #42). Next: release 0.7.1 so the owner's 0.7.0 gets Enter-to-send through the button.
+
 ## Update incident 2026-09-15 (owner's 0.3.0 → 0.6.0) and the fix shipped in 0.7.0
 
 What happened: the button downloaded and staged 0.6.0 (169 MB took minutes with no visible progress; a

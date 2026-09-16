@@ -42,7 +42,8 @@ export class BranchShell {
     signal.throwIfAborted();
     const injected = await this.injected(input.secrets, context);
     const process = new ShellProcess({ executable: executable.path, args: [...executable.args, ...input.args], cwd, env: { ...this.env, ...injected },
-      signal, timeoutMs: input.timeoutMs ?? this.config.timeoutMs, maxOutputBytes: this.config.maxOutputBytes });
+      signal, timeoutMs: input.timeoutMs ?? this.config.timeoutMs, maxOutputBytes: this.config.maxOutputBytes,
+      maxMemoryMb: this.config.maxMemoryMb, maxCpuSeconds: this.config.maxCpuSeconds });
     const result = await process.run();
     const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
     return { ...scrubbed, target: { alias: input.executable, executable: executable.path, cwd, secrets: Object.keys(injected) } };

@@ -12,6 +12,10 @@ export const ShellConfigSchema = z.object({
   inheritEnv: z.array(safeKey).max(12).default(['SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP']),
   env: z.partialRecord(safeKey, z.string().max(4000).refine(value => !value.includes('\0'))).default({}),
   timeoutMs: z.number().int().min(100).max(120000).default(30000),
+  /** A command using more memory than this (sampled about once a second) is stopped. */
+  maxMemoryMb: z.number().int().min(16).max(16384).default(1024),
+  /** A command using more processor time than this is stopped. */
+  maxCpuSeconds: z.number().int().min(1).max(600).default(60),
   maxOutputBytes: z.number().int().min(256).max(8192).default(8192),
 }).strict();
 export type ShellConfig = z.infer<typeof ShellConfigSchema>;

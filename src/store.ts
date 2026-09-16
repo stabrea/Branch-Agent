@@ -267,12 +267,19 @@ export class Store {
     }
     return repaired.added;
   }
+  private readonly eventListeners = new Set<(runId: string, kind: string, data: Record<string, unknown>) => void>();
+  /** Called after every stored event; listeners must not throw and are never awaited. */
+  onEvent(listener: (runId: string, kind: string, data: Record<string, unknown>) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => { this.eventListeners.delete(listener); };
+  }
   event(runId: string, kind: string, data: Record<string, unknown>): void {
     this.db
       .prepare(
         "INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)",
       )
       .run(runId, kind, JSON.stringify(data), new Date().toISOString());
+    for (const listener of this.eventListeners) { try { listener(runId, kind, data); } catch { /* a listener must never break the caller */ } }
   }
   events(runId: string): Event[] {
     return this.db

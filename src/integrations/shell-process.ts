@@ -1,8 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { watchUsage } from './process-usage.js';
 
-export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes';
+export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes' | 'memory_limit' | 'cpu_limit';
 export interface ProcessResult {
   status: 'completed' | 'failed' | StopReason;
   stdout: string;
@@ -13,10 +14,13 @@ export interface ProcessResult {
   truncated: boolean;
   observedOutputBytes: number;
   cleanup: { status: 'parent_exited' | 'tree_termination_requested' | 'incomplete'; strategy: string; limitation: string };
+  /** Highest memory and processor time seen while sampling (about once a second). */
+  usage: { peakMemoryMb: number; cpuSeconds: number };
 }
 export interface ProcessOptions {
   executable: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv;
   signal: AbortSignal; timeoutMs: number; maxOutputBytes: number;
+  maxMemoryMb?: number; maxCpuSeconds?: number; usageIntervalMs?: number;
 }
 
 export class ShellProcess {
@@ -36,6 +40,7 @@ export class ShellProcess {
   private readonly closedPromise: Promise<void>;
   private readonly donePromise: Promise<void>;
   private finish!: () => void;
+  private watcher: ReturnType<typeof watchUsage> | undefined;
   constructor(private readonly options: ProcessOptions) {
     this.child = spawn(options.executable, options.args, { cwd: options.cwd, env: options.env,
       shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -50,6 +55,9 @@ export class ShellProcess {
     const abort = () => { void this.stop('cancelled'); };
     this.options.signal.addEventListener('abort', abort, { once: true });
     const timeout = setTimeout(() => { void this.stop('timed_out'); }, this.options.timeoutMs);
+    if (this.child.pid && (this.options.maxMemoryMb || this.options.maxCpuSeconds))
+      this.watcher = watchUsage(this.child.pid, { maxMemoryMb: this.options.maxMemoryMb ?? Infinity, maxCpuSeconds: this.options.maxCpuSeconds ?? Infinity },
+        reason => { void this.stop(reason); }, { ...(this.options.usageIntervalMs ? { intervalMs: this.options.usageIntervalMs } : {}) });
     if (this.options.signal.aborted) abort();
     try {
       await this.donePromise;
@@ -58,6 +66,7 @@ export class ShellProcess {
     } finally {
       clearTimeout(timeout);
       clearTimeout(this.pipeTimer);
+      this.watcher?.stop();
       this.options.signal.removeEventListener('abort', abort);
     }
   }
@@ -104,6 +113,7 @@ export class ShellProcess {
       stdout: stdout.text, stderr: stderr.text,
       exitCode: this.child.exitCode, signal: this.child.signalCode, durationMs: Math.round(performance.now() - this.started),
       truncated: rawTruncated || stdout.truncated || stderr.truncated, observedOutputBytes: this.observed,
+      usage: (() => { const peak = this.watcher?.peak() ?? { memoryMb: 0, cpuSeconds: 0 }; return { peakMemoryMb: Math.round(peak.memoryMb), cpuSeconds: Math.round(peak.cpuSeconds * 10) / 10 }; })(),
       cleanup: { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
         strategy: process.platform === 'win32' ? 'taskkill /T /F' : 'POSIX process group',
         limitation: 'Trusted host execution, not OS isolation. Escaped descendants or children whose parent already exited may survive; process-tree cleanup is not guaranteed.' },

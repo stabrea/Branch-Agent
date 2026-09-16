@@ -476,6 +476,11 @@
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
             <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
           </section>
+          <section id="hooks-card" class="card">
+            <h2>Hooks</h2>
+            <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
+            <div id="hooks-list" class="card-list"></div>
+          </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
             <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>

@@ -1,6 +1,6 @@
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { z } from "zod";
+import { NetworkPolicy, NetworkPolicySchema, isPrivateAddress } from "../network-policy.js";
+export { isPrivateAddress };
 import type { ToolRegistry } from "../registry.js";
 import type { ToolContext } from "../contracts.js";
 import { InjectionPolicySchema, applyContentPolicy, detectInjection, provenance, type ContentWarning, type InjectionPolicy } from "../content-guard.js";
@@ -10,11 +10,8 @@ import { InjectionPolicySchema, applyContentPolicy, detectInjection, provenance,
  * readable page text, with the network guarded against loopback, private and link-local
  * destinations (including redirects) unless the owner allows them explicitly.
  */
-export const WebConfigSchema = z.object({
+export const WebConfigSchema = NetworkPolicySchema.extend({
   searchEndpoint: z.string().url().default("https://lite.duckduckgo.com/lite/"),
-  allowPrivateAddresses: z.boolean().default(false),
-  allowedHosts: z.array(z.string().min(1).max(253)).max(200).optional(),
-  blockedHosts: z.array(z.string().min(1).max(253)).max(200).default([]),
   maxBytes: z.number().int().min(4096).max(4 * 1024 * 1024).default(1024 * 1024),
   timeoutMs: z.number().int().min(1000).max(60000).default(20000),
   /** What to do with page text that reads like instructions to the assistant. */
@@ -24,44 +21,19 @@ export type WebConfig = z.infer<typeof WebConfigSchema>;
 export interface WebPage { url: string; title: string; text: string; contentType: string; truncated: boolean; hops: number }
 export interface SearchResult { title: string; url: string; snippet: string }
 
-function privateV4(ip: string): boolean {
-  const [a, b] = ip.split(".").map(Number) as [number, number];
-  return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || a >= 224;
-}
-function privateV6(ip: string): boolean {
-  const lower = ip.toLowerCase();
-  if (lower === "::1" || lower === "::") return true;
-  if (lower.startsWith("::ffff:")) return privateV4(lower.slice(7));
-  return /^(fc|fd|fe[89ab])/.test(lower);
-}
-export function isPrivateAddress(ip: string): boolean {
-  const kind = isIP(ip);
-  return kind === 4 ? privateV4(ip) : kind === 6 ? privateV6(ip) : true;
-}
-
 export class WebAccess {
   private config: WebConfig;
+  /** The network policy every outbound request follows (web, browser and MCP share it). */
+  readonly policy: NetworkPolicy;
   get injectionPolicy(): InjectionPolicy { return this.config.injection; }
   constructor(input: unknown = {}, private readonly fetchImpl: typeof fetch = globalThis.fetch, private readonly userAgent = "BranchAgent") {
     this.config = WebConfigSchema.parse(input);
+    this.policy = new NetworkPolicy(this.config);
   }
-  configure(input: unknown): WebConfig { return (this.config = WebConfigSchema.parse(input)); }
+  configure(input: unknown): WebConfig { this.config = WebConfigSchema.parse(input); this.policy.configure(this.config); return this.config; }
   settings(): WebConfig { return this.config; }
-  /** Refuses hosts outside the allowlist, on the blocklist, or resolving to non-public addresses. */
-  async assertAllowed(target: URL): Promise<void> {
-    if (!["http:", "https:"].includes(target.protocol)) throw new Error("Only http and https addresses can be fetched");
-    if (target.username || target.password) throw new Error("Addresses with embedded credentials are refused");
-    const host = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    const matches = (pattern: string) => host === pattern.toLowerCase() || host.endsWith("." + pattern.toLowerCase());
-    if (this.config.blockedHosts.some(matches)) throw new Error(`${host} is on the blocked list`);
-    if (this.config.allowedHosts && !this.config.allowedHosts.some(matches)) throw new Error(`${host} is not on the allowed list`);
-    if (this.config.allowPrivateAddresses) return;
-    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal"))
-      throw new Error(`${host} points at this computer or a private network, which the assistant may not reach`);
-    const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((entry) => entry.address);
-    if (!addresses.length) throw new Error(`${host} could not be resolved`);
-    if (addresses.some(isPrivateAddress)) throw new Error(`${host} resolves to a private or local address, which the assistant may not reach`);
-  }
+  /** Refuses addresses the network policy does not allow (hosts, host/path rules, private networks). */
+  async assertAllowed(target: URL): Promise<void> { await this.policy.assertAllowed(target); }
   async fetchPage(input: string, maxChars = 12000): Promise<WebPage> {
     let url = new URL(input), hops = 0;
     for (;;) {
