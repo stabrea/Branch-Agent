@@ -319,36 +319,59 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   await adapter.stop();
 });
 
-test("Messenger shares WhatsApp's signature and address check, and says it needs Meta's review", async (t) => {
-  const { app, provider } = await fixture(t);
-  const service = await chatService(t);
-  const adapter = new MetaMessagingAdapter({ id: "messenger", service: "messenger", pageId: "page-1",
-    token: TOKEN, verifyToken: "VERIFY-WORD", appSecret: SECRET, apiBase: service.base });
-  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["u-1"] });
-  assert.equal(adapter.needsAppReview, true);
-  assert.match(adapter.health().reason, /review/);
-  assert.equal(adapter.verify(new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "VERIFY-WORD", "hub.challenge": "99" })), "99");
-  assert.throws(() => adapter.verify(new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "no", "hub.challenge": "99" })));
+/** Messenger and Instagram are the same code with different words, so both are put through the same steps. */
+for (const service of ["messenger", "instagram"]) {
+  test(`${service}: shares WhatsApp's signature and address check, pairs a stranger, and says it needs Meta's review`, async (t) => {
+    const { app, provider } = await fixture(t);
+    const api = await chatService(t);
+    const adapter = new MetaMessagingAdapter({ id: service, service, pageId: "page-1",
+      token: TOKEN, verifyToken: "VERIFY-WORD", appSecret: SECRET, apiBase: api.base });
+    await app.channels.attach(adapter, { activation: "always", pairing: true, allowlist: [] });
+    assert.equal(adapter.needsAppReview, true);
+    assert.match(adapter.health().reason, /review/);
 
-  const post = body({ object: "page", entry: [{ id: "page-1", messaging: [{ sender: { id: "u-1" }, recipient: { id: "page-1" }, message: { mid: "mid1", text: "are you there" } }] }] });
-  await assert.rejects(() => adapter.receive(post, "sha256=deadbeef"), /not signed by Messenger/);
-  assert.equal(provider.requests.length, 0);
-  await adapter.receive(post, metaSignature(post, SECRET));
-  const reply = await until(() => service.calls[0], "reply");
-  assert.equal(reply.path, "/page-1/messages");
-  assert.equal(reply.body.recipient.id, "u-1");
-  assert.match(reply.body.message.text, /are you there/);
-  assert.equal(reply.headers.authorization, `Bearer ${TOKEN}`);
+    // Meta checks the address once, and will not take a word that does not match.
+    assert.equal(adapter.verify(new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "VERIFY-WORD", "hub.challenge": "99" })), "99");
+    assert.throws(() => adapter.verify(new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "no", "hub.challenge": "99" })));
 
-  // Instagram is the same code with different words, so the page's own echoes are still ignored.
-  const insta = new MetaMessagingAdapter({ id: "instagram", service: "instagram", pageId: "page-1",
-    token: TOKEN, verifyToken: "VERIFY-WORD", appSecret: SECRET, apiBase: service.base });
-  await app.channels.attach(insta, { activation: "always", pairing: false, allowlist: ["u-1"] });
-  const echo = body({ object: "instagram", entry: [{ id: "page-1", messaging: [{ sender: { id: "page-1" }, message: { mid: "m2", text: "our own post", is_echo: true } }] }] });
-  assert.deepEqual(await insta.receive(echo, metaSignature(echo, SECRET)), { accepted: 0 });
-  await adapter.stop();
-  await insta.stop();
-});
+    const post = (text) => body({ object: service === "instagram" ? "instagram" : "page",
+      entry: [{ id: "page-1", messaging: [{ sender: { id: "u-1" }, recipient: { id: "page-1" }, message: { mid: `mid-${text.length}`, text } }] }] });
+
+    // A post that is not signed is refused and never reaches the model.
+    const unsigned = post("let me in");
+    await assert.rejects(() => adapter.receive(unsigned, "sha256=deadbeef"), /not signed by/);
+    assert.equal(provider.requests.length, 0);
+    assert.equal(api.calls.length, 0);
+
+    // An unknown sender is given a pairing code; once approved, the same person is answered.
+    const first = post("are you there");
+    await adapter.receive(first, metaSignature(first, SECRET));
+    const offered = await until(() => api.calls[0], "pairing reply");
+    assert.equal(offered.path, "/page-1/messages");
+    assert.equal(offered.body.recipient.id, "u-1");
+    const code = /\b(\d{6})\b/.exec(offered.body.message.text);
+    assert.ok(code, `a six-digit code was offered: ${offered.body.message.text}`);
+    assert.equal(provider.requests.length, 0, "a stranger never reaches the model");
+
+    app.channels.approve(app.runtime.owner, { code: code[1] });
+    const second = post("what is the time");
+    await adapter.receive(second, metaSignature(second, SECRET));
+    const answered = await until(() => api.calls.find((call, index) => index > 0 && /Echo:/.test(call.body.message.text ?? "")), "an answer");
+    assert.match(answered.body.message.text, /what is the time/);
+    assert.equal(answered.headers.authorization, `Bearer ${TOKEN}`);
+
+    // The page's own posts come back down the same address and must not be answered.
+    const echo = body({ object: service, entry: [{ id: "page-1", messaging: [{ sender: { id: "page-1" }, message: { mid: "m2", text: "our own post", is_echo: true } }] }] });
+    assert.deepEqual(await adapter.receive(echo, metaSignature(echo, SECRET)), { accepted: 0 });
+
+    // A long reply is split to what Meta accepts.
+    const before = api.calls.length;
+    await app.channels.deliver(service, "u-1", "z".repeat(adapter.maxTextLength * 2 + 50), `long:${service}`);
+    const pieces = api.calls.slice(before).map((call) => call.body.message.text).filter((text) => text.startsWith("z"));
+    assert.ok(pieces.length >= 3 && pieces.every((piece) => piece.length <= adapter.maxTextLength));
+    await adapter.stop();
+  });
+}
 
 test("Matrix holds a request open, retries with a widening wait, and stops when the channel closes", async (t) => {
   const { app, provider } = await fixture(t);

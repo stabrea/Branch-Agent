@@ -208,7 +208,7 @@
       "mention": "@{{botName}}",
       "maxTextLength": 2000,
       "can": { "files": false, "voiceIn": false, "voiceOut": false, "buttons": false },
-      "note": "Both directions are signed with the same secret and a timestamp, so a post copied and sent again later is refused."
+      "note": "Both directions are signed with the same secret and a timestamp. DingTalk signs the timestamp rather than the words, so the signature proves who sent it and that it is recent, not what it says; a post copied and sent again more than five minutes later is refused, one copied within that window is not."
     },
     {
       "id": "wecom",
