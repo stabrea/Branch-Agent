@@ -1,0 +1,26 @@
+{
+  "id": "reliability",
+  "name": "Picking up after a stop",
+  "description": "What happens when work is cut short. The first task is stopped after its first step on purpose and then continued, to check the job still finishes without the same change being made twice.",
+  "tasks": [
+    {
+      "id": "interrupt-resume",
+      "prompt": "Create a workspace file named eval-resume.txt containing exactly the word steady, then say finished.",
+      "mode": "interrupt-resume",
+      "checks": { "files": ["eval-resume.txt"], "mustMention": ["finished"] },
+      "tags": ["resume"]
+    },
+    {
+      "id": "declared-result",
+      "prompt": "Reply with a JSON object with the keys city (a string) and population (a whole number) for Lagos, Nigeria. Reply with the JSON only.",
+      "checks": {
+        "resultSchema": {
+          "type": "object",
+          "required": ["city", "population"],
+          "properties": { "city": { "type": "string" }, "population": { "type": "integer", "minimum": 1 } }
+        }
+      },
+      "tags": ["shape"]
+    }
+  ]
+}

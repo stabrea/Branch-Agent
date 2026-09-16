@@ -15,6 +15,7 @@ import { startTerminal } from "./terminal.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
+import { summaryLine } from "./evaluation-runner.js";
 import { readFile, writeFile } from "node:fs/promises";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
@@ -126,7 +127,7 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "eval") {
-      console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
+      await runEvaluation(app);
       return;
     }
     if (command === "restore") {
@@ -157,6 +158,34 @@ async function runOnce(
     events: app.store.events(run.id),
   }, null, 2));
   if (run.status !== "completed") process.exitCode = 1;
+}
+/** The value after a flag on the command line, for example `--suite everyday`. */
+function flag(name: string): string | undefined {
+  const at = process.argv.indexOf(`--${name}`);
+  return at > 0 ? process.argv[at + 1] : undefined;
+}
+/**
+ * `branch eval [--suite <id>] [--preset <id>] [--compare a,b] [--json]`. Without a suite it runs
+ * the standard three-task suite, as it always has.
+ */
+async function runEvaluation(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const asJson = process.argv.includes("--json"), suite = flag("suite"), compare = flag("compare");
+  if (compare) {
+    const result = await app.evaluationSuites.compare({ suite: suite ?? "cost", presets: compare.split(",").map((part) => part.trim()).filter(Boolean) });
+    if (asJson) return void console.log(JSON.stringify(result, null, 2));
+    console.log(["model choice", "right", "accuracy", "mean ms", "tokens", "cost"].join("\t"));
+    for (const row of result.rows)
+      console.log([row.preset, `${row.passed}/${row.total}`, row.accuracy, row.meanMs, row.tokens, row.dollars === null ? "no price on file" : `$${row.dollars.toFixed(4)}`].join("\t"));
+    return void console.log(`\nBest on this suite: ${result.best ?? "none"}`);
+  }
+  if (!suite) return void console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
+  const result = await app.evaluationSuites.run({ suite, ...(flag("preset") ? { preset: flag("preset")! } : {}) });
+  if (asJson) return void console.log(JSON.stringify(result, null, 2));
+  console.log(["task", "result", "score", "ms", "tokens", "why"].join("\t"));
+  for (const task of result.tasks)
+    console.log([task.id, task.skipped ? "skipped" : task.passed ? "passed" : "failed", task.score, task.ms, task.tokens, task.problem ?? ""].join("\t"));
+  console.log(`\n${summaryLine(result)}`);
+  if (!result.summary.total || result.summary.passed < result.summary.total) process.exitCode = 1;
 }
 async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const auth = app.chatgpt!;

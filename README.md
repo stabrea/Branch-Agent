@@ -125,6 +125,7 @@ For example, a request to build a website could involve design, implementation, 
 - **Controlled access.** Keep credentials outside model conversations and grant access only where needed.
 - **Efficient execution.** Load relevant context on demand and measure the total cost of successful work.
 - **Reliable upgrades.** Check compatibility before activating updated components, with a way to return to a working version.
+- **Proof it still works.** Ready-made sets of tasks you can run at any time to see how many the assistant gets right, how long it takes, what it costs, and whether anything that used to work has stopped.
 
 These describe the broader direction. Consult the feature inventory for each implementation's current scope.
 

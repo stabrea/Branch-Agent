@@ -37,6 +37,7 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { SkillRegistry } from "./registry-install.js";
 import { Evaluation } from "./evaluation.js";
+import { SuiteRunner } from "./evaluation-runner.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
@@ -162,6 +163,9 @@ export async function createBranch(options: {
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
+  // Test suites kept as data, their history, and comparing one suite across model choices.
+  const evaluationSuites = new SuiteRunner(store, runtime, version);
+  scheduler.evaluations = evaluationSuites;
   const chatgpt = options.chatgpt;
   if (chatgpt) {
     await chatgpt.load();
@@ -209,6 +213,8 @@ export async function createBranch(options: {
     teams,
     skillRegistry,
     evaluation,
+    /** Suites kept as data: running them, their history, and comparing two model choices. */
+    evaluationSuites,
     triggers,
     webhooks,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
@@ -300,6 +306,9 @@ export * from "./skill-governance.js";
 export * from "./teams.js";
 export * from "./registry-install.js";
 export * from "./evaluation.js";
+export * from "./evaluation-suites.js";
+export * from "./evaluation-grading.js";
+export * from "./evaluation-runner.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";

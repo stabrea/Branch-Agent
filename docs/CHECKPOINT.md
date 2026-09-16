@@ -664,6 +664,49 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+
+## Batch 23 (wave 4) — evaluation suites the owner can run, and their history
+The old `src/evaluation.ts` (one hard-coded three-task suite) is untouched and still answers
+`POST /api/evaluation` and a bare `branch eval`. Around it, suites are now **data**:
+`data/evaluation/*.json`, validated on load by `src/evaluation-suites.ts`, copied into `dist/` by
+`scripts/copy-suites.mjs` so the packaged app (which ships only `dist`, `public` and
+`node_modules`) has them. Five ship — everyday, tool-use, safety, reliability, cost — and all five
+pass end to end on a scripted provider. A task carries `checks` (the existing reliability checks),
+`deny` (phrases the answer must not contain, files it must not create), an optional
+`judge: { rubric, pass }`, `expected`, `requires` (a task naming a tool this launch does not have is
+**skipped**, not failed — that is how the browser task behaves without the browser integration),
+`tags`, `timeoutMs` and `mode`. Grading order is deliberate and is the honest part: `deny` is fatal
+first, then checks that anyone can repeat, and only a task with no checks is sent to the judge, so a
+model can never grade its way past a deterministic result. `POST /api/evaluation/suites/from-run`
+turns a finished task into a test.
+`src/evaluation-runner.ts` (`app.evaluationSuites`) records every run under `governance` as
+`evaluation-run:<id>` with per-task right/wrong, time, tokens, money through `src/pricing.ts`, the
+model choice and the app version; `GET /api/evaluation/history?suite=` returns the runs and a trend
+series. **Regression** means exactly one thing: the task passed in each of the three runs before
+this one and has just failed — with fewer than three earlier runs nothing is ever flagged.
+`POST /api/evaluation/compare { suite, presets }` runs the same suite against each model choice and
+returns one table; it offers only tools that change nothing unless `allowChanges` is passed, which
+is why the cost suite is written to need no writes. Money follows the existing rule — a model with
+no price on file reports no amount rather than zero — and energy stays `"unavailable"`.
+Scheduling reuses the existing scheduler: `kind: "evaluation"` with `suite`, a `SuiteRunner` hung
+off `scheduler.evaluations` the way `runtime.documents` is hung off the runtime, a synthetic
+finished run so the result shows up in Activity, and a new `evaluation.regression` webhook event.
+CLI: `branch eval --suite <id> [--preset ..] [--compare a,b] [--json]`. UI: one card on Usage
+(`public/evaluation.js`).
+Two things worth knowing. The interrupt-and-resume task **stages** its interruption — one model
+round and the one tool call it asks for are allowed (the budget charges a step for each, so the
+allowance is two, not one), the saved task is then marked `interrupted` exactly as startup recovery
+would leave it, and the ordinary `runtime.resume` path takes over; it is a real exercise of the
+resume code, not a real crash, and the docs say so. And `tests/evaluation-more.test.mjs` uses a
+provider that dispatches on the **last user message** rather than on call order, because the shared
+ordered-step provider in the other test files silently repeats its last step and would let one stray
+model call shift every later task.
+Covers A0570, A0926, A0078, A0884, A0927, A1009, A1010, A1128, A1691 and A1764. The rows naming
+outside benchmark datasets or leaderboards (SWE-bench, terminal-bench, OSWorld, GAIA,
+WindowsAgentArena, AndroidWorld, WebVoyager, BrowserGym, BEIR, AGBench, APPS/MBPP) are untouched,
+however well the suite mechanism would carry them; so are the URL and HTML-state evaluators
+(A1765, A1766), which need a browser page the harness does not yet drive.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
