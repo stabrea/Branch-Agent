@@ -3,6 +3,9 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { FanoutTaskSchema, ResultSchemaSchema, type FanoutTask } from "./delegation.js";
 import { CompletionCheckSchema, type CompletionCheck } from "./reliability.js";
+import { InputsSchema, ParametersSchema, bindInputs, placeholders, substitute, type InputValue } from "./recipes.js";
+import { mismatch } from "./delegation.js";
+import { TemplateSchema, exportTemplate, importTemplate } from "./templates.js";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -34,6 +37,10 @@ export const ProcedureSchema = z
       )
       .min(1)
       .max(12),
+    /** Named inputs bound before any step runs; {{name}} placeholders take their values. */
+    parameters: ParametersSchema.default({}),
+    /** The final step's result must match this shape (JSON-Schema subset) or the recipe fails. */
+    resultSchema: ResultSchemaSchema.optional(),
   })
   .strict();
 export const SpecialistSchema = z
@@ -93,6 +100,8 @@ export class Knowledge {
       )
     )
       throw new Error("Recipes cannot invoke orchestration tools");
+    const undeclared = [...placeholders({ steps: definition.steps, preconditions: definition.preconditions })].filter((name) => !(name in definition.parameters));
+    if (undeclared.length) throw new Error(`Recipe uses inputs it does not declare: ${undeclared.join(", ")}`);
     const old = this.store.get("procedures", context.owner, id)
       ?.data as unknown as ProcedureState | undefined;
     const history = old
@@ -116,19 +125,21 @@ export class Knowledge {
   async verifyProcedure(
     context: ToolContext,
     id: string,
+    inputs: Record<string, InputValue> = {},
   ): Promise<SavedRecord> {
     this.require(context, "procedures.manage");
     return this.runtime.auditOperation(context, "Verify procedure", (scoped) =>
-      this.verifyCandidateProcedure(scoped, id),
+      this.verifyCandidateProcedure(scoped, id, inputs),
     );
   }
   private async verifyCandidateProcedure(
     context: ToolContext,
     id: string,
+    inputs: Record<string, InputValue>,
   ): Promise<SavedRecord> {
     const record = this.required("procedures", context.owner, id),
       state = record.data as unknown as ProcedureState;
-    await this.executeProcedure(context, state.definition, {
+    await this.executeProcedure(context, this.bound(context, state.definition, inputs), {
       kind: "procedure",
       id,
       version: state.version,
@@ -148,15 +159,17 @@ export class Knowledge {
   async replayProcedure(
     context: ToolContext,
     id: string,
+    inputs: Record<string, InputValue> = {},
   ): Promise<{ version: number; results: unknown[] }> {
     this.require(context, "procedures.use");
     return this.runtime.auditOperation(context, "Replay procedure", (scoped) =>
-      this.replayVerifiedProcedure(scoped, id),
+      this.replayVerifiedProcedure(scoped, id, inputs),
     );
   }
   private async replayVerifiedProcedure(
     context: ToolContext,
     id: string,
+    inputs: Record<string, InputValue>,
   ): Promise<{ version: number; results: unknown[] }> {
     const state = this.required("procedures", context.owner, id)
       .data as unknown as ProcedureState;
@@ -164,13 +177,20 @@ export class Knowledge {
       throw new Error("Only verified procedures can replay");
     return {
       version: state.version,
-      results: await this.executeProcedure(context, state.definition, {
+      results: await this.executeProcedure(context, this.bound(context, state.definition, inputs), {
         kind: "procedure",
         id,
         version: state.version,
         phase: "step",
       }),
     };
+  }
+  /** Binds the run's inputs to the recipe's parameters and fills every placeholder before anything executes. */
+  private bound(context: ToolContext, definition: Procedure, inputs: Record<string, InputValue>): Procedure {
+    const values = bindInputs(definition.parameters, inputs);
+    if (Object.keys(definition.parameters).length)
+      this.store.event(context.runId, "procedure.inputs_bound", { names: Object.keys(values), recipe: definition.name });
+    return { ...definition, preconditions: substitute(definition.preconditions, values), steps: substitute(definition.steps, values) };
   }
   private async executeProcedure(
     context: ToolContext,
@@ -203,6 +223,13 @@ export class Knowledge {
         throw new Error(
           `Procedure expected output mismatch for ${step.tool}; previous side effects were not undone`,
         );
+      }
+    }
+    if (definition.resultSchema) {
+      const problem = mismatch(results.at(-1), definition.resultSchema, "result");
+      if (problem) {
+        this.store.event(context.runId, "procedure.result_rejected", { source, reason: problem, actual: results.at(-1) });
+        throw new Error(`Recipe result did not match its declared shape: ${problem}`);
       }
     }
     return results;
@@ -322,12 +349,14 @@ export class Knowledge {
     const state = this.required("specialists", owner, id).data as unknown as SpecialistState;
     const version = state.activeVersion === state.version ? state : state.history.find((v) => v.version === state.activeVersion);
     if (!version || !version.evaluationPassed) throw new Error(`Specialist ${id} has no evaluated active version`);
-    return { permissions: version.definition.permissions, instructions: version.definition.instructions };
+    return { permissions: version.definition.permissions, instructions: version.definition.instructions, agent: id };
   }
-  async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck } = {}) {
+  async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean } = {}) {
     this.require(context, "specialists.use");
     const spec = this.activeSpecialist(context.owner, id);
-    return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, options);
+    const scoped = { ...options, agent: id };
+    if (options.background) return this.runtime.delegateBackground(prompt, context, spec.permissions, spec.instructions, scoped);
+    return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, scoped);
   }
   async fanout(context: ToolContext, tasks: (FanoutTask & { specialist: string })[]) {
     this.require(context, "specialists.use");
@@ -383,17 +412,17 @@ function registerProcedures(
   registry.register({
     name: "procedures.verify",
     description:
-      "Execute the proposed recipe and compare actual results. This performs its side effects.",
+      "Execute the proposed recipe and compare actual results. This performs its side effects. Recipes with parameters need inputs.",
     permission: "procedures.manage",
-    parameters: idArgs,
-    execute: async (a, c) => knowledge.verifyProcedure(c, a.id),
+    parameters: idArgs.extend({ inputs: InputsSchema.optional() }),
+    execute: async (a, c) => knowledge.verifyProcedure(c, a.id, a.inputs ?? {}),
   });
   registry.register({
     name: "procedures.replay",
-    description: "Execute a verified recipe after checking all preconditions.",
+    description: "Execute a verified recipe after checking all preconditions. Recipes with parameters need inputs; wrong or missing inputs are refused before any step runs.",
     permission: "procedures.use",
-    parameters: idArgs,
-    execute: async (a, c) => knowledge.replayProcedure(c, a.id),
+    parameters: idArgs.extend({ inputs: InputsSchema.optional() }),
+    execute: async (a, c) => knowledge.replayProcedure(c, a.id, a.inputs ?? {}),
   });
 }
 function registerSpecialists(
@@ -435,8 +464,9 @@ function registerSpecialists(
     description:
       "Delegate to an evaluated active specialist with the same shared budget and reduced permissions. Optionally require the answer to match a JSON schema or declared checks (exit criteria); a miss is reported back as unresolved with the reason. Children stop after timeoutMs (default 120 s).",
     permission: "specialists.use",
-    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional(), checks: CompletionCheckSchema.optional() }),
-    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt, { ...(a.timeoutMs ? { timeoutMs: a.timeoutMs } : {}), ...(a.resultSchema ? { resultSchema: a.resultSchema } : {}), ...(a.checks ? { checks: a.checks } : {}) }),
+    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional(), checks: CompletionCheckSchema.optional(),
+      background: z.boolean().optional().describe("Let the specialist keep working after this task finishes; its result is recorded on this task when it arrives.") }),
+    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt, { ...(a.timeoutMs ? { timeoutMs: a.timeoutMs } : {}), ...(a.resultSchema ? { resultSchema: a.resultSchema } : {}), ...(a.checks ? { checks: a.checks } : {}), ...(a.background ? { background: true } : {}) }),
   });
   registry.register({
     name: "specialists.fanout",
@@ -453,6 +483,20 @@ export function registerKnowledge(
 ): void {
   registerProcedures(registry, knowledge);
   registerSpecialists(registry, knowledge);
+  registry.register({
+    name: "templates.export",
+    description: "Export a specialist or recipe as a template (definition only: no ids, evidence, history or secrets).",
+    permission: "memory.read",
+    parameters: z.object({ kind: z.enum(["specialist", "procedure"]), id: z.string().uuid(), description: z.string().max(500).optional() }).strict(),
+    execute: async (a, c) => exportTemplate(knowledge.store, c.owner, a.kind, a.id, a.description ?? ""),
+  });
+  registry.register({
+    name: "templates.import",
+    description: "Create a new proposed specialist or recipe from a template. It still has to be evaluated or verified here before use.",
+    permission: "procedures.manage",
+    parameters: z.object({ template: TemplateSchema }).strict(),
+    execute: async (a, c) => importTemplate(knowledge, c, a.template),
+  });
   registry.register({
     name: "knowledge.list",
     description:

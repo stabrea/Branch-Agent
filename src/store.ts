@@ -10,6 +10,10 @@ import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Receipts } from "./receipts.js";
+import { MemoryReview } from "./memory-review.js";
+import { exportBackup, importBackup } from "./backup.js";
+import { WorkspaceHistory } from "./workspace-history.js";
+import type { WorkspaceFiles } from "./files.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries";
@@ -26,6 +30,8 @@ export class Store {
   private readonly branches: SessionBranches;
   private readonly library: SessionLibrary;
   private readonly memories: MemoryFacts;
+  readonly review: MemoryReview;
+  private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
   private lockerStore: Locker | undefined;
@@ -59,6 +65,7 @@ export class Store {
     if (!this.db.prepare("PRAGMA table_info(sessions)").all().some((row) => row.name === "temporary"))
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     this.memories = new MemoryFacts(this.db);
+    this.review = new MemoryReview(this.db, this.memories);
     this.skills = new InstalledSkills(this.db);
     this.projects = new Projects(this);
     this.migrateUsage();
@@ -149,6 +156,18 @@ export class Store {
   openLocker(keys: LockerKeySource): Locker {
     this.receiptsStore ??= new Receipts(keys);
     return (this.lockerStore ??= new Locker(this.db, keys));
+  }
+  /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
+  backup(appVersion: string) { return exportBackup(this.db, appVersion); }
+  /** Restores a backup into a fresh install; refuses when this copy already has state. */
+  restore(input: unknown) { return importBackup(this.db, input); }
+  /** Workspace file history and snapshots for the given workspace. */
+  openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {
+    return (this.historyStore ??= new WorkspaceHistory(this.db, files, owner));
+  }
+  get workspaceHistory(): WorkspaceHistory {
+    if (!this.historyStore) throw new Error("Workspace history is not open in this launch");
+    return this.historyStore;
   }
   /** Signs and verifies tool-success receipts with a key derived from the locker key. */
   get receipts(): Receipts {
@@ -341,6 +360,7 @@ export class Store {
       .map((row) => this.toRecord(row));
   }
   delete(table: RecordTable, owner: string, id: string): boolean {
+    if (table === "memory") return this.memories.delete(owner, id);
     return (
       this.db
         .prepare(`DELETE FROM ${table} WHERE owner=? AND id=?`)
@@ -352,7 +372,10 @@ export class Store {
   updateMemory(owner: string, input: unknown, sourceRunId: string) {
     return this.memories.update(owner, input, sourceRunId);
   }
-  searchMemory(owner: string, query: string) { return this.memories.search(owner, query); }
+  searchMemory(owner: string, query: string, agent?: string) { return this.memories.search(owner, query, agent); }
+  memoryAt(owner: string, input: unknown, agent?: string) { return this.memories.at(owner, input, agent); }
+  memoryTimeline(owner: string, entity: string, agent?: string) { return this.memories.timeline(owner, entity, agent); }
+  setMemorySuppressed(owner: string, sessionId: string, suppressed: boolean) { return this.memories.setSuppressed(owner, sessionId, suppressed); }
   exportMemory(owner: string) { return this.memories.export(owner); }
   importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
   forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }

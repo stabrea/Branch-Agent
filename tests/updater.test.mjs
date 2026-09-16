@@ -96,6 +96,8 @@ test("install downloads, verifies, unpacks beside the install and writes the han
   assert.match(text, /tasklist\.exe \/FI "PID eq %PID%" \/NH \/FO CSV/);
   assert.match(text, /%SystemRoot%\\System32\\find\.exe \/I "Branch Agent Test\.exe"/, "detects the running app by CSV listing with the system find");
   assert.match(text, /:drain[\s\S]*DRAIN% lss 15/, "waits for helper processes to exit");
+  assert.match(text, /:wait[\s\S]*WAITED% lss 60[\s\S]*taskkill\.exe \/PID %PID% \/T \/F/, "ends the app itself if it does not close within the wait");
+  assert.match(text, /app closed >>/, "logs when the app is gone");
   assert.match(text, /:copy[\s\S]*TRIES% lss 3/, "retries the copy before rolling back");
   assert.ok(!/\btimeout \/t/.test(text), "no timeout command; it fails without a console");
   assert.equal(await readFile(join(installDir, "Branch Agent Test.exe"), "utf8"), "old executable", "install untouched until the script runs");

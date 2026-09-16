@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   Budget,
   BudgetError,
@@ -38,8 +39,11 @@ import {
 } from "./provider-retry.js";
 
 const childConcurrency = 4;
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
+export interface FollowUp { id: string; prompt: string; createdAt: string }
+export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
 const compactionThreshold = 11000;
 const compactionKeep = 6;
 const contextLimit = 16000;
@@ -79,6 +83,8 @@ export interface RunOptions {
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
   private readonly children = new Map<string, number>();
+  /** Results of background specialists that finished after their parent, newest first. */
+  readonly backgroundResults: BackgroundResult[] = [];
   private readonly activeSessions = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
@@ -126,6 +132,55 @@ export class Runtime {
   }
   async run(options: RunOptions): Promise<Run> {
     return this.track(() => this.execute(options));
+  }
+  /** Messages waiting for a busy conversation, in order. */
+  queued(sessionId: string): FollowUp[] {
+    const saved = this.store.get("settings", this.owner, `followups:${sessionId}`)?.data as { items?: FollowUp[] } | undefined;
+    return saved?.items ?? [];
+  }
+  /**
+   * Queues a message for a conversation; it runs, in order, as soon as the conversation is free,
+   * so a person can steer a task that is still working without waiting for it to finish.
+   */
+  followUp(sessionId: string, prompt: string): { id: string; position: number; queued: number } {
+    RunInputSchema.parse({ prompt, sessionId });
+    if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
+    const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString() }];
+    this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
+    this.drainFollowUps(sessionId);
+    const left = this.queued(sessionId);
+    return { id: items.at(-1)!.id, position: Math.max(1, left.findIndex((f) => f.id === items.at(-1)!.id) + 1), queued: left.length };
+  }
+  private drainFollowUps(sessionId: string): void {
+    if (this.activeSessions.has(sessionId) || !this.accepting) return;
+    const [next, ...rest] = this.queued(sessionId);
+    if (!next) return;
+    this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
+    void this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined })).catch(() => undefined);
+  }
+  /**
+   * Starts a specialist that keeps working after the parent finishes; its result is kept on the
+   * child run and recorded on the parent when it arrives.
+   */
+  async delegateBackground(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}): Promise<{ childRunId: string; sessionId: string }> {
+    if (parent.depth >= 3) throw new Error("Delegation depth limit reached");
+    if (permissions.some((p) => !parent.permissions.has(p))) throw new Error("Delegation permission escalation denied");
+    const timeoutMs = options.timeoutMs ?? 120000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
+    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(), ...(options.agent ? { agent: options.agent } : {}) };
+    let started: Run | undefined;
+    const startedAt = new Promise<Run>((resolve) => { started = undefined; void resolve; });
+    void startedAt;
+    const child = this.track(() => this.execute({ prompt, signal: context.signal, onStarted: (r) => { started = r; }, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
+    void child.then((run) => {
+      const result: BackgroundResult = { childRunId: run.id, parentRunId: parent.runId, status: run.status, output: run.output.slice(0, 4000), finishedAt: new Date().toISOString() };
+      this.backgroundResults.unshift(result); this.backgroundResults.splice(20);
+      if (parent.runId) this.store.event(parent.runId, "delegation.background_finished", { ...result });
+    }, () => undefined);
+    for (let i = 0; i < 200 && !started; i++) await new Promise((r) => setTimeout(r, 5));
+    if (!started) throw new Error("The background specialist did not start");
+    if (parent.runId) this.store.event(parent.runId, "delegation.background_started", { childRunId: started.id, prompt: prompt.slice(0, 200) });
+    return { childRunId: started.id, sessionId: started.sessionId };
   }
   /**
    * Continues a task that was interrupted (for example by a restart) from its saved transcript.
@@ -249,6 +304,7 @@ export class Runtime {
       signal: AbortSignal.any([parent.signal, timeout.signal]),
       permissions: new Set(permissions),
       depth: parent.depth + 1,
+      ...(options.agent ? { agent: options.agent } : {}),
     };
     try {
       return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
@@ -273,7 +329,7 @@ export class Runtime {
    * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
    * results into later prompts; every result is merged under the parent run.
    */
-  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string }): Promise<FanoutOutcome> {
+  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string; agent?: string }): Promise<FanoutOutcome> {
     const waves = fanoutWaves(tasks), byId = new Map(tasks.map((t) => [t.id, t]));
     const outcomes: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> = {};
     for (const wave of waves) {
@@ -284,6 +340,7 @@ export class Runtime {
         const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions, {
           ...(task.resultSchema ? { resultSchema: task.resultSchema } : {}),
           ...(task.checks ? { checks: CompletionCheckSchema.parse(task.checks) } : {}),
+          ...(spec.agent ? { agent: spec.agent } : {}),
         });
         outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
       }));
@@ -348,7 +405,32 @@ export class Runtime {
       output = errorText(error);
       if (error instanceof NeedsInputError) this.store.event(run.id, "attention.needed", { question: error.question });
     }
-    return this.settleRun(run, context, status, output);
+    const settled = await this.settleRun(run, context, status, output);
+    if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    if (!parent) this.drainFollowUps(run.sessionId);
+    return settled;
+  }
+  /** When review is on, asks the model separately, after the task, what is worth remembering; suggestions wait for the owner. */
+  private scheduleReview(run: Run, context: ToolContext): void {
+    if (!this.store.review.settings(context.owner).review || this.store.sessionTemporary(run.sessionId)) return;
+    void this.track(() => this.reviewRun(run, context).catch((error) => this.store.event(run.id, "learning.review_failed", { error: errorText(error) })));
+  }
+  private async reviewRun(run: Run, context: ToolContext): Promise<void> {
+    const transcript = this.store.messages(run.sessionId).filter((m) => m.role !== "system").slice(-8)
+      .map((m) => `${m.role}: ${m.content.slice(0, 1500)}`).join("\n").slice(0, 8000);
+    const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }), signal: AbortSignal.timeout(60000) };
+    const completion = await this.complete(run, [
+      { role: "system", content: reviewInstructions },
+      { role: "user", content: `Task: ${run.prompt.slice(0, 1000)}\n\nWhat happened:\n${transcript}` },
+    ], scoped, preset, null);
+    const parsed = checkResult(completion.content, { type: "object", properties: { memories: { type: "array" }, skills: { type: "array" } } });
+    if (parsed.status !== "resolved") { this.store.event(run.id, "learning.reviewed", { memories: 0, skills: 0, unreadable: true }); return; }
+    const value = parsed.value as { memories?: { text?: string; source?: string }[]; skills?: { skillId?: string; note?: string }[] };
+    const memories = (value.memories ?? []).filter((m) => m?.text).slice(0, 5), skills = (value.skills ?? []).filter((s) => s?.skillId && s.note).slice(0, 3);
+    for (const m of memories) this.store.review.propose(context.owner, { kind: "put", text: String(m.text).slice(0, 4000), source: String(m.source ?? "Suggested after a task").slice(0, 500), runId: run.id });
+    for (const s of skills) this.store.review.propose(context.owner, { kind: "skill-note", skillId: String(s.skillId).slice(0, 200), text: String(s.note).slice(0, 4000), runId: run.id });
+    this.store.event(run.id, "learning.reviewed", { memories: memories.length, skills: skills.length });
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
@@ -439,6 +521,9 @@ export class Runtime {
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context),
       },
     ];
+    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId, context.agent);
+    if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
+    this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);

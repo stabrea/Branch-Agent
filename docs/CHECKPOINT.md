@@ -47,10 +47,63 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Update incident 2026-09-15 (owner's 0.3.0 → 0.6.0) and the fix shipped in 0.7.0
+
+What happened: the button downloaded and staged 0.6.0 (169 MB took minutes with no visible progress; a
+second press hit "already in progress"), the hand-over script started, `app.quit()` ran but the
+shutdown never finished, so the process stayed alive with its window gone, the script waited on the
+pid forever, and relaunching only signalled the stuck single instance ("didn't open"). Fix: bounded
+shutdown (8 s race then `app.exit(0)`), a 20 s hard exit after launching the hand-over, the script
+ends the old pid itself after ~2 minutes, a second press returns status instead of an error, and a
+full-window updating screen (`public/update-screen.js`: stage, MB progress, pixel walker). The
+owner's install was moved to 0.7.0 by hand (previous kept as 0.3.0). Research: Hermes does not use a
+model to update; it uses numbered config migrations, update receipts and verified restart recovery.
+Follow-up: receipts + first-launch version check for Branch (issue #18).
+
+## Release 0.7.0 (batches 12 to 15)
+
+Version 0.7.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip via
+System32 tar.exe; two-space checksum file. Coverage 85 implemented, 20 partial, 63 missing, 1 external.
+
+## Batch 15 (released in 0.7.0): time-qualified facts, memory scopes, admission switch, tidy-up view
+
+`MemoryDataSchema` gained entity/attribute/validFrom/validTo/scope (scope optional so exports keep their
+shape); `closeEarlier` ends the previous fact and keeps a version (reason superseded); `memory.at`,
+`memory.timeline`; `ToolContext.agent` set by `Knowledge.delegate`/fan-out (`activeSpecialist` returns the
+id) and honoured by search/at/timeline, memory.put's default scope and the session snapshot;
+`/api/sessions/:id/memory-policy` reuses memory_suppressions; Memory view: about/detail/shared fields,
+Tidy up + Set aside list; conversation panel: remember switch.
+
+## Batch 14 (released in 0.7.0): recipe inputs and result shapes, templates, project folders
+
+`src/recipes.ts` (ParametersSchema, bindInputs, substitute, placeholders) used by `Knowledge.bound()` in
+verify/replay; `resultSchema` on procedures checked with the exported `mismatch`; `src/templates.ts`
+(export/import with the skill scanner's secret patterns) + `templates.export/import` tools and
+`/api/templates/*`; `WorkspaceFiles.scope`/`base` driven by the active project's `folder`.
+
+## Batch 13 (released in 0.7.0): OpenAI endpoint, SSE, follow-ups, background specialists, backup, health
+
+`src/openai-compat.ts` (`/v1/chat/completions`, `/v1/models`), `src/streams.ts` (`/api/runs/:id/stream`),
+`Runtime.followUp/queued/drainFollowUps` (durable queue in settings `followups:<session>`, drained after each
+top-level run), `Runtime.delegateBackground` + `specialists.delegate background`, `src/backup.ts`
+(`store.backup/restore`, `branch backup|restore`, desktop `exportBackup` IPC), `src/health.ts`
+(`/api/health`, `branch doctor --probe`, Settings → Health check). Raw-response routes go through
+`rawApi()` in server.ts. Test runner concurrency is 3: at the default, an Electron test can stall and hang
+the whole suite (kill the stray `electron.exe` from node_modules, never the owner's app).
+
+## Batch 12 (released in 0.7.0): workspace history, memory versions, checkpoints, approval, review, session snapshot
+
+`src/workspace-history.ts` (file_versions/workspace_snapshots, lineDiff, files.history/files.restore/
+workspace.snapshot, `/api/history/*`, Activity undo buttons, Settings snapshots card) wired through a
+`WriteObserver` on files.write; `src/memory-review.ts` (settings `learning`, proposals, checkpoints,
+session snapshot) + memory_versions in `MemoryFacts` (kept before edit and on delete), staged memory
+tools when requireApproval, post-task review in `Runtime.scheduleReview` (detached, tracked). Note:
+Store's `history` is the session library; the workspace one is `store.workspaceHistory`.
+
 ## Release 0.6.0 (batches 10 and 11)
 
-Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
-made with `C:\Windows\System32	ar.exe -a -cf` (forward-slash entries, like earlier releases) and a
+Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.6.0 (main d831752, PR #27, CI green before merge). Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
+made with `C:\Windows\System32\tar.exe -a -cf` (forward-slash entries, like earlier releases) and a
 two-space `sha256sum`-style checksum file. `npm run package:desktop` does not produce the zip.
 
 ## Batch 11 (released in 0.6.0): skill scanning, receipts, content guard, delegated exit criteria, live activity

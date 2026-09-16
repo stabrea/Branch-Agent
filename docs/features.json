@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T00:25:38.508373+00:00",
+  "assessment_date": "2026-09-16T01:16:33.739103+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -360,18 +360,19 @@
       "family": "routing",
       "name": "Shared agent identity with separate conversations",
       "acceptance_criterion": "Recall a shared permitted memory in two sessions while keeping their message histories separate.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/runtime.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "two conversations recall the same permitted memory while their histories stay separate"
         ],
-        "detail": "Memory is owner-scoped, sessions have separate message rows, and tools allow lookup; no cross-session acceptance fixture."
+        "detail": "Two distinct conversations of the same owner recall the same permitted fact through memory.search while their message histories stay separate."
       },
-      "remaining": "Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate."
+      "remaining": ""
     },
     {
       "id": "routing.isolated-agents",
@@ -1033,54 +1034,59 @@
       "family": "extensions",
       "name": "Agent templates without secrets",
       "acceptance_criterion": "Create an agent from a template and verify that instructions and tool requirements transfer without secrets.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/templates.ts",
           "src/knowledge.ts",
-          "public/app.js"
+          "src/server.ts",
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "specialists require evidence to promote and delegation cannot escalate"
+          "templates carry a definition between installs without ids, evidence or secrets"
         ],
-        "detail": "Specialist definitions persist instructions and permission subsets; browser offers one editable example."
+        "detail": "templates.export / GET /api/templates/:kind/:id produce a template with the definition only (no ids, evidence or history) and refuse when the text carries a pasted key; templates.import / POST /api/templates/import create a fresh proposed specialist or recipe that must still be evaluated or verified, with the usual permission-subset check."
       },
-      "remaining": "Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets."
+      "remaining": ""
     },
     {
       "id": "extensions.recipes",
       "family": "extensions",
       "name": "Parameterized recipes and requirements",
       "acceptance_criterion": "Instantiate a parameterized recipe and reject missing or invalid required input before execution.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/recipes.ts",
           "src/knowledge.ts",
-          "tests/knowledge.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions"
+          "recipes bind declared inputs before running and refuse missing, wrong or unknown ones"
         ],
-        "detail": "Recipes contain concrete tool args with Zod definition validation and preconditions; no parameterized instantiation."
+        "detail": "Recipes declare `parameters` (string/number/boolean, required, default); procedures.verify/replay take `inputs`, which are bound before any step runs (missing required, wrong type and unknown names are refused together), and {{name}} placeholders in step args, expectations and preconditions take the bound values. Proposing a recipe with undeclared placeholders is refused. Event procedure.inputs_bound."
       },
-      "remaining": "Add parameter definitions, required-input binding and invalid-input rejection before recipe execution."
+      "remaining": ""
     },
     {
       "id": "extensions.structured",
       "family": "extensions",
       "name": "JSON Schema outputs",
       "acceptance_criterion": "Validate a recipe result against its JSON Schema and reject a nonconforming result.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/recipes.ts",
           "src/knowledge.ts",
-          "src/integrations/mcp.ts"
+          "src/delegation.ts",
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "procedure with wrong expected output is never verified"
+          "a recipe with a declared result shape rejects a result that does not fit"
         ],
-        "detail": "Procedure verification compares exact expected tool values; MCP input schema validation is not recipe output-schema validation."
+        "detail": "A recipe may declare `resultSchema` (the JSON-Schema subset shared with delegation); the final step's result is checked and a mismatch fails the recipe with the reason (procedure.result_rejected), leaving it unverified."
       },
-      "remaining": "Validate recipe result against a declared JSON Schema and reject a nonconforming fixture."
+      "remaining": ""
     },
     {
       "id": "extensions.tool-building",
@@ -1295,36 +1301,42 @@
       "family": "memory",
       "name": "Explicit agent and project memory boundaries",
       "acceptance_criterion": "Verify that memory queries return only entries in the agent and explicitly shared scopes.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/memory.ts",
+          "src/memory-review.ts",
+          "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/contracts.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "private, shared and agent scopes decide what a delegated specialist can recall, while the owner sees everything"
         ],
-        "detail": "Owner query isolation exists; agent scope and configurable shared scope are absent."
+        "detail": "Facts carry a scope: private (owner only, default), shared, or agent:<id>. Delegated specialists run with an agent id; their memory.search/memory.at/timeline and their conversation snapshot see only shared facts and their own, their memory.put lands in their own scope unless marked shared, and the owner sees everything."
       },
-      "remaining": "Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes."
+      "remaining": ""
     },
     {
       "id": "memory.lineage",
       "family": "memory",
       "name": "Source lineage and admission controls",
       "acceptance_criterion": "Record source-session lineage for an admitted memory and exclude a denied session from automatic ingestion.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/server.ts"
+          "src/memory.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "a conversation can be told to stop remembering on its own and allowed again, and tidy-up sets old facts aside restorably"
         ],
-        "detail": "Explicit writes store source, timestamp and sourceRunId; no automatic ingestion or source-session admission mechanism."
+        "detail": "Every fact keeps source, time, sourceRunId and originRunId. Each conversation has an admission switch (GET/POST /api/sessions/:id/memory-policy, and in the conversation panel): denied conversations cannot save memory on their own; temporary conversations never can; forgetting a conversation also denies it. Allowing again re-admits it."
       },
-      "remaining": "Add session admission/denial policy and automatic-ingestion exclusion fixtures."
+      "remaining": ""
     },
     {
       "id": "memory.forget",
@@ -1422,16 +1434,21 @@
       "family": "memory",
       "name": "Time-aware entity and relationship memory",
       "acceptance_criterion": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/store.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/memory-scopes.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "facts about an entity change over time and a time-qualified question gets the fact valid then"
+        ],
+        "detail": "A fact may name an entity, an attribute and validFrom; saving a newer fact for the same entity and attribute ends the earlier one at that moment (kept as a version, reason superseded). memory.at answers which facts were true at a given time and memory.timeline lists an entity's facts in order; the Memory view shows about/detail/from-until."
       },
-      "remaining": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time."
+      "remaining": ""
     },
     {
       "id": "memory.linked-wiki",
@@ -1529,104 +1546,130 @@
       "family": "learning",
       "name": "Versioned durable memory",
       "acceptance_criterion": "Inspect two durable-memory revisions and recover the prior content after a faulty edit.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts"
+          "src/memory-review.ts",
+          "src/memory.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions",
-          "specialists require evidence to promote and delegation cannot escalate"
+          "every memory edit and deletion keeps an exact earlier version that can be restored"
         ],
-        "detail": "Version history applies to procedures/specialists, not memory records."
+        "detail": "memory_versions keeps the exact previous content before every edit and on deletion; GET /api/memory/versions?id= lists them and POST /api/memory/versions/restore writes one back as a new revision (a deleted fact comes back). Memory cards have a History button."
       },
-      "remaining": "Version and restore durable-memory content itself."
+      "remaining": ""
     },
     {
       "id": "learning.review",
       "family": "learning",
       "name": "Post-task memory and skill review",
       "acceptance_criterion": "Run a post-task review that can propose a memory or skill change with a link to the originating task.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "with review on, a finished task is reviewed separately and suggestions link back to it"
+        ],
+        "detail": "With review on, each completed top-level, non-temporary task gets a separate bounded model call (its own small budget, 60 s limit) that may propose memories and skill notes as JSON; every proposal links to the originating run and waits for acceptance. Recorded as learning.reviewed."
       },
-      "remaining": "Run a post-task review that can propose a memory or skill change with a link to the originating task."
+      "remaining": ""
     },
     {
       "id": "learning.approval",
       "family": "learning",
       "name": "Pending memory write review",
       "acceptance_criterion": "Stage a memory write when review is enabled and apply it only after acceptance.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "with approval on, the model's memory changes wait as suggestions until the owner accepts or rejects them"
+        ],
+        "detail": "With requireApproval on (Memory \u2192 What it learns), memory.put/update/delete from the model become staged proposals (kind, text, source, run id); nothing is written until the owner accepts (applied exactly) or rejects (recorded)."
       },
-      "remaining": "Stage a memory write when review is enabled and apply it only after acceptance."
+      "remaining": ""
     },
     {
       "id": "learning.journey",
       "family": "learning",
       "name": "Inspect edit prune and archive learning",
       "acceptance_criterion": "List learned memories and skills, edit one, and remove or archive one through the learning view.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "public/app.js",
-          "src/knowledge.ts"
+          "public/index.html",
+          "src/memory.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "browser UI connects, runs demo, saves memory, and fits mobile viewport"
+          "a conversation can be told to stop remembering on its own and allowed again, and tidy-up sets old facts aside restorably"
         ],
-        "detail": "Memory list/add/delete and specialist/procedure list/revise exist, but memory editing and skill removal/archive are absent."
+        "detail": "The Memory view edits, deletes, shows history and restores versions of facts; Tidy up previews and sets aside facts untouched for N days and brings them back; suggestions can be accepted or rejected; skills can be disabled (archived) or removed with all versions."
       },
-      "remaining": "Complete learning-view edit/remove/archive operations for memories and skills."
+      "remaining": ""
     },
     {
       "id": "learning.cache",
       "family": "learning",
       "name": "Bounded session-start memory snapshots",
       "acceptance_criterion": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a conversation keeps the memory snapshot it started with; a new conversation gets a fresh one"
+        ],
+        "detail": "A conversation's first run takes a memory snapshot (up to 20 recent facts, 2,000 chars) into a system message and stores it per session; later runs in that conversation reuse it unchanged (memory.snapshot event with reused: true); a new conversation takes a fresh one."
       },
-      "remaining": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary."
+      "remaining": ""
     },
     {
       "id": "learning.pre-edit-checkpoint",
       "family": "learning",
       "name": "Automatic recovery point before memory or skill edits",
       "acceptance_criterion": "Create a checkpoint before an automated memory or skill mutation and restore the exact previous content.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts"
+          "src/memory-review.ts",
+          "src/memory.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions"
+          "a checkpoint puts memories and skill versions back exactly"
         ],
-        "detail": "Procedure/specialist revisions retain prior definitions; memory checkpoints and general restore are absent."
+        "detail": "POST /api/memory/checkpoints freezes every memory record (id, text, times, revision) and each skill's active version; restore replaces the current memory set with the checkpoint's exact records and re-selects the recorded skill versions, in one transaction."
       },
-      "remaining": "Create and restore exact pre-mutation memory/skill checkpoints with acceptance fixtures."
+      "remaining": ""
     },
     {
       "id": "learning.governance",
@@ -1743,21 +1786,19 @@
       "family": "delegation",
       "name": "Restrict child tool access",
       "acceptance_criterion": "Grant a child one extension and prove it cannot invoke a tool outside that grant.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/registry.ts",
-          "tests/integrations.test.mjs",
-          "tests/knowledge.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
-          "specialists require evidence to promote and delegation cannot escalate"
+          "a delegated child granted exactly one tool succeeds with it and is refused another"
         ],
-        "detail": "Delegation cannot expand parent permissions; registry rejects unauthorized tools before execution; MCP tools each receive an individual permission."
+        "detail": "A child delegated with exactly one permission uses that tool successfully and a call outside the grant is refused as Permission denied (tool.failed, classified blocked in receipts) with no side effect; granting more than the parent holds is refused before the child starts."
       },
-      "remaining": "Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately."
+      "remaining": ""
     },
     {
       "id": "delegation.limits",
@@ -1806,15 +1847,20 @@
       "family": "delegation",
       "name": "Queue follow-ups while tasks run",
       "acceptance_criterion": "Queue a follow-up into an active session while another session continues independently.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts"
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "ActiveSessions explicitly rejects a second active run in the same session."
+        "tests": [
+          "messages sent while a conversation is busy wait their turn and run in order"
+        ],
+        "detail": "POST /api/sessions/:id/followups queues a message for a busy conversation (durable, ordered); it runs as soon as the current task finishes while other sessions continue; GET lists the queue; /api/activity shows the count; the composer stays open while a task runs and explains that the message waits its turn."
       },
-      "remaining": "Implement queued follow-ups to an active session while another session continues."
+      "remaining": ""
     },
     {
       "id": "delegation.cancellation",
@@ -1842,17 +1888,20 @@
       "family": "delegation",
       "name": "Preserve critical child results after parent finishes",
       "acceptance_criterion": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/server.ts",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a background specialist finishes after its parent and the result is kept for the parent"
+        ],
+        "detail": "specialists.delegate with background: true (Runtime.delegateBackground) starts a child whose signal is not tied to the parent's; it finishes after the parent completes, keeps its result on the child run, records delegation.background_started/finished on the parent and appears in state.background for delivery."
       },
-      "remaining": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery."
+      "remaining": ""
     },
     {
       "id": "delegation.persistent-teams",
@@ -2091,22 +2140,22 @@
       "family": "workspace",
       "name": "Project files instructions repositories and presets",
       "acceptance_criterion": "Switch projects and verify the selected files, instructions, repository and model preset.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/projects.ts",
-          "src/runtime.ts",
-          "src/models.ts",
-          "src/server.ts",
+          "src/files.ts",
+          "src/index.ts",
+          "public/index.html",
           "public/app.js",
-          "tests/projects-locker.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "switching projects changes instructions and the preferred model; the default project always exists"
+          "a project folder scopes every file action to that folder inside the workspace"
         ],
-        "detail": "Named projects with instructions, preferred model preset and secrets; switching the active project changes all three for new tasks; per-conversation model choices still win."
+        "detail": "A project may name a folder inside the workspace; while it is active every file tool resolves inside that folder (created on demand), listing shows only its contents, and traversal out of it is refused. The repository field remains a plain link recorded on the project."
       },
-      "remaining": "Scope workspace files and a linked repository to the active project."
+      "remaining": ""
     },
     {
       "id": "workspace.secrets",
@@ -2171,34 +2220,44 @@
       "family": "workspace",
       "name": "Visible file diffs and artifacts",
       "acceptance_criterion": "Show the actual before-and-after file diff and link the resulting artifact after an edit.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/workspace-history.ts",
           "src/files.ts",
-          "public/app.js"
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/workspace-history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "every file change keeps the bytes before it, shows a diff, and can be undone"
+        ],
+        "detail": "Every files.write keeps the previous bytes as a version and records a file.changed event with a line diff (+/- counts and a compact unified text). The Activity card lists each change with Show change and Undo this change (POST /api/history/restore); files.history and files.restore expose the same to the model."
       },
-      "remaining": "Show the actual before-and-after file diff and link the resulting artifact after an edit."
+      "remaining": ""
     },
     {
       "id": "workspace.snapshots",
       "family": "workspace",
       "name": "Workspace snapshots and revert",
       "acceptance_criterion": "Capture a workspace snapshot, modify a file and restore its exact previous bytes.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/workspace-history.ts",
           "src/files.ts",
-          "public/app.js"
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/workspace-history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a workspace snapshot restores every file to its exact previous bytes and skips secrets"
+        ],
+        "detail": "POST /api/history/snapshots (or the workspace.snapshot tool, or Settings \u2192 Workspace snapshots) records every workspace file's exact bytes (base64 in SQLite; node_modules/.git/dist/release and secret-named files skipped; 500 files / 256 KiB each / 16 MB total). Restore writes every recorded file's exact bytes back; files created later are left in place."
       },
-      "remaining": "Capture a workspace snapshot, modify a file and restore its exact previous bytes."
+      "remaining": ""
     },
     {
       "id": "workspace.cross-topic",
@@ -2598,18 +2657,19 @@
       "family": "interop",
       "name": "OpenAI-compatible API",
       "acceptance_criterion": "Complete a compatible conversation request through the exposed OpenAI-style endpoint.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/openai-compat.ts",
           "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "the OpenAI-style endpoint completes a conversation request, continues a session, lists models and streams chunks"
+        ],
+        "detail": "POST /v1/chat/completions (bearer session token) turns the last user message plus caller instructions into a run, returns the chat.completion shape with usage and branch.{run_id, session_id, status}, continues a conversation via x-branch-session or metadata.session_id, maps a known preset id from `model`, and streams chat.completion.chunk events ending with [DONE]. GET /v1/models lists presets."
       },
-      "remaining": "Complete a compatible conversation request through the exposed OpenAI-style endpoint."
+      "remaining": ""
     },
     {
       "id": "interop.sdk",
@@ -2640,16 +2700,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
+          "src/streams.ts",
           "src/server.ts",
-          "src/store.ts",
-          "public/app.js"
+          "src/openai-compat.ts",
+          "tests/interop.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "run events stream in order over SSE until the run ends, resuming after a given id"
         ],
-        "detail": "REST returns persisted ordered events; browser polls state. No WebSocket or SSE."
+        "detail": "REST returns persisted ordered events; GET /api/runs/:id/stream sends them in id order over Server-Sent Events until the run ends, resuming after ?after=<id>; the OpenAI endpoint streams deltas the same way."
       },
-      "remaining": "Expose and verify ordered activity over REST, WebSocket and SSE."
+      "remaining": "WebSocket transport (no dependency-free server in Node)."
     },
     {
       "id": "interop.acp",
@@ -2800,20 +2861,21 @@
       "family": "operations",
       "name": "Status diagnostics and recovery",
       "acceptance_criterion": "Report service and adapter health and identify a deliberately broken prerequisite with an actionable diagnostic.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/health.ts",
+          "src/server.ts",
           "src/cli.ts",
-          "src/integrations/bootstrap.ts",
-          "src/providers.ts"
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
         "tests": [
-          "CLI loads explicitly configured integrations before doctor",
-          "real provider configuration is explicit and has no credential fallback"
+          "the health check names what works and what to do about what does not"
         ],
-        "detail": "Doctor opens SQLite and reports configuration; integration startup errors provide some diagnostics, no comprehensive liveness tests."
+        "detail": "GET /api/health (Settings \u2192 Health check, `branch doctor [--probe]`) probes the database, workspace writability, device key, model choices (optionally one tiny request to the active model), ChatGPT sign-in state, channels and dead letters, schedules and tasks waiting for input; each item has an ok flag, a summary and a plain fix."
       },
-      "remaining": "Probe configured provider/adapters and identify a deliberately broken prerequisite with actionable health state."
+      "remaining": ""
     },
     {
       "id": "operations.migration",
@@ -2856,18 +2918,23 @@
       "family": "operations",
       "name": "Full application backup and restore",
       "acceptance_criterion": "Back up configured application state and restore it into a clean instance with sessions and configuration intact.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/cli.ts",
-          "src/index.ts",
+          "src/backup.ts",
+          "src/store.ts",
           "src/server.ts",
-          "package.json"
+          "src/cli.ts",
+          "src/desktop/conversation-export.ts",
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a backup restores conversations, memory and skills into a fresh install, without secrets"
+        ],
+        "detail": "GET /api/backup (Settings \u2192 Backup, `branch backup <file>`) exports every state table as plain rows (secrets excluded: device-bound key); POST /api/restore or `branch restore <file>` inserts them into a fresh install in one transaction and refuses when the install already has state."
       },
-      "remaining": "Back up configured application state and restore it into a clean instance with sessions and configuration intact."
+      "remaining": ""
     },
     {
       "id": "operations.sandbox-lifecycle",

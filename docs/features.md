@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 63 implemented, 33 partial, 1 external and 72 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 85 implemented, 20 partial, 1 external and 63 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -32,7 +32,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Mention activation and engagement policies (`routing.activation`) | implemented | Covered by the listed local fixtures. |
 | Sender allowlists and pairing (`routing.pairing`) | implemented | Covered by the listed local fixtures. |
 | Conversation spanning channels (`routing.shared-session`) | missing | Continue one conversation from two linked channels with both surfaces observing the same ordered history. |
-| Shared agent identity with separate conversations (`routing.shared-identity`) | partial | Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate. |
+| Shared agent identity with separate conversations (`routing.shared-identity`) | implemented | Covered by the listed local fixtures. |
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
 | Search resume duplicate import and export sessions (`routing.lifecycle`) | implemented | Covered by the listed local fixtures. |
 | Temporary chats excluded from history and memory (`routing.temporary`) | implemented | Covered by the listed local fixtures. |
@@ -75,9 +75,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Pin a procedure to active chat (`extensions.pinning`) | implemented | Covered by the listed local fixtures. |
 | MCP servers and tool selection (`extensions.mcp`) | implemented | Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability. |
 | Plugin and channel adapter registry (`extensions.registry`) | missing | Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation. |
-| Agent templates without secrets (`extensions.templates`) | partial | Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets. |
-| Parameterized recipes and requirements (`extensions.recipes`) | partial | Add parameter definitions, required-input binding and invalid-input rejection before recipe execution. |
-| JSON Schema outputs (`extensions.structured`) | partial | Validate recipe result against a declared JSON Schema and reject a nonconforming fixture. |
+| Agent templates without secrets (`extensions.templates`) | implemented | Covered by the listed local fixtures. |
+| Parameterized recipes and requirements (`extensions.recipes`) | implemented | Covered by the listed local fixtures. |
+| JSON Schema outputs (`extensions.structured`) | implemented | Covered by the listed local fixtures. |
 | Generate capability-limited WASM tools (`extensions.tool-building`) | missing | Build a requested WASM tool and execute it with only declared host capabilities. |
 | Lifecycle event hooks with failure isolation (`extensions.lifecycle-hooks`) | missing | Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold. |
 | Connect external hosted agent platforms (`extensions.platform-bridge`) | missing | Invoke a configured external agent-platform workflow and return its correlated result through the assistant. |
@@ -92,13 +92,13 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
 | Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |
 | External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
-| Explicit agent and project memory boundaries (`memory.scope`) | partial | Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes. |
-| Source lineage and admission controls (`memory.lineage`) | partial | Add session admission/denial policy and automatic-ingestion exclusion fixtures. |
+| Explicit agent and project memory boundaries (`memory.scope`) | implemented | Covered by the listed local fixtures. |
+| Source lineage and admission controls (`memory.lineage`) | implemented | Covered by the listed local fixtures. |
 | Preview removal of tracked derived memory (`memory.forget`) | implemented | Covered by the listed local fixtures. |
 | Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
 | Automatic archival and expiry of stale memory (`memory.hygiene`) | implemented | Covered by the listed local fixtures. |
 | Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
-| Time-aware entity and relationship memory (`memory.temporal-graph`) | missing | Store changing facts about an entity and answer a time-qualified query using the fact valid at that time. |
+| Time-aware entity and relationship memory (`memory.temporal-graph`) | implemented | Covered by the listed local fixtures. |
 | Editable linked knowledge pages (`memory.linked-wiki`) | missing | Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval. |
 | Shared memory through independent host adapters (`memory.cross-agent`) | missing | Ingest a supported host's session log and retrieve its permitted memory through a second host adapter. |
 | Locally searchable email calendar and message datasets (`memory.connector-datasets`) | missing | Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers. |
@@ -109,12 +109,12 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Context compaction preserving task handoff (`learning.compaction`) | implemented | Covered by the listed local fixtures. |
 | Scheduled consolidation from append-only history (`learning.dream`) | missing | Process only new archive entries during scheduled consolidation and advance the consumption cursor after success. |
-| Versioned durable memory (`learning.versioning`) | partial | Version and restore durable-memory content itself. |
-| Post-task memory and skill review (`learning.review`) | missing | Run a post-task review that can propose a memory or skill change with a link to the originating task. |
-| Pending memory write review (`learning.approval`) | missing | Stage a memory write when review is enabled and apply it only after acceptance. |
-| Inspect edit prune and archive learning (`learning.journey`) | partial | Complete learning-view edit/remove/archive operations for memories and skills. |
-| Bounded session-start memory snapshots (`learning.cache`) | missing | Keep the injected memory snapshot stable within a session and refresh it at the next session boundary. |
-| Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | partial | Create and restore exact pre-mutation memory/skill checkpoints with acceptance fixtures. |
+| Versioned durable memory (`learning.versioning`) | implemented | Covered by the listed local fixtures. |
+| Post-task memory and skill review (`learning.review`) | implemented | Covered by the listed local fixtures. |
+| Pending memory write review (`learning.approval`) | implemented | Covered by the listed local fixtures. |
+| Inspect edit prune and archive learning (`learning.journey`) | implemented | Covered by the listed local fixtures. |
+| Bounded session-start memory snapshots (`learning.cache`) | implemented | Covered by the listed local fixtures. |
+| Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | implemented | Covered by the listed local fixtures. |
 | Evidence-governed skill lifecycle and rollback (`learning.governance`) | partial | Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics. |
 | Optimize skill candidates from recorded traces (`learning.trace-optimization`) | missing | Generate a skill candidate from trace data and retain both candidate and original for comparison. |
 | Compare skill versions on reproducible evaluation tasks (`learning.skill-benchmark`) | partial | Add a runner executing baseline/candidate skills against identical fixtures and seeds and persisting per-task outcomes/costs. |
@@ -126,12 +126,12 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Focused child agents (`delegation.children`) | implemented | External model behavior remains configuration-dependent; local fixture establishes child/result isolation only. |
 | Sequential and parallel tasks (`delegation.parallel`) | implemented | Covered by the listed local fixtures. |
-| Restrict child tool access (`delegation.tools`) | partial | Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately. |
+| Restrict child tool access (`delegation.tools`) | implemented | Covered by the listed local fixtures. |
 | Depth concurrency timeout and turn bounds (`delegation.limits`) | implemented | Covered by the listed local fixtures. |
 | Structured child result contracts (`delegation.results`) | implemented | Covered by the listed local fixtures. |
-| Queue follow-ups while tasks run (`delegation.steering`) | partial | Implement queued follow-ups to an active session while another session continues. |
+| Queue follow-ups while tasks run (`delegation.steering`) | implemented | Covered by the listed local fixtures. |
 | Cascading child cancellation (`delegation.cancellation`) | implemented | Covered by the listed local fixtures. |
-| Preserve critical child results after parent finishes (`delegation.orphans`) | missing | Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery. |
+| Preserve critical child results after parent finishes (`delegation.orphans`) | implemented | Covered by the listed local fixtures. |
 | Persistent specialist roles and team rooms (`delegation.persistent-teams`) | partial | Add durable team membership/roles and shared room history with restart fixture. |
 | Route task chains and fan-out across named teammates (`delegation.handoff`) | implemented | Covered by the listed local fixtures. |
 
@@ -153,12 +153,12 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Project files instructions repositories and presets (`workspace.projects`) | partial | Scope workspace files and a linked repository to the active project. |
+| Project files instructions repositories and presets (`workspace.projects`) | implemented | Covered by the listed local fixtures. |
 | Project-scoped secrets and knowledge (`workspace.secrets`) | implemented | Covered by the listed local fixtures. |
 | Live editable Markdown artifacts (`workspace.markdown`) | partial | Provide user editor and conflict-aware nonconflicting agent/user merge fixture. |
 | Document spreadsheet and presentation cowork (`workspace.office`) | missing | Create and reopen a document, spreadsheet and presentation in the supported office integration. |
-| Visible file diffs and artifacts (`workspace.diffs`) | missing | Show the actual before-and-after file diff and link the resulting artifact after an edit. |
-| Workspace snapshots and revert (`workspace.snapshots`) | missing | Capture a workspace snapshot, modify a file and restore its exact previous bytes. |
+| Visible file diffs and artifacts (`workspace.diffs`) | implemented | Covered by the listed local fixtures. |
+| Workspace snapshots and revert (`workspace.snapshots`) | implemented | Covered by the listed local fixtures. |
 | Explicit topic context sharing (`workspace.cross-topic`) | missing | Attach another topic as context and record which topic was accessed for the task. |
 | Authenticated managed files with read-only sandbox mounts (`workspace.managed-files`) | missing | Upload a managed file and expose it to a task through a read-only mount that rejects writes. |
 | Tasks assigned to agents and teams on a board (`workspace.task-board`) | missing | Create a task, assign it to an agent or team and move it through board stages with persisted state. |
@@ -189,9 +189,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| OpenAI-compatible API (`interop.openai`) | missing | Complete a compatible conversation request through the exposed OpenAI-style endpoint. |
+| OpenAI-compatible API (`interop.openai`) | implemented | Covered by the listed local fixtures. |
 | Embedding SDK (`interop.sdk`) | implemented | Covered by the listed local fixtures. |
-| REST WebSocket and SSE (`interop.streaming`) | partial | Expose and verify ordered activity over REST, WebSocket and SSE. |
+| REST WebSocket and SSE (`interop.streaming`) | partial | WebSocket transport (no dependency-free server in Node). |
 | ACP integration (`interop.acp`) | missing | Complete a task through a supported ACP client or agent adapter using its documented subset. |
 | Agent-to-agent surface (`interop.a2a`) | missing | Exchange a task and result with a compatible A2A peer using declared capabilities. |
 | Remote tool skill and inference discovery (`interop.node-discovery`) | missing | Discover tools, skills and inference advertised by a node and identify their owning host. |
@@ -205,10 +205,10 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Background gateway and foreground modes (`operations.daemon`) | partial | Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop. |
 | Single-binary constrained deployment (`operations.portable`) | missing | Launch a packaged binary on a declared supported target and report measured gateway resource usage. |
 | Serverless idle suspension (`operations.hibernation`) | missing | Suspend the configured serverless environment and resume an operation with its persisted workspace intact. |
-| Status diagnostics and recovery (`operations.health`) | partial | Probe configured provider/adapters and identify a deliberately broken prerequisite with actionable health state. |
+| Status diagnostics and recovery (`operations.health`) | implemented | Covered by the listed local fixtures. |
 | Import configuration skills memories and sessions (`operations.migration`) | missing | Preview and import supported configuration, memory and skills while preserving original source state. |
 | Preconfigured branded desktop distribution (`operations.distribution`) | missing | Build a distribution with selected branding, providers and extensions and verify those defaults on first launch. |
-| Full application backup and restore (`operations.backup-restore`) | missing | Back up configured application state and restore it into a clean instance with sessions and configuration intact. |
+| Full application backup and restore (`operations.backup-restore`) | implemented | Covered by the listed local fixtures. |
 | Manage reproducible agent sandbox lifecycle (`operations.sandbox-lifecycle`) | missing | Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies. |
 
 ## Packages

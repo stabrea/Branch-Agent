@@ -43,6 +43,9 @@ export interface UpdateStatus {
   message: string;
   progress: number | null;
   release: ReleaseInfo | null;
+  /** Download size so far and in total, while downloading. */
+  bytes: { received: number; total: number } | null;
+  updatedAt: string;
 }
 const releaseSchema = z.object({
   tag_name: z.string().min(1),
@@ -64,15 +67,17 @@ export function compareVersions(a: string, b: string): number {
 }
 
 export class Updater {
-  status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null };
+  status: UpdateStatus = { phase: "idle", message: "Updates have not been checked yet.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   private busy = false;
+  /** True while a download, check, unpack or hand-over is under way. */
+  get inProgress(): boolean { return this.busy; }
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
   constructor(private readonly options: UpdaterOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.extract = options.extract ?? expandArchive;
     if (!options.installDir)
-      this.status = { phase: "unsupported", message: "Updates apply to the installed app only.", progress: null, release: null };
+      this.status = { phase: "unsupported", message: "Updates apply to the installed app only.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
@@ -139,7 +144,7 @@ export class Updater {
         received += chunk.byteLength;
         if (received > 1_500_000_000) throw new Error("The download is larger than expected.");
         if (!file.write(chunk)) await new Promise<void>((resolve) => file.once("drain", resolve));
-        if (total) this.set("downloading", "Downloading the new version…", Math.min(0.99, received / total), release);
+        if (total) this.set("downloading", "Downloading the new version…", Math.min(0.99, received / total), release, { received, total });
       }
     } finally { await new Promise<void>((resolve, reject) => file.end((error?: Error | null) => error ? reject(error) : resolve())); }
   }
@@ -174,7 +179,11 @@ export class Updater {
     const sleep = (seconds: number) => `${sys}ping.exe -n ${seconds + 1} 127.0.0.1 >NUL`;
     await writeFile(script, [
       "@echo off", "setlocal", 'set "PID=%~1"', "set TRIES=0", `echo [%date% %time%] update started for pid %PID% >>"${log}"`,
-      ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`, `if not errorlevel 1 ( ${sleep(1)} & goto wait )`,
+      // The app asked itself to close; if it has not gone within about two minutes, end it so the update still lands.
+      "set WAITED=0", ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`,
+      `if not errorlevel 1 if %WAITED% lss 60 ( set /a WAITED+=1 & ${sleep(1)} & goto wait )`,
+      `if not errorlevel 1 ( echo [%time%] app still open after %WAITED% waits; ending it >>"${log}" & ${sys}taskkill.exe /PID %PID% /T /F >NUL 2>&1 & ${sleep(2)} )`,
+      `echo [%time%] app closed >>"${log}"`,
       "set DRAIN=0", ":drain", running, `if not errorlevel 1 if %DRAIN% lss 15 ( set /a DRAIN+=1 & ${sleep(1)} & goto drain )`, sleep(2),
       `echo [%time%] keeping previous version >>"${log}"`, mirror(install, previous), "if errorlevel 8 exit /b 1",
       ":copy", "set /a TRIES+=1", `echo [%time%] copying new version, attempt %TRIES% >>"${log}"`, mirror(stagedDir, install),
@@ -187,9 +196,14 @@ export class Updater {
     ].join("\r\n"), "utf8");
     return script;
   }
-  private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release): UpdateStatus {
-    this.status = { phase, message, progress, release };
+  private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
+    this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
     return this.status;
+  }
+  /** Marks the hand-over as running once the script has been launched; the app is about to close. */
+  applying(): UpdateStatus {
+    this.busy = true;
+    return this.set("applying", "Closing to finish the update. The app opens again by itself in a moment.", 1, this.status.release);
   }
 }
 

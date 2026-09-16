@@ -9,7 +9,14 @@ const pathSchema = z.string().min(1).max(500);
 const secret =
   /(^\.env($|\.)|^\.ssh$|^\.aws$|^\.git$|^\.branch$|credentials|secrets?|^id_rsa|^id_ed25519|\.(pem|key|p12|pfx)$)/i;
 export class WorkspaceFiles {
+  /** A subfolder of the workspace that all paths resolve inside (the active project's folder), or "" for the whole workspace. */
+  scope: () => string = () => "";
   constructor(readonly root: string) {}
+  /** The folder paths currently resolve against: the workspace or the active project's folder inside it. */
+  get base(): string {
+    const folder = this.scope();
+    return folder ? resolve(this.root, folder) : this.root;
+  }
   async checked(path: string, allowRoot = false): Promise<string> {
     if (
       path.includes("\\") ||
@@ -28,12 +35,13 @@ export class WorkspaceFiles {
     )
       throw new Error("Path denied: traversal or secret filename");
     if (path === "." && !allowRoot) throw new Error("File path required");
-    const target = resolve(this.root, path),
-      rel = relative(this.root, target);
+    const base = this.base, target = resolve(base, path),
+      rel = relative(base, target);
     if (rel.startsWith("..") || isAbsolute(rel))
       throw new Error("Path outside workspace");
     await checkWorkspaceAncestors(this.root);
-    let current = this.root;
+    if (base !== this.root) await mkdir(base, { recursive: true });
+    let current = base;
     for (const part of rel.split(/[\\/]/).filter(Boolean)) {
       current = join(current, part);
       try {
@@ -147,9 +155,15 @@ async function checkWorkspaceAncestors(root: string): Promise<void> {
     current = parent;
   }
 }
+/** Lets workspace history keep a file's bytes before a write and record the change afterwards. */
+export interface WriteObserver {
+  before(path: string, context: ToolContext): Promise<unknown>;
+  after(path: string, context: ToolContext, token: unknown): Promise<void>;
+}
 export function registerFiles(
   registry: ToolRegistry,
   files: WorkspaceFiles,
+  observer?: WriteObserver,
 ): void {
   registry.register({
     name: "files.read",
@@ -185,8 +199,12 @@ export function registerFiles(
     parameters: z
       .object({ path: pathSchema, content: z.string().max(32768) })
       .strict(),
-    execute: async (a, c: ToolContext) =>
-      files.write(a.path, a.content, c.signal),
+    execute: async (a, c: ToolContext) => {
+      const token = observer ? await observer.before(a.path, c) : undefined;
+      const result = await files.write(a.path, a.content, c.signal);
+      if (observer) await observer.after(a.path, c, token);
+      return result;
+    },
   });
   registerVerification(registry, files);
 }

@@ -3,6 +3,7 @@ import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
+import { registerWorkspaceHistory } from "./workspace-history.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -60,7 +61,16 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   store.openLocker(options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key")));
   const registry = new ToolRegistry();
-  registerFiles(registry, files);
+  files.scope = () => store.projects.active(options.owner ?? "local").folder;
+  const history = store.openWorkspaceHistory(files, options.owner ?? "local");
+  registerFiles(registry, files, {
+    before: (path, context) => history.before(path, context),
+    after: async (path, context, token) => {
+      const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
+      if (context.runId) store.event(context.runId, "file.changed", { ...change });
+    },
+  });
+  registerWorkspaceHistory(registry, history);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -157,6 +167,14 @@ export * from "./skill-scan.js";
 export * from "./receipts.js";
 export * from "./content-guard.js";
 export * from "./activity.js";
+export * from "./memory-review.js";
+export * from "./workspace-history.js";
+export * from "./backup.js";
+export * from "./health.js";
+export * from "./openai-compat.js";
+export * from "./streams.js";
+export * from "./recipes.js";
+export * from "./templates.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";

@@ -146,7 +146,7 @@
               id="prompt"
               required
               maxlength="16000"
-              placeholder="Describe what you want to do…"
+              placeholder="Describe what you want to do… (Enter sends, Shift+Enter for a new line)"
               rows="3"
             ></textarea>
             <div>
@@ -156,7 +156,8 @@
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
-              ><button id="send">Send ↗</button>
+              ><button id="send">Send ↗</button
+              ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
           </form>
         </section>
@@ -198,8 +199,19 @@
               maxlength="500"
               value="Saved by workspace owner"
               required
-            /><button>Save memory</button>
+            /><label for="memory-entity">About (optional: a person, place or thing)</label
+            ><input id="memory-entity" maxlength="120" placeholder="e.g. Mum" /><label for="memory-attribute">Which detail (optional)</label
+            ><input id="memory-attribute" maxlength="80" placeholder="e.g. phone number — a newer detail replaces the older one from that day on" /><label class="check-row"><input type="checkbox" id="memory-shared" /> Specialists may see this fact too</label
+            ><button>Save memory</button>
           </form>
+          <div class="card">
+            <h2>Tidy up</h2>
+            <p>Facts you have not touched for a while can be set aside. Set-aside facts are kept and can be brought back.</p>
+            <div class="input-row"><label for="tidy-days" class="sr-only">Older than (days)</label><input id="tidy-days" type="number" min="1" max="3650" value="180" /><span>days untouched</span><button id="tidy-preview" type="button">Show what would be set aside</button><button id="tidy-archive" type="button">Set them aside</button></div>
+            <div id="tidy-list" class="card-list" aria-live="polite"></div>
+            <h3>Set aside</h3>
+            <div id="archived-list" class="card-list"></div>
+          </div>
           <div class="card">
             <p id="memory-count" role="status"></p>
             <form id="memory-capacity-form" class="form-grid">
@@ -212,6 +224,17 @@
             <p>Imports merge saved facts. Identical facts are skipped; conflicting IDs reject the entire import. Review imported facts before using them.</p>
             <p id="memory-import-result" role="status"></p>
           </div>
+          <form id="learning-form" class="card">
+            <h2>What it learns</h2>
+            <label class="check-row"><input type="checkbox" id="learning-review" /> After each task, suggest what is worth remembering. You accept or reject each suggestion.</label>
+            <label class="check-row"><input type="checkbox" id="learning-approval" /> Ask me before the assistant saves, changes or removes a memory on its own.</label>
+            <h3>Suggested changes</h3>
+            <div id="memory-proposals" class="card-list" aria-live="polite"></div>
+            <h3>Checkpoints</h3>
+            <p class="subtle">A checkpoint keeps every memory and which skill versions are enabled, so you can put everything back exactly as it was.</p>
+            <div class="input-row"><input id="checkpoint-label" maxlength="120" placeholder="Name this checkpoint (optional)" /><button id="checkpoint-save" type="button">Save a checkpoint</button></div>
+            <div id="memory-checkpoints" class="card-list"></div>
+          </form>
           <div id="memory-list" class="card-list"></div>
         </section>
         <section id="specialists" class="view" hidden>
@@ -413,6 +436,8 @@
             <input id="project-id" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. client-site" />
             <label for="project-name">Name</label>
             <input id="project-name" maxlength="80" placeholder="Client website" />
+            <label for="project-folder">Folder inside the workspace (optional)</label>
+            <input id="project-folder" maxlength="200" placeholder="e.g. clients/acme — files for this project stay inside it" />
             <label for="project-instructions">Instructions for this project</label>
             <textarea id="project-instructions" maxlength="4000" rows="3" placeholder="What the assistant should keep in mind while working on this project."></textarea>
             <label for="project-preset">Preferred model</label>
@@ -450,6 +475,24 @@
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
             <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+          </section>
+          <section id="health-card" class="card">
+            <h2>Health check</h2>
+            <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
+            <label class="check-row"><input type="checkbox" id="health-probe" /> Also send a tiny test message to the default model</label>
+            <button id="health-run" type="button">Check now</button>
+            <div id="health-list" class="card-list" aria-live="polite"></div>
+          </section>
+          <section id="backup-card" class="card">
+            <h2>Backup</h2>
+            <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
+            <button id="backup-run" type="button">Save a backup file</button>
+          </section>
+          <section id="snapshots-card" class="card">
+            <h2>Workspace snapshots</h2>
+            <p>Keep a copy of every file in your workspace and put them all back later. Each change the assistant makes to a file can also be undone one at a time from Activity.</p>
+            <div class="input-row"><input id="snapshot-label" maxlength="120" placeholder="Name this snapshot (optional)" /><button id="snapshot-save" type="button">Take a snapshot</button></div>
+            <div id="snapshots-list" class="card-list"></div>
           </section>
           <form id="models-form" class="card">
             <h2>Models</h2>
@@ -525,6 +568,17 @@
       </div>
       <p class="context-footer">SMALL STEPS. USEFUL PROGRESS.</p>
     </aside>
+    <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
+      <div class="update-panel">
+        <h2 id="update-title">Updating</h2>
+        <canvas id="update-walker" width="420" height="140" aria-hidden="true"></canvas>
+        <p id="update-stage">Getting ready</p>
+        <div class="progress"><div id="update-bar" class="progress-bar"></div></div>
+        <p id="update-detail" class="subtle"></p>
+        <p class="subtle">You can keep this window open. It closes and opens again by itself when the update is in place.</p>
+      </div>
+    </div>
+    <script src="/update-screen.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>

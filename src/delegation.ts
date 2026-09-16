@@ -16,7 +16,7 @@ export function checkResult(output: string, schema: Record<string, unknown> | un
   const problem = mismatch(value, schema, "result");
   return problem ? { status: "unresolved", reason: problem } : { status: "resolved", value };
 }
-function mismatch(value: unknown, schema: Record<string, unknown>, path: string): string | null {
+export function mismatch(value: unknown, schema: Record<string, unknown>, path: string): string | null {
   if (Array.isArray(schema.enum) && !schema.enum.some((option) => JSON.stringify(option) === JSON.stringify(value)))
     return `${path} must be one of ${schema.enum.map((o) => JSON.stringify(o)).join(", ")}`;
   const type = schema.type;

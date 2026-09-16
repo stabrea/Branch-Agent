@@ -135,6 +135,18 @@ function renderRuns() {
         el("p", date(run.createdAt), "meta"),
         button("Inspect trace", () => showRun(run.id)),
       );
+      for (const change of run.changes || []) {
+        const row = el("div", undefined, "file-change");
+        row.append(el("span", `${change.existed ? "Changed" : "Created"} ${change.path} (+${change.added} −${change.removed})`));
+        if (change.diff) row.append(button("Show change", () => {
+          const existing = row.querySelector("pre");
+          if (existing) existing.remove(); else { const pre = el("pre", change.diff, "diff"); row.append(pre); }
+        }));
+        if (change.existed && change.versionId) row.append(button("Undo this change", async () => {
+          await api("history/restore", { versionId: change.versionId }); toast(`${change.path} is back to how it was before.`); await refresh();
+        }));
+        node.append(row);
+      }
       if (run.status === "running")
         node.append(
           button("Cancel", async () => {
@@ -180,17 +192,65 @@ function renderMemory() {
   for (const node of [...target.children]) if (!cards.includes(node)) node.remove();
   cards.forEach((node, index) => { if (target.children[index] !== node) target.insertBefore(node, target.children[index] || null); });
   if (!cards.length) target.append(el("div", "Save a preference, decision, or useful fact.", "empty"));
+  renderLearning();
+  if (!renderMemory.archivedOnce) { renderMemory.archivedOnce = true; void renderArchived(); }
   if (focused?.isConnected && document.activeElement !== focused) {
     focused.focus({ preventScroll: true });
     if (selection) focused.setSelectionRange(...selection);
   }
+}
+function renderLearning() {
+  const learning = state.learning || {};
+  if (document.activeElement !== $("learning-review")) $("learning-review").checked = !!learning.review;
+  if (document.activeElement !== $("learning-approval")) $("learning-approval").checked = !!learning.requireApproval;
+  list("memory-proposals", state.memoryProposals || [], (p) => {
+    const node = el("div", undefined, "record");
+    const what = p.kind === "put" ? "Remember" : p.kind === "update" ? "Change a memory to" : p.kind === "delete" ? "Forget a memory" : "Note for a skill";
+    node.append(el("strong", `${what}${p.text ? ": " + p.text : ""}`), el("p", `${p.source || ""}${p.runId ? " · from a task" : ""}`, "meta"));
+    node.append(button("Accept", async () => { await api(`memory/proposals/${p.id}/accept`, {}); toast("Applied."); await refresh(); }),
+      button("Reject", async () => { await api(`memory/proposals/${p.id}/reject`, {}); await refresh(); }));
+    return node;
+  }, "No suggestions waiting.");
+  list("memory-checkpoints", state.memoryCheckpoints || [], (c) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", c.label), el("p", `${c.memories} memories · ${c.skills} skills · ${date(c.createdAt)}`, "meta"),
+      button("Put everything back to this", async () => { await api(`memory/checkpoints/${c.id}/restore`, {}); toast("Memories and skill versions restored."); await refresh(); }));
+    return node;
+  }, "No checkpoints yet.");
+}
+async function saveLearning() {
+  try { await api("memory/settings", { review: $("learning-review").checked, requireApproval: $("learning-approval").checked }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+$("learning-review").addEventListener("change", saveLearning);
+$("learning-approval").addEventListener("change", saveLearning);
+$("checkpoint-save").addEventListener("click", async () => {
+  const label = $("checkpoint-label").value.trim();
+  try { await api("memory/checkpoints", label ? { label } : {}); $("checkpoint-label").value = ""; toast("Checkpoint saved."); await refresh(); } catch (e) { toast(e.message); }
+});
+async function showMemoryHistory(node, record) {
+  const { versions } = await api(`memory/versions?id=${encodeURIComponent(record.id)}`);
+  let box = node.querySelector(".memory-history");
+  if (box) { box.remove(); return; }
+  box = el("div", undefined, "memory-history");
+  if (!versions.length) box.append(el("p", "No earlier versions yet.", "meta"));
+  for (const v of versions) {
+    const row = el("div", undefined, "record");
+    row.append(el("p", v.data.text), el("p", `Version ${v.revision} · ${v.reason} · ${date(v.createdAt)}`, "meta"),
+      button("Restore this version", async () => { await api("memory/versions/restore", { id: record.id, revision: v.revision }); toast("Earlier version restored."); await refresh(); }));
+    box.append(row);
+  }
+  node.append(box);
 }
 function memoryCard(record) {
   const node = recordCard(record.data.text);
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
+  if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
+  if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
+    button("History", () => showMemoryHistory(node, record)),
     button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }));
   if (memoryEditors.has(record.id)) node.append(memoryEditor(record));
   return node;
@@ -399,6 +459,7 @@ async function refresh() {
   renderProjects();
   void renderSecrets();
   void renderChannels();
+  renderSnapshots();
   renderAttention();
 }
 const notifiedAttention = new Set();
@@ -424,6 +485,34 @@ function renderAttention() {
     else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
   }
 }
+$("health-run").addEventListener("click", async () => {
+  $("health-run").disabled = true;
+  try {
+    const report = await api("health" + ($("health-probe").checked ? "?probe=1" : ""));
+    list("health-list", report.items, (i) => {
+      const node = el("div", undefined, "record");
+      node.append(el("strong", `${i.ok ? "✓" : "✗"} ${i.name}`), el("p", i.summary, "meta"));
+      if (i.fix) node.append(el("p", `What to do: ${i.fix}`));
+      return node;
+    }, "");
+    toast(report.ok ? "Everything looks fine." : "Something needs attention; see the list.");
+  } catch (e) { toast(e.message); } finally { $("health-run").disabled = false; }
+});
+$("backup-run").addEventListener("click", async () => {
+  try { if (await exportArchive(await api("backup"), "exportBackup", "branch-backup.json")) toast("Backup saved."); } catch (e) { toast(e.message); }
+});
+function renderSnapshots() {
+  list("snapshots-list", state.snapshots || [], (s) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", s.label), el("p", `${s.files} files · ${Math.round(s.bytes / 1024)} KB · ${date(s.createdAt)}`, "meta"),
+      button("Put the workspace back to this", async () => { await api(`history/snapshots/${s.id}/restore`, {}); toast("Workspace files restored."); await refresh(); }));
+    return node;
+  }, "No snapshots yet.");
+}
+$("snapshot-save").addEventListener("click", async () => {
+  const label = $("snapshot-label").value.trim();
+  try { await api("history/snapshots", label ? { label } : {}); $("snapshot-label").value = ""; toast("Snapshot taken."); await refresh(); } catch (e) { toast(e.message); }
+});
 async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
@@ -485,6 +574,7 @@ function loadProject(project) {
   $("project-id").value = project.id; $("project-id").disabled = project.id === "default";
   $("project-name").value = project.name;
   $("project-instructions").value = project.instructions;
+  $("project-folder").value = project.folder || "";
   $("project-preset").value = project.modelPreset ?? "";
   $("project-remove").hidden = project.id === "default";
 }
@@ -507,6 +597,7 @@ form("projects-form", async () => {
   const saved = await api("projects", {
     id: $("project-id").value.trim(), name: $("project-name").value.trim(),
     instructions: $("project-instructions").value, modelPreset: $("project-preset").value || null, repository: editingProject?.repository ?? "",
+    folder: $("project-folder").value.trim(),
   });
   loadProject(saved); await refresh();
 });
@@ -642,7 +733,9 @@ $("chatgpt-logout").addEventListener("click", async () => {
 let updatesTimer = null;
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
-  const working = ["checking", "downloading", "verifying", "unpacking", "ready"].includes(status.phase);
+  const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
+  const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
+  if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();
   $("updates-progress").hidden = status.progress === null;
   $("updates-bar").style.width = `${Math.round((status.progress ?? 0) * 100)}%`;
   $("updates-check").disabled = working || status.phase === "unsupported";
@@ -650,7 +743,7 @@ function showUpdateStatus(status) {
   $("updates-install").disabled = working;
   $("updates-install").textContent = working ? "Updating…" : "Update and restart";
   clearTimeout(updatesTimer);
-  if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus), 700);
+  if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus).catch(() => {}), installing ? 400 : 700);
 }
 async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
@@ -662,7 +755,10 @@ $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
 $("updates-install").addEventListener("click", async () => {
-  try { showUpdateStatus(await window.branchDesktop.installUpdate()); } catch (e) { toast(e.message); await renderUpdates(); }
+  try {
+    window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
+    showUpdateStatus(await window.branchDesktop.installUpdate());
+  } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
 });
 function modelLine(model) {
   if (!model) return "Model: not recorded";
@@ -894,9 +990,38 @@ function conversationButton(label, handler) {
   node.disabled = conversationBusy;
   return node;
 }
+let pendingFollowUps = 0;
+/** A message typed while the assistant is busy waits its turn in the same conversation. */
+async function queueFollowUp(prompt) {
+  try {
+    const result = await api(`sessions/${sessionId}/followups`, { prompt });
+    $("prompt").value = "";
+    message("user", prompt);
+    message("assistant", result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    pendingFollowUps++;
+  } catch (e) { toast(e.message); }
+}
+/** After the main task ends, keeps the conversation fresh until every queued message has been answered. */
+async function awaitFollowUps() {
+  const session = sessionId;
+  for (let i = 0; i < 400 && pendingFollowUps > 0 && sessionId === session; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const running = await api("activity");
+      const mine = running.find((r) => r.sessionId === session);
+      const waiting = mine ? mine.followUps : (await api(`sessions/${session}/followups`)).followUps.length;
+      if (!mine && waiting === 0) { pendingFollowUps = 0; await loadConversation(session); await refresh(); }
+    } catch { /* the next tick tries again */ }
+  }
+}
+$("followup-send").addEventListener("click", async () => {
+  const prompt = $("prompt").value.trim();
+  if (prompt && conversationBusy && sessionId) await queueFollowUp(prompt);
+});
 function setConversationBusy(busy) {
   conversationBusy = busy;
   $("send").disabled = busy;
+  $("followup-send").hidden = !(busy && sessionId);
   $("new-session").disabled = busy;
   $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
@@ -925,6 +1050,20 @@ function renderConversationContext() {
     context.append(conversationButton("Open original conversation", () => openConversation(original)));
   }
   if (!currentTemporary) context.append(conversationButton("Forget what this conversation saved to memory", () => previewForget(context)));
+  if (!currentTemporary) void renderMemoryPolicy(context);
+}
+/** A switch for whether this conversation may save memory on its own. */
+async function renderMemoryPolicy(context) {
+  let policy;
+  try { policy = await api(`sessions/${sessionId}/memory-policy`); } catch { return; }
+  const row = el("label", undefined, "check-row");
+  const box = el("input"); box.type = "checkbox"; box.checked = policy.remember;
+  row.append(box, document.createTextNode(" This conversation may save things to memory on its own"));
+  box.addEventListener("change", async () => {
+    try { await api(`sessions/${sessionId}/memory-policy`, { remember: box.checked }); toast(box.checked ? "It may remember from here again." : "It will not remember from this conversation on its own."); }
+    catch (e) { toast(e.message); box.checked = !box.checked; }
+  });
+  context.append(row);
 }
 async function previewForget(context) {
   let preview;
@@ -1095,6 +1234,14 @@ $("lock").addEventListener("click", () => {
   $("lock").hidden = true;
   $("connection").textContent = "Locked";
 });
+/** Enter sends; Shift+Enter (or Ctrl/Cmd+Enter while busy) keeps typing on a new line, like most chat apps. */
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+  if (event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  if (conversationBusy && sessionId) { $("followup-send").click(); return; }
+  if (!conversationBusy) $("chat-form").requestSubmit();
+});
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const prompt = $("prompt").value.trim();
@@ -1125,6 +1272,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } finally {
     stopActivity();
     setConversationBusy(false);
+    if (pendingFollowUps > 0) void awaitFollowUps();
   }
 });
 /** While a task runs, shows what the assistant is doing right now and how earlier steps ended. */
@@ -1135,6 +1283,7 @@ function watchActivity(prompt) {
     box.replaceChildren(el("strong", item.current || "Finishing up"));
     const steps = item.steps.slice(-6);
     if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
+    if (item.followUps) box.append(el("p", `${item.followUps} message(s) waiting to be answered next`, "meta"));
     box.hidden = false;
   };
   const poll = async () => {
@@ -1191,8 +1340,35 @@ form("memory-form", () =>
   action("memory.put", {
     text: $("memory-text").value,
     source: $("memory-source").value,
+    ...($("memory-entity").value.trim() ? { entity: $("memory-entity").value.trim() } : {}),
+    ...($("memory-attribute").value.trim() ? { attribute: $("memory-attribute").value.trim() } : {}),
+    ...($("memory-shared").checked ? { scope: "shared" } : {}),
   }),
 );
+async function renderArchived() {
+  try {
+    const { archived } = await api("memory/archive");
+    list("archived-list", archived, (r) => {
+      const node = el("div", undefined, "record");
+      node.append(el("p", r.data.text), el("p", `Set aside ${date(r.archivedAt)}`, "meta"),
+        button("Bring back", async () => { await api(`memory/archive/${encodeURIComponent(r.id)}/restore`, {}); toast("Back in memory."); await refresh(); await renderArchived(); }));
+      return node;
+    }, "Nothing has been set aside.");
+  } catch { /* shown on the next visit */ }
+}
+$("tidy-preview").addEventListener("click", async () => {
+  try {
+    const result = await api("memory/hygiene", { olderThanDays: Number($("tidy-days").value) || 180, action: "preview" });
+    list("tidy-list", result.stale, (s) => { const node = el("div", undefined, "record"); node.append(el("p", s.text), el("p", `Last touched ${date(s.updatedAt)}`, "meta")); return node; }, "Nothing that old is in memory.");
+  } catch (e) { toast(e.message); }
+});
+$("tidy-archive").addEventListener("click", async () => {
+  try {
+    const result = await api("memory/hygiene", { olderThanDays: Number($("tidy-days").value) || 180, action: "archive" });
+    toast(result.archived.length ? `${result.archived.length} set aside.` : "Nothing that old is in memory.");
+    $("tidy-list").replaceChildren(); await refresh(); await renderArchived();
+  } catch (e) { toast(e.message); }
+});
 form("memory-capacity-form", async () => {
   const submitted = $("memory-capacity").value;
   await api("memory/capacity", { maxFacts: Number(submitted) });

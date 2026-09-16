@@ -12,6 +12,8 @@ export const ProjectSchema = z.object({
   instructions: z.string().max(4000).default(""),
   modelPreset: z.string().min(1).max(64).nullable().default(null),
   repository: z.string().max(500).default(""),
+  /** A folder inside the workspace that this project's files live in; empty means the whole workspace. */
+  folder: z.string().max(200).regex(/^(?!.*(^|\/)\.\.(\/|$))[^\\:\0]*$/, "Use a relative folder name inside the workspace").transform((v) => v.replace(/^\/+|\/+$/g, "")).default(""),
 }).strict();
 export type Project = z.infer<typeof ProjectSchema>;
 export const defaultProjectId = "default";
@@ -59,6 +61,6 @@ export class Projects {
     return project.instructions ? `\nProject "${project.name}" instructions: ${project.instructions}\n` : "";
   }
   private defaultProject(): Project {
-    return { id: defaultProjectId, name: "Default", instructions: "", modelPreset: null, repository: "" };
+    return { id: defaultProjectId, name: "Default", instructions: "", modelPreset: null, repository: "", folder: "" };
   }
 }
