@@ -613,7 +613,28 @@
             <h3>Messages still to send</h3>
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
-            <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+            <h3>Add a way to reach your assistant</h3>
+            <p class="subtle">Pick one below. Each needs two things: the sign-in details saved under <strong>Secrets</strong> in the default project, and one line added to the connections file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards and it appears in the list above. Whichever you choose, messages from a chat app can never run commands on this computer.</p>
+            <details class="card-list">
+              <summary>Telegram</summary>
+              <p class="subtle">Create a bot by writing to @BotFather in Telegram. Save the token it gives you as the secret <code>TELEGRAM_BOT_TOKEN</code>, then add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code>.</p>
+            </details>
+            <details class="card-list">
+              <summary>Discord</summary>
+              <p class="subtle">Make an application at discord.com/developers, add a bot to it, and turn on <strong>Message Content Intent</strong> on the bot's page — without it the assistant receives empty messages. Save the bot token as the secret <code>DISCORD_BOT_TOKEN</code>, invite the bot to your server, then add <code>{"channels":[{"type":"discord"}]}</code>. In a server channel it answers when you mention it or reply to it; in a direct message it always answers.</p>
+            </details>
+            <details class="card-list">
+              <summary>Slack</summary>
+              <p class="subtle">Create an app at api.slack.com/apps, turn on <strong>Socket Mode</strong>, and subscribe to the <code>message.im</code> and <code>app_mention</code> events. Save the bot token (it starts with <code>xoxb-</code>) as <code>SLACK_BOT_TOKEN</code> and the app-level token (<code>xapp-</code>) as <code>SLACK_APP_TOKEN</code>, then add <code>{"channels":[{"type":"slack"}]}</code>. To limit it to certain Slack channels, list their ids in <code>"slackChannels"</code>.</p>
+            </details>
+            <details class="card-list">
+              <summary>WhatsApp</summary>
+              <p class="subtle">You need a WhatsApp Business account on Meta's developer site. Save the access token as <code>WHATSAPP_TOKEN</code>, the app secret as <code>WHATSAPP_APP_SECRET</code>, and a word of your own choosing as <code>WHATSAPP_VERIFY_TOKEN</code>, then add <code>{"channels":[{"type":"whatsapp","phoneNumberId":"your number id"}]}</code>. In Meta's settings, point the webhook at <code>&lt;this computer's address&gt;/webhooks/whatsapp/whatsapp</code> and give it the same verify word. WhatsApp only lets the assistant answer within a day of your message; later replies wait in the list below.</p>
+            </details>
+            <details class="card-list">
+              <summary>Email</summary>
+              <p class="subtle">Save the mailbox password as the secret <code>EMAIL_PASSWORD</code>, then add <code>{"channels":[{"type":"email","address":"you@example.com","imap":{"host":"imap.example.com","port":993,"user":"you@example.com"},"smtp":{"host":"smtp.example.com","port":465,"user":"you@example.com"}}]}</code>. The assistant looks for unread mail every minute, answers it, marks it read, and keeps the answer in the same email conversation. It reads and writes plain text only.</p>
+            </details>
           </section>
           <section id="hooks-card" class="card">
             <h2>Hooks</h2>
