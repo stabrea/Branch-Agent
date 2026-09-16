@@ -22,6 +22,8 @@ import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
+import { Triggers } from "./triggers.js";
+import { Webhooks } from "./webhooks.js";
 import { SkillRegistry } from "./registry-install.js";
 import { Evaluation } from "./evaluation.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
@@ -104,6 +106,8 @@ export async function createBranch(options: {
   const teams = new Teams(store, runtime.owner);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   const evaluation = new Evaluation(store, runtime.owner);
+  const triggers = new Triggers(store, runtime);
+  const webhooks = new Webhooks(store, web.policy);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
@@ -134,6 +138,8 @@ export async function createBranch(options: {
     teams,
     skillRegistry,
     evaluation,
+    triggers,
+    webhooks,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -202,3 +208,5 @@ export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";
+export * from "./triggers.js";
+export * from "./webhooks.js";

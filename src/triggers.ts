@@ -1,0 +1,321 @@
+import { randomBytes, randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
+import type { ToolContext } from "./contracts.js";
+import type { Store } from "./store.js";
+import type { Runtime } from "./runtime.js";
+import { substitute, placeholders } from "./recipes.js";
+
+/**
+ * Inbound triggers: external apps fire webhooks to POST /api/triggers/:id/fire to start runs.
+ * Each trigger has a name, a prompt template with {{payload}} and {{field.path}} placeholders,
+ * and a rate limit. Verification is by bearer secret or HMAC-SHA256 signature.
+ */
+export const TriggerSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    prompt: z.string().min(1).max(8000),
+    sessionId: z.string().uuid().optional(),
+    enabled: z.boolean().default(true),
+    rateLimitPerMinute: z.number().int().min(1).max(100).default(30),
+    secret: z.string().min(24).optional(),
+  })
+  .strict();
+export type TriggerConfig = z.infer<typeof TriggerSchema>;
+export interface TriggerState {
+  id: string;
+  name: string;
+  prompt: string;
+  sessionId?: string;
+  enabled: boolean;
+  rateLimitPerMinute: number;
+  secret: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * ReadBody result: raw buffer for HMAC verification + parsed JSON.
+ */
+export interface BodyWithRaw {
+  raw: Buffer;
+  parsed: unknown;
+}
+
+/**
+ * Read request body with raw buffer for HMAC verification.
+ * Enforces the 256 KB limit specified in the requirements.
+ */
+export async function readBodyWithRaw(request: any, maximumBytes = 256 * 1024): Promise<BodyWithRaw> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  const tooLarge = () => new Error(`Request exceeds ${maximumBytes / 1024} KiB`);
+
+  for await (const chunk of request) {
+    bytes += Buffer.byteLength(chunk);
+    if (bytes > maximumBytes) throw tooLarge();
+    chunks.push(Buffer.from(chunk));
+  }
+
+  const raw = Buffer.concat(chunks);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch {
+    throw new Error("Invalid JSON");
+  }
+
+  return { raw, parsed };
+}
+
+/**
+ * Extract value from payload using dot notation (e.g., "event.action" from nested objects).
+ */
+function extractField(payload: unknown, path: string): unknown {
+  let current = payload;
+  for (const part of path.split(".")) {
+    if (current && typeof current === "object" && part in current) {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+export class Triggers {
+  private readonly rateLimitWindowMs = 60000;
+  private readonly requestCounts = new Map<string, number[]>(); // trigger ID -> timestamps of recent fires
+
+  constructor(readonly store: Store, readonly runtime: Runtime) {}
+
+  /**
+   * Create a new inbound trigger. The owner specifies a name, prompt template, and optional
+   * session ID. A random secret is generated and returned. The trigger starts enabled.
+   */
+  create(context: ToolContext, input: unknown): TriggerState {
+    if (!context.permissions.has("triggers.manage"))
+      throw new Error("Permission denied: triggers.manage");
+
+    const definition = TriggerSchema.parse(input);
+    const id = randomUUID();
+    const secret = randomBytes(24).toString("hex");
+    const now = new Date().toISOString();
+
+    const data: TriggerConfig = {
+      name: definition.name,
+      prompt: definition.prompt,
+      sessionId: definition.sessionId,
+      enabled: true,
+      rateLimitPerMinute: definition.rateLimitPerMinute,
+      secret,
+    };
+
+    this.store.save("triggers", context.owner, id, data);
+    return { id, createdAt: now, updatedAt: now, ...data };
+  }
+
+  /**
+   * Get a trigger by ID (owner-scoped).
+   */
+  get(owner: string, id: string): TriggerState | undefined {
+    const record = this.store.get("triggers", owner, id);
+    if (!record) return undefined;
+    const data = record.data as TriggerConfig;
+    return {
+      id,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      ...data,
+    };
+  }
+
+  /**
+   * List all triggers for the owner.
+   */
+  list(owner: string): TriggerState[] {
+    return this.store
+      .list("triggers", owner)
+      .map((record) => ({
+        id: record.id,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        ...(record.data as TriggerConfig),
+      }));
+  }
+
+  /**
+   * Rotate (regenerate) a trigger's secret.
+   */
+  rotateSecret(owner: string, id: string): string {
+    const trigger = this.get(owner, id);
+    if (!trigger) throw new Error("Trigger not found");
+
+    const newSecret = randomBytes(24).toString("hex");
+    this.store.save("triggers", owner, id, {
+      ...trigger,
+      secret: newSecret,
+    });
+
+    return newSecret;
+  }
+
+  /**
+   * Remove a trigger.
+   */
+  remove(owner: string, id: string): void {
+    const trigger = this.get(owner, id);
+    if (!trigger) throw new Error("Trigger not found");
+    this.store.delete("triggers", owner, id);
+  }
+
+  /**
+   * Verify incoming fire request using bearer secret or HMAC-SHA256 signature.
+   * Returns { valid: boolean, error?: string }
+   */
+  verify(trigger: TriggerState, headers: Record<string, string | string[] | undefined>, rawBody: Buffer): { valid: boolean; error?: string } {
+    // Check for bearer token
+    const authHeader = headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      if (token.length === trigger.secret.length) {
+        try {
+          if (timingSafeEqual(Buffer.from(token), Buffer.from(trigger.secret))) {
+            return { valid: true };
+          }
+        } catch {
+          return { valid: false, error: "Invalid secret" };
+        }
+      }
+      return { valid: false, error: "Invalid secret" };
+    }
+
+    // Check for HMAC signature
+    const sigHeader = headers["x-branch-signature"];
+    if (sigHeader) {
+      const sig = typeof sigHeader === "string" ? sigHeader : sigHeader[0];
+      if (!sig) return { valid: false, error: "Missing signature" };
+
+      const parts = sig.split("=");
+      const algo = parts[0];
+      const hex = parts[1];
+      if (!hex || algo !== "sha256") return { valid: false, error: "Invalid signature algorithm" };
+
+      const computed = createHmac("sha256", trigger.secret)
+        .update(rawBody)
+        .digest("hex");
+
+      if (hex && hex.length === computed.length) {
+        try {
+          if (timingSafeEqual(Buffer.from(hex), Buffer.from(computed))) {
+            return { valid: true };
+          }
+        } catch {
+          return { valid: false, error: "Invalid signature" };
+        }
+      }
+      return { valid: false, error: "Invalid signature" };
+    }
+
+    return { valid: false, error: "No credentials provided" };
+  }
+
+  /**
+   * Check if a trigger can fire (rate limit and enabled status).
+   */
+  canFire(triggerId: string, trigger: TriggerState): { allowed: boolean; reason?: string } {
+    if (!trigger.enabled) {
+      return { allowed: false, reason: "Trigger is disabled" };
+    }
+
+    const now = Date.now();
+    const window = this.requestCounts.get(triggerId) ?? [];
+
+    // Remove timestamps older than the window
+    const recentCounts = window.filter((ts) => now - ts < this.rateLimitWindowMs);
+    this.requestCounts.set(triggerId, recentCounts);
+
+    if (recentCounts.length >= trigger.rateLimitPerMinute) {
+      return { allowed: false, reason: "Rate limit exceeded" };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Record a fire event in the trigger log.
+   */
+  logFire(triggerId: string, owner: string, runId: string | null, payloadSummary: string, status: string): void {
+    this.store.logTriggerFire(triggerId, owner, runId, payloadSummary, status);
+  }
+
+  /**
+   * Get the trigger log (limited to last 50 entries).
+   */
+  getLog(triggerId: string, owner: string): Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }> {
+    return this.store.getTriggerLog(triggerId, owner);
+  }
+
+  /**
+   * Fire a trigger: substitute placeholders in the prompt and run the assistant.
+   */
+  async fire(
+    owner: string,
+    triggerId: string,
+    payload: unknown,
+  ): Promise<{ runId: string; status: string }> {
+    const trigger = this.get(owner, triggerId);
+    if (!trigger) throw new Error("Trigger not found");
+
+    const canFireResult = this.canFire(triggerId, trigger);
+    if (!canFireResult.allowed) {
+      this.logFire(triggerId, owner, null, JSON.stringify(payload).slice(0, 100), canFireResult.reason!);
+      throw new Error(canFireResult.reason);
+    }
+
+    // Prepare inputs for substitution: {{payload}} and {{field.path}}
+    const inputs: Record<string, string | number | boolean> = {
+      payload: typeof payload === "string" ? payload : JSON.stringify(payload),
+    };
+
+    // Add field.path substitutions from payload
+    if (payload && typeof payload === "object") {
+      const flatPaths = (obj: unknown, prefix = ""): void => {
+        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+          for (const [key, value] of Object.entries(obj)) {
+            const path = prefix ? `${prefix}.${key}` : key;
+            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+              inputs[path] = value;
+            } else if (typeof value === "object" && value !== null) {
+              flatPaths(value, path);
+            }
+          }
+        }
+      };
+      flatPaths(payload);
+    }
+
+    // Substitute placeholders in the prompt
+    let finalPrompt = trigger.prompt;
+    try {
+      finalPrompt = substitute(trigger.prompt, inputs);
+    } catch (e) {
+      const error = (e as Error).message;
+      this.logFire(triggerId, owner, null, JSON.stringify(payload).slice(0, 100), `substitution_error: ${error}`);
+      throw new Error(`Prompt substitution failed: ${error}`);
+    }
+
+    // Record the fire attempt
+    this.requestCounts.set(triggerId, [Date.now(), ...(this.requestCounts.get(triggerId) ?? [])]);
+
+    // Run the assistant
+    const run = await this.runtime.run({
+      prompt: finalPrompt,
+      ...(trigger.sessionId ? { sessionId: trigger.sessionId } : {}),
+    });
+
+    this.logFire(triggerId, owner, run.id, JSON.stringify(payload).slice(0, 256), run.status);
+    this.store.event(run.id, "trigger.fired", { triggerId, trigger: trigger.name });
+
+    return { runId: run.id, status: run.status };
+  }
+}
