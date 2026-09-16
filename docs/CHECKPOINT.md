@@ -409,6 +409,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.15.0 (2026-09-17)
+
+Document readers, memory kinds and layers, the coder toolbox, browser pass 2, eleven more chat services, benchmarks and studies, hardening pass 1, the family-row ledger and the first verification pass. Published from `release/0.15.0` (PR #101); the in-app update from 0.14.0 was rehearsed on a staged copy in 40 seconds with no console window and the previous copy kept.
+
 ## Released 0.14.0 (2026-09-17)
 
 Deferred tool loading, the provider catalog, MCP mode, orchestration pass 2 and the observability pass. Published from `release/0.14.0` (PR #100); the in-app update from 0.13.0 was rehearsed on a staged copy in 47 seconds with no console window and the previous copy kept.
