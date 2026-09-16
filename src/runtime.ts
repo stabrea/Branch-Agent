@@ -1351,6 +1351,16 @@ export class Runtime {
   allowedNow(sessionId: string) {
     return this.approvals.grants(sessionId);
   }
+  /** Takes one of those back; the conversation asks again next time. */
+  revokeGrant(sessionId: string, tool: string, target: string): boolean {
+    const gone = this.approvals.revoke(sessionId, tool, target);
+    if (gone)
+      audit(this.store, this.owner, {
+        action: "approval.decided", actor: this.owner, subject: `${tool}${target ? ` on ${target}` : ""}`,
+        reason: "You took back a yes you had given for this conversation", outcome: "refused",
+      });
+    return gone;
+  }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {
     const actions = this.store.events(run.id).filter((event) => event.kind === "tool.simulated")

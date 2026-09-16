@@ -3,6 +3,8 @@
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
 import { setActivityCount } from "/shell.js";
+/* Wave 7: what this conversation is allowed to do right now, with a way to take it back. */
+import { drawAllowed } from "/allowed.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -105,6 +107,7 @@ async function draw() {
     const state = await api("state");
     await drawWorking();
     drawTasks(running);
+    await drawAllowed($("context-allowed"), session());
     await drawReceipts(state);
     drawFacts(state);
   } catch {

@@ -119,6 +119,89 @@ test("G6 the message box knows its own commands, so /model and /help work withou
   assert.match(module, /presetName/, "profile cards read connection names rather than ids");
 });
 
+/* ---------- G1: what is allowed right now ---------- */
+
+/** A provider that asks to write one file, then answers. Enough to earn a remembered yes. */
+function writesAFile(name) {
+  let round = 0;
+  return {
+    name: "scripted",
+    async complete() {
+      round += 1;
+      return round === 1
+        ? { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: name, content: "one" }) }] }
+        : { content: "done", toolCalls: [] };
+    },
+  };
+}
+
+test("G1 the allowed list shows a grant with its expiry, and taking it back removes it", async (t) => {
+  const { app, api } = await served(t, writesAFile("gated.txt"));
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  assert.equal(paused.status, "needs_input");
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+
+  const listed = (await api("GET", `/api/rules/allowed?session=${paused.sessionId}`)).body;
+  assert.equal(listed.grants.length, 1);
+  assert.equal(listed.grants[0].tool, "files.write");
+  assert.ok(Date.parse(listed.grants[0].expiresAt) > Date.now(), "it says when it runs out");
+  assert.ok(listed.grants[0].label, "it says in words what is allowed");
+  assert.ok(Array.isArray(listed.standing), "the standing rules that apply come back too");
+
+  const revoked = await api("POST", "/api/rules/allowed/revoke", {
+    session: paused.sessionId, tool: "files.write", target: listed.grants[0].target,
+  });
+  assert.equal(revoked.status, 200);
+  assert.equal(revoked.body.revoked, true);
+  assert.equal(revoked.body.grants.length, 0, "the answer comes back without it");
+  assert.equal((await api("GET", `/api/rules/allowed?session=${paused.sessionId}`)).body.grants.length, 0);
+  /* The conversation asks again, which is the whole point of taking it back. */
+  assert.equal(app.runtime.allowedNow(paused.sessionId).length, 0);
+  const again = await api("POST", "/api/rules/allowed/revoke", { session: paused.sessionId, tool: "files.write", target: "" });
+  assert.equal(again.status, 404, "taking back something that is not allowed says so");
+});
+
+test("G1 a standing rule that says go ahead is listed beside the conversation's own yeses", async (t) => {
+  const { api } = await served(t);
+  await api("POST", "/api/rules/add", { tool: "files.read", match: "*", decision: "allow", remember: "always" });
+  const view = (await api("GET", "/api/rules/allowed?session=00000000-0000-4000-8000-000000000000")).body;
+  assert.equal(view.standing.length, 1);
+  assert.equal(view.standing[0].rule.tool, "files.read");
+  assert.ok(view.standing[0].sentence.length > 0, "the rule is said in a sentence, not as a shape");
+  /* A rule that refuses is not something the conversation is allowed to do, so it is not listed. */
+  await api("POST", "/api/rules/add", { tool: "shell.execute", match: "*", decision: "deny", remember: "always" });
+  const after = (await api("GET", "/api/rules/allowed?session=00000000-0000-4000-8000-000000000000")).body;
+  assert.deepEqual(after.standing.map((entry) => entry.rule.tool), ["files.read"]);
+});
+
+test("G1 the context pane lists a grant and the approval card says what a yes leaves behind", async (t) => {
+  const { page, errors } = await onPage(t, { provider: writesAFile("gated.txt") });
+  await page.evaluate(async (token) => {
+    await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
+  }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
+  await page.locator("#prompt").fill("write it");
+  await page.locator("#send").click();
+  await page.locator("#live-ask").waitFor({ state: "visible", timeout: 20000 });
+  /* Before pressing anything, each yes says what it will leave behind. */
+  const sentences = await page.locator("#live-ask .live-ask-grant").allTextContents();
+  assert.equal(sentences.length, 3, "one sentence per yes");
+  assert.match(sentences[0], /asks again next time/);
+  assert.match(sentences[1], /Remembered for this conversation/);
+  assert.match(sentences[2], /standing rule/);
+
+  await page.locator("#live-ask").getByRole("button", { name: "Yes, for this conversation", exact: true }).click();
+  const list = page.locator("#context-allowed");
+  await list.locator(".allowed-row").first().waitFor({ timeout: 15000 });
+  assert.match(await list.locator(".allowed-row strong").first().textContent(), /gated\.txt|files\.write/);
+  assert.match(await list.locator(".allowed-row .meta").first().textContent(), /until/);
+
+  await list.locator(".allowed-revoke").first().click();
+  await page.waitForFunction(() => !document.querySelector("#context-allowed .allowed-row"), null, { timeout: 15000 });
+  assert.match(await list.locator(".context-empty").textContent(), /Nothing extra is allowed/);
+  assert.deepEqual(errors, []);
+});
+
 /* ---------- G5: markdown everywhere, and Appearance in French ---------- */
 
 const markdownReply = "## What I did\n\nI read **two** files and found `answer = 42`.\n\n- one\n- two\n";
