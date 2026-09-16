@@ -63,7 +63,7 @@ export function registerDesktop(registry: ToolRegistry, desktop: DesktopControl)
   });
   registry.register({
     name: 'desktop.open', permission: 'desktop.control',
-    description: `Start a program by name, or open a file from the workspace with whatever program usually opens it. ${bounds}`,
+    description: `Start a program by name, or open a file from the workspace with whatever program usually opens it. A workspace file that is itself a program is refused. ${bounds}`,
     parameters: DesktopOpenSchema,
     target: (input) => input.app ?? input.path ?? '',
     execute: (input, context) => desktop.open(input, context),

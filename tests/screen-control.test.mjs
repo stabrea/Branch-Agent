@@ -10,8 +10,9 @@ import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 import { createBranch, isReadOnlyPermission, savePolicy } from "../dist/index.js";
 import {
-  keyChord, readDesktopSettings, refusalFor, saveDesktopSettings, secretReferenceIn, switchedOffMessage,
+  keyChord, readDesktopSettings, refusalFor, runnableFile, saveDesktopSettings, secretReferenceIn, switchedOffMessage,
 } from "../dist/integrations/desktop-config.js";
+import { DesktopControl } from "../dist/integrations/desktop.js";
 import { bannerTitle } from "../dist/integrations/desktop-banner.js";
 import { startServer } from "../dist/server.js";
 
@@ -192,6 +193,48 @@ test("a window that looks like a password manager is never photographed or typed
   await f.app.desktop.closeRun({ runId: f.run.id });
 });
 
+// Some windows will not draw themselves for Branch, and Windows copies that patch of the screen
+// instead — which shows whatever is sitting on top. These two touch no real screen: they stand in
+// a fake Windows in place of the script, so the check can be proven without a picture being taken.
+const stubWindow = (title, program) =>
+  ({ handle: "1", title, className: "Stub", program, processId: 1, minimised: false, width: 300, height: 200 });
+function fakeWindows(t, f, windows) {
+  const runner = {
+    async run(action) {
+      if (action === "windows") return { windows };
+      if (action === "screenshot") return { width: 300, height: 200, method: "screen", title: windows.at(-1).title };
+      throw new Error(`the test did not expect ${action}`);
+    },
+    async temporaryPng() {
+      const path = join(f.root, "stand-in.png");
+      await writeFile(path, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      return path;
+    },
+    async close() {},
+  };
+  const control = new DesktopControl(f.app.store, { artifacts: f.app.artifacts, runner, banner: { async show() {}, async hide() {} } });
+  t.after(() => control.closeRun({ runId: f.run.id }));
+  return control;
+}
+
+test("a picture Windows had to copy off the screen is refused while a password window is showing", async (t) => {
+  const f = await fixture(t);
+  saveDesktopSettings(f.app.store, "local", { enabled: true });
+  const control = fakeWindows(t, f, [stubWindow("Bitwarden", "bitwarden"), stubWindow("Ledger", "calc")]);
+  await assert.rejects(() => control.screenshot({ window: "Ledger" }, f.context()), /passwords/,
+    "a picture of one window that was really taken off the screen can show what is on top of it");
+  assert.equal(actionsIn(f.app, f.run.id).length, 0, "nothing was kept");
+});
+
+test("that same picture is kept when nothing private is on screen", async (t) => {
+  const f = await fixture(t);
+  saveDesktopSettings(f.app.store, "local", { enabled: true });
+  const control = fakeWindows(t, f, [stubWindow("Ledger", "calc")]);
+  const kept = await control.screenshot({ window: "Ledger" }, f.context());
+  assert.equal(kept.mediaType, "image/png");
+  assert.equal(actionsIn(f.app, f.run.id).length, 1, "the ordinary case still goes through");
+});
+
 test("the Settings card starts unticked and ticking it is what turns the tools on", async (t) => {
   const f = await fixture(t);
   const server = await startServer(f.app, { dataDir: join(f.root, "data"), port: 0 });
@@ -226,4 +269,16 @@ test("refusals, key names and saved-password references are decided before anyth
   assert.match(secretReferenceIn("my password is {{VAULT_KEY}}"), /placeholder/);
   assert.match(secretReferenceIn("token %BRANCH_TOKEN%"), /saved password/);
   assert.equal(secretReferenceIn("an ordinary sentence"), null);
+  assert.equal(runnableFile("notes/plan.txt"), null);
+  assert.match(runnableFile("tools/Setup.EXE"), /program, not a document/);
+  assert.match(runnableFile("tools/do-it.ps1"), /program, not a document/);
+});
+
+test("desktop.open will not run a program out of the workspace", async (t) => {
+  const f = await fixture(t);
+  saveDesktopSettings(f.app.store, "local", { enabled: true });
+  for (const path of ["hack.exe", "hack.bat", "hack.ps1"])
+    await assert.rejects(() => f.app.registry.execute("desktop.open", { path }, f.context()),
+      /program, not a document/, `${path} was handed to Windows anyway`);
+  assert.equal(actionsIn(f.app, f.run.id).length, 0, "the refusal comes before the screen is touched");
 });

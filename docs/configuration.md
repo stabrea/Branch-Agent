@@ -1032,4 +1032,8 @@ given the secrets locker at all, so there is no path by which a saved password c
 - **Opening a file cannot be confirmed.** `desktop.open` with a program name reports the program it
   started. Opening a *file* hands it to Windows, which picks the program and says nothing about
   what happened, so the answer says so and asks the assistant to look at the open windows instead.
+- **It will not run a program out of your workspace.** `desktop.open` opens documents. A workspace
+  file that is itself a program — `.exe`, `.bat`, `.cmd`, `.ps1`, `.msi` and the like — is turned
+  down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
+  my workspace". Running something has its own switch: the host-command tool.
 - **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.

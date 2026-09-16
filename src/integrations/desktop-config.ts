@@ -117,6 +117,20 @@ export const DesktopClipboardSchema = z.object({
   text: z.string().max(4000).optional(),
 }).strict().refine((value) => (value.action === 'write') === (value.text !== undefined), 'Writing needs text; reading takes none');
 
+/**
+ * Files that are programs rather than documents. "Open this with whatever usually opens it" is
+ * meant for a document, and the switch the owner ticked says "use my screen and keyboard", not
+ * "run programs out of my workspace" — so these are turned down and pointed at the host-command
+ * tool, which has a switch of its own.
+ */
+const runnableEndings = ['.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.msi', '.scr', '.lnk', '.vbs', '.js', '.jse', '.wsf', '.hta', '.reg'];
+export function runnableFile(path: string): string | null {
+  const ending = runnableEndings.find((suffix) => path.toLowerCase().endsWith(suffix));
+  return ending
+    ? `A ${ending} file is a program, not a document, so Branch will not open it this way. Use the host-command tool if running something is really what is wanted.`
+    : null;
+}
+
 /** Text that looks like it is standing in for a saved password, which is never typed. */
 export function secretReferenceIn(text: string): string | null {
   if (/\{\{/.test(text)) return 'That text still has a {{placeholder}} in it, so Branch will not type it.';

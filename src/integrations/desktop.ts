@@ -6,7 +6,7 @@ import type { Store } from '../store.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { WorkspaceFiles } from '../files.js';
 import {
-  cappedMessage, keyChord, readDesktopSettings, refusalFor, secretReferenceIn, switchedOffMessage,
+  cappedMessage, keyChord, readDesktopSettings, refusalFor, runnableFile, secretReferenceIn, switchedOffMessage,
   type WindowInfo,
   DesktopClickSchema, DesktopClipboardSchema, DesktopKeySchema, DesktopOpenSchema,
   DesktopReadSchema, DesktopScreenshotSchema, DesktopTypeSchema, DesktopWindowsSchema,
@@ -199,6 +199,10 @@ export class DesktopControl {
    * what it did — so the answer is honest about that and tells the model to go and look.
    */
   async open(input: z.infer<typeof DesktopOpenSchema>, context: ToolContext) {
+    if (input.path) {
+      const problem = runnableFile(input.path);
+      if (problem) throw new Error(problem);
+    }
     const signal = await this.begin(context, 'desktop.open');
     const path = input.path ? await new WorkspaceFiles(context.workspace).checked(input.path, true) : undefined;
     const answer = await this.runner.run('open', path ? { path } : { app: input.app }, signal);
