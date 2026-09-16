@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
   ToolDescription,
 } from "./contracts.js";
+import { policyTarget } from "./policy.js";
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -45,6 +46,15 @@ export class ToolRegistry {
   /** Every registered tool with its permission, for the capability inventory. */
   inventory(): { name: string; permission: string; description: string }[] {
     return [...this.tools.values()].map((t) => ({ name: t.name, permission: t.permission, description: t.description }));
+  }
+  /** The permission a tool needs, or "" when no such tool is registered. */
+  permissionOf(name: string): string {
+    return this.tools.get(name)?.permission ?? "";
+  }
+  /** What a call would touch, for the approval policy: the tool's own answer, or one read from the arguments. */
+  targetOf(name: string, args: unknown, context: ToolContext): string {
+    const own = this.tools.get(name)?.target?.(args, context);
+    return (own ?? policyTarget(name, args)) || "";
   }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];

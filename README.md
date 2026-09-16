@@ -57,6 +57,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - "Forget what this conversation saved": preview and remove a conversation's own memory facts, keep the ones you edited, and stop that conversation from saving again on its own.
 - Projects with their own instructions, preferred model and secrets; switch the active project to change all three.
 - A secrets locker: values are encrypted with a key kept outside the database, reach a program only as environment variables of a host command in the active project, are scrubbed from its output, and are never shown again.
+- Approval rules with three ready-made settings — ask before changes, work freely in the workspace, or read only — plus a practice run that changes nothing and per-conversation pace limits.
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.
 - Web search and page reading, guarded against local and private addresses; pin a skill to a conversation; archive or purge stale memory by age; a live list of the tools that exist right now.

@@ -32,6 +32,13 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
+  ApprovalGate, RateLimiter, jsonWriteProblem, simulatedResult, sleepFor,
+} from "./approvals.js";
+import {
+  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
+  type Policy, type PolicyRemember, type RunSource,
+} from "./policy.js";
+import {
   parseRetryPolicy,
   planRetry,
   waitForRetry,
@@ -80,6 +87,10 @@ export interface RunOptions {
   checks?: CompletionCheck;
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /** Practice run: tools that would change something report what they would have done. */
+  dryRun?: boolean;
+  /** Who started this task; defaults to the owner's own app or command line. */
+  source?: RunSource;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -97,6 +108,9 @@ export class Runtime {
   documents: { contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> } | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
+  readonly approvals = new ApprovalGate();
+  private readonly rates: RateLimiter;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -108,6 +122,7 @@ export class Runtime {
   ) {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
+    this.rates = new RateLimiter(this.reliability.rateWindowMs);
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -120,6 +135,8 @@ export class Runtime {
       budget?: Budget;
       runId?: string;
       depth?: number;
+      dryRun?: boolean;
+      source?: RunSource;
     } = {},
   ): ToolContext {
     return {
@@ -130,6 +147,8 @@ export class Runtime {
       signal: options.signal ?? new AbortController().signal,
       budget: options.budget ?? new Budget(),
       depth: options.depth ?? 0,
+      ...(options.dryRun ? { dryRun: true } : {}),
+      ...(options.source ? { source: options.source } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -402,6 +421,8 @@ export class Runtime {
           signal,
           budget,
           ...(options.permissions ? { permissions: options.permissions } : {}),
+          ...(options.dryRun ? { dryRun: true } : {}),
+          ...(options.source ? { source: options.source } : {}),
         }));
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt });
@@ -425,6 +446,7 @@ export class Runtime {
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
+    if (context.dryRun) this.reportDryRun(run);
     const settled = await this.settleRun(run, context, status, output);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
@@ -528,6 +550,7 @@ export class Runtime {
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
     let checkFailures = 0;
     for (let round = 0; round < 12; round++) {
+      await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
       const assistant: Message = {
@@ -813,6 +836,85 @@ export class Runtime {
       return "This exact action already ran before the interruption and its outcome is unknown. Check the actual state first (read, list or verify), then decide whether to do it again.";
     return null;
   }
+  /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
+  policy(source: RunSource = "owner"): Policy {
+    return cappedPolicy(readPolicy(this.store, this.owner), source);
+  }
+  private sessionOf(context: ToolContext): string {
+    return this.store.run(context.runId)?.sessionId ?? context.runId;
+  }
+  /**
+   * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task
+   * waits for the window to free up and then carries on.
+   */
+  private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
+    if (!limit) return;
+    const key = kind + ":" + this.sessionOf(context);
+    const wait = this.rates.waitMs(key, limit);
+    if (wait > 0) {
+      const what = kind === "tool" ? "tool calls" : "rounds with the model";
+      this.store.event(context.runId, "rate.paused", { kind, limit, waitMs: wait,
+        message: `Pausing for ${Math.ceil(wait / 1000)} second(s): this conversation has reached its limit of ${limit} ${what} a minute.` });
+      await sleepFor(wait, context.signal);
+      this.store.event(context.runId, "rate.resumed", { kind, limit });
+    }
+    this.rates.record(key);
+  }
+  /**
+   * The approval policy, checked once before a tool runs. A refused call comes back to the model as
+   * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
+   */
+  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
+    const readOnly = isReadOnlyPermission(this.registry.permissionOf(call.name));
+    const target = this.registry.targetOf(call.name, args, context);
+    const label = describeToolCall(call.name, args);
+    const source: RunSource = context.source ?? "owner";
+    const { decision, rule } = evaluatePolicy(this.policy(source), { tool: call.name, target, readOnly });
+    // An answer given earlier in the conversation stands in for the question, never for a rule that
+    // already decided: switching to a stricter setting takes effect at once.
+    const outcome = (decision === "ask" ? this.approvals.answer(this.sessionOf(context), call.name, target) : undefined) ?? decision;
+    if (context.dryRun && !readOnly) {
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: outcome });
+      return simulatedResult(label);
+    }
+    if (outcome === "allow") return null;
+    if (outcome === "deny") {
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
+      return { ok: false, error: `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.` };
+    }
+    const remember: PolicyRemember = source === "owner" ? rule?.remember ?? "session" : "session";
+    return this.askApproval(call, context, { label, target, source, remember });
+  }
+  /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
+  private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember }): never {
+    const { label, target, source, remember } = about;
+    const question = `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
+    const sessionId = this.sessionOf(context);
+    this.approvals.ask({ runId: context.runId, sessionId, tool: call.name, target,
+      label, question, source, remember, askedAt: new Date().toISOString() });
+    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember });
+    throw new NeedsInputError(question);
+  }
+  /**
+   * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
+   * conversation; "always" also writes it into the policy as a rule, which only the owner may do.
+   */
+  approve(sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session"): { tool: string; target: string; decision: string; remembered: PolicyRemember } {
+    const waiting = this.approvals.waiting(sessionId).at(-1);
+    if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
+    if (remember === "always" && waiting.source !== "owner")
+      throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    this.approvals.resolve(sessionId);
+    if (remember !== "never") this.approvals.remember(sessionId, waiting.tool, waiting.target, decision);
+    if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
+    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember };
+  }
+  /** Lists everything a practice run would have done, once it has finished. */
+  private reportDryRun(run: Run): void {
+    const actions = this.store.events(run.id).filter((event) => event.kind === "tool.simulated")
+      .map((event) => ({ tool: String(event.data.name ?? ""), label: String(event.data.label ?? ""), target: String(event.data.target ?? ""), decision: String(event.data.decision ?? "allow") }));
+    this.store.event(run.id, "dryrun.report", { actions, count: actions.length });
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -822,6 +924,9 @@ export class Runtime {
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
+    await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
+    const gated = await this.gate(call, args, context);
+    if (gated) return gated;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {

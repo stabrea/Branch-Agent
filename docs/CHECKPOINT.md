@@ -389,6 +389,23 @@ applies to every one of these tools. All results are bounded by serialized size 
 the registry's 64 KiB output limit and say `moreAvailable`. Tests: `tests/code-tools.test.mjs`.
 Covers A0435 (ignore-file access controls), A0537 (project maps and syntax validation) and the
 codebase-search families (workspace-search, codebase-search, codebase-indexing).
+## Batch 19 (wave 2) — approvals, rate limits and execution guardrails
+A declarative approval policy stored per owner at `settings/policy`: ordered rules of
+`{ tool, match, applies, decision, remember }` evaluated once in the runtime's tool gate, before the
+tool runs, against the tool name and what the call would touch (a path, a command, or a host; the
+browser reports the host of the page the run is on). Three presets expand to rules — *Ask before
+changes*, *Just do it inside my workspace*, *Read only* — with the stored default (`off`, no rules)
+keeping today's behaviour exactly, so every existing test is unchanged. "Ask" pauses through the
+existing `NeedsInputError` path and records the question; `POST /api/policy/approve` answers it for
+this once, for the conversation (kept in memory) or always (written back as an allow rule at the top).
+"Deny" comes back to the model as a plain refusal rather than killing the task. Tasks started by a
+trigger, a schedule or MCP are capped at *Ask before changes* and cannot be given a standing yes from
+inside the run. Also: `dryRun` on `POST /api/run` and `--dry-run` on the CLI (effectful tools report
+what they would have done, read-only tools run for real, and the run ends with a `dryrun.report`);
+optional per-conversation limits on tool calls and model rounds a minute that pause and resume rather
+than fail; and a `file.invalid_json` warning after writing a `.json` file that will not parse. New
+files `src/policy.ts`, `src/approvals.ts`, `public/approvals.js`, `tests/approvals.test.mjs`. Covers
+A0048, A0152, A0245, A0262, A0636, A0701, A1521, A1629, A1685, A2028.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

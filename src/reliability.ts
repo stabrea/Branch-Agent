@@ -111,6 +111,8 @@ export const ReliabilityOptionsSchema = z.object({
   toolTimeoutMs: z.number().int().min(5000).max(600000).default(90000),
   /** Tool results longer than this are clipped before the model sees them. */
   toolResultChars: z.number().int().min(1000).max(60000).default(12000),
+  /** How long the per-conversation pace window is; normally a minute. */
+  rateWindowMs: z.number().int().min(100).max(600000).default(60000),
 }).strict();
 export type ReliabilityOptions = z.infer<typeof ReliabilityOptionsSchema>;
 export type ReliabilityInput = z.input<typeof ReliabilityOptionsSchema>;

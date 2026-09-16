@@ -442,6 +442,56 @@ That registers `github.create_repo` (private unless you say otherwise), `github.
 
 Precedence, in order: the fixed secret patterns come first and cannot be overridden — `.env` files, `.ssh`, `.aws`, `.git`, anything named like credentials or secrets, and key files (`.pem`, `.key`, `.p12`, `.pfx`) are always refused, and a `!` line in `.branchignore` does **not** bring them back. `.branchignore` then hides more on top of that. Nothing inside a hidden folder can be un-hidden. The file is re-read whenever you change it, so there is nothing to restart.
 
+## When to check with me: approval rules, practice runs and pace limits
+Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until
+you choose something, nothing changes: Branch Agent does whatever its tools allow, exactly as before.
+**The four choices.**
+- **No approvals** (the starting point). Nothing is checked with you and nothing is refused.
+- **Ask before changes.** Reading is free. Anything that changes a file, runs a command or acts on a
+  web page stops and waits for your yes.
+- **Just do it inside my workspace.** Writing files is fine. Running a command, and clicking or
+  typing on a web page, wait for your yes; a website Branch Agent has not used before is checked
+  with you once and then remembered.
+- **Read only.** Branch Agent may look at things and answer, but may not change a file, run a
+  command or act on a web page. A refusal is explained in the answer; the task is not killed.
+Each choice fills in a list of **rules**, which you can then edit. A rule says: for this tool
+(`files.write`, `browser.*`, or `*` for everything), and for what it would touch (a file path, the
+start of a command, or a website's address), Branch Agent **goes ahead**, **checks with you**, or
+**is not allowed**. `*` in a pattern stands for any text; everything else is matched literally, and
+matching ignores capital letters. Rules are read from the top and the first one that matches decides.
+A rule can be limited to tools that *change* something, so it never gets in the way of reading.
+**Answering a question.** When a task stops for a yes, it appears under *Waiting for your yes* in
+the same Settings screen (and as the usual "needs input" pause on the conversation). You can say yes
+just this once, yes for the rest of that conversation, yes always, or no. "Yes always" is written
+back into your rules as a new rule at the top, so you are not asked again. After you answer, send
+your next message in that conversation to carry on.
+**Tasks you did not start yourself.** A task started by an inbound trigger, by a schedule or by
+another AI tool over MCP never gets more freedom than *Ask before changes*, and it cannot give
+itself a permanent yes from inside the run — the most it can be granted is a yes for that one
+conversation. This only applies once you have chosen something other than *No approvals*.
+Worth knowing before you choose: nobody is sitting there to answer for those tasks. Once you pick a
+setting, a schedule or trigger that wants to change something stops and waits, and stays waiting
+until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
+your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
+unattended install can be told about it wherever you actually look.
+**What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
+you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
+**A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,
+runs the task for real but stops every tool that would change something: each one reports what it
+*would* have done, and the task's events end with a `dryrun.report` listing every intended action.
+Tools that only read run normally, so the assistant still sees real information.
+**How fast one conversation may work.** Two optional limits, both per conversation and both off (0)
+by default: how many tools may be used in a minute, and how many times it may go back to the model
+in a minute. Going past a limit is not a failure — the task pauses, records `rate.paused` with a
+plain message, waits for the window to clear, records `rate.resumed`, and carries on.
+**A saved file that should be JSON.** When Branch Agent writes a file ending in `.json` that turns
+out not to be valid JSON, a `file.invalid_json` warning is recorded with the reason. The file is
+kept as written; nothing is undone.
+Routes, behind the local session token: `GET /api/policy` (the saved policy, the presets to choose
+from, and anything waiting for an answer), `POST /api/policy` with `{ "preset": "read-only" }`,
+`{ "rules": [...] }` or `{ "limits": { "toolCallsPerMinute": 30 } }`, and `POST /api/policy/approve`
+with `{ "sessionId": "...", "decision": "allow", "remember": "session" }`. Anything left out of a
+`POST /api/policy` keeps its current value; sending your own rules marks the policy as your own.
 ## Persistence and schedules
 
 `npm run chat` opens a streaming terminal session using the same provider, workspace, private state and integration variables. Ctrl+C or `/cancel` cancels the active run and returns to the prompt; a new request typed during execution cancels and drains that run before continuing the same conversation. `/new` starts a new conversation, and `/exit` shuts down. Partial text displayed before a cancelled/failed stream remains uncommitted; received provider usage and estimates still contribute to that run's accounting. Streaming is currently exposed through the terminal; the web/desktop conversation waits for the final result.

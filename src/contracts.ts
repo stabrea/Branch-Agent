@@ -141,6 +141,10 @@ export interface ToolContext {
   depth: number;
   /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
   agent?: string;
+  /** Practice run: tools that would change something report what they would have done instead. */
+  dryRun?: boolean;
+  /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
+  source?: "owner" | "trigger" | "schedule" | "mcp";
 }
 export interface ToolDefinition<T = unknown> {
   name: string;
@@ -149,6 +153,8 @@ export interface ToolDefinition<T = unknown> {
   inputSchema?: Record<string, unknown>;
   permission: string;
   execute: (args: T, context: ToolContext) => Promise<unknown>;
+  /** What this call would touch, for the approval policy, when the arguments alone do not say. */
+  target?: (args: T, context: ToolContext) => string | null;
 }
 export const RunInputSchema = z
   .object({
@@ -158,6 +164,8 @@ export const RunInputSchema = z
     temporary: z.boolean().optional(),
     /** Conditions the final answer must meet (phrases, a pattern, a JSON shape, files that must exist). */
     checks: z.record(z.string(), z.unknown()).optional(),
+    /** Practice run: nothing is really changed, and the report lists what would have happened. */
+    dryRun: z.boolean().optional(),
   })
   .strict();
 export const errorText = (error: unknown): string =>

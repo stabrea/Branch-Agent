@@ -303,6 +303,7 @@ export class Triggers {
     // Run the assistant
     const run = await this.runtime.run({
       prompt: finalPrompt,
+      source: "trigger",
       ...(trigger.sessionId ? { sessionId: trigger.sessionId } : {}),
     });
 

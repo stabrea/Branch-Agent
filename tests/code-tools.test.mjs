@@ -40,7 +40,7 @@ test("files.glob lists matching files and honours the ignore file", async (t) =>
 });
 
 test("the ignore matcher understands anchors, directories and negation", () => {
-  const match = ignoreMatcher("# comment\nbuild/\n*.log\n!keep.log\n/root-only.txt\ndocs/**/draft.md\n");
+  const match = ignoreMatcher("# comment\nbuild/\n*.log\n!keep.log\n/root-only.txt\ndocs/**/draft.md\n").ignores;
   assert.equal(match("build/x.js"), true);
   assert.equal(match("build", true), true);
   assert.equal(match("build", false), false, "a file named like a directory rule stays");
