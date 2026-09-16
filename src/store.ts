@@ -15,7 +15,7 @@ import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
-import { exportBackup, importBackup } from "./backup.js";
+import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
@@ -188,7 +188,7 @@ export class Store {
   /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
   /** Restores a backup into a fresh install; refuses when this copy already has state. */
-  restore(input: unknown) { return importBackup(this.db, input); }
+  restore(input: unknown, options: RestoreOptions = {}) { return importBackup(this.db, input, options); }
   /** Skill failure patterns, exclusions, demotion, benchmarks and drafts for this owner. */
   get governance(): SkillGovernance {
     return (this.governanceStore ??= new SkillGovernance(this, "local"));

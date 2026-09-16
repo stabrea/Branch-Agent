@@ -6,7 +6,25 @@ An open-source personal assistant designed to assemble the capabilities you need
 
 ## Install the Windows app
 
-Download `Branch-Agent-windows-x64.zip` from the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest), unzip it anywhere, and start `Branch Agent.exe`. Open **Settings → ChatGPT account** to sign in with your ChatGPT plan, or **Settings → Model connection** to use an API key. **Settings → Updates** checks GitHub for a newer release and installs it with one click after verifying the published checksum.
+Go to the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest) and download two files into the same folder: `Branch-Agent-windows-x64.zip` and `Install Branch Agent.cmd`. Double-click `Install Branch Agent.cmd`. It unpacks the download, puts Branch Agent in your own programs folder, adds it to the Start menu and to **Add or remove programs**, and keeps the version that was there before in case you want it back. Nothing else has to be installed first.
+
+Windows may show a blue "Windows protected your PC" box, because these downloads are not yet signed. Choose **More info**, then **Run anyway**.
+
+Prefer not to install? Unzip the download anywhere and start `Branch Agent.exe` directly. Put an empty file called `portable.txt` beside it and Branch keeps all of your conversations and files in a `Branch Data` folder next to the program, so the whole assistant travels on a memory stick.
+
+To remove Branch Agent, open **Add or remove programs**, find Branch Agent and choose **Uninstall**. Your conversations and files are left where they are.
+
+Once it is open:
+
+- **Settings → ChatGPT account** signs in with your ChatGPT plan; **Settings → Model connection** uses an API key instead.
+- **Settings → How Branch runs on this computer** turns on *Start Branch when I sign in to Windows*, *Keep Branch working when the window is closed* (so timed jobs and chat replies still happen), and *Reach Branch from my phone*.
+- **Settings → Updates** checks GitHub for a newer release and installs it with one click after checking the published checksum. A safety copy of your work is taken first, and the last three are kept.
+
+### Reaching Branch from your phone
+
+Branch never opens itself to the internet or to the network you happen to be on. Your phone reaches it over [Tailscale](https://tailscale.com), a private network you sign in to on both devices. Install Tailscale on this computer and on the phone, sign both in, then turn on **Reach Branch from my phone**. Press **Show the square code for my phone**, point the phone's camera at it, and type the six numbers shown on the computer. The numbers are good for a few minutes and for one phone.
+
+If something is not working, `branch doctor --fix` checks what Branch needs and repairs what it can.
 
 ## Run locally
 
@@ -18,7 +36,7 @@ npm run demo
 npm start
 ```
 
-Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`logout` removes it). A source checkout updates itself with `node dist/cli.js update`. After `npm link`, the same commands are available as `branch chat`, `branch login` and `branch update`.
+Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`logout` removes it). A source checkout updates itself with `node dist/cli.js update`. `branch doctor --fix` checks that everything Branch needs is in place and repairs what it can. `branch daemon install | uninstall | status` keeps the engine working in the background from the moment you sign in to Windows, with no window. After `npm link`, the same commands are available as `branch chat`, `branch login` and `branch update`.
 
 For an interactive terminal conversation, run `npm run chat`. Text streams as the provider sends it. Press Ctrl+C or type a revised request to interrupt the current task and continue the same conversation. `/new` starts a new conversation; `/exit` closes the terminal assistant.
 
@@ -28,7 +46,7 @@ For the native desktop application:
 npm run desktop
 ```
 
-It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. The packaged app updates itself from GitHub Releases; installers and code signing are pending.
+It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. When a background engine is already running (see `branch daemon install`), the window joins it rather than starting a second one. To create a portable application folder for your current operating system, run `npm run package:desktop`; on Windows it also writes `release/Install Branch Agent.cmd`, the unsigned installer described above. The packaged app updates itself from GitHub Releases; code signing is still pending.
 
 In **Settings → ChatGPT account**, sign in on OpenAI's website with a short code to use the models that come with your ChatGPT plan; the sign-in is kept under the device's key protection and Branch identifies itself as Branch Agent. In **Settings → Model connection**, select a provider and enter its API base URL, model identifier and key. Quit and reopen to apply an API-key connection. Explicit launch environment configuration takes precedence.
 
@@ -74,6 +92,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Voice input and output: record audio messages to transcribe, read messages aloud with browser voice or OpenAI-compatible text-to-speech.
 - Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.
 - When the assistant needs your answer it stops and asks; a banner and a notification take you straight to that conversation.
+- Installing and running on a Windows PC without any signed installer: an unsigned bootstrapper puts Branch in your own programs folder with Start menu and Add/Remove Programs entries, keeps the previous version, brings older data along, supports a fully portable copy, can start with Windows, can keep working with the window closed, and can be reached from your phone over Tailscale with a scan-and-type invitation.
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
 - Configurable assistant name and working instructions, applied consistently within each task.
 - Opt-in host commands with executable aliases, captured results and cancellation.

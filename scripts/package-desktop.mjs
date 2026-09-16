@@ -1,6 +1,7 @@
 import { packager } from "@electron/packager";
-import { copyFile, utimes } from "node:fs/promises";
+import { copyFile, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { bootstrapperScript } from "../dist/install/installer.js";
 
 const paths = await packager({
   dir: ".",
@@ -32,4 +33,14 @@ if (process.platform === "win32")
     await copyFile("node_modules/electron/dist/electron.exe", target);
     await utimes(target, new Date(), new Date()); // Electron's file dates predate 1980, which ZIP cannot store
   }
+// The installer: one script to put beside the release zip. It unpacks the zip with the tar that
+// comes with Windows and then runs the installer that travels inside the app itself, so nothing has
+// to be installed first and nothing has to be signed.
+if (process.platform === "win32") {
+  const script = join("release", "Install Branch Agent.cmd");
+  await writeFile(script, bootstrapperScript({
+    assetName: "Branch-Agent-windows-x64.zip", executableName: "Branch Agent.exe",
+  }), "utf8");
+  console.log(script);
+}
 console.log(paths.join("\n"));
