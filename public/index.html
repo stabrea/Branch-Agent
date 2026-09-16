@@ -912,6 +912,9 @@
             <h3>Messages still to send</h3>
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
+            <h3>Other chat services</h3>
+            <p class="subtle">These all work the same way: you paste in an address to send to, and the service sends what people write to an address of yours. Open one to see what it needs and what it can carry. Add it with <code>{"channels":[{"type":"chat","id":"work-chat","service":"&lt;the name in brackets&gt;"}]}</code> and the secrets it asks for.</p>
+            <div id="chat-services-list" class="card-list"></div>
             <h3>Add a way to reach your assistant</h3>
             <p class="subtle">Pick one below. Each needs two things: the sign-in details saved under <strong>Secrets</strong> in the default project, and one line added to the connections file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards and it appears in the list above. Whichever you choose, messages from a chat app can never run commands on this computer.</p>
             <details class="card-list">
@@ -1301,6 +1304,7 @@
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
+    <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>

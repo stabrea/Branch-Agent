@@ -1686,3 +1686,83 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+
+## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
+
+Everything that turns "it feels better" into a number two people can check. `src/evaluation-scorers.ts`
+adds an `Evaluator` shape — `score(task, trajectory, answer)` giving a score, a pass and its reasons
+— with twelve built-in scorers: exact (normalised), contains, regex, JSON shape, a number within a
+tolerance, a URL pattern, file-exists and file-contains, "this tool was called with these
+arguments", a budget over rounds/time/tokens/money, a model-graded rubric (cached, and refusing to
+guess when no connection is chosen), and `finished`, the completion review that catches an answer
+which quietly gave up. A suite task carries them as `"scorers": [...]`. `src/evaluation-run.ts` reads
+a finished task back as a trajectory and holds the gates: thresholds that fail a whole run, with
+`branch eval --suite x --gate '{...}'` making the exit code the gate's verdict so a release script
+can stop on it.
+
+`src/benchmarks.ts` and `src/benchmark-adapters.ts` add a `BenchmarkAdapter`
+(`discover`/`prepare`/`judge`) and five adapters that read the published formats from files the
+owner already has: SWE-bench Lite/Verified (refuses by name when the repository is not at
+`repos/<owner>__<name>`, copies it rather than touching it, applies the instance's own `test_patch`
+before running the named tests), GAIA, APPS/MBPP/HumanEval-style code tasks, WebVoyager/BrowserGym
+tasks against pages saved next to the dataset, and terminal-bench folders. Tests run through
+`src/benchmark-shell.ts`, under the same job limits and dead proxies every other command gets.
+Nothing is ever downloaded. OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld and
+the live BrowserGym environments are listed by name as **not** integrated, with what each would need.
+
+`src/study.ts` is the experiment: a study of source, subset, model choices, repeats, concurrency,
+retries and a money cap; the runner works through the matrix several at a time, writes every cell
+down as it lands so a stopped study carries on rather than restarting, keeps the best of N tries, and
+tabulates. `compareStudies` reports the difference over the tasks two studies share with a 95% range
+from a seeded bootstrap — no library, and the same answer every time. `src/tool-evaluations.ts`
+calls each tool directly with a known input (`branch eval tools`). `src/testing.ts` exports
+`ScriptedProvider` and `ScriptedTools` so contributors and plugin authors can write deterministic
+tests. Every evaluation and study task's trace is tagged (`branch.evaluation.suite`,
+`branch.study.id`) through a new additive `traceAttributes` on `RunOptions`.
+
+Routes: `GET /api/evaluation/benchmarks`, `GET|POST /api/studies`, `POST /api/studies/run`,
+`POST /api/studies/compare`, `POST /api/evaluation/tools`. UI: `public/studies.js`, a card under the
+existing evaluation card on Usage. Docs: "Measuring the assistant" in `docs/configuration.md`.
+
+Tests: `tests/evaluation-2.test.mjs` (25) and `tests/testing-utilities.test.mjs` (3, importing only
+the public entry point), with synthetic samples for all five adapters in
+`tests/fixtures/benchmarks/`. No new dependency.
+
+Known gaps: the code-task adapter runs the JavaScript splits and says so for Python rather than
+guessing at an interpreter; terminal-bench needs a bash on the machine and names what to install
+when there is none; a study over a benchmark prepares each task inside the one workspace rather than
+a sandbox of its own.
+
+## Batch 25 (wave 7) — messaging channels, second pass: ten services from one list
+
+Team-chat services mostly share one shape: an address to send to, an address they post to, and a signature or a
+shared word proving the post is theirs. `data/channels.json` now holds that shape for ten of them (Mattermost,
+Rocket.Chat, Google Chat, Microsoft Teams, Zulip, Feishu/Lark, DingTalk, WeCom, LINE, Viber) and
+`src/channels/webhook-chat.ts` is the single connection that reads it; nothing in that file names a service, so an
+eleventh is a row in the file and a row in the test table. Everything a channel needs beyond sending and receiving —
+pairing codes, the allowlist, answering only when addressed, splitting, retries, quiet hours, the `reply y / a / n`
+fallback — is still the router's and the ledger's, and is inherited unchanged.
+
+Three services do not fit that shape and got their own files: Matrix (`src/channels/matrix.ts`, a held-open sync
+request with a widening retry; encrypted rooms are counted and reported, not read), Signal
+(`src/channels/signal-cli.ts`, JSON-RPC over stdio, refused outright when the program the owner installed is not
+there), and Messenger/Instagram (`src/channels/meta-graph.ts`), which share WhatsApp's address check, signature and
+send — `whatsapp.ts` now imports them from there — and are flagged as needing Meta's app review. X/Twitter direct
+messages are deliberately not built, and the documentation says why.
+
+`/webhooks/chat/<channel id>` is the one unauthenticated address they all post to, next to the WhatsApp one and with
+the same Host rule. Plugins may now bring a chat service (`plugin.channel.<id>`) exactly as they bring a model
+connection, `channels.broadcast` sends one message to several linked chats and `channels.digest` sends the morning
+brief over any connected service, both through the ledger so quiet hours apply. Outbound webhooks gained a JSON
+shape per event, a signing key named in the locker rather than copied into the row, and a preview route for the
+shape editor; inbound triggers gained optional timestamp-and-nonce replay protection. The Connections table in
+`docs/configuration.md` is generated from `data/channels.json` and a test regenerates it byte for byte.
+
+Tightened while merging: every chat connection now remembers for two minutes what it has already taken in
+(`src/channels/seen.ts`), checked only after a post is proved genuine, so a service that resends a message is
+answered once rather than twice; repeated unproved posts to `/webhooks/chat/<id>` are counted per place they came
+from and made to wait after five tries, on a counter of their own so a badly set-up service can never stand between
+the owner and their own app; `channels.broadcast` and `channels.digest` are refused to anybody but the owner;
+`needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
+are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
+against a fake of its documented shape, not against the real service.

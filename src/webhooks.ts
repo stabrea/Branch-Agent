@@ -3,26 +3,46 @@ import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { NetworkPolicy } from "./network-policy.js";
+import { fillFrom, templateNames } from "./json-template.js";
 
 /**
  * Outbound webhooks: the assistant notifies external endpoints when events occur.
  * Each webhook specifies a URL and optional secret. Delivery is JSON with an HMAC signature.
  * Failing deliveries are retried with exponential backoff, then auto-disabled.
  */
+const shape: z.ZodType<unknown> = z.lazy(() =>
+  z.union([z.string().max(600), z.number(), z.boolean(), z.null(), z.array(shape).max(20), z.record(z.string().max(60), shape)]));
 export const WebhookSchema = z
   .object({
     name: z.string().min(1).max(100),
     url: z.string().url().max(2000),
     secret: z.string().min(1).max(100).optional(),
+    /**
+     * The name of a secret in the default project's locker holding the signing key, so the key
+     * lives with the other secrets rather than in this row. Tried before `secret`.
+     */
+    secretName: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+    /**
+     * What to send for each event, as a JSON shape with `{{name}}` inside its strings. A name may
+     * reach inside what is being announced (`{{run.id}}`). Absent means the whole event is sent.
+     */
+    templates: z.record(z.string().min(1).max(50), z.record(z.string().max(60), shape)).optional(),
     events: z.array(z.string().min(1).max(50)).min(1).max(20),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    for (const event of Object.keys(value.templates ?? {}))
+      if (!value.events.includes(event))
+        context.addIssue({ code: "custom", message: `This webhook has a shape for "${event}" but does not listen for it`, path: ["templates", event] });
+  });
 export type WebhookConfig = z.infer<typeof WebhookSchema>;
 export interface WebhookState {
   id: string;
   name: string;
   url: string;
   secret?: string | undefined;
+  secretName?: string | undefined;
+  templates?: Record<string, Record<string, unknown>> | undefined;
   events: string[];
   enabled: boolean;
   createdAt: string;
@@ -91,6 +111,8 @@ export class Webhooks {
       url: definition.url,
       events: definition.events,
       ...(definition.secret ? { secret: definition.secret } : {}),
+      ...(definition.secretName ? { secretName: definition.secretName } : {}),
+      ...(definition.templates ? { templates: definition.templates } : {}),
       enabled: true,
       failureCount: 0,
       disabledAt: null,
@@ -147,6 +169,39 @@ export class Webhooks {
   traceparentFor: (runId: string) => string | null = () => null;
 
   /**
+   * Finds the signing key a webhook names, out of the default project's locker. `createBranch`
+   * connects the real locker; on its own a named key cannot be found, and the delivery goes out
+   * unsigned rather than failing, exactly as a webhook with no key at all does today.
+   */
+  secretFor: (name: string) => Promise<string> = async (name) => {
+    throw new Error(`No secret called ${name} is available on this copy`);
+  };
+
+  /** The key to sign with: the named one out of the locker first, then one written into the row. */
+  private async signingKey(webhook: WebhookState): Promise<string | undefined> {
+    if (webhook.secretName) {
+      const found = await this.secretFor(webhook.secretName).catch(() => undefined);
+      if (found) return found;
+    }
+    return webhook.secret;
+  }
+
+  /**
+   * What one event would actually be sent as, for the shape editor in Settings. Nothing is sent
+   * and no address is reached; this only fills the owner's shape in with a sample.
+   */
+  preview(owner: string, id: string, event: string, sample: Record<string, unknown> = {}): { body: unknown; unfilled: string[] } {
+    const webhook = this.get(owner, id);
+    if (!webhook) throw new Error("Webhook not found");
+    const full: Record<string, unknown> = { event, timestamp: new Date().toISOString(), ...sample };
+    const template = webhook.templates?.[event];
+    if (!template) return { body: full, unfilled: [] };
+    const filled = fillFrom(template, full);
+    const unfilled = [...templateNames(template)].filter((name) => readValue(full, name) === undefined);
+    return { body: filled, unfilled };
+  }
+
+  /**
    * Send one request. Never throws: a refused address or a dead endpoint is a failed result.
    */
   private async send(webhook: WebhookState, payload: Record<string, unknown>): Promise<{ ok: boolean; message: string }> {
@@ -154,13 +209,16 @@ export class Webhooks {
     const timeout = setTimeout(() => controller.abort(), deliveryTimeoutMs);
     try {
       await this.policy.assertAllowed(new URL(webhook.url), "webhook address");
-      const body = JSON.stringify(payload);
+      // The owner's own shape for this event, when they made one; otherwise the whole event.
+      const template = webhook.templates?.[String(payload.event ?? "")];
+      const body = JSON.stringify(template ? fillFrom(template, payload) : payload);
       const headers: Record<string, string> = { "content-type": "application/json" };
       // When the task that caused this has a trace open, the receiving service joins that trace.
       const traceparent = this.traceparentFor(String(payload.runId ?? ""));
       if (traceparent) headers["traceparent"] = traceparent;
-      if (webhook.secret)
-        headers["x-branch-signature"] = `sha256=${createHmac("sha256", webhook.secret).update(body).digest("hex")}`;
+      const key = await this.signingKey(webhook);
+      if (key)
+        headers["x-branch-signature"] = `sha256=${createHmac("sha256", key).update(body).digest("hex")}`;
       const response = await fetch(webhook.url, { method: "POST", headers, body, signal: controller.signal, redirect: "error" });
       return { ok: response.ok, message: `HTTP ${response.status}` };
     } catch (error) {
@@ -227,6 +285,16 @@ export class Webhooks {
   }
 }
 
+/** Reads a dotted name out of a sample, so a shape asking for something absent can be pointed out. */
+function readValue(source: Record<string, unknown>, name: string): unknown {
+  let current: unknown = source;
+  for (const part of name.split(".")) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
 /** Row columns win over the stored blob, so a stale copy inside the blob can never leak out. */
 function hydrate(record: SavedRecord): WebhookState {
   const data = record.data as Partial<WebhookState>;
@@ -234,6 +302,8 @@ function hydrate(record: SavedRecord): WebhookState {
     name: String(data.name ?? ""),
     url: String(data.url ?? ""),
     ...(data.secret ? { secret: data.secret } : {}),
+    ...(data.secretName ? { secretName: data.secretName } : {}),
+    ...(data.templates ? { templates: data.templates } : {}),
     events: data.events ?? [],
     enabled: data.enabled !== false,
     failureCount: data.failureCount ?? 0,
