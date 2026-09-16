@@ -138,7 +138,7 @@ export class Research {
         // The owner's injection policy applies here exactly as it does to `web.read`: a page whose
         // lines read like orders to the assistant is redacted or refused before it can be quoted.
         const warnings = detectInjection(page.text);
-        if (warnings.length) this.store.event(context.runId, "research.flagged", { url: page.url, warnings: warnings.length, policy: this.web.injectionPolicy });
+        if (warnings.length && context.runId) this.store.event(context.runId, "research.flagged", { url: page.url, warnings: warnings.length, policy: this.web.injectionPolicy });
         const guarded = applyContentPolicy(page.text, warnings, this.web.injectionPolicy);
         state.findings.push(...findingsFrom(input.question, page.url, page.title || page.url, guarded.text));
       } catch (error) {
