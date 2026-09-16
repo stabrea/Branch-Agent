@@ -24,6 +24,7 @@ import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
 import { safeStorage } from "electron";
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
+import { recordDesktopCrash, type SpanStore } from "../tracing.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -163,6 +164,7 @@ async function start(): Promise<void> {
     presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
     chatgpt,
   });
+  watchDesktopCrashes(branch);
   let integrationClose: (() => Promise<void>) | undefined;
   let serverClose: (() => Promise<void>) | undefined;
   let stopping: Promise<void> | undefined;
@@ -203,6 +205,22 @@ async function start(): Promise<void> {
     await stop();
     throw error;
   }
+}
+
+/**
+ * When the window or one of Electron's helper programs dies, that happens in another process, so
+ * nothing the engine listens for ever hears about it. Electron tells this process instead, over
+ * its own IPC; each report is written into the same record of failures the engine keeps, with the
+ * part of the app it came from on it. Nothing here changes what Electron then does.
+ */
+function watchDesktopCrashes(branch: { store: { spans: SpanStore }; runtime: { owner: string; hideSecrets(value: string): string } }): void {
+  const record = (where: string, message: string, stack?: string) =>
+    recordDesktopCrash(branch.store.spans, branch.runtime.owner,
+      (value) => branch.runtime.hideSecrets(value), { where, message, ...(stack === undefined ? {} : { stack }) });
+  app.on("render-process-gone", (_event, _contents, details) =>
+    record("window", `The window stopped: ${details.reason}${details.exitCode ? ` (code ${details.exitCode})` : ""}`));
+  app.on("child-process-gone", (_event, details) =>
+    record(details.type || "helper", `A helper program stopped: ${details.reason}${details.exitCode ? ` (code ${details.exitCode})` : ""}`));
 }
 
 function desktopProvider(settings: DesktopSettings) {

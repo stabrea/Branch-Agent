@@ -4,13 +4,16 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
+import { z } from "zod";
 import { startServer } from "../dist/server.js";
-import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider } from "../dist/index.js";
+import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -220,4 +223,110 @@ test("12 — what a profile's task learns is theirs, and the owner's facts are n
   const busless = await app.registry.execute("memory.search", { query: "bus" },
     app.runtime.context({ runId: ownersRun.id }));
   assert.deepEqual(busless, [], "and does not see what Sam's task learned");
+});
+
+test("10 — a promise nobody caught is written down, and still ends the process as Node would", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-rejection-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const database = join(root, "spans.db").replace(/\\/g, "/");
+  const dist = new URL("../dist/tracing.js", import.meta.url).href;
+  const script = join(root, "crash.mjs");
+  await writeFile(script, [
+    `import { DatabaseSync } from "node:sqlite";`,
+    `import { SpanStore, recordUncaughtErrors } from ${JSON.stringify(dist)};`,
+    `const db = new DatabaseSync(${JSON.stringify(database)});`,
+    `recordUncaughtErrors(new SpanStore(db), "local", (value) => value.split("hunter2").join("[hidden]"));`,
+    `Promise.reject(new Error("the passphrase hunter2 did not work"));`,
+  ].join("\n"));
+
+  const finished = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [script], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (code) => resolve({ code, stderr }));
+  });
+  assert.notEqual(finished.code, 0, "the process still ends in failure, exactly as it would with nobody listening");
+  assert.match(finished.stderr, /did not work/, "and still says so where it always did");
+
+  const db = new DatabaseSync(database);
+  const spans = db.prepare("SELECT name, message FROM spans").all();
+  db.close();
+  assert.equal(spans.length, 1, "written down once, not twice");
+  assert.equal(spans[0].name, "branch.unhandled_rejection");
+  assert.match(spans[0].message, /\[hidden\]/, "through the same scrubber as everything else");
+  assert.ok(!spans[0].message.includes("hunter2"));
+});
+
+/** A stand-in for another AI tool: it speaks the same JSON-RPC over the same address. */
+async function client(t, reply) {
+  const { app, server, headers, call } = await served(t, reply);
+  const rpc = async (body, sessionId) => {
+    const response = await fetch(`${server.url}/mcp`, {
+      method: "POST",
+      headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}) },
+      body: JSON.stringify(body),
+    });
+    return { response, data: await response.json() };
+  };
+  const first = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize",
+    params: { protocolVersion: "2025-06-18", clientInfo: { name: "probe", version: "1.0.0" } } });
+  return { app, call, rpc, sessionId: first.response.headers.get("mcp-session-id") };
+}
+
+test("2 — a call that needs a yes waits for the owner, and goes ahead when they give one", async (t) => {
+  const { app, call, rpc, sessionId } = await client(t);
+  app.registry.register({
+    name: "browser.click", description: "Click something on a web page", permission: "browser.interact",
+    parameters: z.object({ selector: z.string() }).strict(), execute: async () => ({ clicked: true }),
+  });
+  await call("/api/mcp/settings", { enabled: true, exposedTools: ["browser.click"], askWaitSeconds: 30 });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "browser.click", match: "*", decision: "ask" }] });
+
+  const asked = rpc({ jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "browser.click", arguments: { selector: "#go" } } }, sessionId);
+
+  // The owner, in the app, answering the same question the app's own tasks put to them.
+  let waiting;
+  for (let at = 0; at < 200 && !waiting; at++) {
+    waiting = app.runtime.approvals.waiting(`mcp:${sessionId}`).at(-1);
+    if (!waiting) await delay(25);
+  }
+  assert.ok(waiting, "the question is in the app, not swallowed at the connection");
+  assert.equal(waiting.source, "mcp");
+  assert.match(waiting.bytes, /#go/, "with the exact bytes that were asked for");
+  assert.ok(waiting.fingerprint, "and a fingerprint their yes is bound to");
+  app.runtime.approve(`mcp:${sessionId}`, "allow", "session", waiting.fingerprint);
+
+  const answered = await asked;
+  assert.equal(answered.data.result.isError, false, "the call that was held open went ahead");
+  assert.match(answered.data.result.content[0].text, /clicked/);
+});
+
+test("2 — nobody answers in time: the client is told to ask again, and the retry finds the yes", async (t) => {
+  const { app, call, rpc, sessionId } = await client(t);
+  app.registry.register({
+    name: "browser.click", description: "Click something on a web page", permission: "browser.interact",
+    parameters: z.object({ selector: z.string() }).strict(), execute: async () => ({ clicked: true }),
+  });
+  await call("/api/mcp/settings", { enabled: true, exposedTools: ["browser.click"], askWaitSeconds: 0 });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "browser.click", match: "*", decision: "ask" }] });
+  const ask = { name: "browser.click", arguments: { selector: "#go" } };
+
+  const first = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: ask }, sessionId);
+  assert.equal(first.data.result.isError, true);
+  assert.match(first.data.result.content[0].text, /waiting for your yes in Branch/);
+  assert.match(first.data.result.content[0].text, /ask again/);
+
+  const waiting = app.runtime.approvals.waiting(`mcp:${sessionId}`).at(-1);
+  assert.ok(waiting, "the question is still waiting rather than thrown away");
+  app.runtime.approve(`mcp:${sessionId}`, "allow", "session", waiting.fingerprint);
+
+  const retried = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: ask }, sessionId);
+  assert.equal(retried.data.result.isError, false, "the same request finds the answer it was given");
+
+  // A yes is bound to the exact bytes, so a different click is a new question.
+  const different = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/call",
+    params: { name: "browser.click", arguments: { selector: "#somewhere-else" } } }, sessionId);
+  assert.equal(different.data.result.isError, true);
+  assert.match(different.data.result.content[0].text, /waiting for your yes in Branch/);
 });

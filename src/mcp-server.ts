@@ -12,6 +12,8 @@ import {
   DryRunSchema, dryRunPlan, hiddenToolsText, hiddenToolsUri, preflight, type DryRunPlan,
 } from './mcp-policy.js';
 import { compareSnapshot, listSnapshots, recordSnapshot, type SnapshotTool } from './mcp-snapshots.js';
+import { argumentFingerprint } from './runtime.js';
+import { approvalQuestion } from './approvals.js';
 
 /**
  * Protocol versions Branch understands, newest first. A client that asks for something else is told
@@ -156,6 +158,21 @@ export class McpSession {
 
 /** How many conversations are kept at once. At the cap the quietest one is dropped. */
 const SESSION_LIMIT = 100;
+
+/** What the settings say about one call from outside, and the words for each way it can end. */
+interface McpVerdict {
+  decision: 'allow' | 'deny' | 'ask';
+  name: string;
+  target: string;
+  label: string;
+  /** Where the owner's answer is kept: the client's own connection, so a retry finds it. */
+  approvalKey: string;
+  /** The exact request, with saved passwords taken out, and the fingerprint a yes is bound to. */
+  bytes: string;
+  fingerprint: string;
+  refusal: string;
+  waiting: string;
+}
 
 /** A resource only shows up when the owner's approval settings would allow the matching tool. */
 interface ResourceScope { uri: string; name: string; description: string; mimeType: string; tool: string; permission: string }
@@ -417,7 +434,7 @@ export class McpServer {
       const exposed = this.exposed();
       if (!exposed.has(parsed.name))
         return failure(`Branch is not sharing "${parsed.name}". Turn it on in Settings, under Sharing with other AI tools.`);
-      return await this.callRegistryTool(parsed.name, args, exposed);
+      return await this.callRegistryTool(parsed.name, args, exposed, session);
     } finally {
       this.inFlight--;
     }
@@ -475,9 +492,15 @@ export class McpServer {
   }
 
   /** Run one shared tool as its own recorded task, so it appears in Activity with a receipt. */
-  private async callRegistryTool(name: string, args: Record<string, unknown>, exposed: Set<string>): Promise<unknown> {
-    const refusal = this.gate(name, args);
-    if (refusal) return failure(refusal);
+  private async callRegistryTool(
+    name: string, args: Record<string, unknown>, exposed: Set<string>, session?: McpSession,
+  ): Promise<unknown> {
+    const verdict = this.gate(name, args, session);
+    if (verdict.decision === 'deny') return failure(verdict.refusal);
+    if (verdict.decision === 'ask') {
+      const answered = await this.waitForOwner(verdict);
+      if (answered !== 'allow') return failure(answered === 'deny' ? verdict.refusal : verdict.waiting);
+    }
     const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
     this.store.event(run.id, 'run.started', { source: 'mcp', tool: name, provider: this.runtime.provider.name, parentRunId: null });
     try {
@@ -496,21 +519,67 @@ export class McpServer {
   }
 
   /**
-   * The owner's approval settings, applied at the moment of the call. There is nobody at this end
-   * of an MCP connection to answer a question, so a call the settings want asked about is stopped
-   * with a message rather than quietly allowed.
+   * The owner's approval settings, applied at the moment of the call. A flat refusal is final; a
+   * call the settings want asked about becomes a real question in the app, which the owner can
+   * answer while the client waits (see `waitForOwner`).
+   *
+   * The answer is kept against the client's own connection and bound to the exact bytes asked for,
+   * so a yes covers this call and a retry of it, and nothing else.
    */
-  private gate(name: string, args: Record<string, unknown>): string | null {
+  private gate(name: string, args: Record<string, unknown>, session?: McpSession): McpVerdict {
     const permission = this.registry.permissionOf(name);
     const context = this.toolContext('policy-check', new Set([name]));
     const target = this.registry.targetOf(name, args, context);
+    const label = describeToolCall(name, args);
+    const bytes = this.runtime.hideSecrets(JSON.stringify(args));
+    const fingerprint = argumentFingerprint(bytes);
+    const approvalKey = `mcp:${session?.id ?? 'once'}`;
     const policy = cappedPolicy(readPolicy(this.store, this.runtime.owner), 'mcp');
     const { decision } = evaluatePolicy(policy, { tool: name, target, readOnly: isReadOnlyPermission(permission) });
-    if (decision === 'allow') return null;
+    const answered = decision === 'ask'
+      ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint) : undefined;
     const where = target ? ` on ${target}` : '';
-    return decision === 'deny'
-      ? `Your approval settings do not allow ${name}${where}.`
-      : `${name}${where} needs your yes. Open Branch and run it there, or change your approval settings.`;
+    return {
+      decision: answered ?? decision, name, target, label, approvalKey,
+      bytes: bytes.slice(0, 2000), fingerprint,
+      refusal: `Your approval settings do not allow ${name}${where}.`,
+      waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
+    };
+  }
+
+  /**
+   * A call the settings want a question about. There used to be nobody at this end of an MCP
+   * connection to answer one, so it was simply refused. Now the question goes into the app exactly
+   * as a question from the owner's own conversation does — the same pending approval, the same
+   * exact bytes, the same fingerprint — and the client's call is held open while the owner looks at
+   * it, for as long as the owner's setting allows. If nothing comes, the question stays waiting and
+   * the client is told to ask again: the answer is bound to these bytes, so a retry finds it.
+   */
+  private async waitForOwner(verdict: McpVerdict): Promise<'allow' | 'deny' | 'waiting'> {
+    const name = verdict.name;
+    const asking = this.store.createRun(this.runtime.owner, `Another AI tool asked to use ${name}`);
+    const question = approvalQuestion(verdict.label, verdict.target);
+    this.runtime.approvals.ask({
+      runId: asking.id, sessionId: verdict.approvalKey, tool: name, target: verdict.target,
+      label: verdict.label, question, source: 'mcp', remember: 'session',
+      askedAt: new Date().toISOString(), bytes: verdict.bytes, fingerprint: verdict.fingerprint,
+    });
+    this.store.event(asking.id, 'policy.ask', { name, label: verdict.label, target: verdict.target,
+      remember: 'session', question, bytes: verdict.bytes, fingerprint: verdict.fingerprint, source: 'mcp' });
+    const deadline = this.now() + readServingSettings(this.store, this.runtime.owner).askWaitSeconds * 1000;
+    do {
+      const answer = this.runtime.approvals.answer(verdict.approvalKey, name, verdict.target, verdict.fingerprint);
+      if (answer) {
+        this.store.finish(asking.id, 'completed', answer === 'allow' ? 'You said yes.' : 'You said no.');
+        return answer;
+      }
+      if (this.now() >= deadline) break;
+      await new Promise((resolve) => { const timer = setTimeout(resolve, 150); timer.unref?.(); });
+    } while (this.now() < deadline);
+    // The question is deliberately left waiting: the owner can still answer it, and the answer is
+    // bound to these exact bytes, so the client's next try finds it without asking again.
+    this.store.finish(asking.id, 'needs_input', question);
+    return 'waiting';
   }
 
   /** Anyone watching the list of finished tasks is told, and so is anyone watching this one. */
