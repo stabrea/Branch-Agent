@@ -383,7 +383,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       return staged(store, context, { kind: "put", text: value.text, source: value.source })
         ?? store.save("memory", context.owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId });
     } });
-  registry.register({ name: "memory.keep", description: "Keep a note made while doing this job for good, so it is not cleared when the job ends.",
+  registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => store.promoteMemory(context.owner, value.id) });
   registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment (default now), for details that change over time.",

@@ -2400,7 +2400,7 @@ suggestion you accept or reject under "What it learns", and accepting one sets t
 archive where it can be brought back. It also ships as a recipe called **Tidy my memory**, which
 arrives as a proposal like any other so you can see what it would do and check it works first.
 
-**Counts you can see.** `GET /api/memory/health` and the `memory.health` tool give counts only — how
+**Counts you can see.** `GET /api/memory/health` gives counts only — how
 many of each kind and layer, how many are notes from a job, how many have never been used, how many
 are set aside. No wording of any fact is included, which is why the same line goes into the
 diagnostics folder as `memory.json`.
@@ -2429,6 +2429,6 @@ so nothing here widens what can reach this computer.
 
 New routes: `GET|POST /api/memory/tidy/all` (every check; `{ "stage": true }` turns findings into
 suggestions), `GET /api/memory/health`, `POST /api/memory/{id}/keep`, and `GET /api/sessions`. New
-tools: `memory.tidy` and `memory.keep` under `memory.write`, `memory.health` under `memory.read`,
+tools: `memory.tidy` and `memory.keep` under `memory.write`,
 `documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
 `documents.write`.

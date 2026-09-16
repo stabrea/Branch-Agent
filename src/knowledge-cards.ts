@@ -95,7 +95,7 @@ function readJson(content: string): unknown {
 export function registerKnowledgeCards(registry: ToolRegistry, cards: KnowledgeCards): void {
   registry.register({
     name: "knowledge.propose", permission: "documents.write",
-    description: "Read a finished conversation and suggest fact cards worth keeping in a knowledge base. Suggestions only: the owner accepts them in the Memory screen before anything is added.",
+    description: "Suggest fact cards from a finished conversation. Suggestions only; the owner accepts them.",
     parameters: ProposeCardsSchema,
     execute: async (input, context) => cards.propose(context.owner, input, context.signal),
   });

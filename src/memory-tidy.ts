@@ -114,14 +114,10 @@ export function shipTidyProcedure(store: Store, owner: string): void {
 export function registerMemoryTidy(registry: ToolRegistry, tidy: MemoryTidy): void {
   registry.register({
     name: "memory.tidy", permission: "memory.write",
-    description: "Look over saved facts for the same thing saved twice, facts that contradict each other, ones not touched in a long time and ones never drawn on. Reports only unless asked to stage; nothing is ever deleted.",
+    description: "Find repeated, contradicting, stale and never-used facts. Suggests only; deletes nothing.",
     parameters: TidySchema,
     execute: async (input, context) => tidy.run(context.owner, input),
   });
-  registry.register({
-    name: "memory.health", permission: "memory.read",
-    description: "How the person's saved facts are made up: how many of each kind and layer, how many are notes from a job, and how many have never been used. Counts only.",
-    parameters: z.object({}).strict(),
-    execute: async (_input, context) => tidy.health(context.owner),
-  });
+  // There is deliberately no separate health tool: `memory.tidy` already returns the same counts,
+  // and the Memory screen and the diagnostics folder read them through `GET /api/memory/health`.
 }
