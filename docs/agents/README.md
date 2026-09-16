@@ -20,7 +20,7 @@ This folder is the operating manual for the autonomous build loop that produced 
 - The pull-request CI check is the gate; the Windows runner is slow, and a handful of timing-sensitive tests flake there. Fix the test to wait, never widen a product timeout for CI.
 - Report real numbers. Builders' claims are not evidence; ticks come from integrator verdicts.
 - Tick an id the moment an integrator has verified it and the branch is merged, written as
-  `- [x] \`A0245\` (merged, ships in 0.17.0)`, and not at release. Waiting for the release left 48
+  "- [x] A0245 (merged, ships in 0.17.0)", and not at release. Waiting for the release left 48
   finished items showing an empty box, which both understates the work and invites somebody outside
   to build the same thing again. At release, rewrite those markers to `(0.17.0)`.
 - When a branch starts, comment on the theme issues it covers saying which ids are being built and
