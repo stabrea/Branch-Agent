@@ -52,7 +52,7 @@ import {
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
 import { Tracer } from "./tracing.js";
-import { audit } from "./audit.js";
+import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -1485,14 +1485,16 @@ export class Runtime {
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
-      // The record's "came from" column is a fixed list of the places a task can start, so which
-      // chat app the answer was pressed in goes in the "why" column beside the question itself.
-      // The column holds 500 characters and a row too long for it would be dropped in silence, so
-      // a long question is shortened here and the chat app's name always survives.
+      // The sentence still says where the answer was pressed, because that is what a person reads
+      // first. The column holds 500 characters and a row too long for it would be dropped in
+      // silence, so a long question is shortened here and the chat app's name always survives.
       reason: answeredOn
         ? `${(waiting.label || waiting.question).slice(0, 440)} — answered on ${answeredOn.slice(0, 40)}`
         : (waiting.label || waiting.question).slice(0, 500),
-      source: waiting.source, runId: waiting.runId,
+      // Where the moment happened is the chat app the button was pressed in, when it was one, and
+      // what the task itself came from is kept beside it. They are two different facts.
+      source: channelSource(answeredOn) ?? waiting.source,
+      origin: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
@@ -1674,6 +1676,18 @@ export class Runtime {
  * A fingerprint of the exact bytes the assistant asked to run. A yes is bound to it, so a command
  * that changes by one character is a new question rather than something an old yes covers.
  */
+/**
+ * Which chat app a button was pressed in, as the record's own word for it. A channel the record has
+ * no word for — one a plugin brought, say — is filed under the general "chat", so the column stays
+ * a short list a person can actually filter on and nothing is ever lost.
+ */
+export function channelSource(answeredOn: string | undefined): AuditSource | null {
+  if (!answeredOn) return null;
+  const name = answeredOn.trim().toLowerCase();
+  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system"].includes(name)
+    ? (name as AuditSource) : "chat";
+}
+
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
 }

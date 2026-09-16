@@ -1943,8 +1943,19 @@ connected or disconnected, something exported, and a switch to another project o
 practice workspace. The table is append-only, enforced by the database itself: two SQLite triggers
 refuse any attempt to change or remove a row, so nothing — not even Branch — can quietly rewrite
 what happened.
-`GET /api/audit` lists it newest first and accepts `action`, `source`, `from`, `to` and `limit`.
-`GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file. The
+**Where it happened, and what started the task, are two different things.** `source` is where the
+moment actually happened: this app, a schedule, a trigger, another AI tool — and now also the chat
+app a button was pressed in, one of `telegram`, `discord`, `slack`, `whatsapp`, `email` or `chat`
+(anything else a plugin brought). `origin` is what the task itself came from, which for an answer
+given on a phone is usually not the same thing at all: a schedule can start a task whose question
+you answer on Telegram, and the record says both. Rows written before the two were told apart carry
+no origin of their own; they read back, and filter, as their source, which is what that column
+always meant, and nothing is rewritten — the two rules on the table refuse any edit to a row that
+already exists.
+
+`GET /api/audit` lists it newest first and accepts `action`, `source`, `origin`, `from`, `to` and
+`limit`. `GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file,
+with **where it happened** and **what started the task** as two columns. The
 diagnostics folder carries it as `allowed.json`, scrubbed the same way everything else there is.
 The foot of the Usage screen shows it in plain language, with a count of each kind.
 ### Deciding approvals a kind of thing at a time

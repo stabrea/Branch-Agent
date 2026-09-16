@@ -270,6 +270,53 @@ test("the tool checks put the owner's project back even when the run itself goes
 });
 
 // ---------------------------------------------------------------------------
+// 8. The record says where an answer was actually given, and keeps what the
+//    task itself came from in a column of its own.
+// ---------------------------------------------------------------------------
+
+test("an answer pressed in a chat app is filed under that chat app, task origin beside it", async (t) => {
+  const { app } = await fixture(t);
+  const { auditCsv, auditSources } = await import("../dist/audit.js");
+  const { channelSource } = await import("../dist/runtime.js");
+  for (const name of ["telegram", "discord", "slack", "whatsapp", "email", "chat"])
+    assert.ok(auditSources.includes(name), `${name} belongs in the list a person can filter on`);
+  // A channel the record has no word for still lands somewhere sensible rather than being lost.
+  assert.equal(channelSource("signal"), "chat");
+  assert.equal(channelSource("telegram"), "telegram");
+  assert.equal(channelSource(undefined), null);
+
+  const owner = app.runtime.owner;
+  app.store.audit.record(owner, { action: "approval.decided", actor: owner, subject: "files.write on note.txt",
+    reason: "Writing a file — answered on telegram", source: "telegram", origin: "schedule", outcome: "allowed" });
+  const [entry] = app.store.audit.list(owner, { action: "approval.decided" });
+  assert.equal(entry.source, "telegram", "the column says where the button was pressed");
+  assert.equal(entry.origin, "schedule", "and what the task itself came from is kept");
+  // Both columns can be filtered on, and the spreadsheet carries both.
+  assert.equal(app.store.audit.list(owner, { source: "telegram" }).length, 1);
+  assert.equal(app.store.audit.list(owner, { origin: "schedule" }).length, 1);
+  assert.equal(app.store.audit.list(owner, { origin: "owner" }).some((row) => row.source === "telegram"), false);
+  const csv = auditCsv(app.store.audit.list(owner));
+  assert.match(csv.split("\n")[0], /where it happened,what started the task/);
+  assert.match(csv, /"telegram","schedule"/);
+});
+
+test("rows written before the two columns were told apart read back as they always meant", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  app.store.audit.counts(owner);
+  // A row from an older release: source only, origin never written. The two rules on the table
+  // refuse any edit to it, so it is read rather than rewritten.
+  app.store.sqlite.prepare(`INSERT INTO audit(owner,at,action,actor,subject,reason,source,origin,run_id,outcome)
+    VALUES(?,?,?,?,?,?,?,'',NULL,?)`).run(owner, new Date().toISOString(), "policy.changed", owner, "the rules", "older row", "trigger", "saved");
+  const [older] = app.store.audit.list(owner, { action: "policy.changed" });
+  assert.equal(older.source, "trigger");
+  assert.equal(older.origin, "trigger", "an older row's origin is what its source always meant");
+  assert.equal(app.store.audit.list(owner, { origin: "trigger" }).length, 1, "and it is found by that filter");
+  // The two rules still stand: the record can only grow.
+  assert.throws(() => app.store.sqlite.prepare("UPDATE audit SET origin='owner' WHERE id=?").run(older.id), /cannot be changed/);
+});
+
+// ---------------------------------------------------------------------------
 // 9. Every answer to an approval question is bound to the exact bytes it was
 //    put for — the workflow/flow resume and `branch approve` included.
 // ---------------------------------------------------------------------------
