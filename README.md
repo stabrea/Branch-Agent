@@ -51,6 +51,11 @@ For every setting, route and switch by name, see the [reference](docs/configurat
 interface is put together, see [design.md](docs/design.md); for the architecture,
 [architecture.md](docs/architecture.md).
 
+## What is built and what is next
+
+[The list](https://github.com/stabrea/Branch-Agent/issues/103) is the single page: what Branch can already do, what is being built right now, and
+what is next in priority order. It is updated as work happens, not at the end.
+
 ## Contributing
 
 Contributions can expand what Branch can do, make tasks more reliable, or supply representative
