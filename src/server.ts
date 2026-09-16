@@ -63,6 +63,7 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
+import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 import { audit } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -211,6 +212,11 @@ async function staticFile(
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
     "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
+    // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
+    // better versions of a skill under Skills.
+    "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
+    "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -483,6 +489,12 @@ async function api(
   if (handlesTracingPath(path))
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
+  // running, and the switches for the project's check, those programs, and small scripts.
+  if (handlesOrchestrationPath(path))
+    return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
@@ -1777,7 +1789,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

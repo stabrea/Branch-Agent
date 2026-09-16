@@ -132,6 +132,8 @@ const readOnlyPermissions = new Set([
   "data.read", "research.read", "monitors.read", "brief.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
+  // Looking at what a program left running has printed changes nothing; starting or stopping one does.
+  "process.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

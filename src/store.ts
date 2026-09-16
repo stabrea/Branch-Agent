@@ -264,6 +264,7 @@ export class Store {
       this.db.prepare("DELETE FROM session_work WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
       this.db.exec("COMMIT");
+      for (const listener of this.sessionClosedListeners) try { listener(sessionId); } catch { /* never fails a discard */ }
       return { discarded: true, messages: Number(messages) };
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
@@ -371,6 +372,15 @@ export class Store {
       throw error;
     }
     return repaired.added;
+  }
+  private readonly sessionClosedListeners = new Set<(sessionId: string) => void>();
+  /**
+   * Called when a conversation is thrown away, so anything held open for it (a program left
+   * running, for instance) goes with it. Listeners must not throw and are never awaited.
+   */
+  onSessionClosed(listener: (sessionId: string) => void): () => void {
+    this.sessionClosedListeners.add(listener);
+    return () => { this.sessionClosedListeners.delete(listener); };
   }
   private readonly eventListeners = new Set<(runId: string, kind: string, data: Record<string, unknown>) => void>();
   /** Called after every stored event; listeners must not throw and are never awaited. */

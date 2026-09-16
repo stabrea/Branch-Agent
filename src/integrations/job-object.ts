@@ -117,3 +117,15 @@ function nextWord(child: ChildProcess, timeoutMs: number): Promise<string> {
 /** What this computer can offer: real jobs on 64-bit Windows, the sampler everywhere else. */
 export const defaultJobObjects = (): JobObjects =>
   process.platform === 'win32' ? new WindowsJobObjects() : noJobObjects;
+
+/**
+ * A job for a command that cannot afford to wait for one. Building a job compiles a little C# the
+ * first time, which on a cold computer takes seconds; after `ms` the caller carries on with the
+ * sampled limits instead, and a job that turns up late is let go at once.
+ */
+export async function jobWithin(jobs: JobObjects, limits: JobLimits, ms: number): Promise<Job | null> {
+  const pending = jobs.create(limits).catch(() => null);
+  const job = await Promise.race([pending, new Promise<null>(resolve => setTimeout(() => resolve(null), ms).unref())]);
+  if (job === null) void pending.then(late => late?.close().catch(() => undefined));
+  return job;
+}
