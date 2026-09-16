@@ -979,7 +979,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
   // Wave 4: packages people share, help with writing a skill, and suggestions from recent tasks.
-  if (request.method === "GET" && path === "/api/skills/packages") return { packages: app.skillPackages.list() };
+  if (request.method === "GET" && path === "/api/skills/packages") return { packages: app.skillPackages.list(), problems: app.packageProblems };
   if (request.method === "GET" && path === "/api/skills/suggest") return suggestSkills(app.store, owner);
   if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
     const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));

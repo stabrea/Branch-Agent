@@ -155,7 +155,7 @@ export async function createBranch(options: {
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
   skillPackages.replayRecipe = (recipe, _event, runId) => replayNamedRecipe(knowledge, store, runtime, recipe, runId);
-  skillPackages.restore();
+  const packageProblems = skillPackages.restore();
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
@@ -208,6 +208,8 @@ export async function createBranch(options: {
     skillRegistry,
     /** Skill packages: opening, installing and rebuilding the single file people share. */
     skillPackages,
+    /** Installed packages whose tools could not be put back this time. */
+    packageProblems,
     /** Single-file plugins from the data folder, off until the owner switches one on. */
     plugins,
     /** Plugins that were on but could not be loaded this time. */

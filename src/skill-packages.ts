@@ -11,9 +11,10 @@ import { registerHttpTools, secretsUsed, type HttpToolHost } from "./skill-http-
 /**
  * Installing and sharing skill packages. Opening a package shows the owner what it is and what it
  * asks for; nothing is installed until they say yes. The instructions go through the same check
- * every skill goes through and arrive switched off, so a package cannot act on its own. The web
- * calls it declares are registered as tools; the events it lists start one of the owner's own
- * recipes, and it can never bring a recipe of its own.
+ * every skill goes through and arrive switched off, so a package cannot act on its own: the web
+ * calls it declares are registered as tools but refuse to run until the owner switches the skill
+ * on. The events it lists start one of the owner's own recipes, and it can never bring a recipe
+ * of its own.
  */
 export const PackageInstallSchema = z.object({
   /** The package file, base64 encoded, as the browser or the CLI read it. */
@@ -50,16 +51,29 @@ export class SkillPackages {
       document: files["SKILL.md"] ?? "",
     };
   }
+  /** The packages installed whose skill still exists, so a forgotten one never blocks an install. */
+  private live(): PackageRecord[] {
+    const skills = new Set(this.store.skills.list(this.owner).map((skill) => skill.id));
+    return this.records().filter((record) => skills.has(record.skillId));
+  }
   /** Installs a package the owner has approved: the skill arrives switched off, its tools are registered. */
   install(bytes: Buffer, approve: boolean) {
     const preview = this.inspect(bytes);
     if (!approve) return { installed: false, ...preview };
+    if (this.live().some((record) => record.manifest.name === preview.manifest.name))
+      throw new Error(`A package called "${preview.manifest.name}" is already installed. Remove that skill first, then install this one.`);
     const { files } = readSkillPackage(bytes);
     const skill = this.store.skills.install(this.owner, { document: preview.document });
     if (skill.activeVersion !== null) this.store.skills.disable(this.owner, skill.id, { expectedRevision: skill.revision });
     const record: PackageRecord = { skillId: skill.id, manifest: preview.manifest, files, installedAt: new Date().toISOString() };
+    // The tools go in first: if a name is taken, the half-installed skill is taken back out again.
+    try { this.registerTools(record); }
+    catch (error) {
+      const current = this.store.skills.view(this.owner, skill.id);
+      this.store.skills.remove(this.owner, skill.id, { expectedRevision: current.revision });
+      throw error;
+    }
     this.store.save("settings", this.owner, this.key(skill.id), { ...record });
-    this.registerTools(record);
     return { installed: true, ...preview, skill: this.store.skills.view(this.owner, skill.id) };
   }
   /** Rebuilds a package file from an installed skill, using its newest instructions. */
@@ -86,17 +100,30 @@ export class SkillPackages {
     this.toolNames.delete(skillId);
     this.store.delete("settings", this.owner, this.key(skillId));
   }
-  /** Registers the tools of every installed package and starts listening for their events. */
-  restore(): void {
-    for (const record of this.records()) if (!this.toolNames.has(record.skillId)) this.registerTools(record);
+  /**
+   * Registers the tools of every installed package and starts listening for their events. A package
+   * that cannot be put back is reported rather than stopping the assistant from starting at all.
+   */
+  restore(): { skill: string; error: string }[] {
+    const problems: { skill: string; error: string }[] = [];
+    for (const record of this.records()) {
+      if (this.toolNames.has(record.skillId)) continue;
+      try { this.registerTools(record); }
+      catch (error) { problems.push({ skill: record.manifest.name, error: errorText(error).slice(0, 200) }); }
+    }
     this.stopListening ??= this.store.onEvent((runId, kind) => this.fire(kind, runId));
+    return problems;
   }
   stop(): void { this.stopListening?.(); this.stopListening = undefined; }
+  /** Whether the skill a package brought is switched on; its web calls only run while it is. */
+  private enabled(skillId: string): boolean {
+    return this.store.skills.list(this.owner).some((skill) => skill.id === skillId && skill.activeVersion !== null);
+  }
   private registerTools(record: PackageRecord): void {
     const file = record.files["tools.json"];
     if (!file) return;
     const { tools } = SkillToolsSchema.parse(JSON.parse(file));
-    this.toolNames.set(record.skillId, registerHttpTools(this.registry, this.host, record.manifest.name, tools));
+    this.toolNames.set(record.skillId, registerHttpTools(this.registry, this.host, record.manifest.name, tools, () => this.enabled(record.skillId)));
   }
   /** Starts the recipe a package asked for when its event happens; a failure never disturbs the task. */
   private fire(event: string, runId: string): void {

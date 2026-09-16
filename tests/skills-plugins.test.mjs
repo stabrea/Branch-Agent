@@ -97,7 +97,10 @@ test("a package's declared web call runs under the network rules with a locker s
   };
   const file = packSkill({ files, author: "Ada", packageVersion: "1.0.0" }).toString("base64");
   const blocked = await fixture(t);
-  await assert.rejects(blocked.api("skills/package/install", { file, approve: true }).then(() => blocked.app.registry.execute("skill.weather.lookup", { town: "Lagos" }, blocked.app.runtime.context())), /private or local address/);
+  const off = await blocked.api("skills/package/install", { file, approve: true });
+  const view = blocked.app.store.skills.view("local", off.skill.id);
+  blocked.app.store.skills.activate("local", off.skill.id, { version: view.headVersion, expectedRevision: view.revision });
+  await assert.rejects(blocked.app.registry.execute("skill.weather.lookup", { town: "Lagos" }, blocked.app.runtime.context()), /private or local address/);
   const { app, api } = await fixture(t, [say("ok")], { web: { allowPrivateAddresses: true } });
   await app.store.locker.set("local", "default", "WEATHER_KEY", secret);
   const preview = await api("skills/package/inspect", { file });
@@ -107,6 +110,11 @@ test("a package's declared web call runs under the network rules with a locker s
   const installed = await api("skills/package/install", { file, approve: true });
   assert.equal(installed.installed, true);
   assert.equal(installed.skill.activeVersion, null, "a package arrives switched off");
+  await assert.rejects(app.registry.execute("skill.weather.lookup", { town: "Lagos" }, app.runtime.context()),
+    /switched off/, "a switched-off package's web call does not run");
+  await assert.rejects(api("skills/package/install", { file, approve: true }), /already installed/, "the same package is not installed twice");
+  const live = app.store.skills.view("local", installed.skill.id);
+  app.store.skills.activate("local", installed.skill.id, { version: live.headVersion, expectedRevision: live.revision });
   const run = await app.runtime.run({ prompt: "forecast" });
   const result = await app.registry.execute("skill.weather.lookup", { town: "Lagos" }, app.runtime.context({ runId: run.id }));
   assert.equal(seen.at(-1), secret, "the address really received the secret");

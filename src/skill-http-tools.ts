@@ -60,7 +60,26 @@ export function pickFields(body: unknown, paths: string[]): unknown {
   return picked;
 }
 
-async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext): Promise<unknown> {
+/** Reads the answer, refusing an oversized one before the whole body is held in memory. */
+async function readAnswer(response: Response, host: string): Promise<string> {
+  const declared = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxAnswerBytes) throw new Error(`${host} sent back more than this tool accepts`);
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxAnswerBytes) { await reader.cancel(); throw new Error(`${host} sent back more than this tool accepts`); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts.map((part) => Buffer.from(part))).toString("utf8");
+}
+
+async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string, InputValue>, context: ToolContext, enabled?: () => boolean): Promise<unknown> {
+  if (enabled && !enabled()) throw new Error(`The skill that brought "${tool.name}" is switched off, so it did not run.`);
   const bound = bindInputs(tool.input, args);
   const target = new URL(fillText(tool.url, bound, true));
   await host.policy.assertAllowed(target, "skill tool address");
@@ -73,26 +92,38 @@ async function callTool(host: HttpToolHost, tool: HttpTool, args: Record<string,
   if (body) headers["content-type"] = "application/json";
   const started = Date.now();
   const response = await (host.fetchImpl ?? globalThis.fetch)(target, { method: tool.method, headers, ...(body ? { body } : {}), redirect: "error", signal: AbortSignal.timeout(20000) });
-  const text = await response.text();
-  if (Buffer.byteLength(text) > maxAnswerBytes) throw new Error("That address sent back more than this tool accepts");
+  const text = await readAnswer(response, target.host);
   if (context.runId) host.store.event(context.runId, "skill.tool_called", { tool: tool.name, method: tool.method, host: target.host, path: target.pathname, status: response.status, ms: Date.now() - started, secrets: names });
   if (!response.ok) throw new Error(`${target.host} answered with HTTP ${response.status}`);
-  const parsed = text.trim().startsWith("{") || text.trim().startsWith("[") ? JSON.parse(text) : text.slice(0, 8000);
+  // Parsing failures are reported without the text that failed: an answer can hold a secret we sent.
+  let parsed: unknown = text.slice(0, 8000);
+  if (text.trim().startsWith("{") || text.trim().startsWith("["))
+    try { parsed = JSON.parse(text); } catch { throw new Error(`${target.host} answered with something that is not the JSON this tool expects`); }
   const result = { status: response.status, data: pickFields(parsed, tool.pick) };
   return JSON.parse(scrubSecrets(JSON.stringify(result), secrets)) as unknown;
 }
 
-/** Registers one package's declared calls; the name is prefixed so a package cannot claim a built-in name. */
-export function registerHttpTools(registry: ToolRegistry, host: HttpToolHost, packageName: string, tools: HttpTool[]): string[] {
+/**
+ * Registers one package's declared calls; the name is prefixed so a package cannot claim a built-in
+ * name. `enabled` is asked at the moment of a call, so a switched-off skill's calls do not run. If
+ * any name is taken the ones already added are taken back out, so a half-registered package is
+ * never left behind.
+ */
+export function registerHttpTools(registry: ToolRegistry, host: HttpToolHost, packageName: string, tools: HttpTool[], enabled?: () => boolean): string[] {
   const registered: string[] = [];
-  for (const tool of tools) {
-    const name = `skill.${packageName}.${tool.name}`;
-    registry.register({
-      name, description: tool.description, permission: httpToolPermission, parameters: schemaFor(tool.input),
-      execute: async (args, context) => callTool(host, tool, args, context),
-      target: () => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).host,
-    });
-    registered.push(name);
+  try {
+    for (const tool of tools) {
+      const name = `skill.${packageName}.${tool.name}`;
+      registry.register({
+        name, description: tool.description, permission: httpToolPermission, parameters: schemaFor(tool.input),
+        execute: async (args, context) => callTool(host, tool, args, context, enabled),
+        target: () => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).host,
+      });
+      registered.push(name);
+    }
+  } catch (error) {
+    for (const name of registered) registry.unregister(name);
+    throw error;
   }
   return registered;
 }
