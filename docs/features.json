@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T00:51:12.276643+00:00",
+  "assessment_date": "2026-09-16T01:02:58.073649+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1830,15 +1830,20 @@
       "family": "delegation",
       "name": "Queue follow-ups while tasks run",
       "acceptance_criterion": "Queue a follow-up into an active session while another session continues independently.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts"
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "ActiveSessions explicitly rejects a second active run in the same session."
+        "tests": [
+          "messages sent while a conversation is busy wait their turn and run in order"
+        ],
+        "detail": "POST /api/sessions/:id/followups queues a message for a busy conversation (durable, ordered); it runs as soon as the current task finishes while other sessions continue; GET lists the queue; /api/activity shows the count; the composer stays open while a task runs and explains that the message waits its turn."
       },
-      "remaining": "Implement queued follow-ups to an active session while another session continues."
+      "remaining": ""
     },
     {
       "id": "delegation.cancellation",
@@ -1866,17 +1871,20 @@
       "family": "delegation",
       "name": "Preserve critical child results after parent finishes",
       "acceptance_criterion": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/server.ts",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a background specialist finishes after its parent and the result is kept for the parent"
+        ],
+        "detail": "specialists.delegate with background: true (Runtime.delegateBackground) starts a child whose signal is not tied to the parent's; it finishes after the parent completes, keeps its result on the child run, records delegation.background_started/finished on the parent and appears in state.background for delivery."
       },
-      "remaining": "Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery."
+      "remaining": ""
     },
     {
       "id": "delegation.persistent-teams",
@@ -2632,18 +2640,19 @@
       "family": "interop",
       "name": "OpenAI-compatible API",
       "acceptance_criterion": "Complete a compatible conversation request through the exposed OpenAI-style endpoint.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/openai-compat.ts",
           "src/server.ts",
-          "src/providers.ts",
-          "src/integrations/mcp.ts"
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "the OpenAI-style endpoint completes a conversation request, continues a session, lists models and streams chunks"
+        ],
+        "detail": "POST /v1/chat/completions (bearer session token) turns the last user message plus caller instructions into a run, returns the chat.completion shape with usage and branch.{run_id, session_id, status}, continues a conversation via x-branch-session or metadata.session_id, maps a known preset id from `model`, and streams chat.completion.chunk events ending with [DONE]. GET /v1/models lists presets."
       },
-      "remaining": "Complete a compatible conversation request through the exposed OpenAI-style endpoint."
+      "remaining": ""
     },
     {
       "id": "interop.sdk",
@@ -2674,16 +2683,17 @@
       "status": "partial",
       "evidence": {
         "paths": [
+          "src/streams.ts",
           "src/server.ts",
-          "src/store.ts",
-          "public/app.js"
+          "src/openai-compat.ts",
+          "tests/interop.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "run events stream in order over SSE until the run ends, resuming after a given id"
         ],
-        "detail": "REST returns persisted ordered events; browser polls state. No WebSocket or SSE."
+        "detail": "REST returns persisted ordered events; GET /api/runs/:id/stream sends them in id order over Server-Sent Events until the run ends, resuming after ?after=<id>; the OpenAI endpoint streams deltas the same way."
       },
-      "remaining": "Expose and verify ordered activity over REST, WebSocket and SSE."
+      "remaining": "WebSocket transport (no dependency-free server in Node)."
     },
     {
       "id": "interop.acp",
@@ -2834,20 +2844,21 @@
       "family": "operations",
       "name": "Status diagnostics and recovery",
       "acceptance_criterion": "Report service and adapter health and identify a deliberately broken prerequisite with an actionable diagnostic.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/health.ts",
+          "src/server.ts",
           "src/cli.ts",
-          "src/integrations/bootstrap.ts",
-          "src/providers.ts"
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
         "tests": [
-          "CLI loads explicitly configured integrations before doctor",
-          "real provider configuration is explicit and has no credential fallback"
+          "the health check names what works and what to do about what does not"
         ],
-        "detail": "Doctor opens SQLite and reports configuration; integration startup errors provide some diagnostics, no comprehensive liveness tests."
+        "detail": "GET /api/health (Settings \u2192 Health check, `branch doctor [--probe]`) probes the database, workspace writability, device key, model choices (optionally one tiny request to the active model), ChatGPT sign-in state, channels and dead letters, schedules and tasks waiting for input; each item has an ok flag, a summary and a plain fix."
       },
-      "remaining": "Probe configured provider/adapters and identify a deliberately broken prerequisite with actionable health state."
+      "remaining": ""
     },
     {
       "id": "operations.migration",
@@ -2890,18 +2901,23 @@
       "family": "operations",
       "name": "Full application backup and restore",
       "acceptance_criterion": "Back up configured application state and restore it into a clean instance with sessions and configuration intact.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/cli.ts",
-          "src/index.ts",
+          "src/backup.ts",
+          "src/store.ts",
           "src/server.ts",
-          "package.json"
+          "src/cli.ts",
+          "src/desktop/conversation-export.ts",
+          "public/app.js",
+          "tests/interop.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a backup restores conversations, memory and skills into a fresh install, without secrets"
+        ],
+        "detail": "GET /api/backup (Settings \u2192 Backup, `branch backup <file>`) exports every state table as plain rows (secrets excluded: device-bound key); POST /api/restore or `branch restore <file>` inserts them into a fresh install in one transaction and refuses when the install already has state."
       },
-      "remaining": "Back up configured application state and restore it into a clean instance with sessions and configuration intact."
+      "remaining": ""
     },
     {
       "id": "operations.sandbox-lifecycle",

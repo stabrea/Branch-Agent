@@ -11,6 +11,7 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Receipts } from "./receipts.js";
 import { MemoryReview } from "./memory-review.js";
+import { exportBackup, importBackup } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 
@@ -156,6 +157,10 @@ export class Store {
     this.receiptsStore ??= new Receipts(keys);
     return (this.lockerStore ??= new Locker(this.db, keys));
   }
+  /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
+  backup(appVersion: string) { return exportBackup(this.db, appVersion); }
+  /** Restores a backup into a fresh install; refuses when this copy already has state. */
+  restore(input: unknown) { return importBackup(this.db, input); }
   /** Workspace file history and snapshots for the given workspace. */
   openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {
     return (this.historyStore ??= new WorkspaceHistory(this.db, files, owner));

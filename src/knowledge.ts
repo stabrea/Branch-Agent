@@ -324,9 +324,10 @@ export class Knowledge {
     if (!version || !version.evaluationPassed) throw new Error(`Specialist ${id} has no evaluated active version`);
     return { permissions: version.definition.permissions, instructions: version.definition.instructions };
   }
-  async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck } = {}) {
+  async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean } = {}) {
     this.require(context, "specialists.use");
     const spec = this.activeSpecialist(context.owner, id);
+    if (options.background) return this.runtime.delegateBackground(prompt, context, spec.permissions, spec.instructions, options);
     return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, options);
   }
   async fanout(context: ToolContext, tasks: (FanoutTask & { specialist: string })[]) {
@@ -435,8 +436,9 @@ function registerSpecialists(
     description:
       "Delegate to an evaluated active specialist with the same shared budget and reduced permissions. Optionally require the answer to match a JSON schema or declared checks (exit criteria); a miss is reported back as unresolved with the reason. Children stop after timeoutMs (default 120 s).",
     permission: "specialists.use",
-    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional(), checks: CompletionCheckSchema.optional() }),
-    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt, { ...(a.timeoutMs ? { timeoutMs: a.timeoutMs } : {}), ...(a.resultSchema ? { resultSchema: a.resultSchema } : {}), ...(a.checks ? { checks: a.checks } : {}) }),
+    parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional(), checks: CompletionCheckSchema.optional(),
+      background: z.boolean().optional().describe("Let the specialist keep working after this task finishes; its result is recorded on this task when it arrives.") }),
+    execute: async (a, c) => knowledge.delegate(c, a.id, a.prompt, { ...(a.timeoutMs ? { timeoutMs: a.timeoutMs } : {}), ...(a.resultSchema ? { resultSchema: a.resultSchema } : {}), ...(a.checks ? { checks: a.checks } : {}), ...(a.background ? { background: true } : {}) }),
   });
   registry.register({
     name: "specialists.fanout",

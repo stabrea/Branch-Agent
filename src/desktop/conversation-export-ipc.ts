@@ -1,5 +1,5 @@
 import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import { saveConversationExport, saveMemoryExport } from './conversation-export.js';
+import { saveBackupExport, saveConversationExport, saveMemoryExport } from './conversation-export.js';
 
 export function registerConversationExportIpc(window: BrowserWindow, origin: string): void {
   let saving = false;
@@ -11,6 +11,7 @@ export function registerConversationExportIpc(window: BrowserWindow, origin: str
   const types = [
     { channel: 'branch:export-conversation', label: 'conversation history', name: 'conversation', save: saveConversationExport },
     { channel: 'branch:export-memory', label: 'saved memory', name: 'memory', save: saveMemoryExport },
+    { channel: 'branch:export-backup', label: 'backup', name: 'backup', save: saveBackupExport },
   ];
   for (const type of types) ipcMain.handle(type.channel, async (event, text: unknown) => {
     authorized(event);

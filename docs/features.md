@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 70 implemented, 31 partial, 1 external and 67 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 75 implemented, 29 partial, 1 external and 64 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -129,9 +129,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Restrict child tool access (`delegation.tools`) | partial | Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately. |
 | Depth concurrency timeout and turn bounds (`delegation.limits`) | implemented | Covered by the listed local fixtures. |
 | Structured child result contracts (`delegation.results`) | implemented | Covered by the listed local fixtures. |
-| Queue follow-ups while tasks run (`delegation.steering`) | partial | Implement queued follow-ups to an active session while another session continues. |
+| Queue follow-ups while tasks run (`delegation.steering`) | implemented | Covered by the listed local fixtures. |
 | Cascading child cancellation (`delegation.cancellation`) | implemented | Covered by the listed local fixtures. |
-| Preserve critical child results after parent finishes (`delegation.orphans`) | missing | Allow an explicitly critical child to finish after graceful parent completion and retain its result for delivery. |
+| Preserve critical child results after parent finishes (`delegation.orphans`) | implemented | Covered by the listed local fixtures. |
 | Persistent specialist roles and team rooms (`delegation.persistent-teams`) | partial | Add durable team membership/roles and shared room history with restart fixture. |
 | Route task chains and fan-out across named teammates (`delegation.handoff`) | implemented | Covered by the listed local fixtures. |
 
@@ -189,9 +189,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| OpenAI-compatible API (`interop.openai`) | missing | Complete a compatible conversation request through the exposed OpenAI-style endpoint. |
+| OpenAI-compatible API (`interop.openai`) | implemented | Covered by the listed local fixtures. |
 | Embedding SDK (`interop.sdk`) | implemented | Covered by the listed local fixtures. |
-| REST WebSocket and SSE (`interop.streaming`) | partial | Expose and verify ordered activity over REST, WebSocket and SSE. |
+| REST WebSocket and SSE (`interop.streaming`) | partial | WebSocket transport (no dependency-free server in Node). |
 | ACP integration (`interop.acp`) | missing | Complete a task through a supported ACP client or agent adapter using its documented subset. |
 | Agent-to-agent surface (`interop.a2a`) | missing | Exchange a task and result with a compatible A2A peer using declared capabilities. |
 | Remote tool skill and inference discovery (`interop.node-discovery`) | missing | Discover tools, skills and inference advertised by a node and identify their owning host. |
@@ -205,10 +205,10 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Background gateway and foreground modes (`operations.daemon`) | partial | Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop. |
 | Single-binary constrained deployment (`operations.portable`) | missing | Launch a packaged binary on a declared supported target and report measured gateway resource usage. |
 | Serverless idle suspension (`operations.hibernation`) | missing | Suspend the configured serverless environment and resume an operation with its persisted workspace intact. |
-| Status diagnostics and recovery (`operations.health`) | partial | Probe configured provider/adapters and identify a deliberately broken prerequisite with actionable health state. |
+| Status diagnostics and recovery (`operations.health`) | implemented | Covered by the listed local fixtures. |
 | Import configuration skills memories and sessions (`operations.migration`) | missing | Preview and import supported configuration, memory and skills while preserving original source state. |
 | Preconfigured branded desktop distribution (`operations.distribution`) | missing | Build a distribution with selected branding, providers and extensions and verify those defaults on first launch. |
-| Full application backup and restore (`operations.backup-restore`) | missing | Back up configured application state and restore it into a clean instance with sessions and configuration intact. |
+| Full application backup and restore (`operations.backup-restore`) | implemented | Covered by the listed local fixtures. |
 | Manage reproducible agent sandbox lifecycle (`operations.sandbox-lifecycle`) | missing | Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies. |
 
 ## Packages

@@ -156,7 +156,8 @@
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
-              ><button id="send">Send ↗</button>
+              ><button id="send">Send ↗</button
+              ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
           </form>
         </section>
@@ -461,6 +462,18 @@
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
             <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+          </section>
+          <section id="health-card" class="card">
+            <h2>Health check</h2>
+            <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
+            <label class="check-row"><input type="checkbox" id="health-probe" /> Also send a tiny test message to the default model</label>
+            <button id="health-run" type="button">Check now</button>
+            <div id="health-list" class="card-list" aria-live="polite"></div>
+          </section>
+          <section id="backup-card" class="card">
+            <h2>Backup</h2>
+            <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
+            <button id="backup-run" type="button">Save a backup file</button>
           </section>
           <section id="snapshots-card" class="card">
             <h2>Workspace snapshots</h2>

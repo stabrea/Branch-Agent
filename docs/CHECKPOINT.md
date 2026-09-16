@@ -47,6 +47,16 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 13 (local, unreleased): OpenAI endpoint, SSE, follow-ups, background specialists, backup, health
+
+`src/openai-compat.ts` (`/v1/chat/completions`, `/v1/models`), `src/streams.ts` (`/api/runs/:id/stream`),
+`Runtime.followUp/queued/drainFollowUps` (durable queue in settings `followups:<session>`, drained after each
+top-level run), `Runtime.delegateBackground` + `specialists.delegate background`, `src/backup.ts`
+(`store.backup/restore`, `branch backup|restore`, desktop `exportBackup` IPC), `src/health.ts`
+(`/api/health`, `branch doctor --probe`, Settings → Health check). Raw-response routes go through
+`rawApi()` in server.ts. Test runner concurrency is 3: at the default, an Electron test can stall and hang
+the whole suite (kill the stray `electron.exe` from node_modules, never the owner's app).
+
 ## Batch 12 (local, unreleased): workspace history, memory versions, checkpoints, approval, review, session snapshot
 
 `src/workspace-history.ts` (file_versions/workspace_snapshots, lineDiff, files.history/files.restore/

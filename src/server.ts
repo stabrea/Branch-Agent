@@ -14,6 +14,10 @@ import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
+import { healthReport } from "./health.js";
+import { maximumBackupBytes } from "./backup.js";
+import { chatCompletion, modelsList } from "./openai-compat.js";
+import { streamRunEvents } from "./streams.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -201,6 +205,7 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    background: app.runtime.backgroundResults,
     memoryProposals: app.store.review.proposals(owner),
     memoryCheckpoints: app.store.review.checkpoints(owner),
     snapshots: app.store.workspaceHistory.snapshots(),
@@ -264,7 +269,13 @@ async function api(
         usage: app.store.usage(run.id),
       };
   }
-  if (request.method === "GET" && path === "/api/activity") return liveActivity(app.store, app.runtime.owner);
+  if (request.method === "GET" && path === "/api/activity")
+    return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/health")
+    return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
+  if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
+  if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
+  if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "POST" && path === "/api/receipts/verify") {
     const body = z.object({ runId: z.string().min(1).max(64), data: z.record(z.string(), z.unknown()) }).strict().parse(await readBody(request));
     return app.store.receipts.verify(body.runId, body.data);
@@ -290,7 +301,14 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups))?$/.exec(path);
+  if (match && match[2] === "followups") {
+    if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
+    if (request.method === "POST") {
+      const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
+      return app.runtime.followUp(match[1]!, prompt);
+    }
+  }
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
   if (match && match[2] === "skill") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
@@ -531,6 +549,7 @@ export async function startServer(
         throw new HttpError(429, "Too many active executions");
       if (executes) executions++;
       try {
+        if (await rawApi(app, request, response, path)) return;
         send(response, 200, await api(app, request, path));
       } finally {
         if (executes) executions--;
@@ -562,9 +581,25 @@ export async function startServer(
     close: () => stopServer(app, server),
   };
 }
+/** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
+async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
+  if (stream && request.method === "GET") {
+    const run = app.store.run(stream[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
+    await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  if (request.method === "POST" && path === "/v1/chat/completions") {
+    await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
+    return true;
+  }
+  return false;
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

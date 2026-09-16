@@ -482,6 +482,22 @@ function renderAttention() {
     else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
   }
 }
+$("health-run").addEventListener("click", async () => {
+  $("health-run").disabled = true;
+  try {
+    const report = await api("health" + ($("health-probe").checked ? "?probe=1" : ""));
+    list("health-list", report.items, (i) => {
+      const node = el("div", undefined, "record");
+      node.append(el("strong", `${i.ok ? "✓" : "✗"} ${i.name}`), el("p", i.summary, "meta"));
+      if (i.fix) node.append(el("p", `What to do: ${i.fix}`));
+      return node;
+    }, "");
+    toast(report.ok ? "Everything looks fine." : "Something needs attention; see the list.");
+  } catch (e) { toast(e.message); } finally { $("health-run").disabled = false; }
+});
+$("backup-run").addEventListener("click", async () => {
+  try { if (await exportArchive(await api("backup"), "exportBackup", "branch-backup.json")) toast("Backup saved."); } catch (e) { toast(e.message); }
+});
 function renderSnapshots() {
   list("snapshots-list", state.snapshots || [], (s) => {
     const node = el("div", undefined, "record");
@@ -964,9 +980,38 @@ function conversationButton(label, handler) {
   node.disabled = conversationBusy;
   return node;
 }
+let pendingFollowUps = 0;
+/** A message typed while the assistant is busy waits its turn in the same conversation. */
+async function queueFollowUp(prompt) {
+  try {
+    const result = await api(`sessions/${sessionId}/followups`, { prompt });
+    $("prompt").value = "";
+    message("user", prompt);
+    message("assistant", result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    pendingFollowUps++;
+  } catch (e) { toast(e.message); }
+}
+/** After the main task ends, keeps the conversation fresh until every queued message has been answered. */
+async function awaitFollowUps() {
+  const session = sessionId;
+  for (let i = 0; i < 400 && pendingFollowUps > 0 && sessionId === session; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const running = await api("activity");
+      const mine = running.find((r) => r.sessionId === session);
+      const waiting = mine ? mine.followUps : (await api(`sessions/${session}/followups`)).followUps.length;
+      if (!mine && waiting === 0) { pendingFollowUps = 0; await loadConversation(session); await refresh(); }
+    } catch { /* the next tick tries again */ }
+  }
+}
+$("followup-send").addEventListener("click", async () => {
+  const prompt = $("prompt").value.trim();
+  if (prompt && conversationBusy && sessionId) await queueFollowUp(prompt);
+});
 function setConversationBusy(busy) {
   conversationBusy = busy;
   $("send").disabled = busy;
+  $("followup-send").hidden = !(busy && sessionId);
   $("new-session").disabled = busy;
   $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
@@ -1195,6 +1240,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   } finally {
     stopActivity();
     setConversationBusy(false);
+    if (pendingFollowUps > 0) void awaitFollowUps();
   }
 });
 /** While a task runs, shows what the assistant is doing right now and how earlier steps ended. */
@@ -1205,6 +1251,7 @@ function watchActivity(prompt) {
     box.replaceChildren(el("strong", item.current || "Finishing up"));
     const steps = item.steps.slice(-6);
     if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
+    if (item.followUps) box.append(el("p", `${item.followUps} message(s) waiting to be answered next`, "meta"));
     box.hidden = false;
   };
   const poll = async () => {

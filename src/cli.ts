@@ -12,6 +12,8 @@ import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
+import { healthReport } from "./health.js";
+import { readFile, writeFile } from "node:fs/promises";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -69,9 +71,9 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor | login | logout | trigger <schedule-id> | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -104,7 +106,20 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "doctor") {
-      printDoctor(app, dataDir);
+      await printDoctor(app, dataDir);
+      return;
+    }
+    if (command === "backup") {
+      const target = process.argv[3];
+      if (!target) throw new Error("Provide a file: node dist/cli.js backup <file>");
+      await writeFile(target, JSON.stringify(app.store.backup(app.version)), { mode: 0o600 });
+      console.log(`Backup written to ${target}. Secrets are not included; they stay on this device.`);
+      return;
+    }
+    if (command === "restore") {
+      const source = process.argv[3];
+      if (!source) throw new Error("Provide a file: node dist/cli.js restore <file>");
+      console.log(JSON.stringify(app.store.restore(JSON.parse(await readFile(source, "utf8")))));
       return;
     }
     await runOnce(app, command);
@@ -148,13 +163,15 @@ function updateCheckout(): void {
   }
   console.log("Branch Agent is up to date. Restart it to use the new version.");
 }
-function printDoctor(
+async function printDoctor(
   app: Awaited<ReturnType<typeof createBranch>>,
   dataDir: string,
-): void {
+): Promise<void> {
+  const health = await healthReport(app, { probeProvider: process.argv.includes("--probe") });
   console.log(
     JSON.stringify(
       {
+        health,
         node: process.version,
         sqlite: "opened",
         workspace: app.runtime.workspace,
