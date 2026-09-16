@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { catalogPrices } from "./provider-catalog.js";
 import type { Store } from "./store.js";
 
 /**
@@ -97,9 +98,30 @@ export function normalizeModelId(model: string): string {
   return withoutVendor.toLowerCase().replace(/[-_]?(\d{8}|latest|v\d+(\.\d+)?)$/, "");
 }
 
-/** The table price for a model, trying the exact identifier and then the normalized one. */
+/**
+ * The prices the provider catalog carries, for models this file does not list. The catalog is read
+ * lazily and cached, so a damaged catalog cannot stop the rest of the program from starting.
+ */
+let catalogTable: Record<string, ModelPrice> | undefined;
+function pricesFromCatalog(): Record<string, ModelPrice> {
+  if (catalogTable) return catalogTable;
+  // A missing or damaged catalog means no extra prices, never a program that will not start.
+  try { return (catalogTable = catalogPrices()); } catch { return (catalogTable = {}); }
+}
+/** Replaces the cached catalog prices; tests use this after swapping the catalog. */
+export function resetCatalogPrices(): void {
+  catalogTable = undefined;
+}
+
+/**
+ * The table price for a model, trying the exact identifier, then the catalog's own prices, then
+ * the normalized identifier. This file wins where the two overlap, so nothing silently changes.
+ */
 export function tablePrice(model: string, table: Record<string, ModelPrice> = builtInPrices): ModelPrice | undefined {
-  return table[model] ?? table[normalizeModelId(model)];
+  const normalized = normalizeModelId(model);
+  if (table !== builtInPrices) return table[model] ?? table[normalized];
+  const catalog = pricesFromCatalog();
+  return table[model] ?? table[normalized] ?? catalog[model] ?? catalog[normalized];
 }
 
 const round = (value: number): number => Math.round(value * 1_000_000) / 1_000_000;

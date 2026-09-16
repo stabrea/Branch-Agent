@@ -27,6 +27,8 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { connectFromPreset, forgetConnection } from "./connections-preset.js";
+import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
 import { streamRunEvents } from "./streams.js";
@@ -1039,6 +1041,22 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
     await app.oauth.cancel(cancel[1]!);
     return { cancelled: cancel[1] };
   }
+  // Batch 19 (wave 7): adding a model service from the catalog, checked before anything is saved.
+  if (request.method === "POST" && path === "/api/connections/from-preset")
+    return connectFromPreset(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      await readBody(request, 16 * 1024),
+    );
+  // Taking one back out again: the model list, the written-down record and the key, all at once.
+  if (request.method === "POST" && path === "/api/connections/forget") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request, 4 * 1024));
+    return forgetConnection(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      id,
+    );
+  }
+  if (request.method === "GET" && path === "/api/connections/catalog")
+    return { pricedAt: providerCatalog().pricedAt, services: catalogEntries() };
   const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);
   if (status && request.method === "GET") {
     const tokens = await app.oauth.saved(status[1]!);
