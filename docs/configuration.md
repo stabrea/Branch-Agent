@@ -1260,3 +1260,94 @@ assistant: only install files you trust.)
 makes a connection from one and puts it in the model list. Switching the plugin off takes both the
 adapter and every model preset made from it away again. Nothing is registered until the owner
 switches the plugin on, exactly as with a plugin's tools.
+
+## Sharing a conversation, labels, workflows, the waiting line, days off and people here
+
+**Sharing a copy.** `GET /api/sessions/:id/export?format=html` saves one conversation as a single
+page. The page carries no scripts and asks for nothing from the internet: its colours are written
+into it, so it opens anywhere and can do nothing. Before it is written, anything that looks like a
+key, token or password is blanked out; `?contactDetails=1` also blanks out email addresses and
+phone-like numbers, and `?toolResults=0` leaves out what the assistant's tools returned. The
+response carries an `x-branch-share-receipt` header saying exactly how many messages went out, how
+many were held back, and how much was blanked out. `POST /api/sessions/:id/share` makes the same
+page into a link this app serves itself at `/share/<id>`: it needs the six-character code shown to
+you once, works one time, and stops working at its expiry (`expiresInMinutes`, five minutes to a
+week). Five wrong codes close a link for good, so a six-character code cannot be guessed at.
+Nothing is published anywhere: the link only works on this computer, because the app listens
+on this machine's own address. `GET /api/shares` lists them and
+`POST /api/shares/:id/revoke` stops one. Shared copies belong to whoever is using the app: while
+somebody else's profile is switched on they can share only their own conversations, never yours.
+
+**Labels and project notes.** `POST /api/labels` sticks a short label on a conversation, a saved
+procedure or a document (`{ target, targetId, label }`); `POST /api/labels/remove` takes it off and
+`GET /api/labels` lists every label with how many things carry it. Labels are kept and matched in
+lower case however they are typed, and there are at most twenty on one thing.
+`POST /api/sessions/search` now takes `labels: [...]`, and only conversations carrying **every**
+label are returned; an empty list means no filter. `POST /api/projects/notes` writes a note against
+a project and `GET /api/projects/notes?project=<id>` reads them newest first. Labels and notes are
+saved in the `labels` and `project_notes` tables and travel with the backup.
+
+**Things that run themselves.** A workflow is a saved list of steps: `prompt` (ask the assistant),
+`recipe` (replay a verified procedure), `tool` (use one tool), `approval` (stop and wait for you),
+`wait` (stop until a time), and `branch` (look at the last answer and skip ahead when it does not
+contain given words). Each step may have `retries` (up to five second tries) and a `timeoutMs`.
+`POST /api/workflows` saves one, `GET /api/workflows` lists them, and
+`POST /api/workflows/:id/run|pause|resume|remove` works it. Where each step got to is written down
+in the `workflow_state` table as it happens, so closing the app in the middle loses nothing: a
+workflow that was working is marked "stopped when the app closed" and carries on from the same
+step. Resuming a workflow that is waiting on an approval is you saying yes, and only from your own
+screen: the assistant's `workflows.resume` tool refuses a workflow that is waiting for you, so it
+can never say yes on your behalf. The same five things are tools (`workflows.create`, `.list`,
+`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. Be
+aware that a `tool` step uses its tool the way pressing a button in the app does — with the whole
+run of the app and without stopping to ask — so treat a saved workflow as something you have
+already approved. Workflows are the owner's: they are refused while somebody else's profile is
+switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
+it in memory, and send it on.
+
+**The waiting line.** `POST /api/queue` puts a task in line instead of turning it away when as many
+are already working as this computer is set to handle. What you ask for (`source: "owner"`) is
+served before anything a schedule, a trigger or another app started. `GET /api/queue` shows what is
+waiting with its position, `POST /api/queue/:id/cancel` takes a waiting task out of the line or
+stops one that is working, and `POST /api/queue/settings` sets how many run at once (one to eight,
+three by default). A conversation only ever has one task working, so its others wait their turn. A
+task from the line runs as the owner, so the line is the owner's: it is refused while somebody
+else's profile is switched on, and they start tasks the ordinary way instead. The line's "how many
+at once" is separate from the eight requests the web server itself will carry out at a time.
+
+**Days off and quiet hours.** `GET`/`POST /api/calendar` holds the country whose holidays to use,
+your own days off, which weekdays you work, and quiet hours. A schedule created with
+`daysOff: "skip"` moves on to its next turn when its moment lands on a holiday, a weekend or a day
+you marked off; `daysOff: "shift"` moves it to the next working day instead; `"run"` (the default)
+minds none of it. Nothing runs on the day it was held back, and the schedule records why under
+`lastDayOff`. When quiet hours are on, messages made during them are held until the hours end
+rather than arriving in the night. The holiday list is ordinary data: a few countries ship with the
+app in `data/holidays.json`, a copy is put in your data folder on first use, and that copy is the
+one that counts, so anything wrong or missing can simply be corrected there. It is plainly
+incomplete and is not kept up to date for you.
+
+**People who share this computer.** `POST /api/profiles` gives somebody else a name and a PIN of
+four to eight digits (the PIN is stored only as a scrypt hash), `POST /api/profiles/switch` moves
+between them and back to the owner (`{ profileId: null }`), and `POST /api/profiles/:id/remove`
+removes one. Only the owner may add or remove people. Five wrong PINs in a row stop that profile
+accepting any for five minutes. While somebody's profile is switched on, the conversation list,
+saved conversations and the Memory view are theirs and not the owner's, a task they start is filed
+under their name, and the secrets locker, projects, saved workflows, the waiting line, days off and
+the owner's shared copies are all refused in plain words. **Be honest about what this is:** separation on one computer, not separate accounts. There
+is no syncing, and the assistant still works as the owner: it uses the owner's models, tools and
+settings, it draws on the facts the owner has it remember while answering somebody else, and
+anything it decides to remember by itself during their task is filed under the owner, not them.
+What a profile changes is which conversations and saved facts the screens show and which of the
+owner's areas are refused — not who the assistant is while it works. Anyone who can open the files
+on this machine can still read everything. The PIN keeps profiles apart; it does not
+lock the data away. Profiles themselves are deliberately left out of the backup, because a PIN
+belongs to this computer: restoring a backup elsewhere brings the conversations and facts back but
+not the people, so add them again there and the records will be waiting. Continuing an interrupted
+task, steering one, queuing a follow-up and pinning a skill to a conversation stay with the owner.
+
+The panel under Schedules covers labels, workflows, the waiting line, days off, shared copies and
+the people here. Filtering the rail's conversation list and Ctrl+K by label is left to the interface
+work that owns those files.
+
+The interface file `/collab.js` is served from the same local allowlist as the rest of the
+interface, and its panel sits under Schedules.

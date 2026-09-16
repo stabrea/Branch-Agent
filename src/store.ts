@@ -20,9 +20,13 @@ import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
+// Wave 6 (collaboration and workflows): labels and project notes, share links, household profiles.
+import { Labels } from "./labels.js";
+import { ShareLinks } from "./conversation-share.js";
+import { Profiles } from "./profiles.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -43,6 +47,10 @@ export class Store {
   private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
+  /** Wave 6: labels and project notes, read-only share links, and the household's profiles. */
+  readonly labels: Labels;
+  readonly shares: ShareLinks;
+  readonly profiles: Profiles;
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
@@ -77,7 +85,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS trigger_log(id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL, owner TEXT NOT NULL, run_id TEXT, payload_summary TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delivery_log(id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id TEXT NOT NULL, owner TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks"])
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
@@ -85,6 +93,9 @@ export class Store {
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
+    this.labels = new Labels(this.db);
+    this.shares = new ShareLinks(this.db);
+    this.profiles = new Profiles(this.db, "local");
     this.memories = new MemoryFacts(this.db);
     this.review = new MemoryReview(this.db, this.memories);
     this.skills = new InstalledSkills(this.db);
@@ -97,6 +108,7 @@ export class Store {
     this.working = new WorkingSessions(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
+    this.interruptWorkflows();
     this.discardTemporarySessions();
   }
   private migrateUsage(): void {
@@ -257,6 +269,18 @@ export class Store {
     const id = randomUUID();
     this.db.prepare("INSERT INTO sessions(id,owner,created_at,temporary) VALUES(?,?,?,0)").run(id, owner, new Date().toISOString());
     return id;
+  }
+  /**
+   * Wave 6: files a conversation and its tasks under another person in this household, so a task
+   * started while somebody's profile is switched on lands in their list and not the owner's.
+   */
+  reassignSession(sessionId: string, toOwner: string): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE sessions SET owner=? WHERE id=?").run(toOwner, sessionId);
+      this.db.prepare("UPDATE tasks SET owner=? WHERE session_id=?").run(toOwner, sessionId);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   ownsSession(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);
@@ -544,6 +568,12 @@ export class Store {
         "SELECT id, event_type as eventType, status, attempt, next_retry_at as nextRetryAt, created_at as createdAt FROM delivery_log WHERE webhook_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
       )
       .all(webhookId, owner, limit) as Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }>;
+  }
+  /** A workflow left working when the app closed is marked so the owner can carry it on. */
+  private interruptWorkflows(): void {
+    this.db.exec("UPDATE workflows SET data=json_set(data,'$.status','interrupted') WHERE json_extract(data,'$.status')='running'");
+    if (this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_state'").get())
+      this.db.exec("UPDATE workflow_state SET status='interrupted' WHERE status='running'");
   }
   private interruptSchedules(): void {
     this.db.exec(

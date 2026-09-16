@@ -12,7 +12,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-fonts.mjs && node scripts/copy-suites.mjs",
+    "build": "tsc && node scripts/copy-fonts.mjs && node scripts/copy-suites.mjs && node scripts/copy-data.mjs",
     "pretest": "node -e \"require('electron')\"",
     "test": "npm run build && node --test --test-concurrency=3 tests/*.test.mjs packages/sdk/test/*.test.mjs",
     "start": "npm run build && node dist/cli.js start",

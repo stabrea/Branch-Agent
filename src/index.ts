@@ -66,6 +66,11 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
 import { ProviderPlugins } from "./provider-plugins.js";
 import type { IssueAccess } from "./integrations/issue-tools.js";
+// Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
+import { registerLabels } from "./labels.js";
+import { Workflows, registerWorkflows } from "./workflows.js";
+import { RunQueue } from "./run-queue.js";
+import { CalendarSettingsStore } from "./calendar.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -233,6 +238,15 @@ export async function createBranch(options: {
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
+  // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
+  registerLabels(registry, store.labels);
+  const workflows = new Workflows(store, runtime, knowledge);
+  registerWorkflows(registry, workflows);
+  const runQueue = new RunQueue(store, runtime);
+  const calendar = new CalendarSettingsStore(store, dataDir);
+  await calendar.seed();
+  scheduler.calendar = calendar;
+  channels.deliveries.holdUntil = (at) => calendar.holdUntil(runtime.owner, at);
   const chatgpt = options.chatgpt;
   if (chatgpt) {
     await chatgpt.load();
@@ -336,6 +350,10 @@ export async function createBranch(options: {
     evaluationSuites,
     triggers,
     webhooks,
+    /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
+    workflows,
+    runQueue,
+    calendar,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -516,3 +534,10 @@ export * from "./misc-api.js";
 export * from "./integrations/linear.js";
 export * from "./integrations/issue-context.js";
 export * from "./integrations/issue-tools.js";
+// Wave 6 (collaboration and workflows).
+export * from "./labels.js";
+export * from "./conversation-share.js";
+export * from "./workflows.js";
+export * from "./run-queue.js";
+export * from "./calendar.js";
+export * from "./profiles.js";
