@@ -1,0 +1,16 @@
+# Wave 2 task: real cost estimates, trace export, privacy-safe telemetry controls
+
+Rules: docs/agents/briefs/wave1/BUILD.md. Branch: wave2/cost-trace from origin/feat/assistant-runtime (`git fetch origin && git checkout -b wave2/cost-trace origin/feat/assistant-runtime`). Themes: models.routing-and-cost (#79), dashboards-and-observability leftovers (#58), tracing-and-telemetry (#63), context-management A0857 (#82). Another builder is redesigning the whole UI shell on wave2/shell; keep UI changes to the existing Usage screen (public/usage.js) and the Settings form, small and additive.
+
+Read: src/usage.ts, src/receipts*.ts, src/models*.ts, src/providers/presets.ts, src/store.ts (usage table), docs/configuration.md sections on usage.
+
+Build:
+1. Pricing table (src/pricing.ts): per-million-token input/output/cached prices for the common models of each provider (OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, OpenRouter pass-through unknown, local = 0), with a `pricedAt` date and an owner override map in settings (`settings/pricing`). `estimateCost(model, usage)` returns { amount, currency: "USD", confidence: "table" | "override" | "unknown" }. Unknown models show "no price on file", never 0.
+2. Costs everywhere they already show tokens: receipts, run summary, usage aggregates by day/model/conversation/source, the Usage screen cards and tables, the monthly budget (budget may now be tokens or dollars; keep tokens working). CSV export gains a cost column.
+3. Trace export: setting off by default; when on, every finished run is written as one JSON file in an OpenTelemetry-compatible shape (resourceSpans → scopeSpans → spans with traceId, spanId, parentSpanId, name, startTimeUnixNano, endTimeUnixNano, attributes[], status) into a folder the owner chooses (must be an absolute path under the user's profile or the workspace; reject others). No network exporter. Also `GET /api/runs/:id/trace` returns the same document on demand.
+4. Telemetry controls (privacy): Branch sends nothing anywhere today; make that a visible promise. Add a "Diagnostics" section in Settings that shows "Branch sends no usage data to anyone" and offers "Save a diagnostics bundle" (POST /api/diagnostics/bundle) which writes a zip-free folder with health report, versions, last 200 events with secrets redacted, and the pricing table in use, so the owner can share it by hand. Redaction must be tested (keys, tokens, bearer headers, file contents of the workspace are excluded).
+5. Token budget governance (A0857): the per-run budget refusal and the monthly budget messages must show the estimated dollar figure when a price is on file.
+
+Tests (tests/cost-trace.test.mjs): estimateCost for table/override/unknown; usage aggregates carry costs; CSV has the column; trace document shape for a scripted run (parent/child spans for model rounds and tool calls); trace folder validation refuses a path outside the allowed roots; diagnostics bundle redaction; dollar budget refusal.
+
+Acceptance list: C1 unknown models never show $0; C2 costs appear in receipts, usage tables and CSV; C3 trace file validates against the shape (write a small validator in the test); C4 diagnostics bundle contains no secret (test greps for the fixture key); C5 all existing usage tests still pass; C6 docs/configuration.md documents pricing overrides, trace export and diagnostics.

@@ -1,4 +1,19 @@
-# Branch Agent checkpoint — 2026-09-15 (late evening)
+# Branch Agent checkpoint
+
+## Checkpoint 2026-09-17 — how to resume
+
+**State.** Released 0.15.0 (installed on the owner's PC). Staging branch `wave2/integration` is green (full non-desktop suite, ~1170 tests) and holds, since 0.15.0: realtime voice, hardening pass 2, the long tail (other-2), design QA, the two ledger verification reports and the family-row ledger. In review or building: re-opened rows, web UI pass 3, auth/tracing/CLI rows, handbook, sandboxes and SSH workspaces, documents pass 3 (briefs in `docs/agents/briefs/wave8/`).
+
+**To resume the loop** (details in `docs/agents/README.md`):
+1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with one environment skip.
+2. For each unfinished branch `wave8/*` in `git branch --list 'wave8/*'`, either continue it or spawn an integrator with `docs/agents/briefs/INTEGRATOR.md`; merge the reviewed `integrate/*` branch onto staging.
+3. Release when four to six branches have landed: follow `docs/agents/scripts/publish-template.sh` step by step (bump, release branch, PR, package, walkthrough, packaged tests, CI, merge, GitHub release, rehearsal, install, ticks).
+4. Tick ledger ids only from integrator VERIFIED verdicts (`docs/agents/scripts/tick_theme.py <version> <issue>=<ids>`), and re-run a verification pass after every two releases.
+5. Check `gh pr list --state open` and issues from other people each loop; review with `docs/agents/briefs/PR-REVIEW.md`.
+
+**Numbers.** 786 pieces in the audit; honest remaining 355 (311 single items + 44 grouped rows). See `docs/ROADMAP.md` for what ships in 0.16–0.18 and what 1.0 means.
+
+**Do not.** Run desktop or screen-control tests from an agent; force-remove a worktree with a node_modules junction; raise the catalog width literal; tick on a builder's word.
 
 ## Batch 19 (wave 7) — traces you can export, and permission rules you can read
 
