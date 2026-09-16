@@ -19,22 +19,76 @@ export interface PendingApproval {
   /** What the rule suggests remembering if the person says yes. */
   remember: PolicyRemember;
   askedAt: string;
+  /**
+   * The exact bytes of the request, with saved passwords and keys taken out, as shown on screen,
+   * and a fingerprint of them. A yes is bound to that fingerprint: change the command and the
+   * assistant has to ask again.
+   */
+  bytes?: string;
+  fingerprint?: string;
 }
+
+/** A yes kept for the rest of a conversation, and when it stops counting. */
+export interface SessionGrant {
+  tool: string;
+  target: string;
+  decision: "allow" | "deny";
+  /** The request this answer was given for; null when it was given without one. */
+  fingerprint: string | null;
+  grantedAt: string;
+  expiresAt: string;
+  /** Plain words for the "What is allowed right now" list. */
+  label: string;
+}
+
+/** How long a "yes, for this conversation" lasts unless the conversation ends or Branch locks first. */
+export const sessionGrantMs = 60 * 60 * 1000;
 
 const answerKey = (tool: string, target: string): string => `${tool}\u0000${target}`;
 
 export class ApprovalGate {
-  private readonly answers = new Map<string, Map<string, "allow" | "deny">>();
+  private readonly answers = new Map<string, Map<string, SessionGrant>>();
   private readonly pending = new Map<string, PendingApproval>();
-  /** The answer already given in this conversation for the same tool and target, if there is one. */
-  answer(sessionId: string, tool: string, target: string): "allow" | "deny" | undefined {
-    return this.answers.get(sessionId)?.get(answerKey(tool, target));
+  /**
+   * The answer already given in this conversation for the same tool and target. When a fingerprint
+   * is supplied and the kept answer was given for a different one, there is no answer: the exact
+   * bytes changed, so the person is asked again.
+   */
+  answer(sessionId: string, tool: string, target: string, fingerprint?: string): "allow" | "deny" | undefined {
+    const key = answerKey(tool, target);
+    const grant = this.answers.get(sessionId)?.get(key);
+    if (!grant) return undefined;
+    if (Date.parse(grant.expiresAt) <= Date.now()) { this.answers.get(sessionId)?.delete(key); return undefined; }
+    if (grant.fingerprint && fingerprint !== undefined && grant.fingerprint !== fingerprint) return undefined;
+    return grant.decision;
   }
-  /** Keeps an answer for the rest of the conversation. */
-  remember(sessionId: string, tool: string, target: string, decision: "allow" | "deny"): void {
-    const forSession = this.answers.get(sessionId) ?? new Map<string, "allow" | "deny">();
-    forSession.set(answerKey(tool, target), decision);
+  /** Keeps an answer for the rest of the conversation, bound to the request it was given for. */
+  remember(
+    sessionId: string, tool: string, target: string, decision: "allow" | "deny",
+    about: { fingerprint?: string | undefined; label?: string | undefined } = {},
+  ): void {
+    const forSession = this.answers.get(sessionId) ?? new Map<string, SessionGrant>();
+    const now = Date.now();
+    forSession.set(answerKey(tool, target), {
+      tool, target, decision, fingerprint: about.fingerprint ?? null,
+      grantedAt: new Date(now).toISOString(), expiresAt: new Date(now + sessionGrantMs).toISOString(),
+      label: about.label ?? `${tool}${target ? ` on ${target}` : ""}`,
+    });
     this.answers.set(sessionId, forSession);
+  }
+  /** What this conversation is allowed to do right now, for the "What is allowed" list. */
+  grants(sessionId: string): SessionGrant[] {
+    const forSession = this.answers.get(sessionId);
+    if (!forSession) return [];
+    const now = Date.now();
+    for (const [key, grant] of forSession) if (Date.parse(grant.expiresAt) <= now) forSession.delete(key);
+    return [...forSession.values()].sort((a, b) => a.grantedAt.localeCompare(b.grantedAt));
+  }
+  /** Ends every standing yes, in every conversation: what "Lock" does. */
+  forgetAll(): number {
+    const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
+    this.answers.clear();
+    return count;
   }
   /** Records the question a task stopped on; one conversation waits on one question at a time. */
   ask(request: PendingApproval): void {

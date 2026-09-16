@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   Budget,
   BudgetError,
@@ -47,6 +47,8 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyRemember, type RunSource,
 } from "./policy.js";
+import { resourceOf } from "./policy-resources.js";
+import { Tracer } from "./tracing.js";
 import { audit } from "./audit.js";
 import {
   parseRetryPolicy,
@@ -133,6 +135,8 @@ export interface RunOptions {
   plan?: boolean;
   /** Have a reviewer check the finished answer before it is given. */
   verify?: boolean;
+  /** The `traceparent` header of the request that asked for this task, so one trace crosses agents. */
+  traceparent?: string | null;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -163,6 +167,8 @@ export class Runtime {
   hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
+  /** The shape of each task while it runs: one trace per task, a span per round, call and sub-task. */
+  readonly tracer: Tracer;
   private readonly rates: RateLimiter;
   /** Plans, reviewer passes, milestone notes and the shared scratch area. */
   readonly orchestration: Orchestration;
@@ -179,6 +185,7 @@ export class Runtime {
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
     this.rates = new RateLimiter(this.reliability.rateWindowMs);
     this.orchestration = new Orchestration(store, this.owner, workspace);
+    this.tracer = new Tracer(store.spans, this.owner);
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -485,6 +492,10 @@ export class Runtime {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
     });
+    const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
+      "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
+      "gen_ai.system": this.provider.name, "branch.run.depth": context.depth,
+    }, { inbound: options.traceparent ?? null, parentRunId: parent?.runId ?? null });
     let status: Run["status"] = "completed";
     let output: string;
     try {
@@ -507,6 +518,15 @@ export class Runtime {
     }
     if (context.dryRun) this.reportDryRun(run);
     const settled = await this.settleRun(run, context, status, output);
+    const usage = this.store.usage(run.id);
+    span.end(settled.status === "completed" ? "ok" : "error", settled.status === "completed" ? "" : settled.output, {
+      "branch.run.status": settled.status,
+      "branch.tokens.input": usage.reportedInput || usage.estimatedInput || 0,
+      "branch.tokens.output": usage.reportedOutput || usage.estimatedOutput || 0,
+    });
+    // Nothing looks a task up after it has settled — a sub-task registers while its parent is still
+    // running — so every task lets go of its ids here, child runs included.
+    this.tracer.forget(run.id);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
@@ -617,7 +637,21 @@ export class Runtime {
     }
     const settled = this.finish(run, status, output);
     this.saveTrace(run.id);
+    this.sendSpans(run.id);
     return settled;
+  }
+  /**
+   * Sends the task's spans to the address the owner chose, when they have turned that on. Like the
+   * trace file, this never fails a task: it happens after the answer is in and a failure is only
+   * noted. `createBranch` connects it; on its own nothing is sent anywhere.
+   */
+  exportSpans: (runId: string) => Promise<void> = async () => undefined;
+  private sendSpans(runId: string): void {
+    // A runtime that is shutting down refuses new background work, and a send that cannot start is
+    // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
+    void this.track(() => this.exportSpans(runId)
+      .catch((error) => this.store.event(runId, "trace.send_failed", { error: this.hideSecrets(errorText(error)) })))
+      .catch(() => undefined);
   }
   /**
    * Writes the task's trace file when the owner has turned that on. Nothing here may fail a task:
@@ -1059,6 +1093,10 @@ export class Runtime {
       model: preset.model,
       reasoning,
     });
+    const span = this.tracer.start(run.id, "model", `model ${preset.model}`, {
+      "gen_ai.system": preset.provider.name, "gen_ai.request.model": preset.model,
+      "branch.preset": preset.id, "branch.tokens.estimated_input": input,
+    });
     try {
       const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
       const raw = onTextDelta
@@ -1081,12 +1119,14 @@ export class Runtime {
         provider: preset.provider.name,
         model: preset.model,
       });
+      span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
       return completion;
     } catch (e) {
       if (e instanceof ProviderStreamError)
         this.recordStreamFailure(run, context, e, input);
       const kind = e instanceof StallError ? "model.stalled" : context.signal.aborted ? "model.cancelled" : "model.failed";
       this.store.event(run.id, kind, { error: errorText(e), usage: this.store.usage(run.id) });
+      span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
   }
@@ -1163,14 +1203,20 @@ export class Runtime {
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
   private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
-    const readOnly = isReadOnlyPermission(this.registry.permissionOf(call.name));
+    const permission = this.registry.permissionOf(call.name);
+    const readOnly = isReadOnlyPermission(permission);
     const target = this.registry.targetOf(call.name, args, context);
     const label = describeToolCall(call.name, args);
     const source: RunSource = context.source ?? "owner";
-    const { decision, rule } = evaluatePolicy(this.policy(source), { tool: call.name, target, readOnly });
+    // What the call is about — a folder, a website, a messaging account, a command — so a rule the
+    // owner wrote about that one thing is considered before the broad ones.
+    const resource = resourceOf(call.name, permission, target, args);
+    const fingerprint = argumentFingerprint(call.arguments);
+    const { decision, rule } = evaluatePolicy(this.policy(source), { tool: call.name, target, readOnly, resource });
     // An answer given earlier in the conversation stands in for the question, never for a rule that
-    // already decided: switching to a stricter setting takes effect at once.
-    const outcome = (decision === "ask" ? this.approvals.answer(this.sessionOf(context), call.name, target) : undefined) ?? decision;
+    // already decided: switching to a stricter setting takes effect at once. The answer is bound to
+    // the exact bytes it was given for, so a changed command is asked about again.
+    const outcome = (decision === "ask" ? this.approvals.answer(this.sessionOf(context), call.name, target, fingerprint) : undefined) ?? decision;
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: outcome });
       return simulatedResult(label);
@@ -1181,10 +1227,10 @@ export class Runtime {
       return { ok: false, error: `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.` };
     }
     const remember: PolicyRemember = source === "owner" ? rule?.remember ?? "session" : "session";
-    return this.askApproval(call, context, { label, target, source, remember });
+    return this.askApproval(call, context, { label, target, source, remember, fingerprint });
   }
   /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
-  private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember }): never {
+  private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember; fingerprint: string }): never {
     const { source, remember } = about;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
@@ -1192,28 +1238,47 @@ export class Runtime {
     const question = `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
     const sessionId = this.sessionOf(context);
     this.approvals.ask({ runId: context.runId, sessionId, tool: call.name, target,
-      label, question, source, remember, askedAt: new Date().toISOString() });
-    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember });
+      label, question, source, remember, askedAt: new Date().toISOString(),
+      // The exact request, cleaned of any saved password or key, is what the person is shown and
+      // what their yes is bound to.
+      bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
+    // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
+    // watching the socket sees the same question the app does and can answer under the same binding.
+    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember,
+      question, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
     throw new NeedsInputError(question);
   }
   /**
    * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
    * conversation; "always" also writes it into the policy as a rule, which only the owner may do.
    */
-  approve(sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session"): { tool: string; target: string; decision: string; remembered: PolicyRemember } {
+  approve(
+    sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session",
+    /** The fingerprint the person was shown; a different one means the request changed since. */
+    fingerprint?: string,
+  ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
     const waiting = this.approvals.waiting(sessionId).at(-1);
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    if (fingerprint !== undefined && waiting.fingerprint !== undefined && fingerprint !== waiting.fingerprint)
+      throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
     this.approvals.resolve(sessionId);
-    if (remember !== "never") this.approvals.remember(sessionId, waiting.tool, waiting.target, decision);
+    if (remember !== "never")
+      this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
+        fingerprint: waiting.fingerprint, label: waiting.label,
+      });
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
       reason: waiting.label || waiting.question, source: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
-    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember };
+    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /** What this conversation is allowed to do right now, for the "What is allowed" list. */
+  allowedNow(sessionId: string) {
+    return this.approvals.grants(sessionId);
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {
@@ -1252,19 +1317,36 @@ export class Runtime {
     if (gated) return gated;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
+    const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
+      "branch.tool.name": call.name, "branch.tool.call_id": call.id,
+      "branch.tool.permission": this.registry.permissionOf(call.name),
+    });
     try {
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
+      span?.end("ok");
       return { ok: true, result };
     } catch (e) {
-      if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) throw e;
+      if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
+        span?.end("error", e instanceof NeedsInputError ? "waiting for the person" : errorText(e));
+        throw e;
+      }
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
+      span?.end("error", error, { "branch.tool.outcome": stalled ? "stalled" : "failed" });
       return { ok: false, error };
     }
   }
+}
+
+/**
+ * A fingerprint of the exact bytes the assistant asked to run. A yes is bound to it, so a command
+ * that changes by one character is a new question rather than something an old yes covers.
+ */
+export function argumentFingerprint(argumentBytes: string): string {
+  return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
 }

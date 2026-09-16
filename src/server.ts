@@ -57,6 +57,9 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+// Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
+import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { audit } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -145,7 +148,11 @@ export function hostAllowed(
   if (!host || !hosts.includes(host)) return false;
   return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
 }
-function authorize(request: IncomingMessage, url: string, token: string, extra: readonly string[] = []): void {
+function authorize(
+  request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
+  /** Batch 19 (wave 7): counts wrong keys per place, so the key cannot be guessed at speed. */
+  limits?: { limiter: AuthLimiter; onFailure: (source: string) => void },
+): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
   if (!hostAllowed(request.headers.host, request.headers.origin, url, extra))
@@ -153,11 +160,16 @@ function authorize(request: IncomingMessage, url: string, token: string, extra: 
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
-  if (
-    supplied.length !== token.length ||
-    !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
-  )
-    throw new HttpError(401, "Local session token required");
+  const correct =
+    supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
+  const from = requestSource(request.socket?.remoteAddress);
+  // The right key is checked first and clears the count at once, so the owner's own app can never
+  // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
+  if (correct) { limits?.limiter.succeed(from); return; }
+  const waiting = limits?.limiter.refusal(from, "key");
+  if (waiting) throw new HttpError(429, waiting);
+  limits?.onFailure(from);
+  throw new HttpError(401, "Local session token required");
 }
 async function staticFile(
   path: string,
@@ -181,6 +193,7 @@ async function staticFile(
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
+    "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
     "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
@@ -460,6 +473,11 @@ async function api(
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 19 (wave 7): spans, sending traces out, and the approval rules read as sentences.
+  if (handlesTracingPath(path))
+    return tracingApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -644,8 +662,10 @@ async function api(
     return { policy: savePolicy(app.store, app.runtime.owner, await readBody(request)) };
   if (request.method === "POST" && path === "/api/policy/approve") {
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
-      remember: PolicyRememberSchema.default("session") }).strict().parse(await readBody(request));
-    return app.runtime.approve(input.sessionId, input.decision, input.remember);
+      remember: PolicyRememberSchema.default("session"),
+      // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
@@ -1409,12 +1429,17 @@ export async function startServer(
     executable?: string | null; installRoot?: string | null;
     /** Announce this engine to other launches, so a second window joins it instead of starting again. */
     presence?: "app" | "daemon";
+    /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
+    authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
   },
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
   let executions = 0;
   const remote = new RemoteAccess(token);
+  // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
+  // place is made to wait, with a line written into the record of what the assistant was allowed to do.
+  const authLimiter = new AuthLimiter(options.authLimits);
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
@@ -1436,7 +1461,10 @@ export async function startServer(
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
-      authorize(request, url, token, remote.allowedHosts());
+      authorize(request, url, token, remote.allowedHosts(), {
+        limiter: authLimiter,
+        onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
+      });
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
@@ -1519,6 +1547,8 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
+  if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
@@ -1717,7 +1747,7 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {
