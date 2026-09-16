@@ -57,9 +57,12 @@ import {
   type RetryPolicyInput,
 } from "./provider-retry.js";
 import {
-  ToolCatalog, answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, expandToolName,
+  answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, expandToolName,
   rankGroups, type ContextBudget,
 } from "./catalog.js";
+// Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
+import { ToolLoader, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
@@ -156,8 +159,10 @@ export class Runtime {
   private readonly activeSessions = new Set<string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
   private readonly steers = new Map<string, string[]>();
-  /** The catalog each running task is showing the model, so an opened toolbox stays open. */
-  private readonly catalogs = new Map<string, ToolCatalog>();
+  /** The catalog each running task is showing the model, so a tool it found stays loaded. */
+  private readonly catalogs = new Map<string, ToolLoader>();
+  /** What each task searched for and called, until it finishes and the lesson is written down. */
+  private readonly toolWork = new Map<string, { searched: string[]; called: string[]; failures: Map<string, string>; rounds: number }>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
@@ -623,6 +628,7 @@ export class Runtime {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
       this.steers.delete(run.id);
+      this.recordToolWork(run, context, status);
       this.catalogs.delete(run.id);
       // The scratch area belongs to the whole delegation tree, so only its top task empties it.
       if ((context.scratchRoot ?? run.id) === run.id) this.orchestration.clearScratch(run.id);
@@ -690,8 +696,10 @@ export class Runtime {
     const conductor = this.orchestration.conductor(run, { ...conduct, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
+    let knownTools = this.registry.version;
     for (let round = 0; round < conductor.maxRounds(12); round++) {
       catalog.nextRound();
+      if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
@@ -714,6 +722,7 @@ export class Runtime {
       for (const call of completion.toolCalls) {
         this.noteWork(run, call);
         catalog.noteUse(call.name);
+        this.rememberToolWork(run.id, call.name, round + 1);
         const result = await this.callTool(call, context);
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
@@ -870,19 +879,61 @@ export class Runtime {
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
    * spend a round opening one. No model call and no network is involved.
    */
-  private openCatalog(run: Run, context: ToolContext, messages: Message[]): ToolCatalog {
+  private openCatalog(run: Run, context: ToolContext, messages: Message[]): ToolLoader {
     const tools = this.registry.descriptions(context.permissions);
     const available = [...new Set(tools.map((tool) => this.registry.groupOf(tool.name)))];
     const recent = messages.filter((m) => m.role !== "system").slice(-4).map((m) => m.content);
     const project = this.store.projects.active(context.owner);
-    const guessed = rankGroups({ prompt: run.prompt, recent, project: `${project.name} ${project.instructions}` }, available, 3);
-    const catalog = new ToolCatalog(tools, {
-      expanded: [...alwaysOpenGroups, ...guessed],
+    const signals = { prompt: run.prompt, recent, project: `${project.name} ${project.instructions}` };
+    const guessed = rankGroups(signals, available, 3);
+    const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
+    const catalog = new ToolLoader(tools, {
+      expanded: [...alwaysOpenGroups, ...guessed], signals,
+      preload: learned.preload(context.owner, run.prompt), demoted: learned.stale(context.owner),
+      budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
+      external: (name) => this.registry.isExternal(name),
+      noteOf: (name) => notes.get(name) ?? "",
     });
     this.catalogs.set(run.id, catalog);
-    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length });
+    this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
+    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length,
+      preloadedFromHistory: catalog.preloadedFromHistory() });
     return catalog;
+  }
+  /**
+   * A server has connected, or a plugin has been switched on, while this task was working. Its
+   * tools go into the index straight away, so the task can find them without being started again.
+   */
+  private reindex(run: Run, context: ToolContext, catalog: ToolLoader): void {
+    const notes = this.store.toolUsage.noteMap(context.owner);
+    catalog.refresh(this.registry.descriptions(context.permissions), {
+      groupOf: (name) => this.registry.groupOf(name),
+      external: (name) => this.registry.isExternal(name),
+      noteOf: (name) => notes.get(name) ?? "",
+    });
+    this.store.event(run.id, "catalog.reindexed", { tools: catalog.stats().tools });
+  }
+  /** Remembers, for this task only, that a tool was called; the lesson is written when it finishes. */
+  private rememberToolWork(runId: string, name: string, round: number): void {
+    const work = this.toolWork.get(runId);
+    if (!work) return;
+    if (!work.called.includes(name)) work.called.push(name);
+    work.rounds = Math.max(work.rounds, round);
+  }
+  /**
+   * One row per finished task: the shape of what was asked as hashed word pairs, the tools looked
+   * for, the tools used, and how it ended. It never leaves this computer, and the Developer card
+   * deletes the lot in one move.
+   */
+  private recordToolWork(run: Run, context: ToolContext, status: Run["status"]): void {
+    const work = this.toolWork.get(run.id);
+    this.toolWork.delete(run.id);
+    if (!work) return;
+    try {
+      this.store.toolUsage.record(context.owner, { runId: run.id, prompt: run.prompt, searched: work.searched,
+        called: work.called, ok: status === "completed", rounds: work.rounds });
+    } catch { /* learning is never worth failing a task for */ }
   }
   /**
    * The catalog for this round. A side question (planning, the summariser, the reviewer) runs with
@@ -1291,6 +1342,59 @@ export class Runtime {
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { opened, unknown, tools: tools.length } });
     return { ok: true, result: { opened, unknown, tools, note: "These are yours to use from your next step; their inputs are in the tool list." } };
   }
+  /**
+   * Finding a tool by saying what it should do. The index was built from this task's own
+   * permissions, so a narrowed task cannot find one it may not use: such a name is simply not
+   * there, worded exactly as a misspelling is, so refusal cannot be told apart from absence.
+   */
+  private searchTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+    const catalog = this.catalogs.get(context.runId);
+    if (!catalog) return { ok: false, error: "There are no tools to search in this task." };
+    const asked = (args as { query?: unknown; limit?: unknown }) ?? {};
+    const query = String(asked.query ?? "").trim();
+    if (!query) return { ok: false, error: `Say what you want to do, for example {"query":"send a message"}.` };
+    const found = catalog.search(query, Number.isFinite(Number(asked.limit)) ? Number(asked.limit) : 8);
+    const work = this.toolWork.get(context.runId);
+    for (const match of found.matches) if (work && !work.searched.includes(match.name)) work.searched.push(match.name);
+    this.store.event(context.runId, "tools.searched", { query: query.slice(0, 120), found: found.matches.map((m) => m.name) });
+    this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { found: found.matches.length } });
+    return { ok: true, result: { ...found, note: found.matches.length
+      ? "These are yours to use from your next step; their inputs are in the tool list."
+      : "Nothing here does that. Say so plainly rather than guessing at a tool name." } };
+  }
+  /** Loads tools by exact name. An unknown name and one this task may not use read the same. */
+  private describeTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+    const catalog = this.catalogs.get(context.runId);
+    if (!catalog) return { ok: false, error: "There are no tools to load in this task." };
+    const asked = (args as { names?: unknown })?.names;
+    const names = Array.isArray(asked) ? asked.map(String) : [];
+    if (!names.length) return { ok: false, error: `Name the tools to load, for example {"names":["files.read"]}.` };
+    const result = catalog.describe(names);
+    this.store.event(context.runId, "tools.described", { loaded: result.loaded.map((tool) => tool.name), unknown: result.unknown });
+    this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { loaded: result.loaded.length } });
+    return { ok: true, result: { ...result, note: result.unknown.length
+      ? "A name that is not here is either misspelt or not available in this task."
+      : "Use them from your next step; their inputs are in the tool list." } };
+  }
+  /** Remembers one short thing about a tool. The owner can read and delete every one of these. */
+  private noteTool(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+    try {
+      const note = this.store.toolUsage.addNote(context.owner, args);
+      this.store.event(context.runId, "tools.noted", { tool: note.tool, note: note.note });
+      this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { tool: note.tool } });
+      return { ok: true, result: { tool: note.tool, remembered: note.note, note: "The person can read and delete this in Settings." } };
+    } catch (error) {
+      return { ok: false, error: errorText(error) };
+    }
+  }
+  /** Keeps a note when a call that failed on its inputs is put right and works the next time. */
+  private learnFromRetry(context: ToolContext, name: string, failure: string): void {
+    if (!/required|expected|invalid|unrecognized|must be|missing|not found/i.test(failure)) return;
+    try {
+      const note = NoteInputSchema.parse({ tool: name, note: `an earlier call failed with: ${failure.slice(0, 100)}` });
+      this.store.toolUsage.addNote(context.owner, note);
+    } catch { /* a note is never worth failing a task for */ }
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -1299,6 +1403,9 @@ export class Runtime {
     try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
+    if (call.name === toolSearchName) return this.searchTools(call, context, args);
+    if (call.name === toolDescribeName) return this.describeTools(call, context, args);
+    if (call.name === toolNoteName) return this.noteTool(call, context, args);
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
@@ -1312,6 +1419,8 @@ export class Runtime {
       const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
+      const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
+      if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
       return { ok: true, result };
     } catch (e) {
       // A step inside the tool (a recipe's own steps) reached something to ask about first: the
@@ -1323,6 +1432,7 @@ export class Runtime {
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
+      this.toolWork.get(context.runId)?.failures.set(call.name, error);
       return { ok: false, error };
     }
   }

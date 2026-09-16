@@ -72,6 +72,7 @@ and nothing leaves this computer unless you send it yourself.
   events.json   the last events from your tasks: what ran, how it ended, and how long it took
   pricing.json  the model prices used to estimate costs, including any you corrected yourself
   allowed.json  what the assistant was allowed to do: approvals, secrets handed over, settings changed
+  tools.json    how the assistant is finding its tools: which it uses, and what the tool list weighs
 
 What is deliberately missing: your messages, the assistant's replies, the contents of any file in
 your workspace, tool results, API keys, tokens and passwords. Read the files before sharing them.
@@ -118,6 +119,9 @@ export async function writeDiagnosticsBundle(
     await writeJson(folder, "events.json", { count: events.length, events }),
     await writeJson(folder, "pricing.json", pricingTableInUse(store, owner)),
     await writeJson(folder, "allowed.json", allowedRecord(store, owner)),
+    // How the tool list is doing: the same plain line the Developer card shows, and the counts
+    // behind it. Tool names only — never an argument, a result or anything a task was asked to do.
+    await writeJson(folder, "tools.json", store.toolUsage.health(owner)),
   ];
   await writeFile(join(folder, "README.txt"), explanation, { mode: 0o600 });
   files.push("README.txt");

@@ -19,6 +19,14 @@ export class ToolRegistry {
     const failures = results.filter(result => result.status === "rejected");
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), "Run cleanup failed");
   }
+  private revision = 0;
+  /**
+   * Goes up whenever a tool is added or removed, so a task that is already running notices that a
+   * server has connected and puts its tools in the index without rebuilding everything each round.
+   */
+  get version(): number {
+    return this.revision;
+  }
   register<T>(tool: ToolDefinition<T>): void {
     if (
       !/^[a-z][a-z0-9_.-]{0,99}$/.test(tool.name) ||
@@ -26,6 +34,7 @@ export class ToolRegistry {
     )
       throw new Error("Invalid or duplicate tool name");
     this.tools.set(tool.name, tool as ToolDefinition);
+    this.revision++;
   }
   /**
    * The catalog as the model sees it: only the tools this run may use, each put on the schema diet
@@ -43,12 +52,18 @@ export class ToolRegistry {
         return options.diet === false ? described : slimTool(described);
       });
   }
+  /** Whether a tool came from outside, so its description is read as untrusted text. */
+  isExternal(name: string): boolean {
+    return this.tools.get(name)?.external === true;
+  }
   /** The toolbox a tool belongs to: its own answer, or one worked out from its name. */
   groupOf(name: string): string {
     return this.tools.get(name)?.group ?? inferToolGroup(name);
   }
   unregister(name: string): boolean {
-    return this.tools.delete(name);
+    const removed = this.tools.delete(name);
+    if (removed) this.revision++;
+    return removed;
   }
   names(): string[] {
     return [...this.tools.keys()];
