@@ -271,10 +271,6 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
             },
           ]
         : [
-            ...(message.images ?? []).map((image) => ({
-              type: "image",
-              source: { type: "base64", media_type: image.mediaType, data: image.data },
-            })),
             ...(message.content
               ? [{ type: "text", text: message.content }]
               : []),

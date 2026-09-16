@@ -2,6 +2,7 @@
    Model in use, tasks running now, the receipts this conversation produced, and
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
+import { setActivityCount } from "/shell.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -35,8 +36,7 @@ function row(title, meta) {
 const session = () => $("conversation").dataset.sessionId || null;
 
 /** Tasks the assistant is working on right now, with the step it has reached. */
-async function drawTasks() {
-  const running = await api("activity").catch(() => []);
+function drawTasks(running) {
   const here = session();
   rows(
     "context-tasks",
@@ -95,12 +95,16 @@ async function drawWorking() {
 
 let busy = false;
 async function draw() {
-  if (busy || $("workspace").hidden || document.body.classList.contains("no-aside")) return;
+  if (busy || $("workspace").hidden) return;
   busy = true;
   try {
+    /* The count beside Activity is kept up to date even when the pane is folded away. */
+    const running = await api("activity").catch(() => []);
+    setActivityCount(running.length);
+    if (document.body.classList.contains("no-aside")) return;
     const state = await api("state");
     await drawWorking();
-    await drawTasks();
+    drawTasks(running);
     await drawReceipts(state);
     drawFacts(state);
   } catch {

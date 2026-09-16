@@ -120,7 +120,7 @@
           <section id="first-run" class="card first-run" hidden>
             <span class="eyebrow">// FIRST THINGS FIRST</span>
             <h2>Choose how your assistant thinks.</h2>
-            <p>Pick one to start. You can change it any time in Settings.</p>
+            <p class="first-run-lead">Pick one to start. You can change it any time in Settings.</p>
             <div class="doors">
               <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste.</span></button>
               <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
@@ -128,7 +128,7 @@
             </div>
             <p id="first-run-status" role="status"></p>
             <div class="identity-actions">
-              <button id="first-run-test" type="button">Test the connection</button>
+              <button id="first-run-test" type="button" class="quiet-button">Test the connection</button>
               <button id="first-run-done" type="button" hidden>Done, start chatting</button>
             </div>
           </section>
@@ -166,7 +166,7 @@
               <button class="chip" type="button" data-prompt="Make a short plan for ">Plan a piece of work</button>
             </div>
           </div>
-          <div id="conversation" aria-live="polite"></div>
+          <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
           <div id="model-controls" class="model-controls" hidden>
             <label for="session-model">Model for this conversation</label>
             <select id="session-model"></select>
@@ -181,6 +181,7 @@
             <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
+          <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
             <label class="sr-only" for="prompt">Your message</label
             ><textarea
@@ -197,14 +198,14 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
-              ><span id="session-label"
-                >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
               ><button id="send">Send ↗</button
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
           </form>
+          <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
+          </div>
         </section>
         <section id="runs" class="view" hidden>
           <p class="section-intro">
@@ -794,10 +795,11 @@
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
-    <aside class="context-panel" id="context-panel" aria-label="This conversation">
+    <aside class="context-panel" id="context-panel" aria-label="This conversation" data-connected="false">
       <div class="context-block">
         <h2 class="context-head">Model</h2>
         <div class="context-provider" id="context-provider">Connect to begin</div>
+        <button id="context-connect" class="context-primary" type="button">Connect a model</button>
         <button id="context-change-model" class="context-link" type="button">Change the model</button>
       </div>
       <div class="context-block">
