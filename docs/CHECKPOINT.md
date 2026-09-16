@@ -631,6 +631,53 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+## Batch 23 (wave 6) — the web app grows up
+
+The browser interface got the parts it was missing. `public/markdown.js` is a dependency-free
+renderer that builds DOM nodes and never HTML strings, so a reply, a saved note or a document can
+carry `<script>` and it arrives as characters on the page; headings, lists, tables, quotes, links
+(opened outside the app through the desktop allowlist), inline code and fenced blocks with a copy
+button and the language written out all render, and `tests/fixtures/markdown-sample.md` is the
+fixture the test reads structure out of. `public/inspector.js` is "Look inside": one panel per task
+showing every model round with its duration, prompt size, tokens and cost, every tool call with
+what it was given and what came back (both clipped) and its receipt outcome beside it, the plan,
+the reviewer's verdicts, anything the owner steered mid-task and the questions it stopped on, with
+the whole thing saved as JSON. The round figures come from the payload the runtime really writes
+(`estimatedInput`/`estimatedOutput` and `reported` on `model.completed`), and each row says whether
+the provider counted them or we did; per-round cost goes through the same price table as the Usage
+screen. The raw arguments of a call are not on the events at all — only the plain-language label is
+— so they are read back from the assistant message that asked for the call, by call id, falling
+back to the label when that message has been compacted away. It is
+fed by one new route, `GET /api/runs/:id/inspect` (src/inspect.ts), which folds the timeline,
+receipts, usage and cost into a single answer. `public/live-run.js` puts a row in the message column
+while a task works — the step it has reached, how long it has been going, tokens so far, live over
+the run's existing WebSocket — with "Ask it to wait", "Tell it something" and Stop. Waiting
+and carrying on are both notes to a task that is still working (`POST /api/runs/:id/steer`); the
+resume route refuses anything but an interrupted run, so neither control touches it;
+a question the task stops on appears there as a card with Yes once / Yes for this conversation /
+Always / No, wired to `POST /api/policy/approve`. Because a task ends the moment it asks, the card
+is fetched once more as the row shuts down, or it would never be seen. `public/token-meter.js` is
+the quiet bar under the composer: context used against the model's window and the cost so far, with
+the numbers in a popover; a model with no price on file is said so in words. `public/playground.js`
+is Settings → Developer → Try things out: a form generated from each tool's own JSON schema
+(`GET /api/tools/forms`) and `POST /api/tools/try`, which evaluates the same approval policy the
+runtime uses and refuses or asks before it runs anything — it does not bypass the gate. The app is
+installable: `manifest.webmanifest`, generated 192/512 icons, and `service-worker.js` that keeps the
+shell files and never caches `/api/`, so a dropped connection shows a plain banner rather than a
+browser error; registration is skipped under `?desktop=1` and inside Electron, and the CSP grew
+`worker-src 'self'; manifest-src 'self'`. Finally `public/i18n.js` moves the labels behind `t(key)`
+with `public/locales/en.json` as the source of truth and a machine-drafted `fr.json` beside it,
+marked as a draft; markup carries `data-t` / `data-t-label` / `data-t-placeholder`, the language is
+chosen in Appearance, dates and numbers go through `Intl`, and a key with no translation falls back
+to English rather than leaving a blank. `tests/web-ui.test.mjs` covers all of it; the static-assets
+test now also follows absolute imports, the locale files and the list inside the service worker.
+Covers A0482, A0447, A0285, A0295, A1302, A0057, A0731, A1904, A0437 and A0483. Not done: the whole markdown renderer runs on replies, while a
+saved memory fact and a document search passage — one line each, and the passage carries the
+search's own highlights — get the inline formatting only (bold, italic, inline code, links); the
+"two models side by side" pane reuses the evaluation route and degrades to a plain message where
+that route is not configured, and localisation covers the shell chrome and the wave 6 screens
+rather than every string in every older section screen.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

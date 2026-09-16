@@ -39,6 +39,13 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 ## Available now
 
 - Conversations with persisted runs, tool traces and reported/estimated usage.
+- Replies render as markdown: headings, lists, tables, links that open outside the app, and code blocks with a copy button and the language written out. Saved notes and document passages, which are one line each, keep the inline formatting (bold, italic, inline code, links). Nothing rendered anywhere can become markup.
+- "Look inside" any task: every model round with its size and cost, every tool call with what went in and came back, its proof, the plan, the reviewer's verdicts and anything you said mid-task — and the whole thing saved as one file.
+- Step into a task while it works: a live row with the current step and elapsed time, and Pause, "Tell it something" and Stop; a question it stops on is answered in the conversation itself.
+- A quiet meter under the message box showing how much of the conversation's room has been used and roughly what it has cost, with the numbers behind it.
+- Settings → Developer → Try things out: run one tool by hand with a form built from its own description, under your usual permission rules.
+- Installable on a phone: the app's own files are kept on the device, with a clear banner when your computer cannot be reached. Never registered inside the desktop app.
+- Labels come from a language file rather than being written into the page: the rail, the sections, the owner menu, the message box and every screen above are covered, with English as the source and a French machine draft alongside it. Dates and numbers follow the language you choose, and a missing translation falls back to English.
 - Interactive terminal chat with provider streaming, interruption and in-place redirection.
 - A native desktop window and tray, with Forest and Daylight appearances saved across restarts.
 - Desktop model setup with a protected saved key and recovery from invalid settings.
