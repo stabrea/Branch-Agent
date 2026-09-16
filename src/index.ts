@@ -107,6 +107,8 @@ import type { IssueAccess } from "./integrations/issue-tools.js";
 // Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
+// Wave 8: the to-do list, and reports saved in several forms.
+import { Todos, registerTodos } from "./todos.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
@@ -421,6 +423,10 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
+  // items in one place, with a due day handed on to the schedules rather than timed here.
+  const todos = new Todos(store.sqlite);
+  registerTodos(registry, todos, runtime.owner);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -642,6 +648,8 @@ export async function createBranch(options: {
     calendar,
     /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
     flows,
+    /** Wave 8: the things still to be done, written down where the owner can see them. */
+    todos,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
@@ -895,6 +903,11 @@ export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
 export * from "./flows.js";
+// Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
+export * from "./todos.js";
+export * from "./reports.js";
+export * from "./artifact-pages.js";
+export * from "./dashboards.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";

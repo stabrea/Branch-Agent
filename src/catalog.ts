@@ -25,8 +25,12 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
-  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs."]],
-  ["documents", ["documents.", "pdf.", "library."]],
+  // Wave 8: the to-do list is what the owner has been told to remember to do, so it belongs with
+  // the rest of what the assistant keeps written down rather than in the unrecognised box.
+  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "todos."]],
+  // Wave 8: the Obsidian bridge writes documents into a folder and reads them back, so it is a
+  // documents tool under a different name.
+  ["documents", ["documents.", "pdf.", "library.", "obsidian."]],
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],

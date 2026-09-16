@@ -90,6 +90,9 @@ await Promise.all([
   /* Wave 8: a page, a drawing or a chart the assistant wrote, shown rather than left as markup;
      the flow editor; reports; the to-do list; and the event log with its filters. */
   import("./artifacts.js"),
+  import("./reports.js"),
+  import("./todos.js"),
+  import("./logs.js"),
 ]);
 wireOfflineBanner();
 registerServiceWorker();

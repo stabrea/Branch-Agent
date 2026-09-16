@@ -75,8 +75,11 @@ export function redactText(text: string, redact: Redaction): { text: string; sec
 const escape = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const speaker: Record<string, string> = { user: "You", assistant: "Assistant", tool: "Tool result", system: "Setup" };
-/** The KeepOak colours, written into the page so it needs no stylesheet of its own. */
-const pageStyle = `:root{color-scheme:dark}
+/**
+ * The KeepOak colours, written into the page so it needs no stylesheet of its own. Reports use the
+ * same look, so a saved report and a shared conversation are plainly the same app's work.
+ */
+export const pageStyle = `:root{color-scheme:dark}
 body{margin:0;background:#03140b;color:#edf1ea;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
 h1{font-size:1.5rem;margin:0 0 .25rem}

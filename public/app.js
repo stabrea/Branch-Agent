@@ -47,9 +47,11 @@ function el(tag, text, className) {
   if (className) node.className = className;
   return node;
 }
-async function api(path, body) {
+/* `method` is only given where the route needs something other than the usual GET-or-POST rule —
+   PUT to save a flow, DELETE to take a line off the to-do list. */
+async function api(path, body, method) {
   const response = await fetch("/api/" + path, {
-    method: body === undefined ? "GET" : "POST",
+    method: method ?? (body === undefined ? "GET" : "POST"),
     headers: {
       authorization: "Bearer " + token,
       ...(body !== undefined ? { "content-type": "application/json" } : {}),

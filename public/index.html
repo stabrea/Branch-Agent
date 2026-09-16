@@ -280,6 +280,47 @@
             <h2 data-t="activity.feed">Happening now</h2>
             <div id="activity-feed" class="card-list" aria-live="polite"></div>
           </article>
+          <!-- Wave 8: a task written out to keep or hand on (public/reports.js), and the event
+               log with its filters and a saved copy (public/logs.js). -->
+          <article id="report-card" class="card">
+            <h2 data-t="reports.title">Save a task as a report</h2>
+            <p class="meta" data-t="reports.intro">
+              Write one task out to keep or hand on: as notes, as a single page, or laid out for
+              printing, which is how you make a PDF. Anything that looks like a key is blanked out
+              first.
+            </p>
+            <label for="report-run" data-t="field.which-task">Which task</label>
+            <select id="report-run"></select>
+            <div id="report-buttons" class="report-actions"></div>
+            <p id="report-status" class="meta" role="status" aria-live="polite"></p>
+          </article>
+          <article id="logs-card" class="card">
+            <h2 data-t="logs.title">The record of what happened</h2>
+            <p class="meta" data-t="logs.intro">
+              Every step every task took, newest first. Narrow it down by the kind of step, by the
+              task, or by when it happened, and save what is left as a file of one line each.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="log-kind" data-t="field.kind-of-step">Kind of step</label>
+                <select id="log-kind"></select>
+              </div>
+              <div>
+                <label for="log-run" data-t="field.task-number">Task number</label>
+                <input id="log-run" type="text" maxlength="36" />
+              </div>
+              <div>
+                <label for="log-since" data-t="field.since">Since</label>
+                <input id="log-since" type="datetime-local" />
+              </div>
+            </div>
+            <div class="report-actions">
+              <button id="log-refresh" type="button" class="quiet" data-t="action.show-the-record">Show the record</button>
+              <button id="log-export" type="button" class="quiet" data-t="action.save-the-record">Save the record</button>
+            </div>
+            <p id="log-status" class="meta" role="status" aria-live="polite"></p>
+            <div id="log-list" class="card-list"></div>
+          </article>
           <div id="runs-list" class="card-list"></div>
           <article id="run-detail" class="card" hidden></article>
         </section>
@@ -1276,6 +1317,21 @@
       <div class="context-block">
         <h2 class="context-head" data-t="allowed.title">What is allowed right now</h2>
         <div id="context-allowed" class="context-rows"></div>
+      </div>
+      <!-- Wave 8: what is still to be done (public/todos.js). The assistant writes its plan here
+           and the owner can add a line of their own; a day on an item becomes a reminder. -->
+      <div class="context-block">
+        <h2 class="context-head" data-t="todos.title">Still to do</h2>
+        <div id="context-todos" class="context-rows"></div>
+        <form id="todo-form" class="context-form">
+          <label class="sr-only" for="todo-text" data-t="field.something-to-do">Something to do</label>
+          <input id="todo-text" type="text" maxlength="300" data-t-placeholder="todos.placeholder"
+            placeholder="Something to do" />
+          <label class="sr-only" for="todo-due" data-t="field.wanted-by-optional">Wanted by (optional)</label>
+          <input id="todo-due" type="datetime-local" />
+          <button id="todo-add" type="submit" class="quiet" data-t="action.add-to-the-list">Add to the list</button>
+        </form>
+        <p id="todo-status" class="context-empty" role="status" aria-live="polite"></p>
       </div>
       <div class="context-block">
         <h2 class="context-head">Receipts</h2>

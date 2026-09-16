@@ -286,6 +286,9 @@ async function staticFile(
     // to-do list, the log view and the page a local page of the owner's own can include.
     "/artifacts.js": ["artifacts.js", "text/javascript; charset=utf-8"],
     "/charts.js": ["charts.js", "text/javascript; charset=utf-8"],
+    "/reports.js": ["reports.js", "text/javascript; charset=utf-8"],
+    "/todos.js": ["todos.js", "text/javascript; charset=utf-8"],
+    "/logs.js": ["logs.js", "text/javascript; charset=utf-8"],
     "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
@@ -2304,7 +2307,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

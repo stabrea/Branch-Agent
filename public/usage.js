@@ -360,6 +360,9 @@ async function render() {
   await window.branchEvaluation?.renderInto(view);
   // Batch 19 (wave 7): written-down experiments over suites and benchmarks.
   await window.branchStudies?.renderInto(view);
+  // Wave 8: how busy each connection is against the allowance it reports, and what asking the same
+  // thing twice saved (public/logs.js).
+  await window.branchDashboards?.renderInto(view);
 }
 
 window.branchUsage = { render };
