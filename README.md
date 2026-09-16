@@ -189,6 +189,8 @@ For example, a request to build a website could involve design, implementation, 
 - **You can see what it is allowed to do, and what it has cost.** The details pane lists every yes this conversation is carrying, when it runs out, and a way to take it back. Usage opens on this month with a plain sentence saying what it is heading for, and can keep that spreadsheet in your own workspace on a schedule. Any two tasks can be put side by side, any task's whole record saved as one file, and what your assistant is doing right now watched as it happens.
 - **Traces you can read, rules you can read.** Every task keeps the shape of what it did, and you can send those to a tracing tool of your own — nothing is ever collected about you or sent to us. Permission rules can be about one folder, one website or one command, and are shown as plain sentences you can try out before saving.
 
+- **Your passwords stay where they are, and nothing runs on a guess.** Branch can read a password out of the Bitwarden or 1Password you already have, at the moment it is needed and never before, and keeps no copy. A command on this computer that none of your rules mentions is put to you rather than run, and one yes settles it for good. Your rules can also say how tightly a program is held — in a box with no way out to the internet, in a box, or not at all — and your own checks can stop a tool call before it happens. Everyone who shares this computer gets a role saying what they may have Branch do.
+
 These describe the broader direction. Consult the feature inventory for each implementation's current scope.
 
 ## Get involved

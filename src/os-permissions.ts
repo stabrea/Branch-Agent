@@ -95,8 +95,18 @@ export const windowsConsent: ConsentReader = async (capability) => {
 export function probeReader(probe: () => Promise<unknown>, fallback: ConsentReader = windowsConsent): ConsentReader {
   return async (capability) => {
     if (capability !== "screen") return fallback(capability);
-    return probe().then((): ConsentState => "allowed").catch((): ConsentState => "refused");
+    return probe().then((): ConsentState => "allowed").catch((error): ConsentState => probeFailure(error));
   };
+}
+/**
+ * Only a refusal counts as a refusal. A probe that times out on a cold computer, or that cannot find
+ * what it needs, says nothing this computer can answer — it must never be read as "Windows said no"
+ * and stop screen control outright.
+ */
+const deniedWords = /\b(access is denied|permission|not permitted|unauthori[sz]ed|elevation|privilege)\b/i;
+export function probeFailure(error: unknown): ConsentState {
+  const said = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return deniedWords.test(said) ? "refused" : "unknown";
 }
 
 export class OsPermissions {

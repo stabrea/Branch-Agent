@@ -2852,3 +2852,30 @@ This is how a change to a prompt, a model or a set of rules is judged: run the s
 read the difference, rather than remembering what it did last week. What each task was allowed to
 reach is now recorded when it starts, which is what makes "the same tools" a real promise. New
 route: `POST /api/runs/{id}/replay`.
+
+## More ways to put several specialists on one job (batch 26, wave 8)
+
+Three new tools, all over the fan-out engine that was already there. Every sub-task goes through the
+same budget, the same approval rules and the same record as any other delegated task.
+
+- **`delegate.supervise`** — one specialist you name is put in charge. It splits the job between the
+  workers you name, they do their parts at the same time, and it writes the one answer that comes
+  back. The splitting is its own piece of the code, so a split can be read and checked on its own,
+  and work given to somebody who is not on the team is dropped rather than guessed at.
+- **`delegate.swarm`** — several specialists work down one shared list of things to do. Each takes
+  the next item nobody else is holding, and anything a worker cannot finish goes back on the list
+  for somebody else rather than being lost.
+- **`delegate.route`** — works out which one of several specialists a request belongs to, from a
+  short description of what each one is for, then hands it straight to that one.
+
+**Handing work on.** `delegate.handoff` now takes a reason, and the handover is written into the
+conversation — "Handed over from X to Y: why" — so a person reading it afterwards can see the work
+change hands. You can also write down who each specialist may hand work on to; with a list, a
+handover to anybody else is refused in plain words, and without one nothing changes.
+
+**Not built, deliberately.** Three things the ledger asked for here are not in Branch and are not
+planned: a second model on its own context putting notes into every turn of a task; a separate
+"turn this design into tasks" step beyond the plan the assistant already makes; and a sequential
+action-planning step inside a role loop. Each would be a second engine beside the plan-and-fan-out
+one that already does this work, which is complication without a matching gain for one person's
+assistant.

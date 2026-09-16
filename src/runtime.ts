@@ -53,6 +53,7 @@ import {
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
+import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
 import type { SandboxChoice } from "./sandbox.js";
 import { Tracer } from "./tracing.js";
@@ -219,6 +220,8 @@ export class Runtime {
   readonly approvals = new ApprovalGate();
   /** What each person who shares this computer may have Branch do. The owner is not held to it. */
   readonly roles: ProfileRoles;
+  /** Who each specialist may hand work on to; empty means anybody, as it always did. */
+  readonly handoffs: Handoffs;
   /** The shape of each task while it runs: one trace per task, a span per round, call and sub-task. */
   readonly tracer: Tracer;
   private readonly rates: RateLimiter;
@@ -242,6 +245,7 @@ export class Runtime {
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
     this.roles = new ProfileRoles(store, this.owner);
+    this.handoffs = new Handoffs(store, this.owner);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the

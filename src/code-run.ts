@@ -13,9 +13,13 @@ import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 /**
  * Running a small script the assistant just wrote: a sum, a bit of reshaping, a quick check. It runs
  * in a brand-new program of its own, started in the workspace, with the same memory and processor
- * ceilings a host command gets and no way out to the internet unless the owner says otherwise. This
- * is a limit on resources, not a sandbox: the script runs on this computer with this app's reach, so
- * it is off until the owner switches it on.
+ * ceilings a host command gets and no way out to the internet unless the owner says otherwise.
+ *
+ * How tightly it is held is the owner's to choose: an approval rule covering this tool may say "in a
+ * box with no way out to the internet", "in a box", or "no box" (see src/sandbox.ts), and the choice
+ * arrives on the call. Without a rule the script settings below decide, as they always did. None of
+ * the three is a security boundary — the script still runs on this computer with this app's reach —
+ * so running scripts at all is off until the owner switches it on.
  */
 export const CodeRunSettingsSchema = z.object({
   /** Off until the owner turns it on, because a script is host execution like any other. */

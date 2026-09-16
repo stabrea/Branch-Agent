@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
@@ -307,9 +307,13 @@ test("A1465 Windows is asked before the screen and the microphone, and the answe
   // The screen has no switch to read, so it is probed; a probe that throws means refused.
   const good = probeReader(async () => 7, async () => "unknown");
   assert.equal(await good("screen"), "allowed");
-  const bad = probeReader(async () => { throw new Error("no access"); }, async () => "unknown");
+  const bad = probeReader(async () => { throw new Error("Access is denied."); }, async () => "unknown");
   assert.equal(await bad("screen"), "refused");
   assert.equal(await bad("camera"), "unknown", "the other two are left to the registry");
+  // A probe that merely fell over is not a refusal: a cold computer must not lose its screen.
+  const slow = probeReader(async () => { throw new Error("The operation was aborted due to timeout"); }, async () => "unknown");
+  assert.equal(await slow("screen"), "unknown");
+  assert.equal(capabilityCheck("screen", await slow("screen")).allowed, true);
 });
 
 test("A1465 screen control stops with the Windows sentence before it touches anything", async (t) => {
@@ -401,6 +405,17 @@ test("A2006 a child's profile is refused a purchase-class tool and a project out
     { category: "files", project: "default", spentToday: 1.5 }), /used up today's allowance of 1\.00/);
   assert.equal(grantRefusal({ role: "adult", projects: [], dailySpendLimit: 1 }, "Sam",
     { category: "files", project: "default", spentToday: 0.2 }), null);
+
+  // What they have spent today is read off their own finished tasks, not off a figure handed in.
+  const { runForCurrentPerson } = await import("../dist/collab-server.js");
+  app.store.save("settings", app.runtime.owner, "pricing", { overrides: { a: { input: 1000, output: 2000 } } });
+  await runForCurrentPerson(app, { prompt: "an expensive question" });
+  const spent = roles.spentToday(app.store.profiles.scope(), "a");
+  assert.ok(spent > 0, "the profile's own task is counted against their allowance");
+  roles.save(child.id, { role: "adult", projects: [], dailySpendLimit: 0.000001 });
+  const capped = app.runtime.checkPolicy("files.write", { path: "a.txt" }, app.runtime.context({ runId: taskContext(app).run.id }));
+  assert.equal(capped.decision, "deny");
+  assert.match(capped.reason, /used up today's allowance/);
 });
 
 // ---------------------------------------------------------------- A1481
@@ -439,4 +454,114 @@ test("A1481 a finished task can be run again with the same words, tools and mode
     assert.ok(view.rounds.length >= 1);
   }
   await assert.rejects(async () => replayPlan(app.store, "00000000-0000-4000-8000-000000000000"), /no task with that number/);
+});
+
+// ------------------------------------------------- A0317 / A0372 / A1093 / A1278
+
+/** Makes a specialist the ordinary way: propose, pass its own trial, promote. */
+async function specialist(app, name, permissions = ["files.read"]) {
+  const context = app.runtime.context();
+  const proposed = await app.registry.execute("specialists.propose", {
+    name, instructions: `You are the ${name}.`, permissions,
+    evaluation: { prompt: "say ready", checks: [{ path: `${name}.txt`, expected: "ready" }] },
+  }, context);
+  await writeFile(join(app.runtime.workspace, `${name}.txt`), "ready");
+  await app.registry.execute("specialists.evaluate", { id: proposed.id }, context);
+  await app.registry.execute("specialists.promote", { id: proposed.id }, context);
+  return proposed.id;
+}
+
+test("A0372 splitting a goal between named workers is its own piece, and refuses a stranger", async () => {
+  const { parseAssignments, decomposeGoal } = await import("../dist/orchestration-modes.js");
+  const workers = ["writer", "checker"];
+  const good = '{"tasks":[{"specialist":"writer","prompt":"draft it"},{"specialist":"checker","prompt":"check it"}]}';
+  assert.deepEqual(parseAssignments(good, workers), [
+    { specialist: "writer", prompt: "draft it" }, { specialist: "checker", prompt: "check it" }]);
+  assert.deepEqual(parseAssignments(`Here you go:\n${good}\nthanks`, workers).length, 2, "words either side are ignored");
+  // Somebody who is not on the team is dropped, not guessed at.
+  assert.deepEqual(parseAssignments('{"tasks":[{"specialist":"writer","prompt":"a"},{"specialist":"nobody","prompt":"b"}]}', workers),
+    [{ specialist: "writer", prompt: "a" }]);
+  assert.throws(() => parseAssignments('{"tasks":[{"specialist":"nobody","prompt":"b"}]}', workers), /gave work to nobody on the team/);
+  assert.throws(() => parseAssignments("no json here", workers), /did not answer with a list/);
+  assert.throws(() => parseAssignments('{"tasks":[]}', workers), /not in the expected shape/);
+  const asked = [];
+  const split = await decomposeGoal(async (prompt) => { asked.push(prompt); return good; }, "write a note", workers);
+  assert.equal(split.length, 2);
+  assert.match(asked[0], /writer, checker/, "the workers are named to whoever is splitting the job");
+});
+
+test("A1278 a supervisor gives work to named workers and writes the one answer that comes back", async (t) => {
+  // The specialists are known by the numbers they are given, so the supervisor's answer is built
+  // from those numbers once they exist.
+  const team = {};
+  const { app } = await fixture(t, ({ user }) => {
+    if (/splitting one job/.test(user))
+      return say(JSON.stringify({ tasks: [
+        { specialist: team.writer, prompt: "draft the note" }, { specialist: team.checker, prompt: "check the note" }] }));
+    if (/come back/.test(user)) return say("Here is the finished note.");
+    if (/draft/.test(user)) return say("a draft");
+    return say("checked");
+  });
+  const boss = await specialist(app, "boss"), writer = await specialist(app, "writer"), checker = await specialist(app, "checker");
+  Object.assign(team, { writer, checker });
+  const { runSupervised } = await import("../dist/orchestration-modes.js");
+  const { run, context } = taskContext(app, "a supervised job");
+  const outcome = await runSupervised(app.runtime, app.knowledge, context,
+    { supervisor: boss, workers: [writer, checker], goal: "write a note and check it" });
+  assert.equal(outcome.output, "Here is the finished note.");
+  assert.equal(outcome.answers.length, 2, "both workers really ran");
+  assert.deepEqual(outcome.answers.map((answer) => answer.specialist), [writer, checker]);
+  assert.ok(outcome.answers.every((answer) => answer.runId), "each worker has a task of its own on the record");
+  const recorded = app.store.events(run.id).find((event) => event.kind === "orchestration.supervised");
+  assert.equal(recorded.data.supervisor, boss);
+  assert.deepEqual(recorded.data.assignments.map((entry) => entry.specialist), [writer, checker]);
+});
+
+test("A0317 a swarm works down one shared list, and an item nobody finished goes back on it", async (t) => {
+  const { SharedWorkList, runSwarm } = await import("../dist/orchestration-modes.js");
+
+  // The list itself: one item is only ever held by one worker, and letting go frees it again.
+  const list = new SharedWorkList(["a", "b"]);
+  const first = list.claim("one"), second = list.claim("two");
+  assert.deepEqual([first.item, second.item], ["a", "b"], "two workers never take the same item");
+  assert.equal(list.claim("three"), null, "and there is nothing left to take");
+  list.release(first.index);
+  assert.deepEqual(list.claim("three"), { index: 0, item: "a" }, "what one let go of, another picks up");
+  list.done(0); list.done(1);
+  assert.deepEqual(list.state, { total: 2, done: 2, held: 0 });
+
+  const { app } = await fixture(t, ({ user }) => say(`did ${user}`));
+  const one = await specialist(app, "one"), two = await specialist(app, "two");
+  const { run, context } = taskContext(app, "a swarm");
+  const outcome = await runSwarm(app.runtime, app.knowledge, context, { specialists: [one, two], items: ["first", "second", "third"] });
+  assert.equal(outcome.done, 3, "every item was finished exactly once");
+  assert.deepEqual(outcome.results.map((entry) => entry.item), ["first", "second", "third"]);
+  assert.equal(new Set(outcome.results.map((entry) => entry.index)).size, 3, "no item was done twice");
+  const claims = app.store.events(run.id).filter((event) => event.kind === "swarm.claimed");
+  assert.equal(claims.length, 3);
+  assert.ok(new Set(claims.map((event) => event.data.specialist)).size >= 1, "the claims say who took what");
+});
+
+test("A1093 a specialist hands work on with a reason, only to the people it is set up to hand to", async (t) => {
+  const { app } = await fixture(t, () => say("done"));
+  const { handOff } = await import("../dist/orchestration-tools.js");
+  const writer = await specialist(app, "writer"), checker = await specialist(app, "checker"), stranger = await specialist(app, "stranger");
+  const { run, context } = taskContext(app, "a handover");
+
+  // With nothing written down, anybody may hand to anybody, exactly as before.
+  assert.equal(app.runtime.handoffs.refusal(writer, stranger), null);
+  const first = await handOff(app.runtime, app.knowledge, { ...context, agent: writer },
+    { specialist: checker, brief: "check this", reason: "this needs checking, which is your job" });
+  assert.equal(first.specialist, checker);
+  // The handover, and why, is in the conversation a person reads afterwards.
+  const messages = app.store.messages(run.sessionId);
+  assert.ok(messages.some((message) => message.content.includes(`Handed over from ${writer} to ${checker}: this needs checking`)));
+  assert.equal(app.store.events(run.id).find((event) => event.kind === "delegation.handoff").data.reason, "this needs checking, which is your job");
+
+  // Once the owner writes down who may hand to whom, anybody else is refused in plain words.
+  app.runtime.handoffs.save(writer, [checker]);
+  assert.deepEqual(app.runtime.handoffs.allowed(writer), [checker]);
+  await assert.rejects(() => handOff(app.runtime, app.knowledge, { ...context, agent: writer },
+    { specialist: stranger, brief: "do this" }), /is only set up to hand work on to/);
+  assert.equal(app.runtime.handoffs.refusal(undefined, stranger), null, "the main task is not a specialist and is not held to a list");
 });
