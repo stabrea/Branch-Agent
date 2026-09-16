@@ -8,9 +8,15 @@ Keep functions under 50 lines. Explain dependencies in terms of the capability t
 
 ## Pick something up without colliding
 
-Most of the outstanding work is written down as checklists: one GitHub issue per theme, listed in
-the index, [#42](https://github.com/stabrea/Branch-Agent/issues/42). Each line is one item with an
-id like `A0245`. Read the boxes like this:
+**Start at [the list](https://github.com/stabrea/Branch-Agent/issues/103).** It is the single page showing what is built, what is being
+built right now, and what is next, in priority order rather than in order of what is quickest. It is
+worked from the top down, so the next free bucket is the next thing to do.
+
+Behind it sits one GitHub issue per theme, listed in the index,
+[#42](https://github.com/stabrea/Branch-Agent/issues/42), holding the same work as individual rows
+with ids like `A0245`. Several rows often describe the same missing thing under different names; the
+list groups them so two people cannot pick up the same work by two different names. Read the boxes
+like this:
 
 | What you see | What it means |
 | --- | --- |
