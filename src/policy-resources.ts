@@ -92,11 +92,11 @@ const actionWords: Record<string, { words: string; bareHost?: boolean }> = {
 };
 
 function action(tool: string, applies: "any" | "changes"): { words: string; bareHost?: boolean } {
+  if (tool === "*") return { words: applies === "changes" ? "changing anything" : "anything" };
   const known = actionWords[tool];
   if (known) return known;
   const group = actionWords[tool.replace(/\.[^.]+$/, ".*")];
   if (group) return group;
-  if (tool === "*") return { words: applies === "changes" ? "changing anything" : "anything" };
   return { words: `using ${tool}` };
 }
 
