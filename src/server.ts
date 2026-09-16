@@ -30,6 +30,7 @@ import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -776,6 +777,21 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return { timeline: app.store.usageStore().getRunTimeline(run.id) };
+  }
+  // Wave 7: writing the month's usage out as a spreadsheet, on a schedule, into your workspace.
+  if (path === "/api/usage/metering") {
+    const deps = meteringDeps(app);
+    if (request.method === "GET") return { metering: meteringSettings(app.store, app.runtime.owner) };
+    if (request.method === "POST") {
+      const settings = saveMeteringSettings(app.store, app.runtime.owner, await readBody(request));
+      /* A folder that would climb out of the workspace is refused now, not at the next beat. */
+      meteringFolder(deps.workspace, settings.folder);
+      return { metering: settings };
+    }
+  }
+  if (request.method === "POST" && path === "/api/usage/metering/now") {
+    const written = await writeMeteringFile(meteringDeps(app));
+    return { ...written, metering: meteringSettings(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/usage/budget") {
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data;
@@ -1834,6 +1850,13 @@ export async function trajectoryOptions(app: Branch, runId: string) {
       const estimate = estimateCost(model, tokens, overrides);
       return { amount: estimate.amount, display: formatCost(estimate) };
     },
+  };
+}
+/** What the metering export needs: the ledger, the workspace it may write into, and the prices. */
+function meteringDeps(app: Branch) {
+  return {
+    store: app.store, owner: app.runtime.owner, workspace: app.files.root,
+    overrides: () => pricingSettings(app.store, app.runtime.owner).overrides,
   };
 }
 function voiceDeps(app: Branch) {

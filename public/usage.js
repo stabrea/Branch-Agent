@@ -37,6 +37,7 @@ let stats = null;
 let budget = null;
 let pricing = null;
 let statistics = null;
+let metering = null;
 
 /* ---------- Wave 7: this month, and what it is heading for ---------- */
 
@@ -273,6 +274,60 @@ function renderExport(view) {
   view.append(card);
 }
 
+/**
+ * Wave 7: writing the month's figures out as a spreadsheet, on a schedule, into a folder of your
+ * own workspace. It is off until you ask for it, and nothing is ever sent anywhere.
+ */
+function renderMetering(view) {
+  const card = el("article", undefined, "table-card");
+  card.id = "usage-metering";
+  card.append(el("h2", "Write the figures out on a schedule"));
+  card.append(el("p", "Keeps a spreadsheet of this month's usage in a folder of your workspace, written again at the interval you choose. It is only ever written on this computer; nothing is sent anywhere."));
+  const form = el("form", undefined, "form-grid");
+  form.innerHTML = `
+    <label class="check-row"><input type="checkbox" id="metering-enabled" ${metering?.enabled ? "checked" : ""} />
+      Keep a spreadsheet of this month's usage</label>
+    <div><label for="metering-folder">Folder in your workspace</label>
+      <input id="metering-folder" maxlength="200" value="${(metering?.folder ?? "usage").replace(/"/g, "&quot;")}" placeholder="usage" /></div>
+    <div><label for="metering-every">How often</label>
+      <select id="metering-every">
+        <option value="hourly">Every hour</option>
+        <option value="daily">Every day</option>
+        <option value="weekly">Every week</option>
+      </select></div>
+    <button type="button" id="metering-save">Save this</button>
+    <button type="button" id="metering-now">Write it now</button>`;
+  card.append(form);
+  card.append(el("p", metering?.lastWrittenAt
+    ? `Last written ${new Date(metering.lastWrittenAt).toLocaleString()} to ${metering.lastFile}.`
+    : "Nothing has been written yet.", "subtle"));
+  const status = el("p", "", "subtle");
+  status.id = "metering-status";
+  status.setAttribute("role", "status");
+  card.append(status);
+  view.append(card);
+  $("metering-every").value = metering?.every ?? "daily";
+  $("metering-save").addEventListener("click", () => void saveMetering());
+  $("metering-now").addEventListener("click", () => void writeMeteringNow());
+}
+async function saveMetering() {
+  try {
+    metering = (await api("usage/metering", {
+      enabled: $("metering-enabled").checked,
+      folder: $("metering-folder").value.trim() || "usage",
+      every: $("metering-every").value,
+    })).metering;
+    $("metering-status").textContent = "Saved.";
+  } catch (e) { $("metering-status").textContent = e.message; }
+}
+async function writeMeteringNow() {
+  try {
+    const written = await api("usage/metering/now", {});
+    metering = written.metering;
+    $("metering-status").textContent = `Written to ${written.path} (${written.days} day(s)).`;
+  } catch (e) { $("metering-status").textContent = e.message; }
+}
+
 /** Loads everything the screen shows and draws it. Safe to call again at any time. */
 async function render() {
   const view = $("usage");
@@ -284,6 +339,7 @@ async function render() {
     statistics = response.statistics ?? null;
     pricing = response.pricing ?? null;
     budget = (await api("usage/budget")).budget;
+    metering = (await api("usage/metering")).metering;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
   view.replaceChildren();
   summaryCards(view);
@@ -294,6 +350,7 @@ async function render() {
   renderBudget(view);
   renderPricing(view);
   renderExport(view);
+  renderMetering(view);
   // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.
   await window.branchRules?.renderHealth(view);
   await window.branchEvaluation?.renderInto(view);

@@ -17,6 +17,8 @@ import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
+import { meteringTick } from "./metering.js";
+import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
@@ -331,6 +333,14 @@ export async function createBranch(options: {
     },
   };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
+  // Wave 7: the month's usage written out as a spreadsheet, into a folder of the owner's own
+  // workspace, on the schedule they set. Nothing leaves this computer.
+  scheduler.onTick.add(async (now) => {
+    await meteringTick({
+      store, owner: runtime.owner, workspace: files.root,
+      overrides: () => pricingSettings(store, runtime.owner).overrides,
+    }, now);
+  });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
   // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as

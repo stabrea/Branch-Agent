@@ -281,6 +281,53 @@ test("D4 the spreadsheet file carries the money columns", async (t) => {
   assert.equal(cells.length, header.split(",").length, "every row has every column");
 });
 
+/* ---------- D5: the metering export ---------- */
+
+test("D5 the metering export writes the month's spreadsheet on the scheduled beat", async (t) => {
+  const { app, api, root } = await served(t, answersTheQuestion);
+  const { meteringTick, meteringDue, meteringSettings, meteringFileName } = await import("../dist/metering.js");
+  await api("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
+  await api("POST", "/api/run", { prompt: "apples" });
+  const deps = { store: app.store, owner: app.runtime.owner, workspace: join(root, "workspace"), overrides: () => ({ configured: { input: 1000, output: 1000 } }) };
+
+  /* Off until it is asked for: a beat with it off writes nothing at all. */
+  assert.equal(meteringSettings(app.store, app.runtime.owner).enabled, false);
+  assert.equal(await meteringTick(deps, new Date()), null);
+
+  const saved = await api("POST", "/api/usage/metering", { enabled: true, folder: "book-keeping", every: "daily" });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.metering.enabled, true);
+  assert.equal(saved.body.metering.folder, "book-keeping");
+
+  const now = new Date();
+  const written = await meteringTick(deps, now);
+  assert.ok(written, "the beat wrote the file");
+  assert.ok(written.endsWith(meteringFileName(now)), `the file is named after the month: ${written}`);
+  const csv = await readFile(written, "utf8");
+  const [header, ...rows] = csv.trim().split("\n");
+  for (const column of ["estimatedCostUsd", "costPerRunUsd", "runsWithPrice"])
+    assert.ok(header.includes(column), `${column} is a column`);
+  assert.ok(rows.length >= 1, "today's figures are in it");
+  assert.match(rows[0], new RegExp(now.toISOString().slice(0, 10)));
+
+  /* The next beat is not due yet, so nothing is written twice. */
+  assert.equal(meteringDue(meteringSettings(app.store, app.runtime.owner), now), false);
+  assert.equal(await meteringTick(deps, now), null);
+  /* A day later it is due again. */
+  assert.equal(meteringDue(meteringSettings(app.store, app.runtime.owner), new Date(now.getTime() + 25 * 3600 * 1000)), true);
+});
+
+test("D5 the folder has to be inside the workspace", async (t) => {
+  const { api } = await served(t);
+  const { meteringFolder } = await import("../dist/metering.js");
+  assert.throws(() => meteringFolder("C:/work", "../elsewhere"), /inside your workspace/);
+  assert.throws(() => meteringFolder("C:/work", "C:/somewhere"), /inside your workspace/);
+  assert.equal((await api("POST", "/api/usage/metering", { enabled: true, folder: "../escape" })).status, 400);
+  /* The route also tells the person which words it wants, rather than failing silently later. */
+  const refused = await api("POST", "/api/usage/metering", { enabled: true, folder: "../escape" });
+  assert.match(refused.body.error, /inside your workspace/);
+});
+
 /* ---------- D2: trajectory export ---------- */
 
 /**
