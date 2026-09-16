@@ -8,6 +8,11 @@
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/shell.css" />
+    <!-- Wave 6: rendered markdown, the "Look inside" panel, the live row, the meter, the playground. -->
+    <link rel="stylesheet" href="/web-ui.css" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   </head>
   <body>
     <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
@@ -19,10 +24,10 @@
           <span class="brand"><span id="brand-name">Branch Agent</span></span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
         </button>
-        <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything">
+        <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything" data-t-label="rail.search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
         </button>
-        <button id="appearance-shortcut" class="rail-icon" type="button" aria-label="Appearance settings">
+        <button id="appearance-shortcut" class="rail-icon" type="button" aria-label="Appearance settings" data-t-label="rail.appearance">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 4v16a8 8 0 000-16z" fill="currentColor" stroke="none" /></svg>
         </button>
         <div id="app-menu" class="menu" hidden role="menu" aria-label="Switch project"></div>
@@ -30,34 +35,34 @@
       <div class="rail-scroll" id="rail-scroll">
         <button id="rail-new" class="rail-row rail-new" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" /><path d="M14 6l4 4" /></svg>
-          <span>New conversation</span>
+          <span data-t="rail.new">New conversation</span>
           <span class="rail-plus" aria-hidden="true">＋</span>
         </button>
         <button id="rail-find" class="rail-row rail-find" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
-          <span>Find anything</span> <kbd>Ctrl K</kbd>
+          <span data-t="rail.find">Find anything</span> <kbd>Ctrl K</kbd>
         </button>
         <section class="rail-group" data-group="sections">
-          <h2><button class="group-head" type="button" data-toggle="sections" aria-expanded="true">Sections<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <h2><button class="group-head" type="button" data-toggle="sections" aria-expanded="true"><span data-t="rail.sections">Sections</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
           <nav aria-label="Sections" id="sections-nav">
-            <button class="nav active" data-view="chat">Conversation</button
-            ><button class="nav" data-view="runs">Activity</button
-            ><button class="nav" data-view="usage">Usage</button
-            ><button class="nav" data-view="memory">Memory</button
-            ><button class="nav" data-view="skills">Skills</button
-            ><button class="nav" data-view="specialists">Specialists</button
-            ><button class="nav" data-view="procedures">Procedures</button
-            ><button class="nav" data-view="schedules">Schedules</button
-            ><button class="nav" data-view="documents">Documents</button
-            ><button class="nav" data-view="settings">Settings</button>
+            <button class="nav active" data-view="chat" data-t="nav.chat">Conversation</button
+            ><button class="nav" data-view="runs" data-t="nav.runs">Activity</button
+            ><button class="nav" data-view="usage" data-t="nav.usage">Usage</button
+            ><button class="nav" data-view="memory" data-t="nav.memory">Memory</button
+            ><button class="nav" data-view="skills" data-t="nav.skills">Skills</button
+            ><button class="nav" data-view="specialists" data-t="nav.specialists">Specialists</button
+            ><button class="nav" data-view="procedures" data-t="nav.procedures">Procedures</button
+            ><button class="nav" data-view="schedules" data-t="nav.schedules">Schedules</button
+            ><button class="nav" data-view="documents" data-t="nav.documents">Documents</button
+            ><button class="nav" data-view="settings" data-t="nav.settings">Settings</button>
           </nav>
         </section>
         <section class="rail-group" data-group="projects">
-          <h2><button class="group-head" type="button" data-toggle="projects" aria-expanded="true">Projects<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <h2><button class="group-head" type="button" data-toggle="projects" aria-expanded="true"><span data-t="rail.projects">Projects</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
           <div id="rail-projects" class="rail-rows"></div>
         </section>
         <section class="rail-group" data-group="recents">
-          <h2><button class="group-head" type="button" data-toggle="recents" aria-expanded="true">Recents<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <h2><button class="group-head" type="button" data-toggle="recents" aria-expanded="true"><span data-t="rail.recents">Recents</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
       </div>
@@ -67,18 +72,18 @@
           <span class="owner-lines"><span class="owner-name" id="owner-name">Your workspace</span><span class="owner-status"><span class="dot"></span> <span id="provider">Connect to begin</span></span></span>
         </button>
         <div id="owner-menu" class="menu" hidden role="menu" aria-label="Workspace menu">
-          <button id="menu-settings" type="button" role="menuitem">Settings and connections</button>
-          <button id="menu-appearance" type="button" role="menuitem">Change the appearance</button>
+          <button id="menu-settings" type="button" role="menuitem" data-t="menu.settings">Settings and connections</button>
+          <button id="menu-appearance" type="button" role="menuitem" data-t="menu.appearance">Change the appearance</button>
           <button id="lock" type="button" role="menuitem" hidden>Lock session</button>
-          <button id="menu-updates" type="button" role="menuitem">Check for updates</button>
-          <button id="menu-about" type="button" role="menuitem">About Branch Agent</button>
+          <button id="menu-updates" type="button" role="menuitem" data-t="menu.updates">Check for updates</button>
+          <button id="menu-about" type="button" role="menuitem" data-t="menu.about">About Branch Agent</button>
         </div>
         <p class="rail-maker"><a class="rail-home" href="/" aria-label="Branch Agent home">Branch Agent</a> <span class="topbar-by">by</span> <span class="topbar-maker">KeepOak</span></p>
       </div>
     </aside>
     <main>
       <header>
-        <button id="rail-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Conversations">
+        <button id="rail-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Conversations" data-t-label="rail.conversations">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
         </button>
         <div class="head-title">
@@ -86,7 +91,7 @@
           <span id="thread-name" class="thread-name"></span>
         </div>
         <span class="status-pill" id="connection">Locked</span>
-        <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details">
+        <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
         </button>
       </header>
@@ -167,6 +172,20 @@
           </div>
           <div id="session-context" class="session-context" hidden></div>
           <div id="activity" class="activity" hidden></div>
+          <!-- Wave 6: the live row while a task is working — what it is doing, and how to step in
+               (public/live-run.js). The question it stops on lands in the slot underneath. -->
+          <div id="live-row" class="live-row" hidden>
+            <div id="live-line" class="live-line"></div>
+            <div id="live-controls-slot"></div>
+            <div id="live-steer-box" class="live-steer-box" hidden>
+              <label class="sr-only" for="live-steer-text">Tell it something</label>
+              <textarea id="live-steer-text" maxlength="2000" rows="1" placeholder="Change of plan: …"
+                data-t-placeholder="live.steerPlaceholder"></textarea>
+              <button id="live-steer-send" type="button" data-t="live.steerSend">Send</button>
+            </div>
+            <p id="live-status" class="meta" role="status"></p>
+            <div id="live-ask-slot"></div>
+          </div>
           <div class="welcome">
             <h2 id="greeting">What would you like to do?</h2>
             <p>Ask for anything, or start from one of these.</p>
@@ -194,12 +213,13 @@
           </div>
           <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
-            <label class="sr-only" for="prompt">Your message</label
+            <label class="sr-only" for="prompt" data-t="composer.yourMessage">Your message</label
             ><textarea
               id="prompt"
               required
               maxlength="16000"
               placeholder="Describe what you want to do… (Enter sends, Shift+Enter for a new line)"
+              data-t-placeholder="composer.placeholder"
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
@@ -207,9 +227,9 @@
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
-              ><button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
+              ><button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document" data-t-label="composer.attach"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
-              ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message"
+              ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message" data-t-label="composer.speak"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
@@ -221,6 +241,16 @@
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
           </form>
+          <!-- Wave 6: how much room this conversation has used, and what it has cost
+               (public/token-meter.js). Quiet by default; the numbers open on click. -->
+          <div id="meter-row" class="meter-row" hidden>
+            <button id="meter-button" class="meter-button" type="button" aria-haspopup="true" aria-expanded="false">
+              <span class="meter-track"><span id="meter-fill" class="meter-fill"></span></span>
+              <span id="meter-text"></span>
+              <span id="meter-cost"></span>
+            </button>
+            <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
+          </div>
           <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
           </div>
         </section>
@@ -603,6 +633,12 @@
                 <span id="font-label">Lettering</span>
                 <div class="choice-row" id="font-choices" role="group" aria-labelledby="font-label"></div>
               </div>
+              <!-- Wave 6: which language the app speaks (public/i18n.js). -->
+              <div class="appearance-field">
+                <label for="appearance-language" data-t="appearance.language">Language</label>
+                <select id="appearance-language"></select>
+                <span class="meta" data-t="appearance.languageNote">English is the original. Other languages are machine drafts and may read oddly.</span>
+              </div>
               <div class="appearance-field">
                 <span id="extras-label">Movement and artwork</span>
                 <label class="check-row"
@@ -824,6 +860,26 @@
             <button id="health-run" type="button">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
           </section>
+          <!-- Wave 6: Developer → Try things out (public/playground.js). Everything here goes
+               through the same permission rules the assistant works under. -->
+          <section id="developer-card" class="card">
+            <h2>Developer</h2>
+            <details id="playground">
+              <summary data-t="playground.title">Try things out</summary>
+              <p class="subtle" data-t="playground.intro">Run one tool on its own, or ask two models the same question. Everything here follows your usual permission settings.</p>
+              <label for="play-tool" data-t="playground.pickTool">Pick a tool</label>
+              <select id="play-tool"></select>
+              <div id="play-form"></div>
+              <button id="play-run" type="button" data-t="playground.run">Run it</button>
+              <p id="play-status" class="subtle" role="status"></p>
+              <div id="play-result" class="play-result"></div>
+              <h3 data-t="playground.comparePrompt">Ask two models the same thing</h3>
+              <label class="sr-only" for="play-compare-text">Ask two models the same thing</label>
+              <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
+              <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
+              <div id="play-compare-result"></div>
+            </details>
+          </section>
           <section id="diagnostics-card" class="card">
             <h2>Diagnostics</h2>
             <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
@@ -969,6 +1025,19 @@
         <p class="subtle">You can keep this window open. It closes and opens again by itself when the update is in place.</p>
       </div>
     </div>
+    <!-- Wave 6: "Look inside" one task (public/inspector.js), and the offline banner the
+         service worker's cached shell needs so nothing pretends to be working. -->
+    <div id="inspect-panel" class="inspect-panel" hidden role="dialog" aria-modal="true" aria-labelledby="inspect-title">
+      <div class="inspect-sheet">
+        <div class="inspect-head">
+          <h2 id="inspect-title" data-t="inspector.title">Inside this task</h2>
+          <button id="inspect-export" type="button" class="text-button" data-t="inspector.export">Save this as a file</button>
+          <button id="inspect-close" type="button" class="text-button" data-t="inspector.close">Close</button>
+        </div>
+        <div id="inspect-body" class="inspect-body"></div>
+      </div>
+    </div>
+    <div id="offline-banner" class="offline-banner" role="status" hidden data-t="pwa.offline">You are offline. The screen you are looking at still works; your assistant cannot do anything new until you are back.</div>
     <script src="/update-screen.js"></script>
     <script src="/deployment.js" type="module"></script>
     <script src="/voice.js"></script>
@@ -988,6 +1057,8 @@
     <script src="/memory-tidy.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
+    <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
+    <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
   </body>
 </html>

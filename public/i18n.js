@@ -1,0 +1,63 @@
+/**
+ * The words the app says, in one place. English is the source of truth; another language file only
+ * has to answer the same keys. Anything without a translation falls back to English, so a partly
+ * translated file never leaves a blank on the screen.
+ *
+ * Markup carries its words in `data-t` (text) and `data-t-label`, `data-t-placeholder`,
+ * `data-t-title` (attributes), so applying a language is one pass over the page.
+ */
+const STORAGE = "branch-language";
+export const LANGUAGES = [
+  { id: "en", label: "English", draft: false },
+  { id: "fr", label: "Français (machine draft)", draft: true },
+];
+let dictionary = {};
+let english = {};
+let current = "en";
+
+async function load(language) {
+  const response = await fetch(`/locales/${language}.json`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`No words on file for ${language}`);
+  return response.json();
+}
+/** The word for a key, with {name} places filled in. Missing keys fall back to English, then the key. */
+export function t(key, values) {
+  const raw = dictionary[key] ?? english[key] ?? key;
+  return values
+    ? raw.replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole))
+    : raw;
+}
+export const language = () => current;
+/** Dates and numbers follow the chosen language, never a hand-rolled format. */
+export const formatNumber = (value, options) => new Intl.NumberFormat(current, options).format(value);
+export const formatDate = (value, options = { dateStyle: "medium", timeStyle: "short" }) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(current, options).format(date);
+};
+/** Writes every marked string on the page (or inside one node) in the language now chosen. */
+export function applyLanguage(root = document) {
+  for (const node of root.querySelectorAll("[data-t]")) node.textContent = t(node.dataset.t);
+  const attributes = { tLabel: "aria-label", tPlaceholder: "placeholder", tTitle: "title" };
+  for (const [dataKey, attribute] of Object.entries(attributes))
+    for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`))
+      node.setAttribute(attribute, t(node.dataset[dataKey]));
+  document.documentElement.lang = current;
+}
+/** Switches language, remembers the choice, and redraws the page's words. */
+export async function setLanguage(next) {
+  const chosen = LANGUAGES.some((l) => l.id === next) ? next : "en";
+  dictionary = chosen === "en" ? english : await load(chosen).catch(() => ({}));
+  current = chosen;
+  try { localStorage.setItem(STORAGE, chosen); } catch { /* a private window simply forgets */ }
+  applyLanguage();
+  document.dispatchEvent(new CustomEvent("branch-language", { detail: { language: chosen } }));
+  return chosen;
+}
+/** Loads English once, then whatever language was last chosen. */
+export async function initLanguage() {
+  english = await load("en").catch(() => ({}));
+  dictionary = english;
+  let saved = "en";
+  try { saved = localStorage.getItem(STORAGE) || "en"; } catch { /* default to English */ }
+  return setLanguage(saved);
+}
