@@ -8,6 +8,7 @@ import { OpenAiRealtimeSession } from "./realtime-openai.js";
 import type { RealtimeSession, RealtimeSettings, RealtimeTool } from "./realtime.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
+import type { OpenSpan } from "./tracing.js";
 import { voiceSettings, type VoiceSettings } from "./voice.js";
 import { audioOf } from "./voice-service.js";
 
@@ -91,6 +92,7 @@ export class LiveConversation {
   private startedAt = 0;
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
+  private span: OpenSpan | null = null;
   private readonly partial = { person: "", assistant: "" };
 
   constructor(
@@ -111,6 +113,12 @@ export class LiveConversation {
     if (!plan.available || !preset) throw new Error(plan.reason);
     const session = this.build(settings, preset, plan.service!);
     this.wire(session, settings);
+    // The task a live conversation hangs off is made outside a model round, so it has no trace of
+    // its own yet. One is started here, before the connection is opened, so the span written for
+    // that connection has somewhere to hang and the whole conversation reads as one trace.
+    this.span = this.deps.runtime.tracer.startRun(this.runId, "A live conversation", {
+      service: plan.service ?? "", model: preset.model,
+    });
     await session.open();
     this.session = session;
     this.startedAt = Date.now();
@@ -295,6 +303,9 @@ export class LiveConversation {
       this.deps.store.finish(this.runId, "completed", `A live conversation, ${seconds} seconds. ${reason}.`);
     // Whatever socket this conversation held goes with it, whichever way it ended.
     this.deps.policy.closeSockets({ runId: this.runId });
+    this.span?.end("ok", reason, { seconds, cost: Number(this.spentDollars.toFixed(4)) });
+    this.deps.runtime.tracer.forget(this.runId);
+    this.span = null;
     this.out.notice("voice.live.ended", { reason, seconds, cost: Number(this.spentDollars.toFixed(4)) });
   }
 }

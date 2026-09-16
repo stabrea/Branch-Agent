@@ -98,6 +98,9 @@ async function begin() {
   });
   const opened = await made.json();
   if (!made.ok) throw new Error(opened.error || "A live conversation could not be started");
+  // A live conversation started before anything was typed makes the conversation. The rest of the
+  // app takes the same one, so what is said and what is typed afterwards stay in one thread.
+  globalThis.branchAdoptSession?.(opened.sessionId);
   const url = new URL(`/api/runs/${opened.runId}/ws`, location.href).href.replace(/^http/, "ws");
   socket = new WebSocket(url, ["bearer", token()]);
   socket.binaryType = "arraybuffer";

@@ -499,12 +499,58 @@ test("Lock, the end of the task and closing the app each end a live conversation
   await settle();
   assert.equal(app.web.policy.openSockets(), 1);
 
+  // The app's own wiring, not a stand-in: one line in the record of what the assistant was allowed
+  // to do, and one span, for the connection that was opened.
+  const recorded = app.store.audit.list("local", { limit: 50 }).filter((e) => e.action === "network.connected");
+  assert.equal(recorded.length, 1, "a connection that stays open is written down once");
+  assert.equal(recorded[0].outcome, "opened");
+  assert.match(recorded[0].subject, /^127\.0\.0\.1\/realtime$/, "host and path only");
+  assert.doesNotMatch(JSON.stringify(recorded), /sk-secret-token-value/, "and never the key");
+  const spans = app.store.spans.recent("local", 50).filter((row) => /live connection/.test(row.name));
+  assert.equal(spans.length, 1, "and it leaves a span, hanging off the conversation's own trace");
+  assert.equal(spans[0].runId, run.id);
+
   assert.equal(live.closeAll("Branch was locked"), 1, "Lock ends every live conversation");
   assert.equal(conversation.open, false);
   assert.equal(app.web.policy.openSockets(), 0, "and every socket with it");
   assert.ok(app.store.events(run.id).some((e) => e.kind === "voice.live.ended" && /locked/.test(e.data.reason)));
   assert.equal(app.store.run(run.id).status, "completed",
     "the task a live conversation hangs off is finished, so it does not sit in the list for ever");
+});
+
+test("closing the app ends a live conversation and the socket it holds", async () => {
+  const root = await mkdtemp(join(tmpdir(), "branch-live-close-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  // The stand-in service is closed by hand here, because this test outlives its own app.
+  const upgraded = [];
+  const server = createServer((_request, response) => response.writeHead(404).end());
+  server.on("upgrade", (request, socket) => {
+    upgraded.push(socket);
+    socket.write([
+      "HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${acceptKey(String(request.headers["sec-websocket-key"] ?? ""))}`, "", "",
+    ].join("\r\n"));
+    socket.on("error", () => undefined);
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    app.web.policy.configure({ allowPrivateAddresses: true });
+    livePreset(app, "live-openai", "openai", `http://127.0.0.1:${server.address().port}`);
+    const run = app.store.createRun("local", "A live conversation");
+    const { conversation } = await app.live.start(run.id, run.sessionId, collector().out);
+    await settle();
+    assert.equal(app.web.policy.openSockets(), 1, "the app's own live conversations are open");
+
+    await app.close();
+    assert.equal(conversation.open, false, "closing the app ends the conversation");
+    assert.equal(app.web.policy.openSockets(), 0, "and the connection it was holding");
+  } finally {
+    // This stand-in answers no close frame, so its side of the socket is let go of by hand.
+    for (const socket of upgraded) socket.destroy();
+    await new Promise((done) => server.close(done));
+    await app.close().catch(() => undefined);
+    await rm(root, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 /* ---------- V3/V4: the run socket that carries it ---------- */

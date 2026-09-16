@@ -1472,6 +1472,7 @@ globalThis.branchRunSpoken = async (text) => {
 /* Wave 8: a live conversation belongs to the conversation on screen, and what was said on either
    side goes into it as an ordinary message. public/voice-live.js calls these two. */
 globalThis.branchSessionId = () => sessionId;
+globalThis.branchAdoptSession = (id) => { if (!sessionId && id) { sessionId = id; $("temporary-toggle").disabled = true; } };
 globalThis.branchAddSpokenMessage = (role, text) => { if (text) message(role, text); };
 
 $("chat-form").addEventListener("submit", async (event) => {

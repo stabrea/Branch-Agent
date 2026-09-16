@@ -1888,5 +1888,5 @@ waiting. The run WebSocket (`src/ws.ts`) grew binary frames and a client-frame h
 spine for both the microphone going up and a line typed while it is talking (A1193); `public/voice-live.js`
 is the composer's live variant, and it only appears when the connection in use can hold one.
 
-Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 22
+Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
 tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.
