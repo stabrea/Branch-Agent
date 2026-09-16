@@ -166,6 +166,9 @@ export class RunConductor {
     const saved = this.deps.orchestration.plan(this.run.sessionId);
     if (saved?.approved) return this.begin(saved);
     if (saved && affirmative.test(this.run.prompt)) return this.begin(this.deps.orchestration.savePlan({ ...saved, approved: true, current: 0 }));
+    // A plan the person neither agreed to nor asked to be redone is finished with: dropping it here
+    // stops a much later "ok, ..." in the same conversation from setting it going.
+    if (saved && !this.wantsPlan()) { this.deps.orchestration.clearPlan(this.run.sessionId); return null; }
     if (!this.wantsPlan()) return null;
     const plan = await this.makePlan(saved);
     if (!plan) return null;

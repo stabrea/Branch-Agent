@@ -127,6 +127,15 @@ test("with plan approval on, the task stops with its plan, the owner can edit it
   assert.equal(done.output, "The draft is ready and nothing was sent.");
   assert.deepEqual(data(app, done.id, "plan.step.started").map((d) => d.title), ["Draft it"]);
   await assert.rejects(api(`runs/${done.id}/plan`, {}), /no plan waiting/);
+
+  // A plan the person walks away from is finished with, so a later "ok, ..." never sets it going.
+  const shown = await api("run", { prompt: "write the letter and send it", plan: true });
+  assert.equal(shown.status, "needs_input");
+  const elsewhere = await api("run", { prompt: "what is the time?", sessionId: shown.sessionId });
+  assert.equal(app.runtime.orchestration.plan(shown.sessionId), undefined, "the plan they left is dropped");
+  assert.ok(!kinds(app, elsewhere.id).some((k) => k.startsWith("plan.")));
+  const later = await api("run", { prompt: "ok, and what about the invoices?", sessionId: shown.sessionId });
+  assert.ok(!kinds(app, later.id).some((k) => k === "plan.step.started"), "a later yes does not start the old plan");
 });
 
 test("a parallel fan-out keeps going when one branch fails and hands every answer back to be combined", async (t) => {
