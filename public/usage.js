@@ -354,6 +354,8 @@ async function render() {
   // Batch 19 (wave 7): how this copy of Branch is doing, read from its own counters.
   await window.branchRules?.renderHealth(view);
   await window.branchEvaluation?.renderInto(view);
+  // Batch 19 (wave 7): written-down experiments over suites and benchmarks.
+  await window.branchStudies?.renderInto(view);
 }
 
 window.branchUsage = { render };

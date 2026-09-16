@@ -157,6 +157,11 @@ export interface RunOptions {
   traceparent?: string | null;
   /** Internal: the working style of the specialist carrying out this run. */
   style?: SpecialistStyle;
+  /**
+   * Wave 7: extra labels for this task's own span, so an evaluation or a study can be picked out
+   * of an export afterwards. Scrubbed like every other attribute before it is written down.
+   */
+  traceAttributes?: Record<string, string | number | boolean>;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -535,6 +540,7 @@ export class Runtime {
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
       "gen_ai.system": this.provider.name, "branch.run.depth": context.depth,
+      ...(options.traceAttributes ?? {}),
     }, { inbound: options.traceparent ?? null, parentRunId: parent?.runId ?? null });
     let status: Run["status"] = "completed";
     let output: string;

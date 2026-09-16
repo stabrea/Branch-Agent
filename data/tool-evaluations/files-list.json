@@ -1,0 +1,16 @@
+{
+  "tool": "files.list",
+  "description": "Listing a folder should always come back with a list, even when the folder is empty.",
+  "cases": [
+    {
+      "name": "lists the workspace itself",
+      "input": { "path": "." },
+      "shape": { "type": "object" }
+    },
+    {
+      "name": "refuses a folder outside the workspace",
+      "input": { "path": "../.." },
+      "refuses": "Path denied"
+    }
+  ]
+}

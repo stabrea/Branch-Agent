@@ -24,6 +24,9 @@ import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
+// Wave 7 (benchmarks and experiments): studies and the tool checks.
+import { compareStudies, comparisonTable, studyLines, studyTable } from "./study.js";
+import { runToolEvaluations, toolEvaluationLine } from "./tool-evaluations.js";
 import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
@@ -158,6 +161,11 @@ async function main(): Promise<void> {
     }
     if (command === "eval") {
       await runEvaluation(app);
+      return;
+    }
+    // Wave 7: written-down experiments over suites and benchmarks.
+    if (command === "study") {
+      await runStudy(app);
       return;
     }
     if (command === "export-agent" || command === "import-agent") {
@@ -341,14 +349,59 @@ async function runEvaluation(app: Awaited<ReturnType<typeof createBranch>>): Pro
       console.log([row.preset, `${row.passed}/${row.total}`, row.accuracy, row.meanMs, row.tokens, row.dollars === null ? "no price on file" : `$${row.dollars.toFixed(4)}`].join("\t"));
     return void console.log(`\nBest on this suite: ${result.best ?? "none"}`);
   }
+  if (process.argv[3] === "tools") return runToolChecks(app);
   if (!suite) return void console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
-  const result = await app.evaluationSuites.run({ suite, ...(flag("preset") ? { preset: flag("preset")! } : {}) });
+  // Wave 7: `--gate` is the bar a release script stops on: JSON on the command line, or a file.
+  const gates = await readGates(flag("gate"));
+  const result = await app.evaluationSuites.run({ suite, ...(flag("preset") ? { preset: flag("preset")! } : {}), ...(gates ? { gates } : {}) });
   if (asJson) return void console.log(JSON.stringify(result, null, 2));
   console.log(["task", "result", "score", "ms", "tokens", "why"].join("\t"));
   for (const task of result.tasks)
     console.log([task.id, task.skipped ? "skipped" : task.passed ? "passed" : "failed", task.score, task.ms, task.tokens, task.problem ?? ""].join("\t"));
   console.log(`\n${summaryLine(result)}`);
+  if (result.gate) return void (process.exitCode = result.gate.passed ? 0 : 1);
   if (!result.summary.total || result.summary.passed < result.summary.total) process.exitCode = 1;
+}
+/** The gates for this run: JSON written out on the command line, or the name of a file holding it. */
+async function readGates(value: string | undefined): Promise<unknown> {
+  if (!value) return null;
+  const text = value.trim().startsWith("{") ? value : await readFile(value, "utf8");
+  return JSON.parse(text);
+}
+/** `branch eval tools`: every tool called directly with a known input, no model involved. */
+async function runToolChecks(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const result = await runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
+  if (process.argv.includes("--json")) return void console.log(JSON.stringify(result, null, 2));
+  for (const one of result.cases) console.log([one.tool, one.name, one.passed ? "ok" : "wrong", one.problem ?? ""].join("\t"));
+  console.log(`\n${toolEvaluationLine(result)}`);
+  if (result.summary.passed < result.summary.total) process.exitCode = 1;
+}
+/**
+ * `branch study run <id> [--fresh]`, `branch study list`, `branch study compare <a> <b>`. A study
+ * that is stopped part way carries on from its checkpoints unless `--fresh` is given.
+ */
+async function runStudy(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const action = process.argv[3] ?? "list", asJson = process.argv.includes("--json");
+  if (action === "list") {
+    for (const study of app.studies.list()) console.log([study.id, study.name, study.presets.join(",")].join("\t"));
+    return;
+  }
+  if (action === "compare") {
+    const [, , , , a, b] = process.argv;
+    if (!a || !b) throw new Error("Compare two results: branch study compare <result id> <result id>");
+    const all = app.studies.results();
+    const left = all.find((entry) => entry.id === a), right = all.find((entry) => entry.id === b);
+    if (!left || !right) throw new Error("One of those study results is not on file");
+    const comparison = compareStudies(left, right);
+    return void console.log(asJson ? JSON.stringify(comparison, null, 2) : comparisonTable(comparison));
+  }
+  if (action !== "run") throw new Error("Usage: branch study list | run <id> [--fresh] | compare <a> <b>");
+  const id = process.argv[4];
+  if (!id) throw new Error("Name a study: branch study run <id>");
+  const result = await app.studies.run(id, { fresh: process.argv.includes("--fresh") });
+  if (asJson) return void console.log([...studyLines(result)].join("\n"));
+  console.log(studyTable(result));
+  if (result.stoppedEarly) console.log(result.stoppedEarly);
 }
 async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const auth = app.chatgpt!;

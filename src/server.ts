@@ -50,6 +50,13 @@ import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-su
 // Wave 7 (a coder's toolbox): the two Developer switches.
 import { languageServerSettings, saveLanguageServerSettings } from "./language-server.js";
 import { debugSettings, saveDebugSettings } from "./debug-adapter.js";
+// Wave 7 (benchmarks and experiments).
+import { scorerKinds } from "./evaluation-scorers.js";
+import { benchmarkAdapters } from "./benchmark-adapters.js";
+import { notIntegratedBenchmarks } from "./benchmarks.js";
+import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
+import { runToolEvaluations } from "./tool-evaluations.js";
+
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
 // shown, connection lifecycle, the "try a server" bench, and small pages an outside server sends.
@@ -197,6 +204,12 @@ function authorize(
   limits?.onFailure(from);
   throw new HttpError(401, "Local session token required");
 }
+/** A study result without its thousands of rows, for the list on the Evaluation screen. */
+const studySummary = (result: StudyRunResult) => ({
+  id: result.id, studyId: result.studyId, name: result.name, startedAt: result.startedAt,
+  rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
+});
+
 async function staticFile(
   path: string,
   response: ServerResponse,
@@ -233,6 +246,8 @@ async function staticFile(
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
+    // Wave 7: written-down experiments, under the evaluation card.
+    "/studies.js": ["studies.js", "text/javascript; charset=utf-8"],
     // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
     "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
     // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
@@ -735,6 +750,28 @@ async function api(
     const suite = new URL(request.url ?? "/", "http://local").searchParams.get("suite") ?? undefined;
     return { runs: app.evaluationSuites.history(suite), trend: app.evaluationSuites.trend(suite) };
   }
+  // Wave 7 (benchmarks and experiments): scorers, benchmarks read from the owner's own files,
+  // studies with checkpoints and resume, comparison with an interval, and the tool checks.
+  if (request.method === "GET" && path === "/api/evaluation/benchmarks")
+    return { adapters: benchmarkAdapters.map(({ id, name, format, layout }) => ({ id, name, format, layout })), notIntegrated: notIntegratedBenchmarks, scorers: scorerKinds };
+  if (request.method === "GET" && path === "/api/studies")
+    return { studies: app.studies.list(), results: app.studies.results().map(studySummary) };
+  if (request.method === "POST" && path === "/api/studies") return app.studies.save(await readBody(request));
+  if (request.method === "POST" && path === "/api/studies/run") {
+    const body = z.object({ id: z.string().min(1).max(64), fresh: z.boolean().default(false) }).strict().parse(await readBody(request));
+    const result = await app.studies.run(body.id, { fresh: body.fresh });
+    return { result, table: studyTable(result) };
+  }
+  if (request.method === "POST" && path === "/api/studies/compare") {
+    const body = z.object({ a: z.string().uuid(), b: z.string().uuid() }).strict().parse(await readBody(request));
+    const all = app.studies.results();
+    const left = all.find((entry) => entry.id === body.a), right = all.find((entry) => entry.id === body.b);
+    if (!left || !right) throw new Error("One of those study results is not on file");
+    const comparison = compareStudies(left, right);
+    return { comparison, table: comparisonTable(comparison) };
+  }
+  if (request.method === "POST" && path === "/api/evaluation/tools")
+    return runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
@@ -2178,7 +2215,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

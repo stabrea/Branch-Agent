@@ -1,0 +1,16 @@
+{
+  "tool": "memory.put",
+  "description": "Remembering something should say what was remembered and where it came from.",
+  "cases": [
+    {
+      "name": "remembers one short fact",
+      "input": { "text": "The tool checks were run on this computer.", "source": "the tool checks" },
+      "shape": { "type": "object" }
+    },
+    {
+      "name": "remembers a second fact without disturbing the first",
+      "input": { "text": "The tool checks write two notes.", "source": "the tool checks" },
+      "shape": { "type": "object" }
+    }
+  ]
+}
