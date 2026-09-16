@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { toolTerms } from "./tool-index.js";
+import { detectInjection } from "./content-guard.js";
 import type { PreloadedTool } from "./tool-loading.js";
 
 /** A tool this computer decided to load before being asked, and the plain reason why. */
@@ -148,9 +149,17 @@ export class ToolUsage {
     for (const note of this.notes(owner).reverse()) map.set(note.tool, note.note);
     return map;
   }
-  /** Keeps one short thing about a tool. The same note twice changes nothing. */
+  /**
+   * Keeps one short thing about a tool. The same note twice changes nothing.
+   *
+   * A note is shown with its tool in every later request, so it is read for instructions aimed at
+   * the assistant first: otherwise a web page that talked the assistant into writing one could
+   * leave words of its own sitting in the tool list for good.
+   */
   addNote(owner: string, input: unknown, now = new Date()): ToolNote {
     const parsed = NoteInputSchema.parse(input);
+    if (detectInjection(parsed.note).length)
+      throw new Error("That note reads like instructions rather than something about the tool, so it was not kept");
     const existing = this.notes(owner).find((note) => note.tool === parsed.tool && note.note === parsed.note);
     if (existing) return existing;
     const note: ToolNote = { id: randomUUID(), ...parsed, createdAt: now.toISOString() };

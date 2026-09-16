@@ -853,7 +853,8 @@ tools that requests like yours have needed before, it carries tools that are nea
 together, and it stops naming tools nobody has touched for a month (those are still findable by
 searching). It also keeps short notes: if a call fails because something was missing and the next
 one works, or if the assistant is told outright that a tool needs the full path, that line is kept
-and shown with the tool from then on.
+and shown with the tool from then on. A note travels with its tool in every later message, so one
+that reads like instructions to the assistant is refused rather than kept.
 
 None of this leaves the computer. It is in the same private database as everything else and travels
 with your backup. **Settings → Developer → How the assistant finds its tools** shows what was
