@@ -8,13 +8,18 @@ import { WorkspaceFiles } from "./files.js";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
+import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 
 /**
  * Running a small script the assistant just wrote: a sum, a bit of reshaping, a quick check. It runs
  * in a brand-new program of its own, started in the workspace, with the same memory and processor
- * ceilings a host command gets and no way out to the internet unless the owner says otherwise. This
- * is a limit on resources, not a sandbox: the script runs on this computer with this app's reach, so
- * it is off until the owner switches it on.
+ * ceilings a host command gets and no way out to the internet unless the owner says otherwise.
+ *
+ * How tightly it is held is the owner's to choose: an approval rule covering this tool may say "in a
+ * box with no way out to the internet", "in a box", or "no box" (see src/sandbox.ts), and the choice
+ * arrives on the call. Without a rule the script settings below decide, as they always did. None of
+ * the three is a security boundary — the script still runs on this computer with this app's reach —
+ * so running scripts at all is off until the owner switches it on.
  */
 export const CodeRunSettingsSchema = z.object({
   /** Off until the owner turns it on, because a script is host execution like any other. */
@@ -51,6 +56,8 @@ export const CodeRunInputSchema = z.object({
 export interface CodeRunResult {
   language: string; status: string; exitCode: number | null; output: string; errors: string;
   truncated: boolean; durationMs: number; network: boolean; isolation: "job-object" | "sampling";
+  /** How tightly the script was held: the owner's rule for this tool, or the script settings. */
+  sandbox: SandboxChoice;
 }
 
 export class CodeRunner {
@@ -67,19 +74,25 @@ export class CodeRunner {
     const executable = input.language === "python" ? settings.python : process.execPath;
     const args = input.language === "python" ? ["-c", input.source] : ["--input-type=module", "--eval", input.source];
     const cwd = await new WorkspaceFiles(this.workspace).checked(".", true);
-    const job = await jobWithin(this.jobs, { maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds }, 1500);
+    // An approval rule may say how tightly this is held; without one the script settings decide,
+    // exactly as they did before rules could say anything about it.
+    const shape = sandboxShape(context.sandbox, { job: true, netless: !settings.network });
+    const job = shape.job
+      ? await jobWithin(this.jobs, { maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds }, 1500)
+      : null;
     const result = await new ShellProcess({
       executable, args, cwd,
       env: { PATH: "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
-        ...(settings.network ? {} : netlessEnvironment()) },
+        ...(shape.netless ? netlessEnvironment() : {}) },
       signal: context.signal, timeoutMs: settings.timeoutMs, maxOutputBytes: settings.maxOutputBytes,
       maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds, ...(job ? { job } : {}),
     }).run();
+    const sandbox = shapeChoice(shape);
     if (context.runId)
-      this.store.event(context.runId, "code.ran", { language: input.language, status: result.status, exitCode: result.exitCode });
+      this.store.event(context.runId, "code.ran", { language: input.language, status: result.status, exitCode: result.exitCode, sandbox });
     return { language: input.language, status: result.status, exitCode: result.exitCode,
       output: result.stdout, errors: result.stderr, truncated: result.truncated,
-      durationMs: result.durationMs, network: settings.network, isolation: result.isolation };
+      durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation, sandbox };
   }
 }
 

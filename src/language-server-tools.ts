@@ -17,25 +17,25 @@ export function registerLanguageServers(registry: ToolRegistry, servers: Languag
     name: "code.diagnostics", permission: "files.read", group: "code",
     description: "Mistakes and warnings a language server reports for one file, or everything it has said so far when no file is named. Needs a language server the owner has set up.",
     parameters: z.object({ path: path.optional(), waitMs: z.number().int().min(0).max(10000).default(1500) }).strict(),
-    execute: (args) => servers.diagnostics(args),
+    execute: (args, context) => servers.diagnostics(args, context.runId),
   });
   registry.register({
     name: "code.definition", permission: "files.read", group: "code",
     description: "Where the name at this place in a file is defined.",
     parameters: z.object({ path, line, character }).strict(),
-    execute: (args) => servers.definition(args),
+    execute: (args, context) => servers.definition(args, context.runId),
   });
   registry.register({
     name: "code.references", permission: "files.read", group: "code",
     description: "Everywhere the name at this place in a file is used.",
     parameters: z.object({ path, line, character, includeDeclaration: z.boolean().default(true) }).strict(),
-    execute: (args) => servers.references(args),
+    execute: (args, context) => servers.references(args, context.runId),
   });
   registry.register({
     name: "code.hover", permission: "files.read", group: "code",
     description: "What a language server says about the name at this place: its type and the note written above it.",
     parameters: z.object({ path, line, character }).strict(),
-    execute: (args) => servers.hover(args),
+    execute: (args, context) => servers.hover(args, context.runId),
   });
   registry.register({
     name: "code.rename", permission: "files.write", group: "code",
@@ -47,7 +47,7 @@ export function registerLanguageServers(registry: ToolRegistry, servers: Languag
     }).strict(),
     target: (args) => (args.dryRun ? "" : `rename to ${args.newName} from ${args.path}`),
     execute: async (args, context) => {
-      const planned = await servers.renameEdits(args);
+      const planned = await servers.renameEdits(args, context.runId);
       return changes.applyPlanned(`rename to ${args.newName}`, planned, args.dryRun, context);
     },
   });

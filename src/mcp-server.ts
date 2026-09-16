@@ -13,7 +13,7 @@ import {
 } from './mcp-policy.js';
 import { compareSnapshot, listSnapshots, recordSnapshot, type SnapshotTool } from './mcp-snapshots.js';
 import { argumentFingerprint } from './runtime.js';
-import { approvalQuestion } from './approvals.js';
+import { approvalQuestion, maximumPendingPerSession } from './approvals.js';
 
 /**
  * Protocol versions Branch understands, newest first. A client that asks for something else is told
@@ -164,10 +164,13 @@ const SESSION_LIMIT = 100;
  * call after call and leave a question, a task and a timer behind for each one. Past either cap
  * the call is turned away at once, with nothing created and nothing to answer.
  *
- * One per connection, not more, because the app holds one question per conversation: a second
- * would quietly replace the first and the owner would never see what they were asked.
+ * It used to be one per connection, because the app held one question per conversation and a
+ * second would quietly replace the first, leaving the owner never seeing what they were asked. The
+ * app now keeps a list of them, so a connection may have as many waiting as a conversation may —
+ * and not one more, so the two caps stay the same number and neither can be got round through the
+ * other.
  */
-const WAITING_LIMIT = 16, WAITING_PER_SESSION = 1;
+const WAITING_LIMIT = 16, WAITING_PER_SESSION = maximumPendingPerSession;
 
 /** What the settings say about one call from outside, and the words for each way it can end. */
 interface McpVerdict {
@@ -560,10 +563,13 @@ export class McpServer {
     const answered = decision === 'ask'
       ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint) : undefined;
     const where = target ? ` on ${target}` : '';
+    // Whoever is signed in here is held to their role as well, exactly as they are in a
+    // conversation; another AI tool's server must not be a way round what the owner said.
+    const held = this.runtime.roleRefusal(name, permission);
     return {
-      decision: answered ?? decision, name, target, label, approvalKey,
+      decision: held ? 'deny' : answered ?? decision, name, target, label, approvalKey,
       bytes: bytes.slice(0, 2000), fingerprint,
-      refusal: `Your approval settings do not allow ${name}${where}.`,
+      refusal: held || `Your approval settings do not allow ${name}${where}.`,
       waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
       tooMany: 'Branch is already holding as many questions for the owner as it allows. Nothing was asked and nothing was done. Answer the ones waiting in Branch, then try again.',
     };

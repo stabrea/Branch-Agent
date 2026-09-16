@@ -224,7 +224,7 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 .feed-row .meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--faint); }
 
 /* ---- The quiet context meter under the composer ---- */
-.meter-row { position: relative; display: flex; justify-content: center; padding: 0.15rem 0 0.1rem; }
+.meter-row { position: relative; display: flex; justify-content: flex-end; flex: none; padding: 0; }
 .meter-row[hidden] { display: none; }
 .meter-button {
   background: transparent;

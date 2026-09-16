@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { errorText } from "./contracts.js";
 import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector, type Embedder } from "./document-embeddings.js";
+import { embeddingFetch } from "./embeddings.js";
 import { localEmbedder } from "./local-models.js";
 import { visibleTo, type MemoryRecord } from "./memory.js";
 import type { ModelRouter } from "./models.js";
@@ -55,6 +56,11 @@ export class MemoryRetrieval {
   private readonly db: DatabaseSync;
   /** False only where this build of SQLite has no full-text search; word search then matches plainly. */
   readonly ranked: boolean;
+  /**
+   * The app's guarded fetch, set once at start-up. A fact sent to a provider off this computer goes
+   * through the owner's network rules first; a reader on this computer is reached directly.
+   */
+  embeddingFetch: typeof fetch = globalThis.fetch;
   constructor(private readonly store: Store, private readonly models?: ModelRouter) {
     this.db = store.sqlite;
     this.db.exec(`CREATE TABLE IF NOT EXISTS memory_terms(row_id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL,
@@ -104,7 +110,8 @@ export class MemoryRetrieval {
     // A model on this computer reads facts through Ollama's own route, not the OpenAI one.
     const here = localEmbedder(route, settings.embeddingModel);
     if (here) return here;
-    try { return new EmbeddingClient(route.endpoint, route.apiKey, settings.embeddingModel); } catch { return null; }
+    try { return new EmbeddingClient(route.endpoint, route.apiKey, settings.embeddingModel, embeddingFetch(route.endpoint, this.embeddingFetch)); }
+    catch { return null; }
   }
   meaningSearchReady(owner: string): boolean { return this.client(owner) !== null; }
   view(owner: string) {

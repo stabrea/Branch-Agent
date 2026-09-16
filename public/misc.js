@@ -46,7 +46,11 @@ async function renderAllowed() {
   for (const entry of record.entries.slice(0, 25)) {
     const item = el("div", undefined, "card-list-item");
     item.append(el("strong", entry.reason || entry.action));
-    item.append(el("p", `${entry.subject || "—"} · ${entry.outcome} · ${when(entry.at)}`, "subtle"));
+    // Where it happened is said plainly when it was somewhere other than this app, and what the
+    // task itself came from is said beside it when the two are not the same thing.
+    const where = entry.source === "owner" ? "" : ` · on ${entry.source}`;
+    const started = entry.origin && entry.origin !== entry.source ? ` · task started by ${entry.origin}` : "";
+    item.append(el("p", `${entry.subject || "—"} · ${entry.outcome}${where}${started} · ${when(entry.at)}`, "subtle"));
     list.append(item);
   }
   if (record.entries.length) card.append(list);

@@ -85,13 +85,30 @@ async function oneBranch(
   }
 }
 
-/** Hands the rest of a task to a named specialist with a brief, and brings its answer back. */
-export async function handOff(runtime: Runtime, knowledge: Knowledge, context: ToolContext, input: { specialist: string; brief: string }) {
+/**
+ * Hands the rest of a task to a named specialist with a brief, and brings its answer back. Where
+ * the owner has written down who this specialist may hand work on to, anybody else is refused; and
+ * the reason for the handover goes into the conversation, so a person reading the transcript
+ * afterwards can see the work change hands and why.
+ */
+export async function handOff(
+  runtime: Runtime, knowledge: Knowledge, context: ToolContext,
+  input: { specialist: string; brief: string; reason?: string },
+) {
+  const from = context.agent ?? "the main task";
+  const refusal = runtime.handoffs.refusal(context.agent, input.specialist);
+  if (refusal) throw new Error(refusal);
   const spec = knowledge.activeSpecialist(context.owner, input.specialist);
-  if (context.runId)
+  const reason = (input.reason ?? "").trim();
+  if (context.runId) {
     runtime.store.event(context.runId, "delegation.handoff", {
-      to: input.specialist, from: context.agent ?? "the main task", brief: input.brief.slice(0, 500),
+      to: input.specialist, from, brief: input.brief.slice(0, 500), reason: reason.slice(0, 300),
     });
+    const sessionId = runtime.store.run(context.runId)?.sessionId;
+    if (sessionId)
+      runtime.store.message(sessionId, { role: "system",
+        content: `Handed over from ${from} to ${input.specialist}${reason ? `: ${reason}` : "."}` });
+  }
   const { run, result } = await runtime.delegateChecked(input.brief, context, spec.permissions, spec.instructions, { agent: input.specialist });
   return { specialist: input.specialist, runId: run.id, status: run.status, output: run.output.slice(0, 4000), resolved: result.status === "resolved" };
 }
@@ -106,11 +123,13 @@ export function registerOrchestration(registry: ToolRegistry, runtime: Runtime, 
   });
   registry.register({
     name: "delegate.handoff",
-    description: "Hand the rest of this work to a named specialist, briefed in full. Its answer comes back to you.",
+    description: "Hand the rest of this work to a named specialist, briefed in full, saying why.",
     permission: "specialists.use",
     parameters: z.object({
       specialist: z.string().min(1).max(200),
       brief: z.string().trim().min(1).max(4000),
+      /** Why this belongs to them rather than you. It is shown in the conversation. */
+      reason: z.string().trim().max(300).default(""),
     }).strict(),
     execute: async (a, c) => handOff(runtime, knowledge, c, a),
   });

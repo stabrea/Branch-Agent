@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SandboxChoice } from "./sandbox.js";
 
 export const ToolCallSchema = z
   .object({
@@ -103,6 +104,34 @@ export interface Provider {
    * follow the OpenAI pattern say so here rather than having it guessed from their other routes.
    */
   modelsList?(): { url: string; headers: Record<string, string> } | null;
+  /**
+   * Sending many questions at once and collecting the answers later, where the service offers it
+   * (OpenAI and Anthropic both do, at about half price). A connection that does not offer it simply
+   * leaves this out, and whatever asked falls back to one ordinary call per question. See
+   * src/batch-inference.ts.
+   */
+  batch?(): BatchApi | null;
+}
+/** What a service that takes many questions at once must be able to do. */
+export interface BatchApi {
+  /** Hands the whole set over and gives back the service's own id for it. */
+  submit(requests: BatchRequest[], signal: AbortSignal): Promise<{ batchId: string }>;
+  /** Where the set has got to; `completed` means the answers can be collected. */
+  poll(batchId: string, signal: AbortSignal): Promise<{ status: "working" | "completed" | "failed"; error?: string }>;
+  /** The answers, each carrying back the id it was sent with. */
+  collect(batchId: string, signal: AbortSignal): Promise<BatchAnswer[]>;
+}
+export interface BatchRequest {
+  /** The caller's own id for this question, handed straight back with the answer. */
+  id: string;
+  messages: Message[];
+  maxTokens: number;
+}
+export interface BatchAnswer {
+  id: string;
+  content: string;
+  usage?: Usage;
+  error?: string;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
@@ -126,6 +155,8 @@ export interface Run {
   output: string;
   createdAt: string;
   updatedAt: string;
+  /** The project this task was done under, so what it cost can be counted against that project. */
+  project?: string;
 }
 export interface Event {
   id: number;
@@ -198,6 +229,12 @@ export interface ToolContext {
    * counts when that step is tried again.
    */
   approvalKey?: string;
+  /**
+   * How tightly a program this call starts is to be held, when an approval rule said so. It is set
+   * by the runtime just before the tool runs; a tool no rule says anything about never sees it and
+   * behaves exactly as it did before rules could say.
+   */
+  sandbox?: SandboxChoice;
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

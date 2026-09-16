@@ -443,13 +443,22 @@ function enableIssues(
 }
 
 /** Hooks run through the shell integration's declared executables; a busy shell is retried briefly, then counts as a failure. */
+/** The last line a hook printed, read as a verdict; anything that is not one is simply nothing. */
+function parseVerdict(printed: string): unknown {
+  const line = printed.trim().split(/\r?\n/).at(-1)?.trim();
+  if (!line?.startsWith('{')) return undefined;
+  try { return JSON.parse(line); } catch { return undefined; }
+}
+
 function hookRunner(shell: BranchShell, context: (runId: string) => ToolContext): HookRunner {
   return async (hook, payload) => {
     const scoped = { ...context(String(payload.runId ?? '')), signal: AbortSignal.timeout(hook.timeoutMs + 1000) };
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         const result = await shell.execute({ executable: hook.executable, args: [...hook.args, JSON.stringify(payload).slice(0, 4000)], cwd: '.', secrets: [], timeoutMs: hook.timeoutMs }, scoped);
-        return result.status === 'completed' ? { ok: true } : { ok: false, error: `${result.status}${result.stderr ? ': ' + result.stderr.slice(0, 200) : ''}` };
+        // A check that can stop a call says so by printing {"decision":"ask","reason":"..."}.
+        // Anything else it prints is ignored, so an ordinary notify-only hook behaves as before.
+        return result.status === 'completed' ? { ok: true, verdict: parseVerdict(result.stdout) } : { ok: false, error: `${result.status}${result.stderr ? ': ' + result.stderr.slice(0, 200) : ''}` };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (!/already active/.test(message) || attempt === 3) return { ok: false, error: message };

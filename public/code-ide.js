@@ -44,9 +44,11 @@ export async function loadCodeIde() {
     const servers = await call("language-servers");
     $("ls-enabled").checked = !!servers.enabled;
     $("ls-list").value = writeRows(servers.servers, (entry) => (entry.languages || []).join(", "));
+    $("ls-keep").checked = !!servers.keepRunning;
     const debuggers = await call("debug-adapters");
     $("dbg-enabled").checked = !!debuggers.enabled;
     $("dbg-list").value = writeRows(debuggers.adapters);
+    $("dbg-keep").checked = !!debuggers.keepRunning;
   } catch (error) {
     status("code-ide-status", error.message);
   }
@@ -56,9 +58,10 @@ async function save() {
   try {
     await call("language-servers", {
       enabled: $("ls-enabled").checked,
+      keepRunning: $("ls-keep").checked,
       servers: readRows("ls-list", (rest) => ({ languages: (rest || "TypeScript").split(",").map((part) => part.trim()).filter(Boolean) })),
     });
-    await call("debug-adapters", { enabled: $("dbg-enabled").checked, adapters: readRows("dbg-list") });
+    await call("debug-adapters", { enabled: $("dbg-enabled").checked, keepRunning: $("dbg-keep").checked, adapters: readRows("dbg-list") });
     status("code-ide-status", "Saved.");
   } catch (error) {
     status("code-ide-status", error.message);

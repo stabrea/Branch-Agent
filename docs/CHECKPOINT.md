@@ -1,4 +1,19 @@
-# Branch Agent checkpoint — 2026-09-15 (late evening)
+# Branch Agent checkpoint
+
+## Checkpoint 2026-09-17 — how to resume
+
+**State.** Released 0.15.0 (installed on the owner's PC). Staging branch `wave2/integration` is green (full non-desktop suite, ~1170 tests) and holds, since 0.15.0: realtime voice, hardening pass 2, the long tail (other-2), design QA, the two ledger verification reports and the family-row ledger. In review or building: re-opened rows, web UI pass 3, auth/tracing/CLI rows, handbook, sandboxes and SSH workspaces, documents pass 3 (briefs in `docs/agents/briefs/wave8/`).
+
+**To resume the loop** (details in `docs/agents/README.md`):
+1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with one environment skip.
+2. For each unfinished branch `wave8/*` in `git branch --list 'wave8/*'`, either continue it or spawn an integrator with `docs/agents/briefs/INTEGRATOR.md`; merge the reviewed `integrate/*` branch onto staging.
+3. Release when four to six branches have landed: follow `docs/agents/scripts/publish-template.sh` step by step (bump, release branch, PR, package, walkthrough, packaged tests, CI, merge, GitHub release, rehearsal, install, ticks).
+4. Tick ledger ids only from integrator VERIFIED verdicts (`docs/agents/scripts/tick_theme.py <version> <issue>=<ids>`), and re-run a verification pass after every two releases.
+5. Check `gh pr list --state open` and issues from other people each loop; review with `docs/agents/briefs/PR-REVIEW.md`.
+
+**Numbers.** 786 pieces in the audit; honest remaining 355 (311 single items + 44 grouped rows). See `docs/ROADMAP.md` for what ships in 0.16–0.18 and what 1.0 means.
+
+**Do not.** Run desktop or screen-control tests from an agent; force-remove a worktree with a node_modules junction; raise the catalog width literal; tick on a builder's word.
 
 ## Batch 19 (wave 7) — traces you can export, and permission rules you can read
 
@@ -408,6 +423,10 @@ including "follow this computer", highlight colour, text size, spacing, letterin
 still, show the acorn) that apply instantly and persist through `POST /api/preferences`. New
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
+
+## Released 0.15.0 (2026-09-17)
+
+Document readers, memory kinds and layers, the coder toolbox, browser pass 2, eleven more chat services, benchmarks and studies, hardening pass 1, the family-row ledger and the first verification pass. Published from `release/0.15.0` (PR #101); the in-app update from 0.14.0 was rehearsed on a staged copy in 40 seconds with no console window and the previous copy kept.
 
 ## Released 0.14.0 (2026-09-17)
 
@@ -1603,6 +1622,44 @@ those jobs spend one to two rounds finding tools, and never a wasted one). `Tool
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
 
+## Batch 26 (wave 8) — finishing the rows the ledger verification re-opened
+
+The 2026-09-17 verification (`docs/audit/verification-2026-09-17.md`) re-opened 24 ticked audit ids
+whose code was partial or missing. Fifteen are now built and pinned by `tests/reopened.test.mjs`
+(17 tests, one or two per id, each asserting the behaviour rather than that a symbol exists); nine
+are written down instead — seven as deliberate non-goals under "What Branch is not" in
+`docs/configuration.md`, and two as patterns this codebase already covers another way.
+
+**Secrets.** `src/credential-cli.ts` resolves `secret://bitwarden/<item>` and
+`secret://1password/<vault/item/field>` through the owner's own `bw` and `op` command lines at the
+call boundary, remembers every value in the shared scrubber and stores none. Off by default,
+per-service opt-in, read-only, and a plain refusal when the command line is absent or the vault is
+locked. `Secrets.fill` asks it before the locker, so a vault item never reads as a project name.
+
+**Policy.** An approval rule now carries a `sandbox` choice (`no-internet`, `limits-only`, `none`,
+`src/sandbox.ts`) that reaches the tool on `ToolContext` and is honoured by `code.run`,
+`process.start` and the host-command tool; a rule that says nothing leaves every tool exactly as it
+was. A host command no rule matches is now **asked** rather than run, with `remember: always` so one
+yes settles that command — the one behaviour change an existing owner will notice, written up as a
+migration note. A `tool.before` lifecycle hook may answer `{decision, reason}` and turn an allow
+into a question or a refusal; it can only make the answer stricter, and a check that times out holds
+the call rather than letting it through. Household profiles have roles (owner, adult, child) with
+grants — which tool kinds, which projects, a daily allowance — enforced at the top of `checkPolicy`.
+
+**Seeing what happened.** Windows' own privacy switches are read before the screen and the
+microphone (`src/os-permissions.ts`), with one plain sentence and the `ms-settings:` link when one is
+missing; only an outright refusal stops anything. The terminal prints what each answer cost under it
+(the running totals were already on the status line, in `src/terminal-commands.ts`). "Look inside"
+has **Do this again**: `POST /api/runs/{id}/replay` re-runs the same prompt with the same recorded
+permissions and the same model preset, and the pair opens on the existing side-by-side screen.
+
+**Orchestration.** `delegate.supervise` (a named supervisor over named workers, with the goal-split
+kept as its own separately tested function), `delegate.swarm` (several workers over one shared
+claim-and-release list) and `delegate.route` (classify, then dispatch). `delegate.handoff` takes a
+reason that is written into the conversation, and the owner can write down who each specialist may
+hand work on to. A per-turn second model, a separate decomposition step and a sequential
+action-planning node inside a role loop are documented as not built rather than half-built.
+
 ## Batch 26 (wave 7) — the hardening pass: closing the gaps the integrators handed back
 Twelve specific things the reviewers wrote down as "not fixed". Every one is now fixed and pinned
 by a test in `tests/hardening.test.mjs` (17 tests: fakes, plus the real stdio MCP fixture).
@@ -1734,6 +1791,51 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+(Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
+adds the figures up a project at a time.)
+
+## Batch 21 (wave 8) — the long tail in "other"
+
+The last untouched rows of the `other` theme of the capability audit (#60). Backend first, with only
+a small addition to the sidebar.
+
+Branch now describes its own web API. `GET /api/openapi.json` is an OpenAPI 3.1 document whose
+request shapes are generated from the same zod schemas the server checks requests with, so the
+description cannot drift from what the app accepts; `node scripts/write-api-docs.mjs` writes the
+readable version to `docs/api.md`. The route table lives in `src/api-openapi.ts`.
+
+Two ways to spend less, both off until the owner turns them on. `src/request-cache.ts` hashes the
+exact request that would go to the model and answers an identical one from what was kept — nothing
+sent, nothing charged, and the round marked `cached` with a zero cost and a reason on the "Look
+inside" screen. An answer that asks for a tool is never kept, because replaying it would replay the
+tool. `src/batch-inference.ts` hands a whole set of questions over where the connection offers it
+(an optional `batch()` on `Provider`), polls, collects, and prices the set from what the service
+reported; anything that goes wrong falls back to one ordinary call per question and says why. The
+machinery and the fallback are done and tested against fakes, but **no real connection implements
+`batch()` yet** — OpenAI's and Anthropic's own batch adapters are still to write, so today every set
+falls back. A1351/A1352 are therefore partial, not done.
+
+`src/lockdown.ts` is one switch. On, every tool waits for a yes and host programs, the screen, the
+borrowed browser, sending messages out and telling other programs what happened are all off. The
+settings it takes over are copied untouched before anything changes and written back verbatim when
+it goes off — a switch that had never been saved stays unsaved. Both moments are audited.
+
+Conversations branched off other conversations are now a shape: `GET /api/sessions/{id}/tree` and
+the tool `sessions.tree`, drawn in the sidebar. `POST /api/sessions/{id}/merge-note` carries a
+branch's last answer back into its parent as one note; it is the owner's own action, so it costs the
+model's catalog nothing. A flow step may now be `kind: "flow"` and work through another saved flow,
+three deep, refusing by name anything that leads back to a flow already running. Flow checkpointing
+was verified as already present (`workflow_state` plus the saved cursor) and documented rather than
+rebuilt.
+
+Projects carry a default working profile and default knowledge bases alongside their instructions and
+model choice, every task records the project it was done under, and `GET /api/projects/costs` groups
+the ledger by project. `branch watch <folder> <procedure-id>` re-runs a saved procedure when a folder
+changes, settling a burst of saves into one run and never running twice at once.
+
+Tests: `tests/other-2.test.mjs` (11). No new dependency. The remaining ids of #60 are decided in
+docs/configuration.md under "The long tail…": covered elsewhere, or deliberately not built with the
+reason written down.
 
 ## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
 
@@ -1814,3 +1916,34 @@ the owner and their own app; `channels.broadcast` and `channels.digest` are refu
 `needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
 are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
 against a fake of its documented shape, not against the real service.
+
+## Batch 26 (wave 8) — realtime voice: talking, and being cut off, over a connection that stays open
+
+The thing wave 7 wrote down as *not built*. The blocker was real and is fixed first: the network
+policy checked HTTP addresses per request and had no hook for a socket, so `NetworkPolicy.connect`
+now exists (`src/network-policy.ts`). It does not widen `assertAllowed` — it builds the `https:`/
+`http:` twin of a `wss:`/`ws:` address and hands *that* to the untouched check, so the allowed list,
+the blocked list, the refusal of addresses carrying a password and the private-address lookup all
+apply by construction rather than being written twice. The check is awaited *before* the socket is
+constructed, so a refused address never has a byte sent to it. Sockets are counted (eight at once),
+closed together on Lock, on the end of a task and on shutdown, and each one leaves a span and a line
+in the record of what the assistant was allowed to do — host and path only, never the whole address,
+because Gemini takes its key in the query string.
+
+On top of that: one `RealtimeSession` interface (`src/realtime.ts`) with two adapters —
+OpenAI Realtime (`src/realtime-openai.ts`: `session.update`, `input_audio_buffer.append`/`commit`,
+`response.create`, `response.cancel`) and Gemini Live (`src/realtime-gemini.ts`: `setup`,
+`realtimeInput`, `clientContent`, `toolResponse`). Which connections may is read from the provider
+catalog, where `realtime` is a new capability on the OpenAI and Gemini lines only; anything else gets
+a plain sentence and hold-to-talk. `src/realtime-voice.ts` holds one conversation: transcripts become
+ordinary messages, sound goes straight out to the screen and is written down nowhere unless the owner
+switches recordings on, usage becomes cost, and minutes and dollars caps close it with a spoken
+sentence rather than silence. A tool the model asks for mid-conversation goes through
+`runtime.checkPolicy` and the same `ApprovalGate`: allowed runs, refused refuses, and one that needs
+a yes is not run at all — the usual card appears and the model is told, in as many words, that it is
+waiting. The run WebSocket (`src/ws.ts`) grew binary frames and a client-frame hook, which is the
+spine for both the microphone going up and a line typed while it is talking (A1193); `public/voice-live.js`
+is the composer's live variant, and it only appears when the connection in use can hold one.
+
+Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
+tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.

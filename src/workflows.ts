@@ -6,6 +6,7 @@ import type { Knowledge } from "./knowledge.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
+import { argumentFingerprint } from "./runtime.js";
 import type { PolicyRemember, RunSource } from "./policy.js";
 
 /**
@@ -14,7 +15,13 @@ import type { PolicyRemember, RunSource } from "./policy.js";
  * the last step said and skip ahead. Every step's state is written down as it happens, so closing
  * the app in the middle loses nothing: the workflow picks up where it stopped.
  */
-export const stepKinds = ["prompt", "recipe", "tool", "approval", "wait", "branch"] as const;
+export const stepKinds = ["prompt", "recipe", "tool", "approval", "wait", "branch", "flow"] as const;
+/**
+ * How deep one flow may call another. A flow inside a flow is useful — "do the weekly tidy-up"
+ * belongs in one place, not copied into six — but a chain without an end would work for ever, so
+ * the depth is capped and a flow that leads back to one already running is refused outright.
+ */
+export const maximumFlowDepth = 3;
 export const WorkflowStepSchema = z.object({
   name: z.string().trim().min(1).max(80),
   kind: z.enum(stepKinds),
@@ -22,6 +29,8 @@ export const WorkflowStepSchema = z.object({
   recipeId: z.string().uuid().optional(),
   inputs: z.record(z.string().max(40), z.union([z.string().max(4000), z.number(), z.boolean()])).optional(),
   tool: z.string().min(1).max(100).optional(),
+  /** For a flow step: another saved flow to work through before carrying on with this one. */
+  flowId: z.string().uuid().optional(),
   args: z.record(z.string(), z.unknown()).optional(),
   question: z.string().trim().max(500).optional(),
   /** For a wait step: how long after the workflow reaches it before it may go on. */
@@ -33,7 +42,7 @@ export const WorkflowStepSchema = z.object({
   retries: z.number().int().min(0).max(5).default(0),
   timeoutMs: z.number().int().min(1000).max(600000).default(120000),
 }).strict().superRefine((step, context) => {
-  const needs: Record<string, keyof typeof step> = { prompt: "prompt", recipe: "recipeId", tool: "tool", branch: "contains" };
+  const needs: Record<string, keyof typeof step> = { prompt: "prompt", recipe: "recipeId", tool: "tool", branch: "contains", flow: "flowId" };
   const required = needs[step.kind];
   if (required && step[required] === undefined)
     context.addIssue({ code: "custom", message: `A ${step.kind} step needs a ${String(required)}` });
@@ -65,6 +74,11 @@ export interface WorkflowView {
  */
 export interface WorkflowApproval {
   tool: string; target: string; label: string; source: RunSource; remember: PolicyRemember;
+  /**
+   * The fingerprint of the exact arguments the step wanted to use. The owner's yes is bound to it,
+   * so a step someone edited while the workflow was waiting is asked about again.
+   */
+  fingerprint?: string;
 }
 /** Where a workflow's remembered answers are kept, since a workflow is not a conversation. */
 const approvalKeyFor = (id: string): string => `workflow:${id}`;
@@ -203,14 +217,14 @@ export class Workflows {
    * `source` is whoever set it going: a workflow started by a schedule or another app is held to
    * the same limits that task would have been, so it cannot be used to get around them.
    */
-  async run(owner: string, id: string, source: RunSource = "owner"): Promise<WorkflowView> {
+  async run(owner: string, id: string, source: RunSource = "owner", chain: readonly string[] = []): Promise<WorkflowView> {
     let current = this.view(owner, id);
     if (current.status === "running") throw new Error("That workflow is working right now");
     const fresh = ["idle", "completed", "failed"].includes(current.status);
     current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, ...(fresh ? { cursor: 0 } : {}) });
     for (let index = current.cursor; index < current.steps.length; index++) {
       const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current, source);
+      const outcome = await this.step(owner, id, index, step, current, source, chain);
       if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
       // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
       current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
@@ -218,7 +232,7 @@ export class Workflows {
     }
     return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
   }
-  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource):
+  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource, chain: readonly string[] = []):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     if (step.kind === "approval") {
       this.writeStep(owner, id, index, step, { status: "waiting", attempts: 0, output: step.question ?? "" });
@@ -239,16 +253,16 @@ export class Workflows {
       this.writeStep(owner, id, index, step, { status: "done", attempts: 1, output: matched ? "carried on" : "skipped ahead" });
       return { halt: false, cursor: index + 1 + (matched ? 0 : step.skipAhead ?? 1) };
     }
-    return this.attempt(owner, id, index, step, source);
+    return this.attempt(owner, id, index, step, source, chain);
   }
   /** Runs one working step, giving it its allowed number of second tries before the workflow stops. */
-  private async attempt(owner: string, id: string, index: number, step: WorkflowStep, source: RunSource):
+  private async attempt(owner: string, id: string, index: number, step: WorkflowStep, source: RunSource, chain: readonly string[] = []):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     let lastError = "";
     for (let attempt = 1; attempt <= step.retries + 1; attempt++) {
       this.writeStep(owner, id, index, step, { status: "running", attempts: attempt });
       try {
-        const result = await this.execute(step, id, source);
+        const result = await this.execute(step, id, source, owner, chain);
         this.writeStep(owner, id, index, step, { status: "done", attempts: attempt, output: result.output, runId: result.runId });
         return { halt: false, cursor: index + 1 };
       } catch (error) {
@@ -273,11 +287,13 @@ export class Workflows {
     this.writeStep(owner, id, index, step, { status: "waiting", attempts, output: asked.message });
     const pendingApproval: WorkflowApproval = {
       tool: asked.tool, target: asked.target, label: asked.label, source, remember: asked.remember,
+      ...(asked.fingerprint === undefined ? {} : { fingerprint: asked.fingerprint }),
     };
     return { halt: true, cursor: index, patch: { status: "waiting_approval", question: asked.message, pendingApproval } };
   }
-  private async execute(step: WorkflowStep, id: string, source: RunSource): Promise<{ output: string; runId: string | null }> {
+  private async execute(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[] = []): Promise<{ output: string; runId: string | null }> {
     const signal = AbortSignal.timeout(step.timeoutMs);
+    if (step.kind === "flow") return this.nested(step, id, source, owner, chain);
     if (step.kind === "prompt") {
       const run = await this.runtime.run({ prompt: step.prompt!, signal, source: "schedule", onTextDelta: () => undefined });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
@@ -287,15 +303,38 @@ export class Workflows {
     if (step.kind === "tool") {
       // A saved step uses its tool under the owner's approval settings, exactly as the assistant
       // does mid-conversation: allowed, asked about, or refused in the same words.
-      const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context);
+      // The exact bytes of this step's arguments. Everything downstream — the question the owner
+      // sees, the yes they give, the retry after it — is bound to this one fingerprint.
+      const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context, fingerprint);
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
-      if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember);
+      if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember, fingerprint);
       const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };
     }
     if (!this.knowledge) throw new Error("Saved procedures are not available in this launch");
     const replayed = await this.knowledge.replayProcedure(context, step.recipeId!, step.inputs ?? {});
     return { output: JSON.stringify(replayed.results).slice(0, 4000), runId: null };
+  }
+  /**
+   * One flow working through another. The chain of flows already running is carried down, so a flow
+   * that leads back to one of them is refused by name rather than looping, and a chain longer than
+   * `maximumFlowDepth` is refused before it starts. The step is held to whatever set the outer flow
+   * going, so nesting is no way around the limits that source is kept to.
+   */
+  private async nested(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[]):
+    Promise<{ output: string; runId: string | null }> {
+    const target = step.flowId!;
+    const running = [...chain, id];
+    if (running.includes(target))
+      throw new Error(`That flow leads back to one already running (${target}), so it was not started.`);
+    if (running.length >= maximumFlowDepth)
+      throw new Error(`Flows may only go ${maximumFlowDepth} deep; this one would be ${running.length + 1}.`);
+    const finished = await this.run(owner, target, source, running);
+    // The inner flow's own reason is carried up, so the outer one says what actually went wrong.
+    if (finished.status !== "completed")
+      throw new Error(finished.error || `The flow inside this one did not finish (${finished.status})`);
+    return { output: `The flow "${finished.name}" finished its ${finished.steps.length} step(s).`, runId: null };
   }
 }
 

@@ -35,14 +35,19 @@ import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+// Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
+import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
+  webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
 import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
@@ -55,7 +60,7 @@ import { scorerKinds } from "./evaluation-scorers.js";
 import { benchmarkAdapters } from "./benchmark-adapters.js";
 import { notIntegratedBenchmarks } from "./benchmarks.js";
 import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
-import { runToolEvaluations } from "./tool-evaluations.js";
+import { runToolChecksSafely } from "./tool-evaluations.js";
 
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
@@ -90,11 +95,15 @@ import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
+import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
+// Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
+// questions at once, and what each project has cost.
+import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -224,6 +233,8 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the composer's live-conversation button and everything behind it.
+    "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
@@ -260,6 +271,8 @@ async function staticFile(
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the Lockdown switch and the shape branched conversations make.
+    "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -545,6 +558,11 @@ async function api(
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
+  if (handlesOtherPath(path))
+    return otherApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OtherApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -558,7 +576,8 @@ async function api(
     return app.runtime.hideSecrets(
       await tryTool(app.registry, app.store, app.runtime.owner,
         app.runtime.context({ signal: AbortSignal.timeout(120000) }),
-        TryToolSchema.parse(await readBody(request))));
+        TryToolSchema.parse(await readBody(request)),
+        (tool, permission) => app.runtime.roleRefusal(tool, permission)));
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -639,6 +658,14 @@ async function api(
     const kept = await app.artifacts.list();
     return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
   }
+  // Batch 26 (wave 8): what Windows itself allows, with the page that turns each one on.
+  if (request.method === "GET" && path === "/api/os-permissions")
+    return { permissions: await app.osPermissions.all() };
+  // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
+  if (request.method === "GET" && path === "/api/credentials/settings")
+    return readCredentialSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/credentials/settings")
+    return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);
@@ -775,6 +802,9 @@ async function api(
   if (request.method === "GET" && path === "/api/studies")
     return { studies: app.studies.list(), results: app.studies.results().map(studySummary) };
   if (request.method === "POST" && path === "/api/studies") return app.studies.save(await readBody(request));
+  // Batch 20 (wave 8): the one folder outside the workspace a study may read a benchmark from.
+  if (path === "/api/studies/settings")
+    return { settings: request.method === "POST" ? app.studies.configure(await readBody(request)) : app.studies.settings() };
   if (request.method === "POST" && path === "/api/studies/run") {
     const body = z.object({ id: z.string().min(1).max(64), fresh: z.boolean().default(false) }).strict().parse(await readBody(request));
     const result = await app.studies.run(body.id, { fresh: body.fresh });
@@ -789,7 +819,9 @@ async function api(
     return { comparison, table: comparisonTable(comparison) };
   }
   if (request.method === "POST" && path === "/api/evaluation/tools")
-    return runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
+    // The checks really write files and really save facts, so they do it in a project and under a
+    // name of their own: nothing they do reaches the owner's folder or the owner's memory.
+    return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
@@ -873,6 +905,15 @@ async function api(
     // scrubbed; nothing leaves here carrying a saved password or key.
     return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
   }
+  // Batch 26 (wave 8): "Do this again" — the same words, the same tools and the same model, in a
+  // conversation of its own, so the two can be read side by side.
+  const replay = /^\/api\/runs\/([a-f0-9-]{36})\/replay$/.exec(path);
+  if (request.method === "POST" && replay) {
+    const run = app.store.run(replay[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    const done = await replayRun(app.runtime, app.store, run.id);
+    return { original: done.original, replay: done.replay, status: done.run.status, plan: done.plan };
+  }
   // Wave 7: the same task as a trajectory — "Look inside" plus the conversation's messages and the
   // spans — in the documented shape, for keeping or for feeding an evaluation run.
   const trajectory = /^\/api\/runs\/([a-f0-9-]{36})\/trajectory$/.exec(path);
@@ -921,7 +962,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
+  // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
+  if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
+  if (match && match[2] === "merge-note" && request.method === "POST")
+    return app.sessionTree.mergeNote(owner, { sessionId: match[1]! });
   if (match && match[2] === "summary" && request.method === "GET") return app.store.sessionSummary(owner, match[1]!);
   if (match && match[2] === "pins") {
     if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
@@ -1210,8 +1255,12 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
  * expects echoed back as plain text, and signs every later request with the app secret.
  */
 async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
-  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
+  // The random word on the end of the address is what makes it unguessable. Checked before the
+  // channel is even looked up, so a wrong address tells nobody which names exist.
+  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
+  if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
   if (request.method === "GET") {
@@ -1236,13 +1285,17 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
  * so the signature check is the only thing letting a post through.
  */
 async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
-  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
   const from = requestSource(request.socket?.remoteAddress);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
+  // The random word on the end of the address is what makes it unguessable. Checked before the
+  // channel is even looked up, so a wrong address tells nobody which channel names exist.
+  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
+  if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
@@ -1420,7 +1473,32 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
   }
   if (request.method === "POST" && path === "/api/channels/pairings/remove") return app.channels.remove(owner, await readBody(request));
+  // Batch 20 (wave 8): the address each chat service posts to, with its own unguessable word on the
+  // end. Shown on the Connections card with a button that copies it, and rotatable.
+  if (request.method === "GET" && path === "/api/channels/addresses") return channelAddresses(app, owner);
+  if (request.method === "POST" && path === "/api/channels/addresses/rotate") {
+    const { channel } = z.object({ channel: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/) }).strict().parse(await readBody(request));
+    rotateWebhookSecret(app.store, owner, channel);
+    return channelAddresses(app, owner);
+  }
+  if (request.method === "POST" && path === "/api/channels/addresses/settings")
+    return { ...channelAddresses(app, owner), settings: saveWebhookAddressSettings(app.store, owner, await readBody(request)) };
   throw new HttpError(404, "Endpoint not found");
+}
+/** Every connected channel that is posted to, with the whole address to paste into that service. */
+function channelAddresses(app: Branch, owner: string): {
+  addresses: { channel: string; kind: string; address: string }[];
+  settings: ReturnType<typeof webhookAddressSettings>;
+} {
+  const addresses = app.channels.summary().channels
+    .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter)
+    .map((channel) => ({
+      channel: channel.id, kind: channel.kind,
+      address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
+        webhookSecret(app.store, owner, channel.id)),
+    }));
+  return { addresses, settings: webhookAddressSettings(app.store, owner) };
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const auth = app.chatgpt, owner = app.runtime.owner;
@@ -1929,7 +2007,9 @@ export async function startServer(
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
-      await serveRunSocket(app.store, run.id, request, socket);
+      // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
+      // one. Nothing is opened until it does, so an ordinary task is unchanged.
+      await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
   });
   configureLimits(server);
@@ -2272,7 +2352,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

@@ -1,0 +1,17 @@
+# Wave 3 task: memory that stays tidy and context that stays useful
+
+Rules: docs/agents/briefs/wave1/BUILD.md. Branch: wave3/memory-context from the local branch wave2/integration. Themes: memory-features (#74), context-management (#82), vector-and-hybrid-memory leftovers (#75). Backend plus the existing Memory screen; no shell changes.
+
+Read: src/memory*.ts, src/memory-review.ts (proposals, versions, checkpoints, consolidation), src/documents.ts and src/document-embeddings.ts (embeddings accessor and RRF you can reuse), src/runtime.ts (fitContext, compaction, session snapshot), src/history.ts, tests/memory*.test.mjs, tests/reliability.test.mjs.
+
+Build:
+1. Memory hygiene: duplicate and near-duplicate detection (normalised text + optional embeddings via the existing accessor) with a "merge these" suggestion in the review queue; contradiction detection for temporal facts (same subject, conflicting value, newer wins, older archived with a note); importance scoring (recency × use count × owner-confirmed) used for retrieval ordering and for a "forget the least useful" suggestion when the capacity is near; all suggestions go through the existing approval/review flow, never silent deletion.
+2. Hybrid memory retrieval: facts get embeddings when a key is present (same batching as documents), retrieval uses BM25 + cosine with reciprocal rank fusion, falls back to FTS; a per-owner setting to turn embeddings off.
+3. Session summaries and rolling context: when compaction happens, keep a structured summary (goals, decisions, open questions, files touched) instead of free text; expose `GET /api/sessions/:id/summary`; the context pane can show it. Also "session pins": the owner can pin a message so it survives compaction.
+4. Export/import: `GET /api/memory/export` as JSON Lines and `POST /api/memory/import` with dedupe (A2110 asked for JSONL persistence; do it as export/import, not as a second store); conversations export to Markdown per session.
+5. Image inputs for the model (A1640): the runtime accepts an attached image (from the composer's attach button, from documents, or from a browser screenshot if that tool exists on your base) and passes it as an image part when the provider supports it; otherwise it says plainly that this model cannot look at pictures. Coordinate with the wave3/browser builder by putting the provider image-part plumbing in src/providers.ts behind a small `supportsImages()` accessor; if their branch already added it when you merge, keep theirs.
+6. Working-session tracking (A2379): a light per-conversation "what we are doing" line maintained by the runtime (last goal, last file, last tool) shown in the context pane through the existing activity feed.
+
+Tests (tests/memory-context.test.mjs): duplicate merge suggestion; contradiction handling with temporal facts; importance ordering; hybrid retrieval with a fake embeddings server and the no-key path; structured summary after compaction and pinned message survival; export/import round trip with dedupe; image part reaches a fake vision provider and the plain refusal on a text-only provider; working-session line updates.
+
+Acceptance: R1 no silent deletion (test that every removal passes through review); R2 hybrid retrieval proven; R3 summary shape and pins proven; R4 export/import round trip; R5 image input proven both ways; R6 docs/configuration.md sections; R7 no new dependency. Report the ids you consider done from the three themes.

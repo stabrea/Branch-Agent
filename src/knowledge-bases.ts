@@ -96,6 +96,11 @@ export class KnowledgeBases {
     private readonly models?: ModelRouter,
     private readonly ledger?: EmbeddingLedger,
     backend?: VectorBackend,
+    /**
+     * The app's guarded fetch. Every passage sent to a provider off this computer is checked
+     * against the owner's network rules first; a reader on this computer is reached directly.
+     */
+    readonly embeddingCall: typeof fetch = globalThis.fetch,
   ) {
     this.db = store.sqlite;
     this.cache = new EmbeddingCache(this.db);
@@ -144,7 +149,7 @@ export class KnowledgeBases {
   embeddings(owner: string): CachedEmbeddings | null {
     const connection = embeddingConnection(this.models, owner);
     if (!connection) return null;
-    const adapter = embeddingsFor(connection);
+    const adapter = embeddingsFor(connection, this.embeddingCall);
     return adapter ? new CachedEmbeddings(adapter, this.cache, this.ledger) : null;
   }
   meaningSearchReady(owner: string): boolean { return this.embeddings(owner) !== null; }
@@ -444,6 +449,8 @@ export class KnowledgeBases {
     const target = collection ? this.one(owner, collection) : null;
     const rows = this.candidateRows(owner, target?.id, query);
     if (!rows.length) return [];
+    // Wave 8: with no knowledge base named, the active project's own list narrows the search.
+    const scope = collection ? null : this.projectScope(owner);
     const byId = new Map(rows.map((row) => [String(row.chunk_id), row]));
     const words = new Bm25(rows.map((row) => ({ id: String(row.chunk_id), text: String(row.chunk_text) })))
       .rank(query, candidates).map((entry) => entry.id);
@@ -454,7 +461,16 @@ export class KnowledgeBases {
     const ordered = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, candidates)
       .map(([id, score]) => toHit(byId.get(id)!, names, score,
         words.includes(id) && meaning.includes(id) ? "both" : meaning.includes(id) ? "meaning" : "words"));
-    return this.bestFirst(owner, query, ordered, limit, signal);
+    const inScope = scope ? ordered.filter((hit) => scope.has(hit.collection) || scope.has(hit.collectionName)) : ordered;
+    return this.bestFirst(owner, query, inScope, limit, signal);
+  }
+  /**
+   * The knowledge bases the active project says to look in, by id and by name, or null when it
+   * names none — then everything the person has is searched, as it always was.
+   */
+  private projectScope(owner: string): Set<string> | null {
+    const wanted = this.store.projects.defaults(owner).knowledgeBases;
+    return wanted.length ? new Set(wanted) : null;
   }
   /** The passages worth ranking: narrowed by full-text search where the database offers it. */
   private candidateRows(owner: string, collection: string | undefined, query: string): Record<string, unknown>[] {

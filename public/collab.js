@@ -64,8 +64,8 @@ function labelsSection(labels, helpers) {
   const target = el("select");
   for (const [value, label] of [["conversation", "a conversation"], ["procedure", "a saved procedure"], ["document", "a document"]])
     target.appendChild(new Option(label, value));
-  const id = el("input"); id.placeholder = "Its number"; id.maxLength = 200;
-  const label = el("input"); label.placeholder = "Label"; label.maxLength = 40;
+  const id = el("input"); id.placeholder = "Its number"; id.maxLength = 200; id.setAttribute("aria-label", "The number of the thing to label");
+  const label = el("input"); label.placeholder = "Label"; label.maxLength = 40; label.setAttribute("aria-label", "The label to add");
   const adding = el("div", undefined, "collab-row");
   adding.append(el("span", "Add a label to"), target, id, label,
     smallButton(helpers, "Add", async () => {
@@ -140,11 +140,18 @@ function daysOffSection(calendar, helpers) {
   for (const item of calendar.countries ?? [])
     country.appendChild(new Option(`${item.name} (${item.days} days listed)`, item.code));
   country.value = settings.country ?? "";
+  /* Wave 8: every control says what it is, so the row reads the same to the eye and to a
+     screen reader, and the tick box sits beside its words instead of on a line of its own. */
+  country.setAttribute("aria-label", "Which country's holidays to follow");
   const quiet = el("input"); quiet.type = "checkbox"; quiet.checked = Boolean(settings.quietHours?.enabled);
   const from = el("input"); from.type = "time"; from.value = settings.quietHours?.from ?? "21:00";
+  from.setAttribute("aria-label", "Hold messages from");
   const to = el("input"); to.type = "time"; to.value = settings.quietHours?.to ?? "07:00";
+  to.setAttribute("aria-label", "Hold messages until");
+  const quietLabel = el("label", undefined, "check");
+  quietLabel.append(quiet, document.createTextNode(" Hold messages overnight"));
   const row = el("div", undefined, "collab-row");
-  row.append(el("span", "Holidays for"), country, el("span", "Hold messages between"), from, el("span", "and"), to, quiet, el("span", "on"));
+  row.append(el("span", "Holidays for"), country, quietLabel, el("span", "between"), from, el("span", "and"), to);
   wrap.appendChild(row);
   wrap.appendChild(smallButton(helpers, "Save", async () => {
     await api("/api/calendar", { ...settings, country: country.value,
@@ -177,7 +184,24 @@ function peopleSection(profile, helpers) {
   for (const person of profile.all ?? []) {
     const card = el("div", undefined, "collab-card");
     card.appendChild(el("strong", person.name));
-    const pin = el("input"); pin.type = "password"; pin.inputMode = "numeric"; pin.placeholder = "PIN";
+    // What this person may have Branch do, and what they are held to, in their own card.
+    const held = (profile.roles ?? []).find((entry) => entry.profileId === person.id);
+    if (held) {
+      const words = profile.roleLabels?.[held.grant.role];
+      card.appendChild(el("p", `${words?.label ?? held.grant.role}: ${words?.description ?? ""}`, "collab-meta"));
+      const limits = [
+        held.grant.projects.length ? `Only in: ${held.grant.projects.join(", ")}` : "",
+        held.grant.dailySpendLimit > 0 ? `Up to ${held.grant.dailySpendLimit.toFixed(2)} a day` : "",
+      ].filter(Boolean);
+      if (limits.length) card.appendChild(el("p", limits.join(" · "), "collab-meta"));
+      if (profile.isOwner)
+        for (const role of ["owner", "adult", "child"])
+          if (role !== held.grant.role)
+            card.appendChild(smallButton(helpers, `Make them ${profile.roleLabels?.[role]?.label ?? role}`, async () => {
+              await api(`/api/profiles/${person.id}/role`, { role }); toast("Saved"); await refresh();
+            }));
+    }
+    const pin = el("input"); pin.type = "password"; pin.inputMode = "numeric"; pin.placeholder = "PIN"; pin.setAttribute("aria-label", `PIN for ${person.name}`);
     card.appendChild(pin);
     card.appendChild(smallButton(helpers, "Switch to this person", async () => {
       await api("/api/profiles/switch", { profileId: person.id, pin: pin.value });
@@ -193,8 +217,8 @@ function peopleSection(profile, helpers) {
     }));
     return wrap;
   }
-  const name = el("input"); name.placeholder = "Their name"; name.maxLength = 40;
-  const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = "Four to eight digits";
+  const name = el("input"); name.placeholder = "Their name"; name.maxLength = 40; name.setAttribute("aria-label", "Their name");
+  const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = "Four to eight digits"; newPin.setAttribute("aria-label", "Their PIN, four to eight digits");
   const adding = el("div", undefined, "collab-row");
   adding.append(name, newPin, smallButton(helpers, "Add them", async () => {
     await api("/api/profiles", { name: name.value, pin: newPin.value });

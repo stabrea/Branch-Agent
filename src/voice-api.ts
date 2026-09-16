@@ -6,6 +6,7 @@ import { saveVoiceSettings } from "./voice.js";
 import { audioPricedAt, sttPricesPerMinute } from "./voice-stt.js";
 import { speechPricedAt, ttsPricesPerThousand } from "./voice-tts.js";
 import { realtimeNote } from "./voice-talk.js";
+import { livePlanFor, liveDollarsPerMinute, livePricedAt } from "./realtime-voice.js";
 import type { VoiceService } from "./voice-service.js";
 import { listModels, switchModel } from "./model-switch.js";
 import { profileSettings, routeByProfile, saveProfileSettings, taskKinds } from "./model-profiles.js";
@@ -31,6 +32,7 @@ export interface VoiceApiDeps {
 
 const switchBody = z.object({ sessionId: z.string().uuid(), model: z.string().trim().min(1).max(120) }).strict();
 const kindBody = z.object({ kind: z.enum(taskKinds).default("chat") }).strict();
+const liveBody = z.object({ sessionId: z.string().uuid().nullable().default(null) }).strict();
 
 export async function voiceApi(
   deps: VoiceApiDeps, method: string, path: string, body: () => Promise<unknown>,
@@ -39,6 +41,10 @@ export async function voiceApi(
   if (method === "GET" && path === "/api/voice/plan") return voicePlan(deps);
   if (method === "POST" && path === "/api/voice/settings") return saveVoiceSettings(store, owner, await body());
   if (method === "GET" && path === "/api/voice/voices") return { windows: await voice.speech.windowsVoices() };
+  // Wave 8: a live conversation hangs off a task like everything else, so the browser is given one
+  // to open a socket on. Nothing reaches outside this computer until the browser says "start" on
+  // that socket, and a connection that cannot hold a live conversation is refused here in words.
+  if (method === "POST" && path === "/api/voice/live") return openLive(deps, await body());
   if (method === "GET" && path === "/api/models/profiles") return profileSettings(store, owner, models);
   if (method === "POST" && path === "/api/models/profiles") return saveProfileSettings(store, owner, models, await body());
   if (method === "POST" && path === "/api/models/profiles/preview") {
@@ -69,6 +75,14 @@ export async function voiceApi(
  * What the Voice screen shows: which service would do the work right now, where the sound would
  * go, and what a minute of it costs — said plainly, and never invented when no price is on file.
  */
+export function openLive(deps: VoiceApiDeps, input: unknown) {
+  const { sessionId } = liveBody.parse(input);
+  const plan = livePlanFor(deps.voice.settings(deps.owner), deps.models.plan(deps.owner, sessionId ?? "voice").candidates[0]);
+  if (!plan.available) throw new Error(plan.reason);
+  const run = deps.store.createRun(deps.owner, "A live conversation", sessionId ?? undefined, false, "web");
+  return { runId: run.id, sessionId: run.sessionId, plan };
+}
+
 export function voicePlan(deps: VoiceApiDeps) {
   const plan = deps.voice.plan(deps.owner);
   return {
@@ -78,6 +92,9 @@ export function voicePlan(deps: VoiceApiDeps) {
     whereAudioGoes: whereAudioGoes(plan.stt.kind, plan.tts.kind),
     prices: { perMinute: sttPricesPerMinute, perThousandCharacters: ttsPricesPerThousand, transcriptionPricedAt: audioPricedAt, speechPricedAt },
     realtimeNote,
+    // Wave 8: whether a live conversation is possible on the connection chosen right now, and the
+    // limits it would run under. The composer asks the same question before it offers the button.
+    live: { ...livePlanFor(plan.settings, deps.models.plan(deps.owner, "voice").candidates[0]), dollarsPerMinute: liveDollarsPerMinute, pricedAt: livePricedAt },
   };
 }
 

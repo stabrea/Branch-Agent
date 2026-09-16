@@ -246,7 +246,12 @@ export async function scoreAll(
   if (!scorers.length) return { score: 1, pass: true, reasons: [], parts: [] };
   const parts: { kind: string; score: number; pass: boolean }[] = [];
   const reasons: string[] = [];
-  for (const scorer of scorers) {
+  // "Did it stay inside its budget" is answered last, whatever order the task listed its scorers
+  // in, because grading with a model costs money too and that cost has to be counted before the
+  // question is asked. Every other scorer looks only at what is already there, so moving this one
+  // changes no verdict but this one.
+  const ordered = [...scorers].sort((a, b) => Number(a.kind === "budget") - Number(b.kind === "budget"));
+  for (const scorer of ordered) {
     const result = await scorer.score(task, trajectory, answer);
     parts.push({ kind: scorer.kind, score: result.score, pass: result.pass });
     if (!result.pass) reasons.push(...result.reasons);

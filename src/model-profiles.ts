@@ -145,9 +145,11 @@ const needsOf: Record<TaskKind, Capability> = {
 };
 
 /** The whole decision for one piece of work: reads the saved profiles and resolves the candidates. */
-export function routeByProfile(store: Store, models: ModelRouter, owner: string, kind: TaskKind): ProfileChoice {
+export function routeByProfile(store: Store, models: ModelRouter, owner: string, kind: TaskKind, profileId?: string | null): ProfileChoice {
   const settings = profileSettings(store, owner, models);
-  const active = settings.profiles.find((entry) => entry.id === settings.active) ?? null;
+  // A project may name the way of working its tasks start from; otherwise the owner's active one.
+  const wanted = profileId && settings.profiles.some((entry) => entry.id === profileId) ? profileId : settings.active;
+  const active = settings.profiles.find((entry) => entry.id === wanted) ?? null;
   return chooseFromProfile(
     active, kind, (id) => models.presets.has(id), (id) => models.coolingDown(id),
     (id, forKind) => {

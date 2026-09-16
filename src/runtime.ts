@@ -28,6 +28,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
+import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
@@ -43,16 +44,20 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
-  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, jsonWriteProblem,
-  refusedByPolicy, simulatedResult, sleepFor,
+  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, droppedPendingMessage,
+  jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
+import { ProfileRoles, grantRefusal } from "./profile-roles.js";
+import { Handoffs } from "./orchestration-modes.js";
+import { categoryOf } from "./tool-categories.js";
+import type { SandboxChoice } from "./sandbox.js";
 import { Tracer } from "./tracing.js";
-import { audit } from "./audit.js";
+import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -73,6 +78,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
+import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
@@ -86,7 +92,13 @@ export interface PolicyCheck {
   readOnly: boolean;
   /** What a yes to this would be remembered as, unless the person picks differently. */
   remember: PolicyRemember;
+  /** How tightly the rule that matched wants a program held; null when it did not say. */
+  sandbox: SandboxChoice | null;
+  /** Why this was refused, when the reason is something other than the approval rules. */
+  reason?: string;
 }
+/** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
+interface GateOutcome { refusal: unknown | null; sandbox: SandboxChoice | null }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
@@ -196,12 +208,21 @@ export class Runtime {
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
   /**
+   * Asks the owner's own checks whether a tool call may go ahead. `createBranch` connects the
+   * lifecycle hooks; on its own nobody has an opinion and every call goes as the policy said.
+   */
+  askHooks: (runId: string, about: Record<string, unknown>) => Promise<HookDecision | null> = async () => null;
+  /**
    * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
    */
   hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
+  /** What each person who shares this computer may have Branch do. The owner is not held to it. */
+  readonly roles: ProfileRoles;
+  /** Who each specialist may hand work on to; empty means anybody, as it always did. */
+  readonly handoffs: Handoffs;
   /** The shape of each task while it runs: one trace per task, a span per round, call and sub-task. */
   readonly tracer: Tracer;
   private readonly rates: RateLimiter;
@@ -209,6 +230,8 @@ export class Runtime {
   readonly orchestration: Orchestration;
   /** Tool calls handed over to finish later; their answers come back as follow-up messages. */
   readonly deferrals: Deferrals;
+  /** Answers kept for identical requests. Off until the owner turns it on; see src/request-cache.ts. */
+  readonly requestCache: RequestCache;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -224,6 +247,9 @@ export class Runtime {
     this.orchestration = new Orchestration(store, this.owner, workspace);
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
+    this.roles = new ProfileRoles(store, this.owner);
+    this.handoffs = new Handoffs(store, this.owner);
+    this.requestCache = new RequestCache(store, this.owner);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -544,6 +570,8 @@ export class Runtime {
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
+      permissions: [...context.permissions].sort(),
     });
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
@@ -738,9 +766,11 @@ export class Runtime {
     if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
     // A routing profile (wave 7) is the owner's own named set of choices. It is asked first, and
     // whichever rule fired is written down so the inspector can say why this model and not another.
-    const byProfile = routeByProfile(this.store, this.models, owner, "chat");
+    // Wave 8: a project may name the way of working its own tasks start from.
+    const defaults = this.store.projects.defaults(owner);
+    const byProfile = routeByProfile(this.store, this.models, owner, "chat", defaults.profile);
     if (byProfile.preset) {
-      this.store.event(run.id, "model.routed", { preset: byProfile.preset, kind: "profile", reason: byProfile.reason });
+      this.store.event(run.id, "model.routed", { preset: byProfile.preset, kind: "profile", reason: byProfile.reason, project: defaults.projectId });
       return { ...override, preset: byProfile.preset };
     }
     // Off by default, so this costs nothing until the owner asks for it.
@@ -1236,8 +1266,18 @@ export class Runtime {
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
     if (input > contextLimit) throw new BudgetError(tooLong);
+    // The same question asked twice. The kept answer is looked for before anything is charged or
+    // written down as an attempt, so a round that never reached the provider really does cost
+    // nothing — in the inspector and in the figures alike. The step count still applies, so a task
+    // cannot go round for ever on kept answers.
+    const maxTokens = Math.min(2048, Math.max(0, context.budget.remaining() - input));
+    const cacheKey: CacheKeyParts = {
+      provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
+      messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
+    };
+    const kept = this.requestCache.look(cacheKey);
+    if (kept) return this.answeredFromCache(run, preset, kept);
     context.budget.charge(input);
-    const maxTokens = Math.min(2048, context.budget.remaining());
     if (maxTokens < 1) throw new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, preset.model)}`);
     this.store.beginUsage(run.id, input);
     this.store.event(run.id, "model.started", {
@@ -1275,6 +1315,8 @@ export class Runtime {
         model: preset.model,
       });
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
+      // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
+      this.requestCache.keep(cacheKey, completion);
       return completion;
     } catch (e) {
       if (e instanceof ProviderStreamError)
@@ -1284,6 +1326,22 @@ export class Runtime {
       span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
+  }
+  /**
+   * A round answered from the kept answers. The provider was never asked, so the round is written
+   * down as finished with no tokens at all and priced at nothing, with the reason beside it; an
+   * answer that asks for a tool is never kept, so there is never one to replay here.
+   */
+  private answeredFromCache(run: Run, preset: ModelPreset, kept: Completion): Completion {
+    this.store.event(run.id, "model.completed", {
+      toolCalls: 0, estimatedInput: 0, estimatedOutput: 0, reported: null, cachedInput: null,
+      preset: preset.id, provider: preset.provider.name, model: preset.model,
+      cached: true, cacheReason: "The same request was answered before, so nothing was sent or charged.",
+    });
+    this.tracer.start(run.id, "model", `model ${preset.model}`, {
+      "gen_ai.system": preset.provider.name, "gen_ai.request.model": preset.model, "branch.preset": preset.id,
+    })?.end("ok", "", { "branch.model.cached": true });
+    return CompletionSchema.parse({ ...kept, toolCalls: [] });
   }
   private recordCompletion(
     run: Run,
@@ -1354,6 +1412,10 @@ export class Runtime {
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
     const resource = resourceOf(tool, permission, target, args);
+    // Somebody else in the house, working under their own profile, is held to their role first.
+    // A role can only refuse; it never lets anything through that the rules would have stopped.
+    const refusal = this.roleRefusal(tool, permission);
+    if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, reason: refusal };
     const { decision, rule } = evaluatePolicy(this.policy(source), { tool, target, readOnly, resource });
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
@@ -1361,7 +1423,28 @@ export class Runtime {
     const answered = decision === "ask"
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
     return { decision: answered ?? decision, label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session" };
+      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      sandbox: rule?.sandbox ?? null };
+  }
+  /**
+   * Why the person using this app right now may not have that done, or null. The owner is never
+   * held to anything here; somebody else in the house is held to the role and the grant the owner
+   * gave their profile — which kinds of thing, which projects, and how much a day.
+   *
+   * Public because a conversation is not the only way a tool can be run: another AI tool's server
+   * and the developer's "Try a tool" screen start one directly, and a role that only held for a
+   * conversation would not be a role at all.
+   */
+  roleRefusal(tool: string, permission: string): string | null {
+    const profile = this.store.profiles.active();
+    if (!profile) return null;
+    const grant = this.roles.get(profile.id);
+    const spentToday = grant.dailySpendLimit > 0
+      ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
+      : 0;
+    return grantRefusal(grant, profile.name, {
+      category: categoryOf(tool, permission), project: this.store.projects.active(this.owner).id, spentToday,
+    });
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
@@ -1370,12 +1453,16 @@ export class Runtime {
    */
   grantApproval(
     key: string,
-    about: { tool: string; target: string; label: string; source: RunSource; runId?: string },
+    about: { tool: string; target: string; label: string; source: RunSource; runId?: string;
+      /** The fingerprint of the exact request the question was put for; the yes is bound to it. */
+      fingerprint?: string },
     remember: PolicyRemember = "session",
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (remember !== "never") this.approvals.remember(key, about.tool, about.target, "allow");
+    if (remember !== "never")
+      this.approvals.remember(key, about.tool, about.target, "allow",
+        { fingerprint: about.fingerprint, label: about.label });
     if (remember === "always")
       addPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" });
     audit(this.store, this.owner, {
@@ -1405,22 +1492,28 @@ export class Runtime {
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
-  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
+  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<GateOutcome> {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision, label, target, readOnly, remember } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision: ruled, label, target, readOnly, remember, sandbox, reason } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
-      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision });
-      return simulatedResult(label);
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
+      return { refusal: simulatedResult(label), sandbox };
     }
-    if (decision === "allow") return null;
+    // The owner's own checks get a say before the call goes ahead. A check may only make the answer
+    // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
+    const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
+    const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
+    if (decision === "allow") return { refusal: null, sandbox };
     if (decision === "deny") {
-      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
-      return { ok: false, error: refusedByPolicy(label) };
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
+        ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
+      return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, sandbox };
     }
     const source: RunSource = context.source ?? "owner";
-    return this.askApproval(context, { tool: call.name, label, target, source, remember,
+    const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
+    return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
@@ -1430,6 +1523,8 @@ export class Runtime {
     context: ToolContext,
     about: {
       tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember;
+      /** How tightly the rule wants the program held, so the card can say it before the yes. */
+      sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
       bytes?: string; fingerprint?: string;
     },
@@ -1441,15 +1536,44 @@ export class Runtime {
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
     const question = approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
-    this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
+    // A conversation can genuinely stop on more than one thing at once, so the question joins the
+    // list rather than taking the place of whatever was already there. Only when the list is full
+    // does one go, and then the task that was waiting on it is told, in plain words.
+    const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
+      ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
+    if (dropped) this.letOldestQuestionGo(dropped);
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
+  }
+  /**
+   * A question nobody answered in time, once the conversation had as many waiting as it may have.
+   * The task it belonged to is finished plainly rather than left waiting on an answer that can no
+   * longer arrive, and the same sentence goes on its own record so it can be read afterwards.
+   */
+  private letOldestQuestionGo(dropped: PendingApproval): void {
+    const message = droppedPendingMessage(dropped.label);
+    // A question that went away unanswered is a thing the assistant asked for and did not get, so
+    // it belongs in the same record as every yes and no. Written first and on its own, because the
+    // record is the one place a person reads afterwards and it must not be lost if telling the
+    // task itself goes wrong.
+    try {
+      audit(this.store, this.owner, {
+        action: "approval.decided", actor: this.owner,
+        subject: `${dropped.tool}${dropped.target ? ` on ${dropped.target}` : ""}`,
+        reason: message.slice(0, 500), source: dropped.source, origin: dropped.source,
+        runId: dropped.runId, outcome: "let go unanswered",
+      });
+    } catch { /* the record must never break the question being asked now */ }
+    try {
+      this.store.event(dropped.runId, "policy.ask.dropped", { name: dropped.tool, target: dropped.target, label: dropped.label, message });
+      if (this.store.run(dropped.runId)?.status === "needs_input") this.store.finish(dropped.runId, "failed", message);
+    } catch { /* telling a task it was let go must never break the one that is asking now */ }
   }
   /**
    * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
@@ -1467,13 +1591,21 @@ export class Runtime {
      */
     answeredOn?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
-    const waiting = this.approvals.waiting(sessionId).at(-1);
+    // With a fingerprint the answer lands on that exact request, whichever of the questions this
+    // conversation is waiting on it is; without one, on the oldest, which is the only one when
+    // only one is waiting.
+    const waiting = this.approvals.questionFor(sessionId, fingerprint)
+      ?? (fingerprint === undefined ? undefined : this.approvals.questionFor(sessionId));
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (fingerprint !== undefined && waiting.fingerprint !== undefined && fingerprint !== waiting.fingerprint)
+    // An answer that names a request must land on that request and no other. The only way to get
+    // here having named one is through the fall-back above, which means nothing waiting carries
+    // that name — including a question that carries no name at all, which an answer naming one was
+    // certainly not given for.
+    if (fingerprint !== undefined && waiting.fingerprint !== fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
-    this.approvals.resolve(sessionId);
+    this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
@@ -1481,14 +1613,16 @@ export class Runtime {
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
-      // The record's "came from" column is a fixed list of the places a task can start, so which
-      // chat app the answer was pressed in goes in the "why" column beside the question itself.
-      // The column holds 500 characters and a row too long for it would be dropped in silence, so
-      // a long question is shortened here and the chat app's name always survives.
+      // The sentence still says where the answer was pressed, because that is what a person reads
+      // first. The column holds 500 characters and a row too long for it would be dropped in
+      // silence, so a long question is shortened here and the chat app's name always survives.
       reason: answeredOn
         ? `${(waiting.label || waiting.question).slice(0, 440)} — answered on ${answeredOn.slice(0, 40)}`
         : (waiting.label || waiting.question).slice(0, 500),
-      source: waiting.source, runId: waiting.runId,
+      // Where the moment happened is the chat app the button was pressed in, when it was one, and
+      // what the task itself came from is kept beside it. They are two different facts.
+      source: channelSource(answeredOn) ?? waiting.source,
+      origin: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
@@ -1624,9 +1758,12 @@ export class Runtime {
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
     const gated = await this.gate(call, args, context);
-    if (gated) return gated;
+    if (gated.refusal) return gated.refusal;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
-    const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
+    // How tightly a program this call starts is held travels with the call, so a tool that starts
+    // one can honour the owner's rule without knowing anything about the policy.
+    const scoped: ToolContext = { ...context, signal: AbortSignal.any([context.signal, timeout]),
+      ...(gated.sandbox ? { sandbox: gated.sandbox } : {}) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),
@@ -1670,6 +1807,18 @@ export class Runtime {
  * A fingerprint of the exact bytes the assistant asked to run. A yes is bound to it, so a command
  * that changes by one character is a new question rather than something an old yes covers.
  */
+/**
+ * Which chat app a button was pressed in, as the record's own word for it. A channel the record has
+ * no word for — one a plugin brought, say — is filed under the general "chat", so the column stays
+ * a short list a person can actually filter on and nothing is ever lost.
+ */
+export function channelSource(answeredOn: string | undefined): AuditSource | null {
+  if (!answeredOn) return null;
+  const name = answeredOn.trim().toLowerCase();
+  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system"].includes(name)
+    ? (name as AuditSource) : "chat";
+}
+
 export function argumentFingerprint(argumentBytes: string): string {
   return createHash("sha256").update(argumentBytes, "utf8").digest("hex").slice(0, 32);
 }

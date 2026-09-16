@@ -10,10 +10,13 @@ import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
+import { CredentialResolver } from "./credential-cli.js";
+import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
+import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -29,6 +32,9 @@ import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
 import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
+// Wave 8: conversations branched off other conversations, seen as a tree, and one answer carried back.
+import { SessionTree, registerSessionTree } from "./session-tree.js";
+import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
@@ -74,6 +80,7 @@ import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
+import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
@@ -203,6 +210,23 @@ export async function createBranch(options: {
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
   registerProcesses(registry, processes);
   store.onSessionClosed((sessionId) => { void processes.closeSession(sessionId); });
+  // Batch 20 (wave 8): a language server or a program being debugged that a task started goes when
+  // that task is over, the same way a program started in a conversation goes when it closes. The
+  // owner can keep either running instead, with a switch in Settings under Developer.
+  //
+  // "A task" means a task in a conversation. Pressing a tool's own button is one short task per
+  // press, so tearing down at the end of one of those would stop the debugger between "start it"
+  // and "what is this name"— the opposite of what was asked for. A press is left alone, and closing
+  // the app still stops everything.
+  const startedInAConversation = (runId: string): boolean => {
+    const run = store.run(runId);
+    return !!run && store.messages(run.sessionId).length > 0;
+  };
+  store.onRunFinished((runId) => {
+    if (!startedInAConversation(runId)) return;
+    void languageServers.closeRun(runId).catch(() => undefined);
+    void debugAdapters.closeRun(runId).catch(() => undefined);
+  });
   registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
@@ -210,6 +234,11 @@ export async function createBranch(options: {
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
+  // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
+  // there looks like nothing happening at all. The screen is probed by asking for the window list;
+  // the microphone and the camera are read out of what the person already chose.
+  const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
+  desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
@@ -229,6 +258,11 @@ export async function createBranch(options: {
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();
+  // Batch 26 (wave 8): the owner's own password manager, asked at the call boundary and only when
+  // they have switched it on. It waits for the same unlock the locker does.
+  const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
+  credentials.gate = () => sessionLock.require();
+  store.secrets.credentials = credentials;
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -250,6 +284,8 @@ export async function createBranch(options: {
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
+  const sessionTree = new SessionTree(store.sqlite);
+  registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
@@ -265,6 +301,9 @@ export async function createBranch(options: {
   registerKnowledge(registry, knowledge);
   // Working with several specialists at once, handing work over, and the shared scratch area.
   registerOrchestration(registry, runtime, knowledge);
+  // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
+  // that sorts a request to the one specialist it belongs to.
+  registerOrchestrationModes(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -286,12 +325,33 @@ export async function createBranch(options: {
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
   const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
   registerOpenApiTools(registry, openApiTools);
+  // Batch 20 (wave 8): the services the owner turned into tools are built back from what was
+  // written down, so they survive a restart. Nothing is fetched; each key still comes from the
+  // locker at the moment of the call.
+  openApiTools.restore(runtime.owner);
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
   // Wave 7: one place that turns speech into words and words into speech, whichever service does
   // the work, plus switching model in one conversation. Voice notes on chat apps come through here.
   const voice = new VoiceService(store, runtime.models, web.policy, web.policy.guard(globalThis.fetch));
+  // Wave 8: live conversations. Every connection that stays open leaves a span and a line in the
+  // record of what the assistant was allowed to do — the host and the path only, never the whole
+  // address, because a key can travel in the query string.
+  const live = new LiveConversations({ store, runtime, models: runtime.models, policy: web.policy, owner: runtime.owner });
+  // A live conversation belongs to one task. When that task finishes for any reason, the
+  // conversation and the socket it holds finish with it rather than being left open.
+  registry.onRunFinished(async (context) => { if (context.runId) live.stop(context.runId, "The task ended"); });
+  web.policy.watchSockets = (record, outcome, reason) => {
+    const span = runtime.tracer.start(record.runId ?? "", "delivery", `live connection to ${record.host}`, {
+      host: record.host, path: record.pathname, what: record.what, outcome,
+    });
+    span?.end(outcome === "refused" ? "error" : "ok", reason);
+    audit(store, runtime.owner, {
+      action: "network.connected", actor: runtime.owner, subject: `${record.host}${record.pathname}`,
+      reason: record.what, source: "owner", runId: record.runId, outcome,
+    });
+  };
   registerVoice(registry, voice, store);
   registerModelSwitch(registry, store, runtime.models);
   media.voice = voice;
@@ -311,7 +371,11 @@ export async function createBranch(options: {
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
   const privacy = new PrivacyGuard(store, runtime.owner, moderation);
   moderation.configure(privacy.settings().moderation);
-  channels.outboundGuard = (text) => privacy.outbound(text);
+  // Wave 8 (the long tail): while Lockdown is on, nothing is sent out of a messaging account at all.
+  channels.outboundGuard = async (text) =>
+    lockedDown(store, runtime.owner)
+      ? { text: "", blocked: true, reason: lockdownRefusal }
+      : privacy.outbound(text);
   runtime.hideSecrets = (value) => {
     const scrubbed = store.secrets.scrubber.deep(value);
     // The privacy settings live in the database; a failure reported while the app is closing
@@ -327,6 +391,9 @@ export async function createBranch(options: {
   const releaseOnLock: (() => Promise<unknown>)[] = [];
   sessionLock.onLock = () => {
     runtime.approvals.forgetAll();
+    // Wave 8: a connection that stays open would otherwise outlive the lock. Every live
+    // conversation ends, and every outbound socket with it.
+    live.closeAll("Branch was locked");
     for (const release of releaseOnLock) void release().catch(() => undefined);
   };
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
@@ -368,9 +435,17 @@ export async function createBranch(options: {
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   // A webhook's signing key lives in the locker with the other secrets, named rather than copied.
   webhooks.secretFor = lockerSecret("webhook");
-  runtime.notifyEvent = webhooks.notifier(runtime.owner);
-  channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
+  // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
+  const notify = webhooks.notifier(runtime.owner);
+  const guardedNotify: typeof notify = (event, payload) => {
+    if (!lockedDown(store, runtime.owner)) notify(event, payload);
+  };
+  runtime.notifyEvent = guardedNotify;
+  channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
+  // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
+  // make the answer stricter — hold it for a yes, or refuse it.
+  runtime.askHooks = (runId, about) => hooks.decide(runId, about);
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
@@ -405,7 +480,7 @@ export async function createBranch(options: {
   // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
   // each box finishes.
   const flows = new Flows(store, runtime.owner, workflows);
-  flows.notifyEvent = webhooks.notifier(runtime.owner);
+  flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
@@ -415,6 +490,9 @@ export async function createBranch(options: {
   executions.onRoom = () => {
     try { runQueue.drain(runtime.owner); } catch { /* the line must never break a finished request */ }
   };
+  // Batch 20 (wave 8): a study's cells are work like any other, so they take places from the same
+  // count. The study runs its first cell on the place it already holds, so it can never be starved.
+  studies.executions = executions;
   const calendar = new CalendarSettingsStore(store, dataDir);
   await calendar.seed();
   scheduler.calendar = calendar;
@@ -444,8 +522,14 @@ export async function createBranch(options: {
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   // Knowledge bases. Reading passages is charged to the task that asked for it, exactly the way a
   // model answer is; background reading has no task, so it is recorded as an event instead.
+  // Batch 20 (wave 8): every passage sent to a provider that is not on this computer goes through
+  // the owner's network rules, exactly as every other provider call does. A reader running here is
+  // reached directly, because those rules refuse local addresses on purpose.
+  const guardedFetch = web.policy.guard(globalThis.fetch);
+  documents.embeddingFetch = guardedFetch;
+  memory.retrieval.embeddingFetch = guardedFetch;
   const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
-    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
+    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) }, undefined, guardedFetch);
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
   // What was said in a conversation, written up as fact cards the owner can accept into a
@@ -522,6 +606,8 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
+    sessionTree,
     files,
     knowledge,
     documents,
@@ -529,6 +615,8 @@ export async function createBranch(options: {
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
     voice,
+    /** Wave 8: live conversations — talking and being cut off, over a connection that stays open. */
+    live,
     /** Finding, tidying and moving saved facts. */
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
@@ -563,6 +651,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
+    osPermissions,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -680,6 +770,8 @@ export async function createBranch(options: {
     traceExport,
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
+      // Wave 8: a connection that stays open must not outlive the app either.
+      live.closeAll("Branch closed");
       plugins.stop();
       skillPackages.stop();
       mcpServer.close();
@@ -878,6 +970,12 @@ export * from "./code-change.js";
 export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
+export * from "./credential-cli.js";
+export * from "./sandbox.js";
+export * from "./os-permissions.js";
+export * from "./profile-roles.js";
+export * from "./replay.js";
+export * from "./orchestration-modes.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
@@ -887,6 +985,11 @@ export * from "./voice-stt.js";
 export * from "./voice-tts.js";
 export * from "./voice-talk.js";
 export * from "./voice-service.js";
+export * from "./realtime.js";
+export * from "./realtime-openai.js";
+export * from "./realtime-gemini.js";
+export * from "./realtime-voice.js";
+export * from "./realtime-socket.js";
 export * from "./voice-api.js";
 export * from "./model-profiles.js";
 export * from "./model-switch.js";
@@ -934,3 +1037,13 @@ export * from "./mcp-lifecycle.js";
 export * from "./mcp-apps.js";
 export * from "./mcp-workbench.js";
 export * from "./integrations/mcp-oauth.js";
+// Wave 8 (the long tail in "other"): the app's own OpenAPI description, keeping answers to
+// identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
+// make, what each project has cost, and watching a folder.
+export * from "./api-openapi.js";
+export * from "./request-cache.js";
+export * from "./batch-inference.js";
+export * from "./lockdown.js";
+export * from "./session-tree.js";
+export * from "./project-ledger.js";
+export * from "./watch.js";
