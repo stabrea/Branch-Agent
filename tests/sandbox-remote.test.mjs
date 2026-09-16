@@ -811,3 +811,25 @@ test("A2028 the ceiling really reaches the run loop and the chat door", async (t
   assert.equal(turned.ok, false);
   assert.match(turned.reason, /as much as Branch will do for one person/);
 });
+
+test("A0648 a rule about another computer is about the program, not the computer's name", async (t) => {
+  await fixture(t);
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  const { presetRules, evaluatePolicy, isReadOnlyPermission, PolicySchema } = await import("../dist/policy.js");
+
+  // "tower: make build" is a command rule about `make`, so "always allow make" means make and not
+  // everything that computer can run.
+  assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: make build", { computer: "tower", program: "make" }),
+    { kind: "command", value: "make" });
+  assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: /usr/bin/make build", {}),
+    { kind: "command", value: "make" });
+
+  // Running a program elsewhere is a change, so the strict presets cover it without naming it.
+  assert.equal(isReadOnlyPermission("remote.execute"), false);
+  assert.equal(isReadOnlyPermission("files.read"), true);
+  const readOnly = PolicySchema.parse({ preset: "read-only", rules: presetRules("read-only") });
+  assert.equal(evaluatePolicy(readOnly, { tool: "remote.run", target: "tower: make build", readOnly: false }).decision, "deny");
+  assert.equal(evaluatePolicy(readOnly, { tool: "remote.files", target: "tower: reports", readOnly: true }).decision, "allow");
+  const asks = PolicySchema.parse({ preset: "workspace", rules: presetRules("workspace") });
+  assert.equal(evaluatePolicy(asks, { tool: "remote.run", target: "tower: make build", readOnly: false }).decision, "ask");
+});
