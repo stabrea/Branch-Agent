@@ -8,7 +8,7 @@ import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
 
 /** Longest a command waits for its Windows job object before running with sampled limits. */
-const jobStartupMs = 1500;
+const jobStartupMs = 1000;
 
 export type SecretResolver = (context: ToolContext, names: string[]) => Promise<Record<string, string>>;
 export interface ShellTarget {
@@ -24,6 +24,7 @@ export class BranchShell {
   private readonly env: NodeJS.ProcessEnv;
   private readonly pending = new Set<Operation>();
   private closed = false;
+  private spare: Job | null = null;
   constructor(input: unknown, env = process.env, private readonly secrets?: SecretResolver,
     private readonly jobs: JobObjects = defaultJobObjects()) {
     this.config = ShellConfigSchema.parse(input);
@@ -63,11 +64,13 @@ export class BranchShell {
   /** A Windows job to hold this command, where the computer offers one; null means sampled limits. */
   private async job(): Promise<Job | null> {
     if (!this.config.useJobObject) return null;
+    // A supervisor that came ready after an earlier command had already started serves the next one.
+    if (this.spare) { const ready = this.spare; this.spare = null; return ready; }
     const pending = this.jobs.create({ maxMemoryMb: this.config.maxMemoryMb, maxCpuSeconds: this.config.maxCpuSeconds }).catch(() => null);
     // The supervisor compiles a little C# on start; on a cold computer that can take many seconds.
     // A command never waits longer than this for it: the limits fall back to sampling instead.
     const job = await Promise.race([pending, new Promise<null>((resolve) => setTimeout(() => resolve(null), jobStartupMs).unref())]);
-    if (job === null) void pending.then((late) => late?.close().catch(() => undefined));
+    if (job === null) void pending.then((late) => { if (!late) return; if (this.closed || this.spare) void late.close().catch(() => undefined); else this.spare = late; });
     return job;
   }
   private async spawn(run: { executable: { path: string; args: string[] }; args: string[]; cwd: string;
@@ -96,6 +99,8 @@ export class BranchShell {
   }
   async close(): Promise<void> {
     this.closed = true;
+    const spare = this.spare; this.spare = null;
+    if (spare) await spare.close().catch(() => undefined);
     const operations = [...this.pending];
     for (const operation of operations) operation.controller.abort(new Error('Host command execution closed'));
     await Promise.allSettled(operations.map(operation => operation.done));

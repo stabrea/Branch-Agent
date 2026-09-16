@@ -780,6 +780,32 @@ When a conversation grows past the fold-away threshold, the assistant is asked t
 
 Each conversation also keeps a one-line note of what is going on in it: the last thing you asked for, the last file touched and the last step taken. It appears in the context pane under **What we are doing** and rides along with the running-task list at `GET /api/activity`.
 
+## Why the assistant sometimes says it is opening a toolbox
+
+The assistant has a lot of tools now, and the full list of them is sent to the model **every single
+round** — not once per conversation. Left alone that list grows with every new feature and crowds
+out the conversation itself.
+
+So the tools are kept in labelled toolboxes: files, git, web, memory, documents, schedules, media,
+messages, specialists, skills and a few more. At the start of a task the assistant opens the ones
+the request obviously needs — "commit my changes and push" opens the git box — and leaves the rest
+closed. A closed box costs one line, "git: 6 tools", instead of its full contents. If the assistant
+finds it needs something from a closed box, it opens it, which is what it means when it says it is
+opening a toolbox; that box then stays open for the rest of the conversation, and anything it has
+just used stays in view for the next few rounds. Nothing is hidden from you and nothing new is
+allowed: a box can only ever contain tools this task was already permitted to use.
+
+You do not configure any of this. It shows up in the task's timeline as **catalog.preselected**
+(which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
+**catalog.size** (how many tools were described this round and what they weighed).
+
+Alongside it, each round records a **context.budget** line: the size limit, what the instructions
+cost, what the tool list cost, what the conversation costs, and the room held back for the answer.
+Folding older turns into a summary is now decided on the conversation alone, so adding tools to the
+product can never, by itself, cause a conversation to be folded away early. The point at which that
+happens is worked out each round from what the tool list and the answer leave over, and it never
+drops below the old fixed figure of 11,000.
+
 ## Showing the assistant a picture
 
 `POST /api/run` accepts `images`: up to four entries of `{mediaType, data, name?}`, where `mediaType` is `image/png`, `image/jpeg`, `image/webp` or `image/gif` and `data` is the picture's bytes base64 encoded (a `data:` prefix is accepted and stripped). Each picture may be up to 5 MB.
@@ -1351,3 +1377,68 @@ work that owns those files.
 
 The interface file `/collab.js` is served from the same local allowlist as the rest of the
 interface, and its panel sits under Schedules.
+
+## Rendering, looking inside a task, stepping in, the meter, the playground, the phone and languages
+
+**Markdown and code.** `/markdown.js` builds real elements and never HTML strings, so anything the
+model writes is shown, never run: a `<script>` in a reply appears as characters on the page. A
+reply gets the whole renderer — headings, lists, tables, quotes, horizontal rules, bold, italic,
+inline code, links and fenced code blocks, and a code block shows the language it was written in
+and has a Copy button. A saved memory fact and a document search passage are one line each, so they
+get `inlineNodes` only: bold, italic, inline code and links, with the search's own highlights left
+intact. A link only opens if it is `http`, `https` or `mailto`; inside the desktop app it goes
+through that app's own allowlist, elsewhere it opens a new tab.
+
+**Look inside a task.** `GET /api/runs/:id/inspect` answers everything the panel shows in one call:
+the task, how long it took, each model round (which model, how long, the size of the prompt, the
+tokens in and out), each tool call (what went in, what came back, both clipped, and whether its
+proof checked out), the plan it worked through, the reviewer's verdicts, anything you told it
+mid-task, the questions it stopped on, the step-by-step timeline, usage and cost. The panel opens
+from any run in Activity or from the row in a conversation that says what it worked with, and
+**Save this as a file** writes the same answer out as JSON. `GET /api/runs/:id/timeline` and
+`GET /api/runs/:id/receipts` still answer on their own.
+
+**Stepping into a task.** While a task is working, a row appears above the message box with the
+step it has reached and how long it has been going, fed by the run's WebSocket at
+`/api/runs/:id/ws` and checked against `GET /api/activity` every second. **Pause** sends a steering
+note telling it to hold; **Tell it something** sends your own note to `POST /api/runs/:id/steer`;
+**Stop** calls `POST /api/runs/:id/cancel`. When the approval rules make a task stop and ask, the
+question appears in the same place with **Yes, just now**, **Yes, for this conversation**, **Yes,
+always** and **No**, each answered through `POST /api/policy/approve`. "Yes, always" is only
+offered for a task you started yourself, and writes a rule into your settings.
+
+**The meter.** Under the message box, a quiet bar shows how much of this conversation's room has
+been used against the model's context window, and roughly what it has cost so far. Clicking it
+opens the numbers: messages, tasks, words in, words out and the cost. A model with no price on
+file is said so in words; it is never shown as costing nothing. On a phone the cost moves into the
+popover so the bar still fits.
+
+**Try things out.** Settings → Developer → Try things out lists every tool. `GET /api/tools/forms`
+returns each tool's description and its JSON schema, and the screen builds the form from that.
+**Run it** posts to `POST /api/tools/try`, which checks the same approval rules the assistant works
+under: a tool your settings refuse comes back refused, a tool they say to ask about comes back as a
+question and only runs after you say yes, and the result is shown exactly as the tool returned it.
+Below that, one question can be put to two models using the evaluation route where that is
+configured.
+
+**On a phone.** `/manifest.webmanifest` and `/service-worker.js` make the page installable. The
+worker keeps the app's own files (stylesheets, scripts, icons, the English words) so it opens
+quickly and shows the app rather than a browser error when the connection drops. Nothing under
+`/api/`, `/v1/` or `/webhooks/` is ever cached: your assistant is live or it is nothing, and an
+unreachable computer puts a plain banner on the screen. The worker is never registered inside the
+desktop app or when the page is opened with `?desktop=1`, and the desktop app never offers to
+install itself.
+
+**Languages.** Labels go through `t(key)` in `/i18n.js`, reading `/locales/en.json`. The rail, the
+sections, the owner menu, the message box and the screens described above are covered; the older
+section screens still carry their English copy in the markup and are the next thing to move.
+`/locales/fr.json` is a machine draft and says so; a key it does not answer falls back to English
+rather than leaving a blank. Markup carries the key in `data-t` (text) or `data-t-label`,
+`data-t-placeholder`, `data-t-title` (attributes). The language is chosen in Settings → Appearance
+and kept in this browser, not in the workspace. Dates and numbers are written with `Intl` in the
+chosen language.
+
+The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.js`, `/live-run.js`,
+`/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
+`/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
+as the rest of the interface.

@@ -2,6 +2,8 @@
  * The Documents panel: what the assistant may read from, and a search that shows the exact
  * passages it would use. Kept in its own file; the page only provides the empty section.
  */
+import { inlineNodes } from "/markdown.js";
+
 const $ = (id) => document.getElementById(id);
 const sizeLimit = 20 * 1024 * 1024;
 let view = null;
@@ -78,13 +80,18 @@ function act(label, run) {
   return node;
 }
 
-/** Brackets around the matching words come from the search; they become highlights, never markup. */
+/**
+ * Brackets around the matching words come from the search; they become highlights, never markup.
+ * Everything between them keeps the formatting the document was written with — bold, italic,
+ * inline code and links — built as nodes, so the passage still cannot carry markup of its own.
+ */
 function passage(result) {
   const node = el("div", undefined, "item");
   node.append(el("h3", result.source), el("p", `Passage ${result.passage + 1}`, "meta"));
-  const text = el("p");
+  const text = el("p", undefined, "markdown");
   for (const part of String(result.highlight || result.text).split(/(\[[^\]]*\])/))
-    text.append(part.startsWith("[") && part.endsWith("]") ? el("mark", part.slice(1, -1)) : document.createTextNode(part));
+    if (part.startsWith("[") && part.endsWith("]")) text.append(el("mark", part.slice(1, -1)));
+    else if (part) text.append(...inlineNodes(part));
   node.append(text);
   return node;
 }

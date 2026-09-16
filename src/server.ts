@@ -27,6 +27,9 @@ import { allPresets, findPreset } from "./providers/presets.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
 import { streamRunEvents } from "./streams.js";
+// Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
+import { inspectRun } from "./inspect.js";
+import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
@@ -197,6 +200,22 @@ async function staticFile(
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
+    // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
+    "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
+    "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
+    "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
+    "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
+    "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
+    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
+    "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
+    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
+    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
+    "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
+    "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],
+    "/assets/icon-512.png": ["assets/icon-512.png", "image/png"],
+    "/assets/icon.svg": ["assets/icon.svg", "image/svg+xml"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
     "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
@@ -212,7 +231,8 @@ async function staticFile(
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      // worker-src and manifest-src let the installable web app register its service worker.
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   });
   response.end(body);
   return true;
@@ -421,7 +441,8 @@ function state(app: Branch): unknown {
     schedules: app.store.list("schedules", owner),
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
-    tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    // The app's own tool list is for a person to read, so it keeps the full description.
+    tools: app.registry.descriptions(new Set(app.registry.permissions()), { diet: false }),
     lock: app.sessionLock.state(),
     privacy: app.privacy.settings(),
     secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
@@ -444,6 +465,15 @@ async function api(
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
   if (collab !== notCollab) return collab;
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
+  // The developer playground: the form for every tool, and running one by hand through the gate.
+  if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
+  if (request.method === "POST" && path === "/api/tools/try")
+    // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
+    // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
+    return app.runtime.hideSecrets(
+      await tryTool(app.registry, app.store, app.runtime.owner,
+        app.runtime.context({ signal: AbortSignal.timeout(120000) }),
+        TryToolSchema.parse(await readBody(request))));
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -677,6 +707,25 @@ async function api(
     const run = app.store.run(traceMatch[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return buildTraceDocument(app.store, run.id, app.version);
+  }
+  // "Look inside" a task: rounds, tool calls, plan, verdicts and steering in one answer.
+  const inspectMatch = /^\/api\/runs\/([a-f0-9-]{36})\/inspect$/.exec(path);
+  if (request.method === "GET" && inspectMatch) {
+    const run = app.store.run(inspectMatch[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    const receipts = await receiptsView(app, run.id);
+    const { overrides } = pricingSettings(app.store, app.runtime.owner);
+    // A tool call's raw arguments are read back off the assistant message, which the runtime never
+    // scrubbed; nothing leaves here carrying a saved password or key.
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
+      receipts, version: app.version, cost: receipts.cost,
+      timeline: app.store.usageStore().getRunTimeline(run.id),
+      /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
+      price: (model, tokens) => {
+        const estimate = estimateCost(model, tokens, overrides);
+        return { amount: estimate.amount, display: formatCost(estimate) };
+      },
+    }));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
@@ -1668,7 +1717,7 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

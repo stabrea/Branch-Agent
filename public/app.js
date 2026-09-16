@@ -1,4 +1,6 @@
 import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
+// Wave 6: replies render as markdown, and any task can be opened with "Look inside".
+import { fillMarkdown, inlineNodes } from "/markdown.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -143,6 +145,8 @@ function renderRuns() {
         el("p", date(run.createdAt), "meta"),
         button("Inspect trace", () => showRun(run.id)),
       );
+      // Wave 6: the same task, opened as one readable screen instead of raw events.
+      if (globalThis.branchInspector) node.append(globalThis.branchInspector.button(run.id));
       for (const change of run.changes || []) {
         const row = el("div", undefined, "file-change");
         row.append(el("span", `${change.existed ? "Changed" : "Created"} ${change.path} (+${change.added} −${change.removed})`));
@@ -259,6 +263,9 @@ async function showMemoryHistory(node, record) {
 }
 function memoryCard(record) {
   const node = recordCard(record.data.text);
+  /* A saved fact is one line, so it keeps its heading and gets the inline formatting only:
+     bold, italic, inline code and links, built as nodes so nothing in it can become markup. */
+  node.querySelector("h3")?.replaceChildren(...inlineNodes(record.data.text));
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
@@ -488,7 +495,7 @@ async function refresh() {
   renderAttention();
   void window.branchMcp?.render();
   void window.branchApprovals?.render();
-  void window.branchDesktop?.render();
+  void window.branchScreenControl?.render();
   void window.branchMisc?.render();
   void window.branchDiagnostics?.render();
 }
@@ -1034,10 +1041,12 @@ function stepLabel(calls) {
   return calls.length === 1 ? `Used ${shown}` : `Worked with ${calls.length} tools · ${shown}`;
 }
 /** A tool step is one quiet row in the flow that opens, not a card of its own. */
-function toolStep(content, calls) {
+function toolStep(content, calls, source) {
   const node = el("details", undefined, "message assistant-step tool-step");
   const summary = el("summary");
   summary.append(el("span", stepLabel(calls)));
+  // Wave 6: the row that says what it worked with also opens the whole task.
+  if (source?.runId && globalThis.branchInspector) summary.append(globalThis.branchInspector.button(source.runId));
   node.append(summary);
   const body = el("div", undefined, "step-body");
   if (content.trim()) body.append(el("p", content));
@@ -1050,12 +1059,12 @@ function toolStep(content, calls) {
   $("conversation").append(node);
 }
 function message(role, content, source) {
-  if (source?.toolCalls?.length) return toolStep(content, source.toolCalls);
+  if (source?.toolCalls?.length) return toolStep(content, source.toolCalls, source);
   const node = el("div", undefined, "message " + role);
-  node.append(
-    el("small", role === "user" ? "You" : "Branch Agent"),
-    document.createTextNode(content),
-  );
+  node.append(el("small", role === "user" ? "You" : "Branch Agent"));
+  /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
+  if (role === "user") node.append(document.createTextNode(content));
+  else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
   if (source?.messageId && !source.toolCalls?.length) {
     const controls = el("div", undefined, "message-controls");
     controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
@@ -1377,6 +1386,8 @@ $("chat-form").addEventListener("submit", async (event) => {
   message("user", prompt);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
+  // Wave 6: the live row you can step into while it works.
+  globalThis.branchLiveRun?.watch(sessionId, prompt);
   try {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     // Pictures put on the composer travel with this one message and are then cleared (wave 5).
@@ -1411,6 +1422,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     message("assistant", e.message);
   } finally {
     stopActivity();
+    globalThis.branchLiveRun?.stop(sessionId);
+    globalThis.branchTokenMeter?.refresh();
     setConversationBusy(false);
     if (pendingFollowUps > 0) void awaitFollowUps();
   }

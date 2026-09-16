@@ -494,8 +494,11 @@ untested. New routes: `GET /api/research`, `GET|POST /api/monitors`, `POST /api/
 `DELETE /api/monitors/{id}`, `GET|POST /api/brief`, `POST /api/brief/send`. Tests:
 `tests/data-research.test.mjs`. One shared change was unavoidable: with fourteen more tools the tool
 catalog is about 9.5k estimated tokens, so the old `compactionThreshold` of 11000 left barely 1.5k for
-the conversation and a compacted context could never get back under it — it is now 14000 and exported,
-and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a literal.
+the conversation and a compacted context could never get back under it — it was raised to 14000 and
+exported, and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a
+literal. (Batch 24 removed the need for that: the catalog no longer counts towards the figure at all,
+so `compactionThreshold` went back to meaning the 11000 floor and the live figure is derived each
+round. The test was left alone because it still asserts against the exported name.)
 Not done: no Firecrawl or Scrapling integration (A0742, A0743) — both need dependencies. Covers A0931
 and the research-pipeline and data families listed for those themes.
 
@@ -1062,6 +1065,103 @@ a restore brings a profile's records back without the person; the docs say to ad
 `channels`, `server`, `projects-locker`, `static-assets`, `ui`, `core-regressions`, `memory`,
 `triggers-webhooks` and `runtime` still pass (88 in all). No new dependency.
 Covers A1901, A1999, A2226, A0862, A0632, A2073 and A0697.
+## Batch 23 (wave 6) — the web app grows up
+
+The browser interface got the parts it was missing. `public/markdown.js` is a dependency-free
+renderer that builds DOM nodes and never HTML strings, so a reply, a saved note or a document can
+carry `<script>` and it arrives as characters on the page; headings, lists, tables, quotes, links
+(opened outside the app through the desktop allowlist), inline code and fenced blocks with a copy
+button and the language written out all render, and `tests/fixtures/markdown-sample.md` is the
+fixture the test reads structure out of. `public/inspector.js` is "Look inside": one panel per task
+showing every model round with its duration, prompt size, tokens and cost, every tool call with
+what it was given and what came back (both clipped) and its receipt outcome beside it, the plan,
+the reviewer's verdicts, anything the owner steered mid-task and the questions it stopped on, with
+the whole thing saved as JSON. The round figures come from the payload the runtime really writes
+(`estimatedInput`/`estimatedOutput` and `reported` on `model.completed`), and each row says whether
+the provider counted them or we did; per-round cost goes through the same price table as the Usage
+screen. The raw arguments of a call are not on the events at all — only the plain-language label is
+— so they are read back from the assistant message that asked for the call, by call id, falling
+back to the label when that message has been compacted away. It is
+fed by one new route, `GET /api/runs/:id/inspect` (src/inspect.ts), which folds the timeline,
+receipts, usage and cost into a single answer. `public/live-run.js` puts a row in the message column
+while a task works — the step it has reached, how long it has been going, tokens so far, live over
+the run's existing WebSocket — with "Ask it to wait", "Tell it something" and Stop. Waiting
+and carrying on are both notes to a task that is still working (`POST /api/runs/:id/steer`); the
+resume route refuses anything but an interrupted run, so neither control touches it;
+a question the task stops on appears there as a card with Yes once / Yes for this conversation /
+Always / No, wired to `POST /api/policy/approve`. Because a task ends the moment it asks, the card
+is fetched once more as the row shuts down, or it would never be seen. `public/token-meter.js` is
+the quiet bar under the composer: context used against the model's window and the cost so far, with
+the numbers in a popover; a model with no price on file is said so in words. `public/playground.js`
+is Settings → Developer → Try things out: a form generated from each tool's own JSON schema
+(`GET /api/tools/forms`) and `POST /api/tools/try`, which evaluates the same approval policy the
+runtime uses and refuses or asks before it runs anything — it does not bypass the gate. The app is
+installable: `manifest.webmanifest`, generated 192/512 icons, and `service-worker.js` that keeps the
+shell files and never caches `/api/`, so a dropped connection shows a plain banner rather than a
+browser error; registration is skipped under `?desktop=1` and inside Electron, and the CSP grew
+`worker-src 'self'; manifest-src 'self'`. Finally `public/i18n.js` moves the labels behind `t(key)`
+with `public/locales/en.json` as the source of truth and a machine-drafted `fr.json` beside it,
+marked as a draft; markup carries `data-t` / `data-t-label` / `data-t-placeholder`, the language is
+chosen in Appearance, dates and numbers go through `Intl`, and a key with no translation falls back
+to English rather than leaving a blank. `tests/web-ui.test.mjs` covers all of it; the static-assets
+test now also follows absolute imports, the locale files and the list inside the service worker.
+Covers A0482, A0447, A0285, A0295, A1302, A0057, A0731, A1904, A0437 and A0483. Not done: the whole markdown renderer runs on replies, while a
+saved memory fact and a document search passage — one line each, and the passage carries the
+search's own highlights — get the inline formatting only (bold, italic, inline code, links); the
+"two models side by side" pane reuses the evaluation route and degrades to a plain message where
+that route is not configured, and localisation covers the shell chrome and the wave 6 screens
+rather than every string in every older section screen.
+
+## Batch 24 (wave 6) — a tool catalog that stops growing, and explicit context accounting
+The catalog was the one part of the prompt charged on **every** round that grew with the product:
+on this tree 81 tools cost 47,480 characters (about 11,870 estimated tokens) of a 20,000-token
+limit, which is why two builders had already raised the compaction threshold. `src/catalog.ts` fixes that three
+ways and nothing else in the loop changed shape. **Schema diet**: `ToolRegistry.descriptions()` now
+runs every generated schema through `slimSchema` — out go `$schema`, `title`, `additionalProperties`
+that is `false` or `{}`, string and array length bounds, machine-generated `pattern`s (any longer
+than 40 characters, or any sitting next to a `format` that already says the same thing), bare
+`propertyNames`, and required entries for properties that carry a `default`; descriptions are capped
+at 200 characters. Enum values, required lists, `format`, `default`, types and property names all
+stay, and the walk is keyword-aware so a tool with a property actually named `pattern` or
+`maxLength` is not mangled. 47,480 → 30,180 characters, **36.4 % smaller** at the same 81 tools.
+`descriptions(perms, { diet: false })` returns the old shape, and the two places that are not the
+model loop use it: the MCP server, because another program's client validates against what it is
+advertised, and `/api/state`, because the app's tool list is for a person to read. **Groups and lazy
+expansion**: every tool has a `group` (its own, or inferred from its name prefix), and a run is
+shown the always-open boxes (`core`, `files`), whatever a cheap lexical scorer guesses from the
+prompt, project and recent messages (`rankGroups`, two or three boxes, no model call), and one line
+per closed box. `tools.expand {groups}` opens a box for the rest of the conversation; it is handled
+in `Runtime.callTool` before the registry, touches nothing, and can only ever reveal tools the run's
+permissions already allowed, because the catalog is built from `descriptions(context.permissions)`.
+A tool used in the last three rounds stays in view after its box closes. Tools whose names the
+product does not recognise land in `other` and stay open while there are twelve or fewer of them —
+nothing in a request's words can point at a box with no meaning. Watches (`monitor.*`) and the
+morning brief (`brief.*`) were the one family the prefixes did not know, so they were landing in
+`other` and staying open — filling seven of the twelve slots that keep an owner's plugin and MCP
+tools visible without an extra round, and six more of those would have closed the box on all of
+them. They are filed under `schedules`, where they belong. Typical first round
+on this tree: 17 to 24 tools, 5,200–7,800 characters (1,300–2,000 estimated tokens, 83–89 % smaller);
+everything closed: 861 characters, 216 estimated tokens (**98.2 % smaller**). **Context accounting**:
+one `ContextBudget` per round (`limit`, `system`, `catalog`, `messages`, `reserve`, `threshold`,
+`headroom`) emitted as `context.budget`, with `catalog.size` and `catalog.preselected` /
+`catalog.expanded` alongside. Compaction now compares the **conversation alone** against a threshold
+derived as `limit − catalog − reserve`, floored at the old constant, so a bigger catalog can no
+longer fold a conversation away early — only a catalog large enough to break the whole request
+still forces a last-resort fold instead of failing the task; `compactionThresholdFloor` (11,000) and
+`derivedCompactionThreshold()` are both exported, and `compactionThreshold` — the name wave 5 had
+raised to a fixed 14,000 — is now re-exported as that floor, because it is no longer a constant
+anything should read as the live figure. **Provider caching**: the Anthropic body is
+written tools → system → messages, Claude's own cache-prefix order, with one `cache_control` marker
+at the end of the catalog and one on the instructions, and `cache_read_input_tokens` is carried
+through `Usage.cachedInput` into the `model.completed` event; the OpenAI body puts tools before
+messages for automatic prefix caching and reads `prompt_tokens_details.cached_tokens`.
+`tests/catalog-diet.test.mjs` covers all of it, including 150 dummy tools over a 20-round
+conversation that neither exceeds the limit nor thrashes compaction. Two existing literals changed:
+`tests/providers.test.mjs` now expects `system` as a marked text block instead of a bare string, and
+nothing in `tests/compaction-attention.test.mjs` needed touching — it imports `compactionThreshold`,
+which now means the 11,000 floor, and the conversation share alone is well past that when it
+compacts. Covers the
+context-management theme (#82) and the reliability inventory item (#16).
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
