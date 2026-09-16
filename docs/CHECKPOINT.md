@@ -47,7 +47,13 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
-## Batch 16 (local, unreleased): resource limits, shared network policy, hooks, WebSocket, channel test
+## Release 0.7.1 (batch 16 + Enter-to-send)
+
+Version 0.7.1. Packaged with the stock electron.exe; 8/8 native tests against the packaged build. This is the
+first release the owner's fixed 0.7.0 updater should fetch through the button; rehearse the real path on a
+staged copy of the 0.7.0 install before asking the owner to press it.
+
+## Batch 16 (released in 0.7.1): resource limits, shared network policy, hooks, WebSocket, channel test
 
 `src/integrations/process-usage.ts` (sampled memory/CPU, `watchUsage`) used by `ShellProcess`;
 `src/network-policy.ts` (host + host/path rules, `guard(fetch)`) owned by `WebAccess.policy` and shared
