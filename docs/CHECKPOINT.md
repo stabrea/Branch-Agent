@@ -490,8 +490,11 @@ untested. New routes: `GET /api/research`, `GET|POST /api/monitors`, `POST /api/
 `DELETE /api/monitors/{id}`, `GET|POST /api/brief`, `POST /api/brief/send`. Tests:
 `tests/data-research.test.mjs`. One shared change was unavoidable: with fourteen more tools the tool
 catalog is about 9.5k estimated tokens, so the old `compactionThreshold` of 11000 left barely 1.5k for
-the conversation and a compacted context could never get back under it — it is now 14000 and exported,
-and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a literal.
+the conversation and a compacted context could never get back under it — it was raised to 14000 and
+exported, and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a
+literal. (Batch 24 removed the need for that: the catalog no longer counts towards the figure at all,
+so `compactionThreshold` went back to meaning the 11000 floor and the live figure is derived each
+round. The test was left alone because it still asserts against the exported name.)
 Not done: no Firecrawl or Scrapling integration (A0742, A0743) — both need dependencies. Covers A0931
 and the research-pipeline and data families listed for those themes.
 
@@ -938,7 +941,9 @@ A tool used in the last three rounds stays in view after its box closes. Tools w
 product does not recognise land in `other` and stay open while there are twelve or fewer of them —
 nothing in a request's words can point at a box with no meaning. Watches (`monitor.*`) and the
 morning brief (`brief.*`) were the one family the prefixes did not know, so they were landing in
-`other` and staying open; they are filed under `schedules`, where they belong. Typical first round
+`other` and staying open — filling seven of the twelve slots that keep an owner's plugin and MCP
+tools visible without an extra round, and six more of those would have closed the box on all of
+them. They are filed under `schedules`, where they belong. Typical first round
 on this tree: 17 to 24 tools, 5,200–7,800 characters (1,300–2,000 estimated tokens, 83–89 % smaller);
 everything closed: 861 characters, 216 estimated tokens (**98.2 % smaller**). **Context accounting**:
 one `ContextBudget` per round (`limit`, `system`, `catalog`, `messages`, `reserve`, `threshold`,
