@@ -47,6 +47,7 @@ import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, 
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -151,6 +152,7 @@ async function staticFile(
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
+    "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
@@ -451,6 +453,11 @@ async function api(
     const kept = await app.artifacts.list();
     return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
   }
+  // Using this computer's screen and keyboard: off until the owner turns it on here.
+  if (request.method === "GET" && path === "/api/desktop/settings")
+    return readDesktopSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/desktop/settings")
+    return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);

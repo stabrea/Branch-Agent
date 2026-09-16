@@ -55,6 +55,8 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { DesktopControl } from "./integrations/desktop.js";
+import { registerDesktop } from "./integrations/desktop-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -120,6 +122,10 @@ export async function createBranch(options: {
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
   registerGit(registry, git);
+  // This computer's screen and keyboard. The tools are always here so they can explain themselves,
+  // but every one of them refuses until the owner turns the switch on in Settings.
+  const desktop = new DesktopControl(store, { artifacts });
+  registerDesktop(registry, desktop);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -237,6 +243,8 @@ export async function createBranch(options: {
     /** Assistants elsewhere this one may hand work to. */
     remoteAgents,
     artifacts,
+    /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
+    desktop,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -294,7 +302,7 @@ export async function createBranch(options: {
       plugins.stop();
       skillPackages.stop();
       try {
-        await closeBranch(scheduler, runtime, store, channels);
+        await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
         oauth.closeAll();
       }
@@ -315,7 +323,9 @@ async function closeBranch(
   runtime: Runtime,
   store: Store,
   channels?: ChannelRouter,
+  desktop?: { close(): Promise<void> },
 ): Promise<void> {
+  await desktop?.close().catch(() => undefined);
   await channels?.detachAll();
   const schedulingStopped = scheduler.stop();
   await runtime.shutdown();
@@ -408,6 +418,10 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+export * from "./integrations/desktop.js";
+export * from "./integrations/desktop-tools.js";
+export * from "./integrations/desktop-config.js";
+export * from "./integrations/desktop-banner.js";
 export * from "./pricing.js";
 export * from "./local-models.js";
 export * from "./local-hardware.js";
