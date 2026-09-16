@@ -11,12 +11,13 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Receipts } from "./receipts.js";
 import { MemoryReview } from "./memory-review.js";
+import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -31,6 +32,7 @@ export class Store {
   private readonly library: SessionLibrary;
   private readonly memories: MemoryFacts;
   readonly review: MemoryReview;
+  private governanceStore: SkillGovernance | undefined;
   private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
@@ -58,7 +60,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS usage(run_id TEXT PRIMARY KEY REFERENCES tasks(id), estimated_input INTEGER NOT NULL DEFAULT 0, estimated_output INTEGER NOT NULL DEFAULT 0, reported_input INTEGER NOT NULL DEFAULT 0, reported_output INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries"])
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
@@ -161,6 +163,15 @@ export class Store {
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
   /** Restores a backup into a fresh install; refuses when this copy already has state. */
   restore(input: unknown) { return importBackup(this.db, input); }
+  /** Skill failure patterns, exclusions, demotion, benchmarks and drafts for this owner. */
+  get governance(): SkillGovernance {
+    return (this.governanceStore ??= new SkillGovernance(this, "local"));
+  }
+  governanceFor(owner: string): SkillGovernance { return owner === "local" ? this.governance : new SkillGovernance(this, owner); }
+  /** Completed top-level runs created after a moment, oldest first, for consolidation. */
+  runsSince(owner: string, after: string, limit = 20): Run[] {
+    return this.db.prepare("SELECT * FROM tasks WHERE owner=? AND status='completed' AND created_at>? ORDER BY created_at ASC LIMIT ?").all(owner, after, limit).map((row) => this.toRun(row));
+  }
   /** Workspace file history and snapshots for the given workspace. */
   openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {
     return (this.historyStore ??= new WorkspaceHistory(this.db, files, owner));

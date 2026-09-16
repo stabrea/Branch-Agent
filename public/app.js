@@ -203,6 +203,7 @@ function renderLearning() {
   const learning = state.learning || {};
   if (document.activeElement !== $("learning-review")) $("learning-review").checked = !!learning.review;
   if (document.activeElement !== $("learning-approval")) $("learning-approval").checked = !!learning.requireApproval;
+  if (document.activeElement !== $("learning-consolidate")) $("learning-consolidate").checked = !!learning.consolidateDaily;
   list("memory-proposals", state.memoryProposals || [], (p) => {
     const node = el("div", undefined, "record");
     const what = p.kind === "put" ? "Remember" : p.kind === "update" ? "Change a memory to" : p.kind === "delete" ? "Forget a memory" : "Note for a skill";
@@ -219,11 +220,17 @@ function renderLearning() {
   }, "No checkpoints yet.");
 }
 async function saveLearning() {
-  try { await api("memory/settings", { review: $("learning-review").checked, requireApproval: $("learning-approval").checked }); await refresh(); }
+  try { await api("memory/settings", { review: $("learning-review").checked, requireApproval: $("learning-approval").checked, consolidateDaily: $("learning-consolidate").checked }); await refresh(); }
   catch (e) { toast(e.message); }
 }
 $("learning-review").addEventListener("change", saveLearning);
 $("learning-approval").addEventListener("change", saveLearning);
+$("learning-consolidate").addEventListener("change", saveLearning);
+$("consolidate-now").addEventListener("click", async () => {
+  $("consolidate-now").disabled = true;
+  try { const r = await api("memory/consolidate", {}); toast(r.skipped ? `Nothing to add: ${r.reason}.` : `Looked over ${r.runs} task(s) and made ${r.proposals} suggestion(s).`); await refresh(); }
+  catch (e) { toast(e.message); } finally { $("consolidate-now").disabled = false; }
+});
 $("checkpoint-save").addEventListener("click", async () => {
   const label = $("checkpoint-label").value.trim();
   try { await api("memory/checkpoints", label ? { label } : {}); $("checkpoint-label").value = ""; toast("Checkpoint saved."); await refresh(); } catch (e) { toast(e.message); }
@@ -861,6 +868,13 @@ form("models-form", async () => {
 });
 function renderSkills() {
   if (document.activeElement !== $("skill-policy")) $("skill-policy").value = state.skillPolicy || "block";
+  const names = new Map((state.skills || []).map((s) => [s.id, s.name]));
+  list("set-aside-list", state.setAside || [], (x) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", names.get(x.skillId) || x.skillId), el("p", `Kept failing: ${x.signature} · trial after ${date(x.until)}${x.trialRunId ? " · a trial is under way" : ""}`, "meta"),
+      button("Let it back in now", async () => { await api(`governance/set-aside/${x.skillId}/restore`, {}); await refresh(); }));
+    return node;
+  }, "No skill is set aside.");
   list("skills-list", state.skills || [], value => {
     const node = recordCard(value.name, value.needsReview ? "needs your review" : value.activeVersion === null ? "disabled" : "enabled");
     node.dataset.skillId = value.id;
@@ -1062,6 +1076,24 @@ function renderConversationContext() {
   }
   if (!currentTemporary) context.append(conversationButton("Forget what this conversation saved to memory", () => previewForget(context)));
   if (!currentTemporary) void renderMemoryPolicy(context);
+  void renderChatLink(context);
+}
+/** Lets a Telegram chat continue this very conversation, so both see the same history. */
+async function renderChatLink(context) {
+  let summary;
+  try { summary = await api("channels"); } catch { return; }
+  if (!summary.chats.length) return;
+  const row = el("div", undefined, "check-row");
+  const select = el("select");
+  select.append(el("option", "Link a chat to this conversation…"));
+  for (const chat of summary.chats) { const option = el("option", `${chat.channel}: ${chat.title}${chat.sessionId === sessionId ? " (linked)" : ""}`); option.value = JSON.stringify({ channel: chat.channel, chatId: chat.chatId }); select.append(option); }
+  select.addEventListener("change", async () => {
+    if (!select.value) return;
+    try { await api("channels/link", { ...JSON.parse(select.value), sessionId }); toast("That chat now continues this conversation."); renderConversationContext(); }
+    catch (e) { toast(e.message); }
+  });
+  row.append(select);
+  context.append(row);
 }
 /** A switch for whether this conversation may save memory on its own. */
 async function renderMemoryPolicy(context) {

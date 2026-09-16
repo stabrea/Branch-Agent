@@ -85,6 +85,8 @@ export class Runtime {
   private readonly children = new Map<string, number>();
   /** Results of background specialists that finished after their parent, newest first. */
   readonly backgroundResults: BackgroundResult[] = [];
+  /** Per session: write tool calls whose outcome is unknown after an interruption, until a read has checked the state. */
+  private readonly unreconciled = new Map<string, { name: string; arguments: string }[]>();
   private readonly activeSessions = new Set<string>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
@@ -407,6 +409,7 @@ export class Runtime {
     }
     const settled = await this.settleRun(run, context, status, output);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
   }
@@ -434,7 +437,11 @@ export class Runtime {
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
-    const unknown = this.store.messages(run.sessionId).filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"')).length;
+    const messages = this.store.messages(run.sessionId);
+    const unknownIds = new Set(messages.filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"')).map((m) => m.toolCallId));
+    const calls = messages.flatMap((m) => (m.role === "assistant" ? m.toolCalls ?? [] : [])).filter((c) => unknownIds.has(c.id)).map((c) => ({ name: c.name, arguments: c.arguments }));
+    if (calls.length) this.unreconciled.set(run.sessionId, calls);
+    const unknown = unknownIds.size;
     this.store.event(run.id, "run.resumed", { from, unknownToolOutcomes: unknown });
     return " This task was interrupted and is now continuing from its saved transcript. A tool result marked outcome unknown may or may not have taken effect: check the actual state before repeating any action that changes something.";
   }
@@ -738,6 +745,22 @@ export class Runtime {
       Math.max(error.estimatedOutput, error.usage?.output ?? 0) +
       Math.max(0, (error.usage?.input ?? 0) - input);
   }
+  /**
+   * After an interruption, a write whose outcome is unknown may not simply be repeated: the model
+   * must first look (any read tool) so the real state is known. Reads clear the block for the session.
+   */
+  private reconciliationBlock(context: ToolContext, call: ToolCall): string | null {
+    const sessionId = this.store.run(context.runId)?.sessionId;
+    if (!sessionId) return null;
+    const pending = this.unreconciled.get(sessionId);
+    if (!pending?.length) return null;
+    const permission = this.registry.inventory().find((t) => t.name === call.name)?.permission ?? "";
+    const reads = /\.read$|\.(verify|list|search|history|status|at|timeline)$/;
+    if (reads.test(permission) || reads.test(call.name)) { this.unreconciled.delete(sessionId); return null; }
+    if (pending.some((p) => p.name === call.name && p.arguments === call.arguments))
+      return "This exact action already ran before the interruption and its outcome is unknown. Check the actual state first (read, list or verify), then decide whether to do it again.";
+    return null;
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -745,6 +768,8 @@ export class Runtime {
     let args: unknown, validArgs = true;
     try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
+    const blocked = this.reconciliationBlock(context, call);
+    if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {

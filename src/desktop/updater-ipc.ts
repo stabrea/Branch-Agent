@@ -1,5 +1,5 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
-import { spawn } from "node:child_process";
+import { launchHandOver } from "./hand-over.js";
 import { dirname, join } from "node:path";
 import { Updater } from "./updater.js";
 
@@ -31,7 +31,7 @@ export function registerUpdaterIpc(
     authorized(event);
     if (updater.inProgress) return updater.status;
     const { script } = await updater.install();
-    spawn("cmd.exe", ["/d", "/c", script, String(process.pid)], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    await launchHandOver(script, process.pid);
     const status = updater.applying();
     setTimeout(requestQuit, 750);
     // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.

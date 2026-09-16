@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
+import type { Runtime } from "./runtime.js";
+import { checkResult } from "./delegation.js";
 
 /**
  * Governance for what the assistant learns: exact versions of every memory, whole-memory
@@ -13,7 +15,10 @@ export const LearningSettingsSchema = z.object({
   review: z.boolean().default(false),
   /** Memory changes the model makes on its own are staged for the owner instead of applied. */
   requireApproval: z.boolean().default(false),
+  /** Once a day, look over what happened since last time and suggest what is worth remembering. */
+  consolidateDaily: z.boolean().default(false),
 }).strict();
+export interface ConsolidationReport { runs: number; through: string | null; proposals: number; skipped: boolean; reason?: string }
 export type LearningSettings = z.infer<typeof LearningSettingsSchema>;
 export const ProposalSchema = z.object({
   kind: z.enum(["put", "update", "delete", "skill-note"]),
@@ -27,6 +32,7 @@ export const ProposalSchema = z.object({
 export interface Proposal extends z.infer<typeof ProposalSchema> { id: string; status: "pending" | "accepted" | "rejected"; createdAt: string; decidedAt: string | null }
 export interface MemoryVersion { memoryId: string; revision: number; data: Record<string, unknown>; reason: string; createdAt: string }
 export interface Checkpoint { id: string; label: string; memories: number; skills: number; createdAt: string }
+const reviewPrompt = "You review a batch of finished tasks. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"which task showed it\"}]}. Include only things worth keeping for future tasks; an empty list is the normal answer.";
 export const memorySnapshotLimits = { facts: 20, chars: 2000 };
 
 export class MemoryReview {
@@ -119,6 +125,51 @@ export class MemoryReview {
       this.db.exec("COMMIT");
       return { id, memories: records.length, skills: restoredSkills };
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+  /** Where consolidation got to: only runs after this moment are looked at next time. */
+  cursor(owner: string): { through: string; lastRunAt: string | null } {
+    const row = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id='dream-cursor'").get(owner);
+    return row ? (JSON.parse(String(row.data)) as { through: string; lastRunAt: string | null }) : { through: "1970-01-01T00:00:00.000Z", lastRunAt: null };
+  }
+  dreamDue(owner: string, now = new Date()): boolean {
+    if (!this.settings(owner).consolidateDaily) return false;
+    const last = this.cursor(owner).lastRunAt;
+    return !last || now.getTime() - Date.parse(last) >= 86_400_000;
+  }
+  /**
+   * Looks over completed tasks since the cursor (at most 20), asks the model once what is worth
+   * remembering, stages the answers as suggestions, and advances the cursor only when that worked.
+   */
+  async consolidate(runtime: Runtime, owner: string): Promise<ConsolidationReport> {
+    const cursor = this.cursor(owner);
+    const runs = this.db.prepare("SELECT * FROM tasks WHERE owner=? AND status='completed' AND created_at>? AND prompt NOT LIKE 'Consolidate %' ORDER BY created_at ASC LIMIT 20").all(owner, cursor.through)
+      .map((row) => ({ id: String(row.id), sessionId: String(row.session_id), prompt: String(row.prompt), output: String(row.output), createdAt: String(row.created_at) }))
+      .filter((run) => !this.isChildRun(run.id));
+    const stamp = new Date().toISOString();
+    if (!runs.length) { this.saveCursor(owner, cursor.through, stamp); return { runs: 0, through: cursor.through, proposals: 0, skipped: true, reason: "nothing new" }; }
+    const digest = runs.map((r, i) => `Task ${i + 1} (${r.createdAt}): ${r.prompt.slice(0, 400)}\nOutcome: ${r.output.slice(0, 600)}`).join("\n\n").slice(0, 12000);
+    const parent = await runtime.run({ prompt: `Consolidate what happened in ${runs.length} task(s) since ${cursor.through.slice(0, 10)}` });
+    const child = await runtime.delegate(digest, runtime.context({ runId: parent.id }), [], reviewPrompt, { timeoutMs: 120000 });
+    const parsed = child.status === "completed" ? checkResult(child.output, { type: "object", properties: { memories: { type: "array" } } }) : { status: "unresolved" as const, reason: child.status };
+    if (parsed.status !== "resolved") { this.db.exec("SELECT 1"); return { runs: runs.length, through: cursor.through, proposals: 0, skipped: true, reason: `the review could not be read (${parsed.reason})` }; }
+    const memories = ((parsed.value as { memories?: { text?: string; source?: string }[] }).memories ?? []).filter((m) => m?.text).slice(0, 8);
+    for (const m of memories) this.propose(owner, { kind: "put", text: String(m.text).slice(0, 4000), source: `Consolidation of ${runs.length} tasks: ${String(m.source ?? "").slice(0, 400)}`.slice(0, 500), runId: parent.id });
+    const through = runs.at(-1)!.createdAt;
+    this.saveCursor(owner, through, stamp);
+    this.db.prepare("INSERT INTO settings VALUES('dream-log',?,?,?,?) ON CONFLICT(id,owner) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at")
+      .run(owner, JSON.stringify({ at: stamp, runs: runs.length, proposals: memories.length, through }), stamp, stamp);
+    return { runs: runs.length, through, proposals: memories.length, skipped: false };
+  }
+  /** Delegated children (the consolidation's own reviewer included) are not tasks of the person. */
+  private isChildRun(runId: string): boolean {
+    const row = this.db.prepare("SELECT data FROM events WHERE run_id=? AND kind='run.started' ORDER BY id LIMIT 1").get(runId);
+    if (!row) return false;
+    const data = JSON.parse(String(row.data)) as { parentRunId?: string | null };
+    return !!data.parentRunId;
+  }
+  private saveCursor(owner: string, through: string, lastRunAt: string): void {
+    this.db.prepare("INSERT INTO settings VALUES('dream-cursor',?,?,?,?) ON CONFLICT(id,owner) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at")
+      .run(owner, JSON.stringify({ through, lastRunAt }), lastRunAt, lastRunAt);
   }
   /** The memory snapshot a conversation started with; the same one is returned for the rest of that conversation. */
   sessionSnapshot(owner: string, sessionId: string, agent?: string): { text: string; count: number; reused: boolean; takenAt: string } {

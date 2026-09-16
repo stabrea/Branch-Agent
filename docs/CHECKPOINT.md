@@ -47,6 +47,23 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 18 (local, unreleased): teams, linked chats, reconciliation gate, skill registry, evaluation suite, hand-over via Task Scheduler
+
+`src/teams.ts`, `src/registry-install.ts`, `src/evaluation.ts`; `ChannelRouter.link`; `Runtime.reconciliationBlock`
+(unreconciled writes per session after resume); `standardSuite`; `branch eval`. Update hand-over now starts through
+`schtasks` (`src/desktop/hand-over.ts`) because a spawned child dies with the app when the app runs inside a Windows
+job; unpacking uses System32 tar.exe (37 s → about 1 s). Default run budget raised to 60 steps / 200k tokens: the tool
+catalog alone is ~5.7k estimated tokens per round and 24k ran out after three rounds. Rehearsal harness:
+`rehearse-update.mjs` in the scratchpad (launches a staged copy detached, drives it over CDP).
+
+## Batch 17 (local, unreleased): skill governance, benchmarks, drafts from traces, daily consolidation
+
+`src/skill-governance.ts` (failure signatures, set-aside with recovery trial, demotion, benchmark, proposeFromRun)
+stored in the generic `governance` table; `skillInstructions` filters the catalog per run; `Runtime.execute`
+records outcomes for top-level runs; `MemoryReview.consolidate` with `dream-cursor` (children and consolidation
+runs excluded), `Scheduler.tick` runs it when due; routes under `/api/governance`, `/api/skills/:id/benchmark|draft`,
+`/api/memory/consolidate`. Learning settings gained `consolidateDaily`.
+
 ## Release 0.7.1 (batch 16 + Enter-to-send)
 
 Version 0.7.1. Packaged with the stock electron.exe; 8/8 native tests against the packaged build. This is the

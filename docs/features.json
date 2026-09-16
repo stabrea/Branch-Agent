@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T01:58:27.974006+00:00",
+  "assessment_date": "2026-09-16T02:10:10.191184+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1534,17 +1534,21 @@
       "family": "learning",
       "name": "Scheduled consolidation from append-only history",
       "acceptance_criterion": "Process only new archive entries during scheduled consolidation and advance the consumption cursor after success.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/memory-review.ts",
+          "src/scheduler.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/governance.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "daily consolidation looks only at new tasks, stages suggestions, and advances its cursor only on success"
+        ],
+        "detail": "With consolidateDaily on, the scheduler runs consolidation once a day (or POST /api/memory/consolidate, Memory \u2192 Look now): completed top-level tasks after the cursor (at most 20, children and consolidation runs excluded) are digested by one bounded model call into memory suggestions; the cursor advances to the last task only when the review was readable."
       },
-      "remaining": "Process only new archive entries during scheduled consolidation and advance the consumption cursor after success."
+      "remaining": ""
     },
     {
       "id": "learning.versioning",
@@ -1681,70 +1685,92 @@
       "family": "learning",
       "name": "Evidence-governed skill lifecycle and rollback",
       "acceptance_criterion": "Promote or degrade a skill only from eligible recorded evidence and restore a known prior version on rollback.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts"
+          "src/skill-governance.ts",
+          "src/skill-tools.ts",
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/governance.test.mjs"
         ],
         "tests": [
-          "specialists require evidence to promote and delegation cannot escalate"
+          "a skill that keeps failing the same way is set aside, gets one trial after the cool-off, and is demoted when failures pile up"
         ],
-        "detail": "Specialist promotion requires measured file checks and supports prior active-version rollback; not full skill governance/degradation."
+        "detail": "Skill lifecycle with evidence: install/update (scanned), activate/disable, set-aside with recovery trials, and demotion (the active version is disabled, skill.demoted) when total failures in the window reach demoteAfterFailures; settings at GET/POST /api/governance. Specialists keep propose \u2192 evaluate \u2192 promote \u2192 rollback with measured evidence."
       },
-      "remaining": "Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics."
+      "remaining": ""
     },
     {
       "id": "learning.trace-optimization",
       "family": "learning",
       "name": "Optimize skill candidates from recorded traces",
       "acceptance_criterion": "Generate a skill candidate from trace data and retain both candidate and original for comparison.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/skill-governance.ts",
+          "src/skill-tools.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/governance.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a better version of a skill can be drafted from a task that went well, keeping the original"
+        ],
+        "detail": "POST /api/skills/:id/draft { runId } asks the model (as a delegated child with no tools) to write an improved SKILL.md from the task's transcript; the result is saved as a new inactive version (original kept and still active) with the originating run recorded (skill-candidate setting, skill.candidate_drafted event); malformed drafts are refused by the skill parser."
       },
-      "remaining": "Generate a skill candidate from trace data and retain both candidate and original for comparison."
+      "remaining": ""
     },
     {
       "id": "learning.skill-benchmark",
       "family": "learning",
       "name": "Compare skill versions on reproducible evaluation tasks",
       "acceptance_criterion": "Run baseline and candidate skills on the same fixtures and seeds and save per-task outcomes and resource costs.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "experiments/accounting.py",
-          "experiments/test_accounting.py"
+          "src/skill-governance.ts",
+          "src/skill-tools.ts",
+          "src/runtime.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/governance.test.mjs"
         ],
         "tests": [
-          "AccountingTests.test_reject_unpaired_tasks_and_training_leakage",
-          "AccountingTests.test_all_stages_count"
+          "a benchmark runs the same tasks under two versions of a skill and keeps outcomes and costs"
         ],
-        "detail": "Accounting validates and compares supplied paired ledgers; it does not execute skill benchmarks."
+        "detail": "POST /api/skills/:id/benchmark runs identical tasks (with optional checks and a seed label) under a baseline and a candidate version of the skill, as delegated children of one parent run, and persists per-task status, pass/fail, milliseconds and estimated tokens plus a per-side summary and the model preset used. Provider determinism is outside Branch's control and the seed is recorded, not enforced."
       },
-      "remaining": "Add a runner executing baseline/candidate skills against identical fixtures and seeds and persisting per-task outcomes/costs."
+      "remaining": ""
     },
     {
       "id": "learning.failure-aware",
       "family": "learning",
       "name": "Environment-specific skill failure avoidance",
       "acceptance_criterion": "Exclude a skill with an active matching failure pattern and record the reason and allowed recovery trial.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/skill-governance.ts",
+          "src/skill-tools.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/store.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/governance.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a skill that keeps failing the same way is set aside, gets one trial after the cool-off, and is demoted when failures pile up"
+        ],
+        "detail": "Every finished task records a failure signature for each skill it read or had pinned. When the same signature repeats (excludeAfterFailures within windowMinutes) the skill is set aside: it is left out of new tasks' catalogs with a skill.excluded event naming the reason and until when; after recoveryAfterMinutes one recovery trial is granted (skill.recovery_trial) and success clears the pattern (skill.recovered). The Skills view lists set-aside skills with Let it back in now."
       },
-      "remaining": "Exclude a skill with an active matching failure pattern and record the reason and allowed recovery trial."
+      "remaining": ""
     },
     {
       "id": "delegation.children",

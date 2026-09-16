@@ -19,7 +19,7 @@ export function pinnedSkillInstructions(store: Store, context: ToolContext): str
   return `\nPinned skill "${entry.name}" (v${entry.version}) applies to this whole conversation. Its instructions:\n${document.document}\n`;
 }
 export function skillInstructions(store: Store, context: ToolContext): string {
-  const entries = context.permissions.has("skills.read") ? store.skills.catalog(context.owner) : [];
+  const entries = context.permissions.has("skills.read") ? store.governanceFor(context.owner).filterCatalog(store.skills.catalog(context.owner), context.runId) : [];
   store.event(context.runId, "skills.catalog", { entries });
   if (!entries.length) return "";
   return "\nAvailable skill metadata (JSON): " + JSON.stringify(entries) +
