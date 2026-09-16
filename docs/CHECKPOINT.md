@@ -541,6 +541,60 @@ only the optional `health()`/`maxTextLength` members, an `adapter(id)` accessor 
 zod v4). No new dependency. Left out: Discord and Slack attachments, WhatsApp images (the router
 carries text only), and all MIME handling in email — HTML and multipart mail is not read or sent.
 
+## Batch 22 (wave 3) — memory that stays tidy, context that stays useful
+`src/memory-hygiene.ts` looks for three things that go wrong in a fact store on their own: the same
+thing saved twice (token-overlap ≥ 0.8, or cosine ≥ 0.92 where both facts have vectors), a newer
+fact that disagrees with an older one about the same subject (entity+attribute where present, else
+the label before the colon — which must be two or more words and must not head a list, so two
+`Note:` facts and two `Address:` facts are left alone; which one is newer comes from `validFrom`,
+not insert order), and — only
+above nine tenths of the configured capacity — the facts that have earned their place least. Every
+finding becomes a proposal in the **existing** `memory_proposals` queue under three new kinds
+(`merge`, `archive`, `forget`); accepting one calls the new `MemoryFacts.setAside`, which moves the
+fact into `memory_archive` **with a note** and keeps its versions, so the Memory view's set-aside
+list brings it straight back. Nothing on this path removes a fact before the owner accepts.
+`src/memory-retrieval.ts` gives facts the same treatment documents already had: an FTS5 index
+(`memory_search` keyed through `memory_terms`, probed the way `documents.ts` probes, with a plain
+`LIKE`-style fallback), per-fact vectors in `memory_vectors` through the existing `EmbeddingClient`
+and `providerEmbeddings` accessor, and the two orders combined with `fuseRanks`. The fused rank is
+multiplied by an importance score — recency (30-day decay) × `1 + ln(1+uses)` × 1.5 when the owner
+saved or corrected it — and `memory_uses` counts a fact every time retrieval returns it. The same
+ordering now drives `MemoryReview.sessionSnapshot` through a new `orderFacts` hook. A per-owner
+`useEmbeddings` switch turns meaning off; without a key nothing changes hands. An answer is bounded
+at 48 KiB of UTF-8, the ceiling the old literal search kept to. Two of the three retrieval states
+are tested (BM25+cosine+RRF, and words alone with meaning off or no key); the third — a build of
+SQLite without FTS5, which falls back to `plainMatches` — is implemented but **untested**, exactly
+as the same fallback in `documents.ts` is.
+Compaction now asks for JSON and keeps a **structured** summary (`goals`, `decisions`,
+`openQuestions`, `filesTouched`) in `session_summaries`, rendering it back into the handoff message;
+a model that replies in prose still gets today's behaviour, which is why
+`compaction-attention.test.mjs` is untouched. `session_pins` keeps chosen messages in front of the
+model for good: pins are keyed on `messages.source_id`, not `id`, because `reconcileMessages()`
+rewrites a session's rows, and `workingMessages()` plus the fold both honour them. Only a plain user
+or assistant turn can be pinned, so a tool exchange is never split.
+`src/memory-export.ts` moves facts as JSON Lines (`GET /api/memory/export?format=jsonl`, and
+`POST /api/memory/import {jsonl}`) with a normalised text+entity+attribute fingerprint so a fact
+already saved under another identifier is counted rather than copied; the whole-archive JSON routes
+are untouched. The same file writes a conversation out as Markdown
+(`GET /api/sessions/:id/export?format=markdown`). `src/working-session.ts` keeps one line per
+conversation (last goal, last file, last step), shown in the context pane's new **What we are
+doing** block and attached to `GET /api/activity`.
+Pictures: `Message.images` plus `supportsImages()` on the provider interface, with the OpenAI shape
+sending `image_url` parts and Anthropic sending base64 image blocks. `POST /api/run` accepts up to
+four pictures of 5 MB each; **the bytes never reach `store.message`** — the transcript keeps
+`[attached picture: name]` — so nothing is replayed on later turns or counted against the context.
+A text-only model fails the task with "…cannot look at pictures" rather than dropping it silently.
+The browser branch landed its own image plumbing upstream while this branch was open
+(`MessageImage`, `maxImageBytes` 4 MB, a `readonly acceptsImages` flag and a `textOnly()` strip
+helper). On merge **keep theirs**: `supportsImages(provider)` here already reads either an
+`acceptsImages` flag or a `supportsImages()` method, and `ImagePart` is `MessageImage` plus an
+optional `name`, so the only real conflicts are the duplicate adapter bodies in `providers.ts` and
+the duplicate declarations in `contracts.ts`.
+Covers A1795, A1892, A2230, A2245, A2187, A2186, A2035 (partly), A0074, A2023, A2269, A2110, A1640,
+A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deliberately **not**
+retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`
+when approval is off, `forget`, and the delete-then-restore inside `restoreCheckpoint`) still remove
+without a suggestion — R1 holds for the paths added here, not for those.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

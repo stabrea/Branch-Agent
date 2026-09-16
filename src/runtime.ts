@@ -4,6 +4,7 @@ import {
   BudgetError,
   NeedsInputError,
   CompletionSchema,
+  parseImages,
   errorText,
   estimateTokens,
   RunInputSchema,
@@ -15,6 +16,7 @@ import {
 import type {
   BudgetOptions,
   Completion,
+  ImagePart,
   Message,
   Provider,
   Run,
@@ -26,10 +28,12 @@ import type { ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
+import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
+import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
@@ -61,7 +65,14 @@ const compactionThreshold = 11000;
 const compactionKeep = 6;
 const contextLimit = 16000;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
+/** What is written into the conversation in place of the picture itself; the bytes are never stored. */
+export function picturesNote(images?: ImagePart[]): string {
+  if (!images?.length) return "";
+  const names = images.map((image, at) => image.name || `picture ${at + 1}`);
+  return `\n\n[attached ${images.length === 1 ? "picture" : "pictures"}: ${names.join(", ")}]`;
+}
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
+const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
 export function compactionSplit(messages: Message[], ids: (number | null)[]): { from: number; to: number } | null {
   const from = messages.findIndex((m, i) => m.role !== "system" && ids[i] !== null);
@@ -90,6 +101,8 @@ export interface RunOptions {
   onTextDelta?: (text: string) => void;
   /** Conditions the final answer must meet; the model gets bounded retries when it misses one. */
   checks?: CompletionCheck;
+  /** Pictures to show the model with this prompt. Refused in plain words by a text-only model. */
+  images?: ImagePart[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
   /** Practice run: tools that would change something report what they would have done. */
@@ -427,7 +440,8 @@ export class Runtime {
           ...(options.source ? { source: options.source } : {}),
         }));
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
-    else this.store.message(run.sessionId, { role: "user", content: options.prompt });
+    else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
+    if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
@@ -439,7 +453,7 @@ export class Runtime {
       output = await this.loop(run, context, instructions, options.onTextDelta, {
         ...(options.model !== undefined ? { preset: options.model } : {}),
         ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
-      }, options.checks);
+      }, options.checks, options.images);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -583,11 +597,13 @@ export class Runtime {
     onTextDelta?: (text: string) => void,
     override: RunModelOverride = {},
     checks?: CompletionCheck,
+    images?: ImagePart[],
   ): Promise<string> {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     const plan = this.models.plan(context.owner, run.sessionId, override);
     this.store.event(run.id, "model.selected", { ...plan.choice });
+    if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
     let checkFailures = 0;
     for (let round = 0; round < 12; round++) {
@@ -607,6 +623,7 @@ export class Runtime {
         continue;
       }
       for (const call of completion.toolCalls) {
+        this.noteWork(run, call);
         const result = await this.callTool(call, context);
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
@@ -615,6 +632,20 @@ export class Runtime {
       }
     }
     throw new BudgetError("Maximum 12 model rounds reached");
+  }
+  /**
+   * Hands the pictures to the model with this turn, or says plainly that it cannot look at them.
+   * The pictures ride on the in-memory message only; the stored conversation keeps a short note.
+   */
+  private attachImages(run: Run, messages: Message[], images: ImagePart[], preset: ModelPreset): void {
+    if (!supportsImages(preset.provider)) {
+      this.store.event(run.id, "images.unsupported", { model: preset.name, pictures: images.length });
+      throw new Error(`${preset.name} cannot look at pictures. Pick a model that can see images, or describe what the picture shows.`);
+    }
+    const at = messages.map((message) => message.role).lastIndexOf("user");
+    if (at < 0) return;
+    messages[at] = { ...messages[at]!, images: parseImages(images) };
+    this.store.event(run.id, "images.attached", { model: preset.name, pictures: images.length });
   }
   private openingMessages(run: Run, context: ToolContext, instructions: string): { messages: Message[]; ids: (number | null)[] } {
     const identity = assistantIdentity(this.store, context.owner);
@@ -663,6 +694,16 @@ export class Runtime {
     const nudge: Message = { role: "user", content: `Your answer did not pass its check: ${problem}. Fix that and answer again.` };
     messages.push(nudge); ids.push(null); this.store.message(run.sessionId, nudge);
     return false;
+  }
+  /** Keeps the conversation's "what we are doing" line current: the last step and the last file. */
+  private noteWork(run: Run, call: ToolCall): void {
+    try {
+      const args = JSON.parse(call.arguments) as Record<string, unknown>;
+      const candidate = [args.path, args.file, args.filePath].find((value) => typeof value === "string" && value);
+      this.store.noteWorking(this.owner, run.sessionId, {
+        tool: describeToolCall(call.name, args), ...(candidate ? { file: String(candidate) } : {}),
+      });
+    } catch { /* the working line is never worth failing a task for */ }
   }
   /** Long tool results are shortened for the model; the full result stays in the trace. */
   /**
@@ -718,19 +759,38 @@ export class Runtime {
     const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`).join("\n").slice(0, 60000);
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const summariser: Message[] = [
-      { role: "system", content: "Summarize the conversation below for a handoff to yourself. Keep facts, decisions, file paths, identifiers, open tasks and what to do next. Be concrete and under 400 words." },
+      { role: "system", content: compactionInstructions },
       { role: "user", content: (previous ? previous + "\n\n" : "") + transcript },
     ];
-    const summary = (await this.complete(run, summariser, { ...context, permissions: new Set() }, preset, null)).content.trim().slice(0, 6000);
+    const reply = (await this.complete(run, summariser, { ...context, permissions: new Set() }, preset, null)).content.trim().slice(0, 6000);
+    const structured = parseSessionSummary(reply);
+    const summary = structured ? summaryText(structured) : reply;
     const throughId = ids[split.to - 1]!;
+    this.store.saveSessionSummary(context.owner, run.sessionId, structured, summary);
     this.store.saveCompaction(run.sessionId, throughId, summary);
-    const kept = messages.slice(split.to), keptIds = ids.slice(split.to);
-    messages.splice(1, messages.length - 1, summaryMessage(summary), ...kept);
-    ids.splice(1, ids.length - 1, null, ...keptIds);
+    const kept = this.keepAfterCompaction(run.sessionId, messages, ids, split);
+    messages.splice(1, messages.length - 1, summaryMessage(summary), ...kept.messages);
+    ids.splice(1, ids.length - 1, null, ...kept.ids);
     this.store.event(run.id, "context.compacted", {
-      droppedMessages: split.to - split.from, keptMessages: kept.length, summaryChars: summary.length,
+      droppedMessages: split.to - split.from - kept.pinned, keptMessages: kept.messages.length, summaryChars: summary.length,
+      pinnedKept: kept.pinned, structured: structured !== null,
       estimatedBefore: before, estimatedAfter: estimateTokens({ messages, tools }), throughMessageId: throughId,
     });
+  }
+  /** Everything that stays in front of the model after a fold: pinned older turns, then recent ones. */
+  private keepAfterCompaction(sessionId: string, messages: Message[], ids: (number | null)[], split: { from: number; to: number }) {
+    const pinnedIds = this.store.pinnedMessageIds(sessionId);
+    const pinnedMessages: Message[] = [], pinnedRows: (number | null)[] = [];
+    for (let at = split.from; at < split.to; at++) {
+      const id = ids[at];
+      if (id === null || id === undefined || !pinnedIds.has(id)) continue;
+      pinnedMessages.push(messages[at]!); pinnedRows.push(id);
+    }
+    return {
+      messages: [...pinnedMessages, ...messages.slice(split.to)],
+      ids: [...pinnedRows, ...ids.slice(split.to)],
+      pinned: pinnedMessages.length,
+    };
   }
   private async completeWithRetries(
     run: Run,

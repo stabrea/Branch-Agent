@@ -93,6 +93,15 @@ function validateOptions(options: ProviderOptions): void {
   if (!options.model || !options.apiKey)
     throw new Error("Provider model and API key are required");
 }
+/**
+ * Whether a connection can be shown a picture. Providers say so themselves; anything that does
+ * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
+ */
+export function supportsImages(provider: Provider): boolean {
+  const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
+  if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
+  return said.acceptsImages === true;
+}
 /** Address and key for a provider's other OpenAI-shaped routes, such as `/embeddings`. */
 export interface EmbeddingEndpoint { endpoint: string; apiKey: string }
 /** The embeddings route of a provider that offers one; every other provider gives nothing. */
@@ -169,6 +178,13 @@ function openaiMessage(message: Message): Record<string, unknown> {
       : {}),
   };
 }
+/** A turn with pictures becomes a list of parts: the words first, then each picture as a data URL. */
+function openaiParts(message: Message): Record<string, unknown>[] {
+  return [
+    ...(message.content ? [{ type: "text", text: message.content }] : []),
+    ...(message.images ?? []).map((image) => ({ type: "image_url", image_url: { url: `data:${image.mediaType};base64,${image.data}` } })),
+  ];
+}
 export class OpenAIProvider implements Provider {
   readonly name = "openai-compatible";
   /** OpenAI-shaped endpoints take a picture as a data URL in the message. */
@@ -182,6 +198,10 @@ export class OpenAIProvider implements Provider {
   /** This provider speaks the OpenAI shape, so the same address and key also serve `/embeddings`. */
   embeddings(): EmbeddingEndpoint | null {
     return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
+  }
+  /** The OpenAI shape carries pictures as message parts, so this connection can be shown one. */
+  supportsImages(): boolean {
+    return true;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);
@@ -251,6 +271,10 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
             },
           ]
         : [
+            ...(message.images ?? []).map((image) => ({
+              type: "image",
+              source: { type: "base64", media_type: image.mediaType, data: image.data },
+            })),
             ...(message.content
               ? [{ type: "text", text: message.content }]
               : []),
@@ -280,6 +304,10 @@ export class AnthropicProvider implements Provider {
   }
   audio(): null {
     return null;
+  }
+  /** Anthropic messages carry pictures as base64 image blocks, so this connection can be shown one. */
+  supportsImages(): boolean {
+    return true;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);

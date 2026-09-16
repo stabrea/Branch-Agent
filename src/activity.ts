@@ -6,7 +6,7 @@ import type { Store } from "./store.js";
  * each earlier step ended, built from the durable event log so any client can show it.
  */
 export interface ActivityStep { id: string; label: string; status: "working" | "done" | "failed" | "stopped"; at: string }
-export interface RunActivity { runId: string; sessionId: string; prompt: string; status: Run["status"]; startedAt: string; current: string | null; steps: ActivityStep[] }
+export interface RunActivity { runId: string; sessionId: string; prompt: string; status: Run["status"]; startedAt: string; current: string | null; steps: ActivityStep[]; working?: string }
 
 const short = (value: unknown, max = 60): string => {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -72,7 +72,10 @@ export function runActivity(run: Run, events: Event[]): RunActivity {
   return { runId: run.id, sessionId: run.sessionId, prompt: run.prompt, status: run.status, startedAt: run.createdAt, current, steps: list.slice(-30) };
 }
 
-/** Activity for every task of the owner that is still running. */
+/** Activity for every task of the owner that is still running, with what the conversation is doing. */
 export function liveActivity(store: Store, owner: string): RunActivity[] {
-  return store.runs(owner).filter((run) => run.status === "running").map((run) => runActivity(run, store.events(run.id)));
+  return store.runs(owner).filter((run) => run.status === "running").map((run) => {
+    const working = store.working.describe(run.sessionId);
+    return { ...runActivity(run, store.events(run.id)), ...(working ? { working } : {}) };
+  });
 }

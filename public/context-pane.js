@@ -78,12 +78,28 @@ function drawFacts(state) {
   );
 }
 
+/* What this conversation is working on, and what was kept when it grew long. */
+async function drawWorking() {
+  const here = session();
+  if (!here) {
+    rows("context-working", [], "Open a conversation to see what it is working on.");
+    return;
+  }
+  const view = await api(`sessions/${here}/summary`).catch(() => null);
+  const items = [];
+  if (view?.working?.goal) items.push(row(view.working.goal, [view.working.file, view.working.tool].filter(Boolean).join(" · ")));
+  for (const question of view?.summary?.openQuestions?.slice(0, 2) ?? []) items.push(row(question, "still open"));
+  for (const pin of view?.pins?.slice(0, 2) ?? []) items.push(row(pin.content.slice(0, 80), "kept whatever happens"));
+  rows("context-working", items, "Nothing recorded for this conversation yet.");
+}
+
 let busy = false;
 async function draw() {
   if (busy || $("workspace").hidden || document.body.classList.contains("no-aside")) return;
   busy = true;
   try {
     const state = await api("state");
+    await drawWorking();
     await drawTasks();
     await drawReceipts(state);
     drawFacts(state);

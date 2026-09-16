@@ -11,11 +11,34 @@ export type ToolCall = z.infer<typeof ToolCallSchema>;
 /** A picture shown to the model, such as a screenshot of a web page. Base64, under the size cap. */
 export interface MessageImage {
   mediaType: string;
+  /** A short label such as the file name, when there is one. */
+  name?: string | undefined;
   /** Base64 bytes; never written to the conversation store, so it is not replayed later. */
   data: string;
 }
 /** The most a single picture may weigh once encoded, so one screenshot cannot fill a request. */
 export const maxImageBytes = 4 * 1024 * 1024;
+/** Pictures a model can be asked to look at. Kept for one request only and never written down. */
+export const maximumImageBytes = 5 * 1024 * 1024;
+export const maximumImagesPerTurn = 4;
+export const ImagePartSchema = z.object({
+  mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+  /** The picture's bytes, base64 encoded; a data: prefix is accepted and stripped. */
+  data: z.string().min(1).max(Math.ceil(maximumImageBytes / 3) * 4 + 1024),
+  name: z.string().trim().max(200).optional(),
+}).strict();
+export type ImagePart = z.infer<typeof ImagePartSchema>;
+/** Checks the pictures attached to a turn: how many there are, and how big each one really is. */
+export function parseImages(input: unknown): ImagePart[] {
+  const parts = z.array(ImagePartSchema).max(maximumImagesPerTurn).parse(input);
+  return parts.map((part) => {
+    const data = part.data.replace(/^data:[^,]*,/, "");
+    const bytes = Buffer.from(data, "base64");
+    if (!bytes.length) throw new Error("That picture came through empty");
+    if (bytes.length > maximumImageBytes) throw new Error(`Pictures up to ${maximumImageBytes / 1048576} MB can be attached`);
+    return { ...part, data };
+  });
+}
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -70,6 +93,8 @@ export interface Provider {
   complete(request: CompletionRequest): Promise<Completion>;
   /** Optional audio endpoints (OpenAI-compatible transcription and speech); null if unavailable. */
   audio?(): { endpoint: string; apiKey: string } | null;
+  /** Whether this connection can be shown a picture; absent means it cannot. */
+  supportsImages?(): boolean;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
@@ -178,6 +203,8 @@ export const RunInputSchema = z
     checks: z.record(z.string(), z.unknown()).optional(),
     /** Practice run: nothing is really changed, and the report lists what would have happened. */
     dryRun: z.boolean().optional(),
+    /** Pictures to show the model with this message; text-only models say so plainly. */
+    images: z.array(ImagePartSchema).max(maximumImagesPerTurn).optional(),
   })
   .strict();
 /** The same message without its pictures, for storing and for measuring how full the context is. */

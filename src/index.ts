@@ -10,6 +10,9 @@ import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerMemory } from "./memory.js";
+import { MemoryRetrieval } from "./memory-retrieval.js";
+import { MemoryHygiene } from "./memory-hygiene.js";
+import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
@@ -116,7 +119,15 @@ export async function createBranch(options: {
   );
   runtime.artifacts = artifacts;
   const knowledge = new Knowledge(store, registry, runtime);
-  registerMemory(registry, store);
+  // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
+  const memory = {
+    retrieval: new MemoryRetrieval(store, runtime.models),
+    hygiene: undefined as unknown as MemoryHygiene,
+    transfer: new MemoryTransfer(store),
+  };
+  memory.hygiene = new MemoryHygiene(store, memory.retrieval);
+  store.review.orderFacts = (factOwner, agent) => memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record);
+  registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
@@ -161,6 +172,8 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    /** Finding, tidying and moving saved facts. */
+    memory,
     git,
     scheduler,
     chatgpt,
@@ -283,3 +296,8 @@ export * from "./integrations/github.js";
 export * from "./pricing.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
+export * from "./memory-retrieval.js";
+export * from "./memory-hygiene.js";
+export * from "./memory-export.js";
+export * from "./session-summary.js";
+export * from "./working-session.js";
