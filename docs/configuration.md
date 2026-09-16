@@ -1774,3 +1774,142 @@ would only let a single guesser pretend to be a thousand different places. On th
 listener that makes every local program one place, which is the honest answer; the phone's listener
 sees each device separately. The socket a running task streams over is not counted, so a wrong key
 there is refused without being held against anyone.
+
+## Specialists that work in different ways (batch 20, wave 7)
+
+A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a
+specialist, under "How this one works"; the choice is written into the definition as `style`.
+
+- **the ordinary way** — no change from before.
+- **react** — it writes one line starting "Thought:" before each step, saying what it is about to
+  do and why. That line never appears in the answer: it is kept against the task, and you can read
+  the whole trail under "Look inside" → "What it was thinking, step by step".
+- **plan then execute** — it writes a short plan for its own piece of work and then does one step
+  at a time, exactly as a planned task does.
+- **critic** — it reads and comments and cannot change anything, whatever permissions it was given.
+  The permissions are narrowed when it runs, so this is not a matter of it behaving well.
+- **researcher** — it starts with the web, research, document and memory tools to hand, and it is
+  told to say where every claim came from.
+- **coder** — it starts with the code, version-control and file tools to hand, and is told to make
+  its changes with `code.patch` or `code.change_set` so each one can be put back.
+
+`GET /api/specialist-styles` lists them with what each one does. The style a task ran under is shown
+on its "Look inside" screen.
+
+## Changing several files at once (batch 20, wave 7)
+
+Two tools sit beside the older `files.patch`, which is unchanged:
+
+- `code.patch` takes a unified diff. With `dryRun` it works the whole change out and shows you what
+  it would do without writing a thing. Applied, it is all-or-nothing: if one part of the diff does
+  not fit the file exactly, nothing at all is written. Every file it changes is kept in the file
+  history first, so `files.history` and `files.restore` can put one file back on its own. A file
+  that is not text is refused, and anything outside the workspace was never reachable.
+- `code.change_set` changes several files in one go, each by replacing an exact piece of text. You
+  are asked once, for the whole set, and the question names the files ("2 files: a.txt, b.txt").
+  All of them change or none of them do.
+
+**The project's check.** `GET`/`POST /api/code-check` holds one program to run after a change —
+your tests, or your linter. Give the program in full, with its arguments and a timeout; a `.cmd` or
+`.bat` wrapper is refused, as it is for host commands. It runs in the workspace under the same
+memory and processor ceilings a host command gets, and what it said comes straight back to the
+assistant in the same step, so it sees what its own change broke before it does anything else.
+`code.check` runs it on its own, and needs the `code.execute` permission, because running your
+tests is running a program on this computer whatever else it does. Off by default.
+
+## Programs left running (batch 20, wave 7)
+
+Some programs are meant to keep going: a preview server, a watcher. `process.start` starts one and
+lets it outlive the step that started it; `process.list` says what is running, `process.read` gives
+the most recent part of what it printed, and `process.stop` stops it and everything it started.
+
+`GET`/`POST /api/background-programs` holds the list of programs you are willing to leave running,
+each under a short name you choose, with how many may run at once and how long one may stay up.
+The limit on how many is counted across the whole app, not per conversation, so one task cannot use
+them all up and leave another with none.
+Nothing else can be started. Each one is held in the same Windows job the one-off commands use, so
+the system enforces its memory and processor limits and kills whatever it left behind. Output is
+kept in a small rolling buffer, oldest dropped first. Everything started in a conversation stops
+when that conversation is thrown away, and everything stops when the app closes — nothing is left
+running for the next launch to find. `GET /api/processes` lists them and `POST /api/processes` with
+an id stops one. Starting or stopping one needs the `process.manage` permission and is approved the
+way a host command is; listing and reading need only `process.read`, which changes nothing. Running
+a small script needs `code.execute`. These are separate from `shell.execute`, so allowing one does
+not quietly allow the others.
+
+## Running a small script (batch 20, wave 7)
+
+`code.run` runs a short script the assistant just wrote — a calculation, a quick check — in a fresh
+program of its own, started in the workspace. `GET`/`POST /api/code-run` is the switch: whether it
+is allowed at all, where your Python is if you have one, whether a script may reach the internet,
+and the time, memory, processor and output limits. JavaScript uses the app's own Node; Python needs
+you to point at yours. Off out of the box, because a script is host execution like any other: these
+are limits on time, memory and output, not a sandbox. With the internet switch off the script is
+pointed at a dead address, the same best-effort measure host commands use.
+
+## Work handed over to finish later (batch 20, wave 7)
+
+A tool may answer `{ deferred: true, id }` instead of a result: the work has been handed over
+and is not finished. The task does not wait; it carries on and gives its answer. `user.task` is the
+plainest example — something for you to do by hand. `GET /api/deferred` lists what is waiting, and
+`POST /api/deferred/settle` with the id and what came of it brings the answer back into the
+conversation as an ordinary follow-up message.
+
+All the routes in this batch — flows, the handed-over jobs, the programs left running, and the
+three switches above — belong to the owner. With somebody else's profile switched on they answer
+"belongs to the owner", exactly as saved workflows and the waiting line do, and so does the
+`flows.list` tool, because the assistant always works as the owner.
+
+## Flows: workflows as boxes and arrows (batch 20, wave 7)
+
+A flow is a saved workflow seen as a picture. Every step is a box; an arrow says what follows what,
+and a step that can go two ways gets one arrow labelled "as expected" and one labelled "otherwise".
+
+- `GET /api/flows` — every flow with its picture and where each box has got to.
+- `POST /api/flows` — save one, either as `{name, description, steps}` or as
+  `{name, description, nodes}`, where the nodes are the steps in the order they happen.
+- `GET`/`PUT`/`DELETE /api/flows/:id` — read, change, remove.
+- `POST /api/flows/:id/run` — start it. `…/resume` carries a stopped one on, or says yes to the step
+  it is waiting for; `…/pause` stops it between steps.
+
+Each box that finishes, fails, or stops to wait is announced to anything listening for the
+`flow.node` event through the webhooks you already have, carrying the flow, the box, its name and
+what it said. Procedures shows the same picture, read-only.
+
+## Skills that improve themselves, safely (batch 20, wave 7)
+
+After a task that went well, the app writes a better version of the skill that task used. Nothing
+switches over on its own. Under Skills → "Suggested better versions" you see:
+
+- the lines that changed, exactly as a file change is shown;
+- a button to try the new version against your last three real tasks. That trial is a practice run:
+  every tool that would change something only reports what it would have done. The version in use
+  and the new one are run on the same tasks and compared;
+- "Keep it" and "Throw it away". Keeping is refused until the trial has happened and the new version
+  did at least as well; the API takes a force flag if you mean to override that.
+
+`GET /api/skill-revisions`, and `POST /api/skill-revisions/try`, `…/accept`, `…/reject` with the
+skill and the version.
+
+**Skills as files.** `skills.sync` keeps your installed skills as `.md` files in a folder inside the
+workspace — your own version-controlled folder, if you keep one. Direction "out" writes them out,
+"in" reads them back (installing what is new, adding a version where the text changed), and "both"
+does both. A sync never deletes anything. Commit the folder with the version-control tools you
+already have.
+
+## Where plugins come from (batch 20, wave 7)
+
+There is no shop to browse and nothing is downloaded. A plugin arrives as a folder or as one file
+somebody handed you, holding `branch-plugin.json` and the plugin's own `.mjs` beside it.
+
+- `POST /api/plugin-catalog/inspect` with the address of that folder or file shows the manifest —
+  what it is called, what it says it does, what it asks to be allowed to do — and the fingerprint of
+  its code. Nothing is copied and no code is run.
+- `POST /api/plugin-catalog/install` copies it in. Pass the fingerprint you were shown and it
+  refuses if the code has changed since. If the manifest carries its own fingerprint and the code
+  does not match it, it is refused outright.
+- `GET /api/plugin-catalog` lists what came from where, with the fingerprint each one had when you
+  accepted it and whether the file on disk still matches.
+
+Installing switches nothing on: turning a plugin on is still a separate, deliberate step, and that
+is the step that runs its code.

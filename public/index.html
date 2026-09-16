@@ -362,6 +362,11 @@
           <details class="card">
             <summary>Propose a specialist</summary>
             <form id="specialist-form">
+              <label for="specialist-style">How this one works</label
+              ><select id="specialist-style"></select
+              ><p class="subtle" id="specialist-style-note">
+                Pick a way of working and it is written into the definition below.
+              </p>
               <label for="specialist-json">Definition (JSON)</label
               ><textarea
                 id="specialist-json"
@@ -393,6 +398,13 @@
             </form>
           </details>
           <div id="procedures-list" class="card-list"></div>
+          <h3>Flows</h3>
+          <p class="section-intro">
+            A flow is a list of steps the app works through on its own. Here is
+            what each saved flow does, step by step, and where it has got to.
+          </p>
+          <button id="flows-refresh" class="secondary">Show the flows</button>
+          <div id="flows-list" class="card-list"></div>
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro">
@@ -464,6 +476,16 @@
             <h3>Set aside after repeated failures</h3>
             <p class="subtle">A skill that keeps failing the same way is kept out of new tasks for a while, then gets one trial. You can let it back in now.</p>
             <div id="set-aside-list" class="card-list"></div>
+          </div>
+          <div class="card" id="skill-revisions-card">
+            <h3>Suggested better versions</h3>
+            <p class="subtle">
+              After a task goes well, the app writes a better version of the
+              skill it used. Try it against your last few tasks first — nothing
+              is really done during the try — then keep it or throw it away.
+            </p>
+            <button id="skill-revisions-refresh" type="button">Show suggestions</button>
+            <div id="skill-revisions-list" class="card-list"></div>
           </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">
@@ -1173,5 +1195,8 @@
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
+    <script src="/flows.js" type="module"></script>
+    <script src="/skill-revisions.js" type="module"></script>
+    <script src="/specialist-styles.js" type="module"></script>
   </body>
 </html>

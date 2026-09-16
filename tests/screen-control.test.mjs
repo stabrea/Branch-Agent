@@ -2,6 +2,12 @@
 // themselves — a Notepad window and a small window of their own standing in for a password
 // manager — and every one of them is closed again, whether the test passes or fails.
 import test from "node:test";
+// These tests drive a real Notepad window and show the Stop banner on whoever's screen this runs
+// on. They only run when a person asks for them: set BRANCH_SCREEN_TESTS=1.
+if (process.env.BRANCH_SCREEN_TESTS !== "1") {
+  test("screen-control tests are opt-in (set BRANCH_SCREEN_TESTS=1 to run them on this screen)", { skip: true }, () => {});
+  process.exit(0);
+}
 import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
