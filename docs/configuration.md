@@ -1814,7 +1814,8 @@ assistant itself.
 
 - `GET /api/runs/<id>/trajectory` — one task.
 - `GET /api/runs/trajectories.jsonl?limit=<1-500>` — many tasks, newest first, one trajectory per
-  line, for feeding an evaluation run.
+  line, for feeding an evaluation run. This one is the owner's own: a second person's profile is
+  refused, because every task at once is the whole history rather than one task of theirs.
 - Tool: `runs.export` (`{ runId? }`, defaults to the task it is called in; read-only).
 
 The shape: `format` is always `"branch-agent-trajectory"` and `formatVersion` is `1`. Beside them,
@@ -1836,7 +1837,13 @@ it for the "Happening now" feed, and it starts and stops with that screen.
 - `after=<id>` — everything after that event id, so a client that reconnects carries on rather than
   repeating itself. `after=0` replays from the beginning. Leaving `after` out means "only what
   happens from now on", which is what a fresh screen wants.
-- `maxMs=<milliseconds>` — how long the connection is held open. The default is 150 000.
+- `maxMs=<milliseconds>` — how long the connection is held open. The default is 150 000, and that
+  is also the ceiling: a larger number is brought back down to it.
+
+One connection is closed after 2 000 events, whichever comes first. An event's body can hold what a
+tool was asked to do, so every one of them has any saved password or key taken back out of it before
+it is sent, the same way the rest of the app does. A second person's profile sees only its own
+events, never the owner's.
 
 Each message is `id: <n>`, `event: <kind>`, `data: {"id","runId","kind","data","createdAt"}`. The
 stream opens with an `event: ready` naming where it started and closes with an `event: end` naming
