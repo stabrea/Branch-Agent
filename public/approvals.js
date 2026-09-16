@@ -52,6 +52,13 @@ function renderRules() {
 }
 
 /** A task that has stopped and is waiting to be told whether to go ahead. */
+/** The three ways a rule can say a program should be held, in the same words the settings use. */
+const HELD = {
+  "no-internet": "in a box Windows holds to its memory and processor limits, with no way out to the internet",
+  "limits-only": "in a box Windows holds to its memory and processor limits",
+  none: "with no box around it",
+};
+
 function renderWaiting() {
   const box = $("policy-waiting");
   box.replaceChildren();
@@ -62,6 +69,9 @@ function renderWaiting() {
     // Exactly what it wants to do, word for word, with any saved password or key already taken out.
     // Your answer is tied to these exact words: if it changes them, it has to ask again.
     if (question.bytes) item.append(el("pre", question.bytes, "subtle"));
+    // When one of your rules says how tightly a program this would start should be held, say so
+    // here, before you answer — not afterwards.
+    if (question.sandbox) item.append(el("p", `Your rules say to run this ${HELD[question.sandbox] ?? question.sandbox}.`, "subtle"));
     if (question.remember === "session")
       item.append(el("p", "A yes for this conversation lasts until you close it, or until you lock Branch.", "subtle"));
     for (const [label, remember] of [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]]) {

@@ -2758,3 +2758,17 @@ Settings: `enabled` (off by default), `services` (`bitwarden`, `1password`), `bi
 (`bw`), `onePasswordCommand` (`op`) and `timeoutMs`. New routes: `GET|POST
 /api/credentials/settings`. The look-up waits for the same unlock the secrets locker does, so a
 locked app reads nothing.
+
+## How tightly a program is held (batch 26, wave 8)
+
+An approval rule can now say how a program Branch starts should be held, as well as whether to allow
+it. There are three choices: **in a box with no way out to the internet** (Windows holds it to its
+memory and processor limits, and it is pointed at a dead address), **in a box** (the same limits, but
+it may reach the internet), and **no box** (the tool's own limits only). A rule that says nothing
+leaves the tool doing exactly what it did before, so nothing changes until you choose.
+
+The choice is on the rule as `sandbox` (`no-internet`, `limits-only`, `none`), it is shown on the
+approval card before you answer, and `code.run`, `process.start` and the host-command tool all
+honour it — the result each of them hands back says which box it actually ran in. It is not a
+security boundary: the program still runs on this computer as you. It is you deciding how much rope
+one tool gets.

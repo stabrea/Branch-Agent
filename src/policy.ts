@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
 import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { sandboxChoices } from "./sandbox.js";
 import type { Store } from "./store.js";
 
 export { globMatches } from "./policy-resources.js";
@@ -32,6 +33,11 @@ export const PolicyRuleSchema = z
      * rule covers whatever the tool would touch, which is how every rule written before this behaves.
      */
     resource: ResourceMatcherSchema.optional(),
+    /**
+     * How tightly a program this rule covers is held: in a box with no way out to the internet, in
+     * a box, or with no box. Left out, the tool does exactly what it did before rules could say.
+     */
+    sandbox: z.enum(sandboxChoices).optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;

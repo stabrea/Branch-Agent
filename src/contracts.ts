@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SandboxChoice } from "./sandbox.js";
 
 export const ToolCallSchema = z
   .object({
@@ -198,6 +199,12 @@ export interface ToolContext {
    * counts when that step is tried again.
    */
   approvalKey?: string;
+  /**
+   * How tightly a program this call starts is to be held, when an approval rule said so. It is set
+   * by the runtime just before the tool runs; a tool no rule says anything about never sees it and
+   * behaves exactly as it did before rules could say.
+   */
+  sandbox?: SandboxChoice;
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

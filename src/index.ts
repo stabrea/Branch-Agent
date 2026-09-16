@@ -885,6 +885,7 @@ export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
 export * from "./credential-cli.js";
+export * from "./sandbox.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";

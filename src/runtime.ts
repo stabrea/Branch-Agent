@@ -51,6 +51,7 @@ import {
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
+import type { SandboxChoice } from "./sandbox.js";
 import { Tracer } from "./tracing.js";
 import { audit } from "./audit.js";
 import {
@@ -86,7 +87,11 @@ export interface PolicyCheck {
   readOnly: boolean;
   /** What a yes to this would be remembered as, unless the person picks differently. */
   remember: PolicyRemember;
+  /** How tightly the rule that matched wants a program held; null when it did not say. */
+  sandbox: SandboxChoice | null;
 }
+/** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
+interface GateOutcome { refusal: unknown | null; sandbox: SandboxChoice | null }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
@@ -1361,7 +1366,8 @@ export class Runtime {
     const answered = decision === "ask"
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
     return { decision: answered ?? decision, label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session" };
+      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      sandbox: rule?.sandbox ?? null };
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
@@ -1405,22 +1411,22 @@ export class Runtime {
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
-  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
+  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<GateOutcome> {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision, label, target, readOnly, remember } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision, label, target, readOnly, remember, sandbox } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision });
-      return simulatedResult(label);
+      return { refusal: simulatedResult(label), sandbox };
     }
-    if (decision === "allow") return null;
+    if (decision === "allow") return { refusal: null, sandbox };
     if (decision === "deny") {
       this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
-      return { ok: false, error: refusedByPolicy(label) };
+      return { refusal: { ok: false, error: refusedByPolicy(label) }, sandbox };
     }
     const source: RunSource = context.source ?? "owner";
-    return this.askApproval(context, { tool: call.name, label, target, source, remember,
+    return this.askApproval(context, { tool: call.name, label, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
@@ -1430,6 +1436,8 @@ export class Runtime {
     context: ToolContext,
     about: {
       tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember;
+      /** How tightly the rule wants the program held, so the card can say it before the yes. */
+      sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
       bytes?: string; fingerprint?: string;
     },
@@ -1443,12 +1451,13 @@ export class Runtime {
     const sessionId = this.sessionOf(context);
     this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
+      ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
   }
   /**
@@ -1624,9 +1633,12 @@ export class Runtime {
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
     const gated = await this.gate(call, args, context);
-    if (gated) return gated;
+    if (gated.refusal) return gated.refusal;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
-    const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
+    // How tightly a program this call starts is held travels with the call, so a tool that starts
+    // one can honour the owner's rule without knowing anything about the policy.
+    const scoped: ToolContext = { ...context, signal: AbortSignal.any([context.signal, timeout]),
+      ...(gated.sandbox ? { sandbox: gated.sandbox } : {}) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),
