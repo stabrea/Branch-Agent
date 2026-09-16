@@ -36,12 +36,14 @@ export async function drawEmbeds() {
   try {
     const saved = await api("embeds");
     $("embed-widget").checked = Boolean(saved.widget);
+    $("embed-sites").value = (saved.widgetSites ?? []).join("\n");
     $("embed-extension").checked = Boolean(saved.extension);
   } catch (error) { say("embeds-status", error.message); }
 }
 $("embeds-save")?.addEventListener("click", async () => {
   try {
-    await api("embeds", { widget: $("embed-widget").checked, extension: $("embed-extension").checked });
+    const widgetSites = $("embed-sites").value.split("\n").map((line) => line.trim()).filter(Boolean);
+    await api("embeds", { widget: $("embed-widget").checked, extension: $("embed-extension").checked, widgetSites });
     say("embeds-status", t("embeds.saved"));
   } catch (error) { say("embeds-status", error.message); }
 });

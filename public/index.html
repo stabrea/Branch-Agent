@@ -1263,6 +1263,12 @@
               <span data-t="field.let-a-page-of-mine">Let a page of mine include the small ask box</span></label>
             <label><input id="embed-extension" type="checkbox" />
               <span data-t="field.let-the-browser-extension-send">Let the browser extension send me pages</span></label>
+            <label for="embed-sites" data-t="field.pages-that-may-carry-the-box">Pages that may carry the box, one address a line</label>
+            <textarea id="embed-sites" rows="3" spellcheck="false" placeholder="https://notes.example.com"></textarea>
+            <p class="subtle" data-t="embeds.sitesNote">
+              Your browser asks Branch for permission before a page of yours may send anything to it,
+              and only a page listed here is allowed. Leave it empty and no page may ask.
+            </p>
             <button id="embeds-save" type="button" data-t="action.save-these-switches">Save these switches</button>
             <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
           </section>
