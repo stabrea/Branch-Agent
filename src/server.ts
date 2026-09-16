@@ -1017,10 +1017,14 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     if (request.method === "GET")
       return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     if (request.method === "POST") {
-      const sharing = McpSharingSchema.parse(await readBody(request));
+      const body = await readBody(request);
+      const sharing = McpSharingSchema.parse(body);
       const known = new Set(app.registry.names());
       const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
-      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a: sharing.a2a });
+      // A screen that does not know about answering other assistants must not switch it off by saving.
+      const said = (body as Record<string, unknown> | null)?.a2a;
+      const a2a = typeof said === "boolean" ? said : mcp.sharing().a2a;
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a });
       return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     }
   }

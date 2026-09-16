@@ -1,15 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import { errorText } from "./contracts.js";
 import { A2aError, SendParamsSchema, a2aError } from "./a2a.js";
 import type { A2aServer } from "./a2a.js";
 import type { RemoteAgent, RemoteAgents } from "./a2a-client.js";
 
 /**
  * The web side of talking to other assistants: the card that says who this one is, the JSON-RPC
- * endpoint that takes work from another assistant, and the owner's own screens for adding
- * assistants elsewhere, looking for them on addresses they type in, and sharing a pairing link.
- * All of it sits behind the same local key as the rest of the app.
+ * endpoint that takes work from another assistant, and the owner's own routes for adding assistants
+ * elsewhere, looking for them on addresses they type in, and sharing a pairing link. All of it sits
+ * behind the same local key as the rest of the app.
  */
 const JsonRpcSchema = z.object({
   jsonrpc: z.literal("2.0"),
@@ -102,7 +101,3 @@ export async function remoteAgentsApi(
   if (path === "/api/agents/pair") return withoutKey(await agents.pair(PairSchema.parse(await body()).link));
   throw new Error("Endpoint not found");
 }
-
-/** A problem reading a card or reaching an address is the owner's to see, in their own words. */
-export const discoveryProblem = (error: unknown): string =>
-  `${errorText(error)}. Assistants on this computer or your own network are only reachable once you allow private addresses under Web reading.`;

@@ -394,8 +394,17 @@ the other install redeems with `POST /api/agents/pair`. **ACP** (`src/acp.ts`, `
 bidirectional newline-delimited JSON-RPC on stdio — `initialize`, `session/new`, `session/prompt`
 with `session/update` chunks, `session/cancel` — and a step that needs a yes becomes an outbound
 `session/request_permission` whose answer goes straight to `runtime.approve`. Documented with a Zed
-`agent_servers` example. Tests: `tests/interop-agents.test.mjs` (16, including a spawned
+`agent_servers` example. A streamed task that cannot even be created (a busy conversation, a spent
+monthly budget) answers with a `failed` final frame instead of leaving a rejection nobody is
+watching, a line the editor sends that Branch cannot use is reported and skipped rather than ending
+the connection, and saving the sharing screen — which posts only `enabled` and `exposedTools` —
+leaves `a2a` as it was. Tests: `tests/interop-agents.test.mjs` (19, including a spawned
 `acp-serve`). No new dependency.
+
+Known gap, shared with MCP: `cappedPolicy` returns the policy untouched while the preset is
+**No approvals**, which is the default, so a caller is only held to "Ask before changes" once the
+owner has chosen an approval setting. `exposedTools` shapes the card's skills, not what a task may
+do — `branch.ask` reaches the whole registry. Both are written down in `docs/configuration.md`.
 
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 

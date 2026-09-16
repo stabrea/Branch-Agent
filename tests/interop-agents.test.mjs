@@ -409,3 +409,57 @@ test("branch acp-serve speaks the protocol on standard input and output", async 
   child.stdin.end();
   assert.equal(await exited, 0, "it stops cleanly when the editor closes the connection");
 });
+
+// ----------------------------------------- a task that cannot start does not take the app down
+
+test("a streamed task that never starts says so and leaves the app standing", async (t) => {
+  const { app, provider, server, headers, shareA2a } = await fixture(t);
+  await shareA2a();
+  let release = () => {};
+  const held = new Promise((resolve) => { release = resolve; });
+  provider.complete = async (request) => {
+    await Promise.race([held, new Promise((_, reject) => request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true }))]);
+    request.signal.throwIfAborted();
+    return { content: "late", toolCalls: [] };
+  };
+  // A conversation that is already busy: a second task on it cannot be created at all.
+  const seed = app.store.createRun(app.runtime.owner, "seed");
+  app.store.finish(seed.id, "completed", "seeded");
+  const busy = app.runtime.run({ prompt: "keep this conversation busy", sessionId: seed.sessionId }).catch(() => undefined);
+  for (let i = 0; i < 200; i++) {
+    if (app.store.runs(app.runtime.owner).some((run) => run.sessionId === seed.sessionId && run.status === "running")) break;
+    await delay(25);
+  }
+  const response = await fetch(`${server.url}/a2a`, {
+    method: "POST", headers: headers(),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tasks/sendSubscribe", params: { id: "doomed-1", sessionId: seed.sessionId, message: { role: "user", parts: [{ type: "text", text: "start anyway" }] } } }),
+  });
+  const frames = (await response.text()).split("\n\n").filter(Boolean).map((frame) => JSON.parse(frame.replace(/^data: /, "")));
+  const last = frames.at(-1).result;
+  assert.equal(last.final, true);
+  assert.equal(last.status.state, "failed", "the caller is told why, rather than the stream just stopping");
+  assert.match(last.status.message.parts[0].text, /active run/i);
+  release();
+  await busy;
+  const after = await fetch(`${server.url}/.well-known/agent.json`, { headers: headers() });
+  assert.equal(after.status, 200, "the app is still answering afterwards");
+});
+
+test("a message from the editor that Branch cannot use does not end the connection", async (t) => {
+  const { app } = await fixture(t);
+  const acp = acpPair(t, app);
+  acp.send({ jsonrpc: "2.0", method: "session/cancel", params: {} });
+  acp.send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } });
+  const hello = await acp.until((m) => m.id === 1);
+  assert.equal(hello.result.protocolVersion, 1, "Branch is still listening after a message it could not use");
+});
+
+test("saving the sharing screen does not switch answering other assistants back off", async (t) => {
+  const { api } = await fixture(t);
+  await api("/api/mcp/settings", { enabled: true, exposedTools: [], a2a: true });
+  // The sharing screen knows nothing about A2A and posts only its own two fields.
+  const saved = await api("/api/mcp/settings", { enabled: true, exposedTools: ["files.read"] });
+  assert.equal(saved.body.a2a, true, "a screen that never mentions it leaves it alone");
+  const off = await api("/api/mcp/settings", { enabled: true, exposedTools: [], a2a: false });
+  assert.equal(off.body.a2a, false, "saying so explicitly still switches it off");
+});

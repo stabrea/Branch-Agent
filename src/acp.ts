@@ -73,7 +73,9 @@ export class AcpConnection {
   async serve(): Promise<void> {
     this.io.log("Branch is ready for a code editor on standard input. Close it or press Ctrl+C to stop.");
     const lines = createInterface({ input: this.io.input, crlfDelay: Infinity });
-    for await (const line of lines) if (line.trim()) void this.accept(line);
+    // A line Branch cannot make sense of is reported and skipped; it never stops the connection.
+    for await (const line of lines)
+      if (line.trim()) void this.accept(line).catch((error: unknown) => this.io.log(errorText(error)));
     for (const waiting of this.pending.values()) waiting.reject(new Error("The editor disconnected"));
     this.pending.clear();
     this.io.log("The editor disconnected. Branch is stopping.");

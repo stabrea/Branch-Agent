@@ -13,8 +13,8 @@ import type { Store } from "./store.js";
  * A2A, the agent-to-agent protocol: how an assistant made by someone else asks this one to do a
  * piece of work. Branch publishes a card saying who it is and what it can be asked for, then takes
  * tasks over JSON-RPC. Every task becomes an ordinary Branch task, so it appears in Activity with
- * the same signed receipts, and it is held to the "Ask before changes" rules because the owner did
- * not start it. Nothing is answered at all until the owner switches A2A on in Settings.
+ * the same signed receipts, and it never gets more freedom than the "Ask before changes" rules,
+ * because the owner did not start it. Nothing is answered until the owner switches A2A on.
  */
 export type A2aState = "submitted" | "working" | "completed" | "failed" | "canceled" | "input-required";
 
@@ -63,6 +63,8 @@ export interface A2aOptions {
 }
 export interface A2aTaskRecord { id: string; runId: string; sessionId: string; agent: string; createdAt: string }
 
+/** How many tasks stay findable by `tasks/get` before the oldest are forgotten. */
+const maxRememberedTasks = 500;
 const nowIso = () => new Date().toISOString();
 const textMessage = (text: string) => ({ role: "agent", parts: [{ type: "text", text }] });
 
@@ -103,7 +105,7 @@ export class A2aServer {
     readonly registry: ToolRegistry,
     readonly mcp: McpServer,
     readonly version: string,
-    readonly options: A2aOptions = { tasksPerMinute: 20, taskTimeoutMs: 180000 },
+    readonly options: A2aOptions = { tasksPerMinute: 20, taskTimeoutMs: 120000 },
   ) {}
 
   /** Whether the owner has switched on answering other agents. Read fresh, so a change is immediate. */
@@ -130,6 +132,9 @@ export class A2aServer {
     const id = params.id ?? randomUUID();
     const record: A2aTaskRecord = { id, runId: "", sessionId: "", agent, createdAt: nowIso() };
     this.tasks.set(id, record);
+    // Only the most recent tasks stay findable, so a long-running install does not grow without end.
+    for (const oldest of [...this.tasks.keys()].slice(0, this.tasks.size - maxRememberedTasks))
+      this.tasks.delete(oldest);
     return { record, prompt };
   }
 
@@ -203,9 +208,20 @@ export class A2aServer {
     const write = (result: unknown) => response.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`);
     sseHead(response);
     write({ id: record.id, status: { state: "submitted", timestamp: nowIso() }, final: false });
-    const finished = this.execute(record, prompt, this.sessionFor(params.sessionId));
-    await this.pump(record, write, response);
+    // A task that never starts is told to the caller below. The stream is already open, so there is
+    // no error reply left to send, and a failure nobody is watching would take the whole app down.
+    let settled = false, failure: unknown;
+    const finished = this.execute(record, prompt, this.sessionFor(params.sessionId)).then(
+      (run) => { settled = true; return run; },
+      (error: unknown) => { settled = true; failure = error; return undefined; },
+    );
+    await this.pump(record, write, response, () => settled);
     const run = await finished;
+    if (!run) {
+      write({ id: record.id, status: { state: "failed", timestamp: nowIso(), message: textMessage(errorText(failure)) }, final: true });
+      response.end();
+      return;
+    }
     const view = this.taskView(record, run) as { status: unknown; artifacts: unknown[] };
     for (const artifact of view.artifacts) write({ id: record.id, artifact });
     write({ id: record.id, status: view.status, final: true });
@@ -213,11 +229,11 @@ export class A2aServer {
   }
 
   /** Every stored step of the task, in order, turned into a state update, until the task settles. */
-  private async pump(record: A2aTaskRecord, write: (result: unknown) => void, response: ServerResponse): Promise<void> {
+  private async pump(record: A2aTaskRecord, write: (result: unknown) => void, response: ServerResponse, settled: () => boolean): Promise<void> {
     const deadline = Date.now() + this.options.taskTimeoutMs;
     let last = 0, closed = false;
     response.on("close", () => { closed = true; });
-    while (!closed && Date.now() < deadline) {
+    while (!closed && !settled() && Date.now() < deadline) {
       if (record.runId)
         for (const event of this.store.events(record.runId).filter((e) => e.id > last)) {
           last = event.id;
