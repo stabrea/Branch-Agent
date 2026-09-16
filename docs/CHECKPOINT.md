@@ -409,6 +409,14 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.13.0 (2026-09-17)
+
+Knowledge bases, talk mode and voice notes, installer and background running, phone access over Tailscale, screen control (off by default), traces and metrics, permission rules with resources, shareable pages, labels, durable workflows, queue, holidays, household profiles, terminal UI, SDK, audit record, web UI extras, toolboxes, figures and research. Published from `release/0.13.0` (PR #99); the in-app update from 0.12.0 was rehearsed on a staged copy in 42 seconds with no console window and the previous copy kept.
+
+## Community
+
+No outside pull requests or issues yet. Process: an Opus reviewer checks each PR, decides, thanks the contributor with the decision, then merges, requests changes or declines.
+
 ## Released 0.12.0 (2026-09-16)
 
 Secrets vault and session lock, models on this computer, pictures and sound, shareable skills and plugins, A2A/ACP interop, evaluation suites with history. Published from `release/0.12.0` (PR #98); the in-app update from 0.11.0 was rehearsed on a staged copy with no console window and the previous copy kept.
@@ -1277,6 +1285,53 @@ tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving 
 all of it. No new dependency.
 
 
+## Batch 25 (wave 7) — Branch as a first-class MCP citizen, both ways round
+Branch already spoke MCP at both ends; this batch makes it a citizen rather than a tourist.
+**Transport.** `/mcp` keeps `POST` and stdio and adds the streaming half: a `GET` that asks for
+`text/event-stream` opens a stream (`openEventStream` in `src/server.ts`) that carries
+`notifications/tools/list_changed` and `notifications/resources/updated`. A plain `GET` is still
+405, so nothing that relied on that changed. A client that brings no session id is given one in an
+`Mcp-Session-Id` header on the reply to `initialize`. `initialize` now advertises `listChanged`,
+`subscribe` and `logging`, accepts `logging/setLevel`, and answers an unknown protocol version with
+`-32602` naming the three it speaks instead of quietly pretending. `ToolRegistry` grew
+`onToolsChanged`, fired from `register`/`unregister` — so a skill, a plugin or another server's
+tools arriving tells every connected client at once, with no coupling to the loaders.
+**Policy, which is the substance.** `src/mcp-policy.ts` runs the shared tool list through the
+owner's approval settings before anything is offered (`preflight`). Only a flat `deny` hides a
+tool; an `ask` stays listed and is stopped at the call with "this needs your yes in Branch",
+because under `cappedPolicy(…, "mcp")` every change-tool becomes `ask` and hiding all of them would
+look broken. `policy://hidden-tools` is the plain-language note. `McpServer.gate()` is the real fix
+behind A1342 and A2082: `callRegistryTool` never consulted the policy at all, so browser tools —
+already in the registry — now hit the same gate the owner's own runs do. `_meta.dryRun: true` and
+the `mcp.dry_run` tool answer "what would this do?" from `registry.targetOf` and the arguments,
+running nothing.
+**Records and resources.** `src/mcp-snapshots.ts` writes the exact tool list and every schema a
+client was shown, with a sha-256 over canonical JSON, into `governance` as `mcp-snapshot:<id>`, so
+a later dispute can be checked; `mcp.snapshot` records, compares and lists. Resources gained
+`documents://library`, `runs://recent`, `run://<id>` and `resources/subscribe`, and every resource
+is now scoped: it is listed and readable only when the settings would allow the tool that reads the
+same thing, and a refused one answers "unknown resource" rather than admitting it exists. Prompts
+read the real saved-procedure shape (`definition.parameters`) and carry their blanks; a missing
+required one is refused by name.
+**As a client.** `src/mcp-lifecycle.ts` is a manager that opens somebody else's server when a task
+calls `acquire` and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an
+idle connection before refusing a busy one, retry with growing backoff, and per-profile settings.
+**It is not on the production path yet**: `loadIntegrations` still connects every configured MCP
+server eagerly at startup, and nothing calls `acquire`, so `known()` and `health()` are empty on a
+normal install and the Connections card and `mcp.servers` say so. Wiring it up means deferring tool
+registration too, because discovery happens at connect; that is a batch of its own. `src/integrations/
+mcp-oauth.ts` does RFC 8414 discovery and RFC 7591 dynamic client registration, then hands a
+synthesised provider to the existing `OAuthConnections` so PKCE and the locker are unchanged; the
+identity is remembered so a second sign-in does not register twice. `src/mcp-workbench.ts` is
+Settings → Try a server: list, call one by hand, see the raw answer, every try written to the audit
+under the new `mcp.tried` action. `src/mcp-apps.ts` serves a page an MCP app sent under
+`sandbox; default-src 'none'; …; frame-ancestors 'self'`, with the tags the frame would refuse
+stripped anyway, at a one-time address that expires in five minutes — a frame cannot carry the
+session key, so the address is the secret. Two new look-only tools, `mcp.dry_run` and
+`mcp.servers`, and one new read-only permission, `mcp.read`. `tests/mcp-mode.test.mjs` (12 tests)
+covers every one of these; the existing MCP, integrations and catalog-diet suites are untouched and
+green. Covers the mcp-server-mode theme (#68).
+
 ## Batch 20 (wave 7) — orchestration, second pass: styles, patches, processes, flows
 Six things, all backend-first with additive UI in Specialists, Procedures and Skills only, and no
 new dependency. **Specialist styles** (`src/specialist-styles.ts`): a specialist declares a `style`
@@ -1342,6 +1397,7 @@ belong, and listing and restoring a kept point became owner actions on the exist
 DAP clients against stand-in servers written as two small Node scripts, and the GitHub, GitLab and
 OpenAPI work against `node:http` fakes.
 
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
@@ -1356,3 +1412,72 @@ Tools: `branch-function-check.mjs`, `branch-agent-archive.py`, `branch-public-co
 `branch-agent-pr.md` under `C:/Users/bishi/AppData/Local/Temp/Codex-session-files/`.
 Stop the running packaged app before `npm run package:desktop`; the packager cannot replace a
 running executable.
+
+## Batch 25 (wave 7) — deferred tool loading: unlimited tools, a small context, a catalog that learns
+Wave 6 stopped the catalog growing with the product; it did not stop it growing with the owner's own
+computer, where a couple of connected servers can mean a thousand tools. Measured on this tree, a
+1,000-tool catalog costs **9,507 estimated tokens** a round with toolboxes alone. `src/tool-loading.ts`
+puts every permitted tool in one of three tiers each round — **loaded** (full dieted schema, at most
+`defaultMaxLoaded` = 12 besides core), **indexed** (one line: name, eight-word purpose and anything
+learned, at most 40 lines) and **deferred** (not in the request at all) — under a hard ceiling on the
+whole tool section (`toolBudgetTokens`, default 2,500, in the reliability settings). The same 1,000
+tools now cost **2,159** against **9,507** at the opening round, and 90 tools cost 1,673 against
+1,816: ten times the catalog for 486 more tokens, where toolboxes cost 7,691 more. Over a scripted
+20-round conversation with 1,000 tools the heaviest tool section measured **1,742** tokens, and
+every round is asserted smaller than the same run with toolboxes alone. Enforcement demotes the weakest loaded
+tool to a line, then trims the index, and each step is strictly smaller than the last, so it always
+terminates under the ceiling; `descriptions()` is memoised per round so what `catalog.size` reports
+is exactly what the provider received. `src/tool-index.ts` is the index itself: BM25 over name,
+description, parameter names, toolbox and learned notes, with light stemming ("schedule",
+"schedules", "scheduled" are one word) and a small everyday-synonym table ("make a picture" finds
+`media.image`). A `ToolEmbedder` seam and a sha256 digest per description are declared for the
+embeddings service; nothing implements them yet, so every search here is lexical. Three core tools
+sit beside `tools.expand`, which still works: **`tools.search {query, limit?}`** finds tools by what
+you want to do and loads the matches for the rest of the conversation, **`tools.describe {names}`**
+loads them by exact name, and **`tools.note {tool, note}`** keeps one short thing about a tool. All
+three are handled in `Runtime.callTool` before the registry and read from an index built with
+`descriptions(context.permissions)`, so a narrowed run cannot find a forbidden tool by either route —
+a forbidden name comes back worded exactly like a misspelling. `src/tool-usage.ts` is the learning:
+one `tool_usage` row per finished task holding hashed word shingles of the prompt (never the words),
+the tools searched, the tools called, the outcome and the round count. From it: pre-loading (a
+request like two past ones loads their tools before round 1, reported as
+`catalog.size.preloadedFromHistory`), co-use (tools called together load together), demotion (a tool
+unused for 30 days stops being indexed but stays searchable) and notes (a call that fails on its
+inputs and then works leaves a line, appended to that tool's description and index line). Everything
+is in the same database, travels with the backup (`tool_usage`, `tool_notes`) and is deletable in one
+move. Tools from outside — MCP servers, plugins — are marked `external` on the `ToolDefinition`;
+their descriptions are capped at 200 characters and run through the injection detector as the index
+is built, before they can reach any request, and one that reads like instructions keeps its name and
+loses its words. `ToolRegistry.version` lets a running task notice a server that connects mid-task
+and re-index it (`catalog.reindexed`). A nightly pass on the existing scheduler tick writes one
+plain line into the diagnostics folder (`tools.json`) and the new read-only Settings → Developer
+card (`public/tool-catalog.js`, `GET /api/tools/catalog`). `tests/tool-loading.test.mjs` — 11 tests,
+fakes only — proves the budget with 1,000 tools over 20 rounds, the search-to-call path, permission
+gating of search and describe, a 15-query ranking table, all four learning behaviours, 300 external
+tools indexed and filtered, the backup round trip and the health line. No new dependency.
+
+Re-measured after the merge, with everything the rest of wave 7 added: 1,000 tools cost **2,245**
+estimated tokens against **9,440** with toolboxes alone, 90 tools cost 1,756 against 1,900, and the
+heaviest tool section over a 20-round conversation with 1,000 tools was **1,901**.
+
+Five things were put right while merging this. A small box of unrecognised names — an installed
+skill, a connected server, anything whose name the product does not know — was being deferred like
+everything else, but nothing in the words of a request can point at such a tool, so it was simply
+lost (`tests/provider-retry.test.mjs` caught it). Up to twelve of them are carried again, exactly as
+wave 6 carried them. A tool the assistant had just called could be put
+away again mid-job, because the cap of twelve went on score alone and a preload or a search hit
+outscored a tool actually in use; tools used in the last few rounds now keep their place and the
+cap takes back the rest. The tool section was sent in score order, so calling a tool reshuffled the
+prefix a provider caches and threw wave 6's cache saving away; it now goes in registry order, and
+score decides only whether a tool travels. A note written by `tools.note` now goes through
+`hideSecrets` first, so a password the assistant happened to see cannot be written into the tool
+list for good. And forgetting a conversation now forgets what it taught: `Store.forgetMemory` and
+`purgeSession` both drop that conversation's `tool_usage` rows. The three `/api/tools/*` routes are
+owner-only, like projects and the locker, and `tests/cost-trace.test.mjs` now expects the eight
+files the diagnostics folder really holds.
+`tests/tool-loading-quality.test.mjs` pins all four, plus three everyday multi-step jobs across four
+toolboxes with 1,000 tools installed: each finishes inside the budget, and by the third time this
+computer has seen that kind of job it loads every tool up front and spends no round looking (cold,
+those jobs spend one to two rounds finding tools, and never a wasted one). `ToolCatalog` in
+`src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
+keep it as the measuring stick the savings are quoted against.

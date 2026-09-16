@@ -17,12 +17,17 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
+import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
+// Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
+// tools that report what a call would do and how those connections are faring.
+import { McpConnections } from "./mcp-lifecycle.js";
+import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
 import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
 import { createRequire } from "node:module";
@@ -322,6 +327,8 @@ export async function createBranch(options: {
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
+  // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
+  scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
@@ -353,6 +360,12 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
+  // Somebody else's AI-tool server is opened only when a task first needs it, and closed when that
+  // task ends. Each household profile keeps its own settings for how long and how many.
+  const mcpConnections = new McpConnections(store, () => store.profiles.scope());
+  registry.onRunFinished(async (context) => mcpConnections.releaseRun(context.runId));
+  registerMcpTools(registry, store, files.base, mcpConnections);
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
@@ -444,6 +457,8 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    /** Other AI tools' servers, opened only while a task needs one and closed when it ends. */
+    mcpConnections,
     /** Answering assistants elsewhere over the agent-to-agent protocol. */
     a2a,
     /** Assistants elsewhere this one may hand work to. */
@@ -552,6 +567,8 @@ export async function createBranch(options: {
       stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
+      mcpServer.close();
+      await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
       await languageServers.stopAll().catch(() => undefined);
@@ -591,6 +608,10 @@ export * from "./contracts.js";
 export * from "./store.js";
 export * from "./registry.js";
 export * from "./catalog.js";
+// Wave 7 (tool loading): the tiers, the searchable index, and what past tasks taught.
+export * from "./tool-loading.js";
+export * from "./tool-index.js";
+export * from "./tool-usage.js";
 export * from "./runtime.js";
 export * from "./demo.js";
 export * from "./providers.js";
@@ -767,3 +788,10 @@ export * from "./build-artifacts.js";
 export * from "./openapi.js";
 export * from "./openapi-tools.js";
 export * from "./agent-export.js";
+// Wave 7 (Branch as a first-class MCP citizen, both ways round).
+export * from "./mcp-policy.js";
+export * from "./mcp-snapshots.js";
+export * from "./mcp-lifecycle.js";
+export * from "./mcp-apps.js";
+export * from "./mcp-workbench.js";
+export * from "./integrations/mcp-oauth.js";

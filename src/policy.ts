@@ -132,6 +132,9 @@ const readOnlyPermissions = new Set([
   "data.read", "research.read", "monitors.read", "brief.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
+  // Saying what a call would do, and how the connections to other AI tools are faring, changes
+  // nothing at all: nothing is run and nothing is written.
+  "mcp.read",
   // Looking at what a program left running has printed changes nothing; starting or stopping one does.
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.

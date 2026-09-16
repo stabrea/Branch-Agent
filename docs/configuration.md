@@ -586,17 +586,62 @@ Branch is itself a Model Context Protocol (MCP) server, so another AI tool on th
 
 **What is shared, and when.** Nothing until you switch it on. Switching it on offers the tools that only read (their permission ends in `.read`) and leaves everything else unticked and marked *can change things*; you tick those yourself. `branch.ask` — asking Branch a question in plain words — is always available, because it goes through Branch's own permissions and budget like any other task. The saved choice lives in `settings/mcp-sharing` as `{ enabled, exposedTools }` and is read fresh on every call, so a change takes effect at once.
 
-**Two ways to connect.** Over HTTP, at `/mcp` on the same port as the web interface: JSON-RPC 2.0 by `POST`, with your session key as `Authorization: Bearer …`, an optional `Mcp-Session-Id` header to keep one conversation across requests, `DELETE` to end that session (204) and `GET` refused (405). Responses carry `MCP-Protocol-Version`; `2025-06-18` is preferred and `2024-11-05` accepted. Or as a child program: `branch mcp-serve` speaks newline-delimited JSON-RPC on standard input and output, writes every message for a person to standard error, and stops cleanly when the other tool closes the connection.
+**Two ways to connect.** Over HTTP, at `/mcp` on the same port as the web interface: JSON-RPC 2.0 by `POST`, with your session key as `Authorization: Bearer …`. If you send no `Mcp-Session-Id`, the reply to your first message names one in an `Mcp-Session-Id` header; send it back on everything afterwards and your work is kept together. `DELETE` ends that conversation (204). A plain `GET` is refused (405), but a `GET` that asks for `text/event-stream` opens a stream Branch writes down when something changes on this side — see **Streaming** below. Responses carry `MCP-Protocol-Version`. Branch speaks `2025-06-18`, `2025-03-26` and `2024-11-05`; ask for anything else and you get a plain error saying which ones work. Or as a child program: `branch mcp-serve` speaks newline-delimited JSON-RPC on standard input and output, writes every message for a person to standard error, and stops cleanly when the other tool closes the connection.
+
+**What Branch says it can do.** `initialize` answers with `tools: { listChanged: true }`, `resources: { subscribe: true, listChanged: true }`, `prompts: { listChanged: true }` and `logging: {}`. `logging/setLevel` is accepted and remembered for that connection.
+
+**Streaming.** A `GET /mcp` with `Accept: text/event-stream` stays open and carries messages that expect no reply, each as `event: message` with the JSON-RPC notification as its data. Two things travel down it. `notifications/tools/list_changed` goes to every open stream whenever the set of tools changes — a skill loaded, a plugin added or removed, another server's tools arriving — so a connected tool never goes on calling something that is no longer there. `notifications/resources/updated` goes only to a connection that asked for it with `resources/subscribe`, naming the resource: subscribe to `runs://recent` to be told whenever a task finishes, or to `run://<id>` for one in particular. `resources/unsubscribe` stops it, and one connection may watch fifty things at most.
 
 Use HTTP when Branch is already open — that is what the Claude Code and Cursor snippets do. `mcp-serve` starts a second copy of Branch against the same records, so close the app first; the snippet sets `BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` for the child, because it inherits the other tool's working directory rather than Branch's.
 
-**Resources.** `memory://facts` (what Branch remembers) and `workspace://files` (the workspace listing) as JSON, plus the twenty most recent saved conversations as `conversation://<id>`, named after their first message and dated. Reading one returns the transcript as plain `role: text` lines in the order they were said, read-only: the most recent messages are kept and older ones dropped once the text passes 64 KiB. Temporary conversations are never listed, and a conversation belonging to someone else is not found.
+**Resources.** `memory://facts` (what Branch remembers), `workspace://files` (the workspace listing) and `documents://library` (documents Branch has read) as JSON; `runs://recent` (the twenty most recent tasks) and `run://<id>` for one of them; the twenty most recent saved conversations as `conversation://<id>`, named after their first message and dated; and `policy://hidden-tools`, the note described under **What is offered** below. Reading a conversation returns the transcript as plain `role: text` lines in the order they were said, read-only: the most recent messages are kept and older ones dropped once the text passes 64 KiB. Temporary conversations are never listed, and a conversation belonging to someone else is not found.
 
-**Prompts.** Your saved procedures, listed as `procedure:<id>` with the procedure's name.
+Every resource is read-only, and each one is scoped by your approval settings. A resource is shown only when your settings would allow the tool that reads the same thing: `memory://facts` follows `memory.search`, `workspace://files` follows `files.list`, `documents://library` follows `documents.search`, and everything to do with tasks and conversations follows `history.search`. If your settings refuse one of those, the resource is not listed and reading it by name answers "unknown resource" — a connected tool cannot tell the difference between something you have hidden and something that was never there.
+
+**What is offered, and what is held back.** When a tool connects, every tool you share is checked against your approval settings before any of them is offered. A tool your settings flatly refuse is not offered at all. A tool your settings want you asked about *is* still offered, because with an approval setting chosen almost everything that changes something becomes a question, and hiding all of those would leave the other tool looking at an empty toolbox — instead the call is stopped at the moment it is made, with a message saying it needs your yes here in Branch. The `policy://hidden-tools` resource says which tools are in which group and why, in plain sentences, and **Settings → Sharing with other AI tools → What another tool is offered** shows the same thing.
+
+**Saying what a call would do, without doing it.** Send `tools/call` with `_meta: { dryRun: true }`, or call the `mcp.dry_run` tool with `{ name, arguments }`. Either way nothing is run, nothing is written and no web address is opened; what comes back says which tool, what it would touch, which files and which hosts the arguments name, whether it changes anything, what your settings would decide, what it would cost and one sentence on what would happen. Branch's own tools run on this computer and cost nothing; only `branch.ask` goes to a model, and then at whatever your chosen model charges.
+
+**Writing down what you were shown.** Call the `mcp.snapshot` tool with `{ action: "record" }` and Branch keeps the exact tool list and every schema in it, with a sha-256 fingerprint, against that connection. `{ action: "compare" }` checks a saved record against what is on offer now and says what was added, what has gone and what has changed; `{ action: "list" }` shows the records. The fingerprint changes the moment a single word of a description or a schema does, so a later disagreement about what was on offer can be settled. `GET /api/mcp/snapshots` shows the same records; the last fifty are kept.
+
+`mcp.dry_run` and `mcp.snapshot` appear in the tool list only while sharing is switched on.
+
+**Prompts.** Your saved procedures and recipes, listed as `procedure:<id>` with the procedure's name and the blanks it takes — each named input becomes an argument, marked as needed or not. `prompts/get` fills them in; leaving out a needed one is refused by name rather than quietly running with a gap.
 
 **What is recorded.** Every `tools/call` becomes a task of its own, named "Another AI tool used …", with `run.started`, `tool.started` and `tool.completed`/`tool.failed` events carrying `source: "mcp"` and the same signed receipt as local work. They appear in Activity and under `GET /api/runs/:id/receipts`. At most four shared calls run at once and one connection may make 100 in total.
 
-**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, a2a, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools, a2a }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets.
+**Signing in.** Branch accepts the session key the app already shows you, as `Authorization: Bearer …` — the same key the web interface uses. **Branch is not an authorization server.** It does not issue keys of its own, it has no sign-in page for other programs, and it does not let a program register itself at Branch's door. If a tool asks you for a client id and secret for Branch, there is none; paste the session key from **Settings → Sharing with other AI tools** instead. That key is private: anyone holding it can use Branch as you.
+
+**What is shared over MCP, and what is not.**
+
+| On offer | Not on offer |
+| --- | --- |
+| `branch.ask` — asking Branch for something in plain words | Any tool you have not ticked in the shared list |
+| Every tool you tick, minus the ones your approval settings flatly refuse | Anything your approval settings refuse |
+| `mcp.dry_run` and `mcp.snapshot`, while sharing is on | Your saved passwords and keys, in any form |
+| Reading memory, the workspace listing, documents, tasks and conversations | Writing to any of those through a resource — resources are read-only |
+| Your saved procedures as prompts, with their blanks | The owner-only parts of the app: projects, profiles, settings |
+| A plain note saying what was held back and why | Sampling: Branch never asks a connected tool to run a model for it |
+
+**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, a2a, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools, a2a }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets. `GET /api/mcp/preflight` returns `{ allowed, hidden, explanation, tools }` — what a connection would be offered, what is held back, and the note in plain sentences. `GET /api/mcp/snapshots` lists the records of tool lists other tools were shown.
+
+## Connecting MCP servers
+
+Branch can also be the one asking: somebody else's MCP server becomes tools Branch may use. There are two ways in.
+
+**Servers you set up once.** Put them in the connections file named by `BRANCH_INTEGRATIONS`, under `mcp`, exactly as described in **MCP tools** above: the server's address or the command that starts it, the version you expect, and the names of the tools you want. Nothing is guessed, and a tool the server starts advertising later is never granted.
+
+**Trying one first.** **Settings → Sharing with other AI tools → Try a server** takes a web address (`https://…`, or `http://` on this computer) or the command that starts a server, asks it what it offers, and draws a form from the shape each tool describes. Fill it in, run the tool once, and see exactly what came back. Nothing is registered and nothing is kept: the connection is opened for the try and closed again. Every try is written into the record of what the assistant was allowed to do, as **You tried out another AI tool's server**, with the server, the tool and how it ended. `POST /api/mcp/try` takes `{ server: { transport: "http", url } | { transport: "stdio", command, args }, call?: { name, arguments } }`.
+
+**When connections open and close.** Be clear about what is true today: **a server named in the connections file is still opened when Branch starts**, because that is when Branch asks it what tools it offers, and the tools have to exist before a task can use one. The settings below govern connections opened on demand instead — opened the first time a task needs one and closed when that task ends — and nothing in Branch opens one that way yet, so **Other people's servers** is empty on a normal install. What that machinery does when it is used: an unused connection can be kept open for a few minutes in case the next task wants it; there is a cap on how many servers may be connected at once, and at the cap Branch closes the oldest one nobody is using and refuses the new one only when every open server is busy; a server that will not answer is tried again with a growing wait before Branch gives up with a plain reason. `GET /api/mcp/connections` returns `{ settings, servers, known }`; `POST` it `{ keepWarmMinutes, maxConcurrentServers, reconnectAttempts }` to change the settings, and anything you leave out keeps its value. Where several people share this computer, each profile keeps its own settings.
+
+**Servers that need a sign-in.** Some servers do not hand out keys by hand. Branch reads what the server publishes at `/.well-known/oauth-authorization-server` (or `/.well-known/openid-configuration`), asks it for an identity of its own if it allows that (dynamic client registration), and then runs the ordinary sign-in in your own browser with a proof key (PKCE, `S256`). The key that comes back goes straight into the locker and the identity is remembered, so signing in again does not register a second time. Every address is checked by the network policy first, and the key never appears in a log, an event, the audit record or a message. A server that publishes no sign-in details, or one that needs a sign-in but will not let a program register itself, is refused with a sentence saying so.
+
+One detail to know about: Branch registers its callback as `http://127.0.0.1/oauth/callback`, without a port, because the sign-in picks a free port on this computer at the moment you sign in and that port is different every time. This relies on the usual allowance for a program running on your own computer, where any port on the loopback address counts as the same callback. A server that insists on the exact port instead will refuse the sign-in; there is nothing you can set to work around that, and such a server has to be given a key by hand through `bearerEnv` in the connections file.
+
+**Pages a server sends.** A server may answer with a small page meant for you to look at — a form, a picker, a chart. Branch will show one, in a frame that can do almost nothing: it is served from Branch's own address with `Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'`. `sandbox` with nothing after it gives the page an origin of its own and stops scripts running at all; `default-src 'none'` refuses every fetch, picture, font and frame it might still ask for. Branch also takes out the tags the frame would refuse anyway — scripts, frames, forms, `javascript:` addresses and `on…` handlers — so what you see is the page that was meant rather than a broken half of one. The page's address is a one-time unguessable name that stops working after five minutes, because a frame cannot carry your session key. `POST /api/mcp/app` with `{ server, uri, html }` returns `{ url }`.
+
+**What Branch will not do as a client.** It will not send your saved passwords or keys to a server they were not configured for; a configured key that comes back inside a server's own answer means that answer is not shown at all. It will not follow a redirect. It will not accept an answer over 1 MiB or a tool schema over 64 KiB. And it never grants a tool that appeared later: what is granted is what you named.
 
 ## Talking to assistants other people built
 
@@ -827,6 +872,59 @@ allowed: a box can only ever contain tools this task was already permitted to us
 You do not configure any of this. It shows up in the task's timeline as **catalog.preselected**
 (which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
 **catalog.size** (how many tools were described this round and what they weighed).
+
+## How the assistant finds its tools
+
+Toolboxes were the first answer to a growing tool list. They are still there, but the assistant no
+longer relies on them, because a computer with a few connected servers on it can easily have a
+thousand tools and no toolbox is small enough to carry that.
+
+Each time the assistant works, every tool it is allowed to use is put in one of three places:
+
+* **Carried** — about a dozen tools, with their full instructions, ready to use straight away.
+* **Named** — a short list, one line each: the tool's name and eight words saying what it does.
+* **Looked up** — everything else. Not in the message at all, and found by searching for it.
+
+When the assistant needs something it is not carrying, it searches for it in its own words — "send
+a message on Discord", "make a picture" — and what it finds becomes available for the rest of that
+conversation. That is what it means when it says it is looking for a tool. It can only ever find
+tools this task was already allowed to use: a tool your settings put out of reach is not in the
+list at all, and reads exactly like a name that does not exist, so nothing is revealed by asking.
+
+**It remembers what worked.** When a task finishes, the computer keeps one line about it: the shape
+of what you asked (as scrambled word pairs, never the words themselves), which tools were looked
+for, which were used, and whether it went well. From that it learns three habits — it carries the
+tools that requests like yours have needed before, it carries tools that are nearly always used
+together, and it stops naming tools nobody has touched for a month (those are still findable by
+searching). It also keeps short notes: if a call fails because something was missing and the next
+one works, or if the assistant is told outright that a tool needs the full path, that line is kept
+and shown with the tool from then on. A note travels with its tool in every later message, so one
+that reads like instructions to the assistant is refused rather than kept.
+
+None of this leaves the computer. It is in the same private database as everything else and travels
+with your backup. **Settings → Developer → How the assistant finds its tools** shows what was
+carried, named and looked up last time, what that weighed, what was made ready before you asked and
+why, and every note — with one button that forgets all of it. Your tools are untouched by that; only
+what was learned about them is deleted. Forgetting one conversation forgets what it taught as well:
+when you clear a conversation's facts, or throw away a temporary one, its line goes with it.
+
+Once a night the assistant works out a short line about how this is going — how many different
+tools you use, what the tool list weighs in each message, and how often a search found something
+worth using. That line is in the Developer card and in the diagnostics folder (`tools.json`).
+
+Settings and routes:
+
+* `toolBudgetTokens` (reliability settings, default 2,500) — the most the whole tool list may weigh
+  in one message. Tools over the ceiling become a line in the list, then a search away.
+* `GET /api/tools/catalog` — what the card shows. Read-only.
+* `POST /api/tools/forget` `{"what":"history"|"notes"|"all"}` — deletes what was learned.
+* `DELETE /api/tools/notes/<id>` — deletes one note.
+
+The timeline adds **tools.searched** (what was looked for and what came back), **tools.described**
+(tools loaded by exact name), **tools.noted** (a note kept) and **catalog.reindexed** (a server
+connected while the task was working, and its tools went into the index). **catalog.size** now also
+says how many tools were carried, named and looked up, and **catalog.preselected** lists anything
+made ready from past tasks under `preloadedFromHistory`.
 
 Alongside it, each round records a **context.budget** line: the size limit, what the instructions
 cost, what the tool list cost, what the conversation costs, and the room held back for the answer.

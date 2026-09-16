@@ -120,6 +120,17 @@ these tools do is shown where the owner already looks: a rename appears as an or
 change in the approval sheet, and a checkpoint appears in Settings → Workspace snapshots with the
 same "put the workspace back to this" row every other kept point has.
 
+## Settings → Developer → How the assistant finds its tools
+
+A read-only card, folded away under Developer beside "Try things out", using the same `.card`,
+`details`/`summary` and `.subtle` pieces as everything else — no new colours and no new components.
+It says in ordinary sentences how many tools are installed, how many travelled with the last
+request in full, how many were named in one line, how many were left to look up, and what that
+weighed against its allowance. Under that: the tools the computer made ready before being asked and
+the plain reason for each, and the short things it has been told to remember about a tool, each
+with a Delete button. One button at the foot forgets all of it. Nothing on this card can change how
+the assistant behaves, and no tool can be switched on or off from here.
+
 ## Artwork
 
 The KeepOak logo and the revolving acorn stay. Logo PNGs are bundled locally.

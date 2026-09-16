@@ -37,10 +37,18 @@ import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
-import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 // Wave 7 (a coder's toolbox): the two Developer switches.
 import { languageServerSettings, saveLanguageServerSettings } from "./language-server.js";
 import { debugSettings, saveDebugSettings } from "./debug-adapter.js";
+import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
+// Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
+// shown, connection lifecycle, the "try a server" bench, and small pages an outside server sends.
+import { hiddenToolsText } from "./mcp-policy.js";
+import { listSnapshots } from "./mcp-snapshots.js";
+import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
+import { tryServer } from "./mcp-workbench.js";
+import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
+import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -56,6 +64,7 @@ import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, 
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { toolCatalogReport } from "./tool-report.js";
 // Wave 5 (deployment): installing, background running and reaching Branch from a phone.
 import { RemoteAccess } from "./remote/remote-access.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
@@ -201,6 +210,7 @@ async function staticFile(
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
@@ -237,6 +247,7 @@ async function staticFile(
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
+    "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
@@ -664,6 +675,23 @@ async function api(
   if (request.method === "POST" && (path === "/api/registry/update" || path === "/api/registry/rollback")) {
     const { skillId } = z.object({ skillId: z.string().uuid() }).strict().parse(await readBody(request));
     return path.endsWith("update") ? app.skillRegistry.update(skillId) : app.skillRegistry.rollback(skillId);
+  }
+  // Wave 7: what the assistant is carrying, what it has learned, and a way to delete the learning.
+  // What the assistant has learned is the owner's, exactly like their projects and their locker:
+  // somebody else on a shared computer must not read it away or throw it away.
+  if (request.method === "GET" && path === "/api/tools/catalog") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    return toolCatalogReport(app);
+  }
+  if (request.method === "POST" && path === "/api/tools/forget") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    const { what } = z.object({ what: z.enum(["history", "notes", "all"]).default("all") }).strict().parse(await readBody(request));
+    return app.store.toolUsage.forget(app.runtime.owner, what);
+  }
+  const toolNote = /^\/api\/tools\/notes\/([a-f0-9-]{36})$/.exec(path);
+  if (toolNote && request.method === "DELETE") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    return app.store.toolUsage.removeNote(app.runtime.owner, toolNote[1]!);
   }
   if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
   const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
@@ -1341,6 +1369,8 @@ async function researchApi(app: Branch, request: IncomingMessage, path: string):
   throw new HttpError(404, "Endpoint not found");
 }
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const extra = await mcpModeApi(app, request, path);
+  if (extra !== undefined) return extra;
   if (path === "/api/mcp/settings") {
     const mcp = app.mcpServer;
     if (!mcp) throw new HttpError(500, "Sharing is not available");
@@ -1359,6 +1389,77 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     }
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/**
+ * Wave 7. What this connection is being offered and what is held back, the records of tool lists
+ * other tools were shown, how the connections to outside servers are set up and faring, and the
+ * "try a server" bench. `undefined` means this path is not one of these.
+ */
+async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const mcp = app.mcpServer;
+  if (path === "/api/mcp/preflight" && request.method === "GET" && mcp) {
+    const result = mcp.preflight();
+    return { ...result, explanation: hiddenToolsText(result), tools: mcp.listTools().map((tool) => tool.name) };
+  }
+  if (path === "/api/mcp/snapshots" && request.method === "GET")
+    return { snapshots: listSnapshots(app.store, app.runtime.owner).map((s) => ({ ...s, tools: s.tools.length })) };
+  if (path === "/api/mcp/connections") {
+    const scope = app.store.profiles.scope();
+    if (request.method === "GET")
+      return { settings: readLifecycleSettings(app.store, scope), servers: app.mcpConnections.health(), known: app.mcpConnections.known() };
+    if (request.method === "POST")
+      return { settings: saveLifecycleSettings(app.store, scope, await readBody(request)), servers: app.mcpConnections.health() };
+  }
+  if (path === "/api/mcp/signin" && request.method === "POST") {
+    app.store.profiles.requireOwner("Signing in to another AI tool's server");
+    // The address to open in the owner's own browser; the key lands in the locker, never here.
+    const started = await mcpSignIn(await readBody(request), {
+      store: app.store, owner: app.runtime.owner, connections: app.oauth, policy: app.web.policy,
+    });
+    return { url: started.url, redirectUri: started.redirectUri, expiresInMs: started.expiresInMs };
+  }
+  if (path === "/api/mcp/try" && request.method === "POST") {
+    // Trying a server starts a program on this computer, or reaches out to a web address, so it
+    // stays with the owner even where several people share the app.
+    app.store.profiles.requireOwner("Trying another AI tool's server");
+    return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+  }
+  if (path === "/api/mcp/app" && request.method === "POST") {
+    const resource = AppResourceSchema.parse(await readBody(request, 512_000));
+    return { url: `/mcp-app/${holdApp(resource)}` };
+  }
+  return undefined;
+}
+/**
+ * A small page an outside server sent, shown in its own frame. It is served without the session
+ * key because a frame cannot carry one; instead the address is a one-time unguessable name that
+ * stops working after five minutes, and the page is locked down so hard by its content rules that
+ * it can neither run a script nor reach anything at all.
+ */
+const heldApps = new Map<string, { resource: AppResource; until: number }>();
+function holdApp(resource: AppResource): string {
+  for (const [id, held] of heldApps) if (held.until < Date.now()) heldApps.delete(id);
+  // At the limit the oldest waiting page goes, rather than every page anyone is still looking at.
+  while (heldApps.size > 20) heldApps.delete(heldApps.keys().next().value!);
+  const id = randomBytes(24).toString("base64url");
+  heldApps.set(id, { resource, until: Date.now() + 300_000 });
+  return id;
+}
+export function mcpAppPage(request: IncomingMessage, response: ServerResponse, path: string): boolean {
+  const match = /^\/mcp-app\/([A-Za-z0-9_-]{32,48})$/.exec(path);
+  if (!match || request.method !== "GET") return false;
+  const held = heldApps.get(match[1]!);
+  // The name is good for one fetch. It is handed over without the session key, so it stops working
+  // the moment it has been used, as well as after five minutes.
+  heldApps.delete(match[1]!);
+  if (!held || held.until < Date.now()) {
+    send(response, 404, { error: "That page has expired. Open it again from Settings." });
+    return true;
+  }
+  const page = appPage(held.resource);
+  response.writeHead(200, { ...appHeaders(), "x-mcp-app-removed": String(page.removed) });
+  response.end(page.body);
+  return true;
 }
 async function handleMcpRequest(
   app: Branch,
@@ -1385,8 +1486,20 @@ async function handleMcpRequest(
       return true;
     }
 
+    // A name Branch never handed out is not a conversation. Only the very first message may bring
+    // one of its own; after that a made-up name is refused, rather than quietly opening a second
+    // conversation or letting anything read a stream it was never given.
+    const unknownSession = sessionId !== undefined && !mcp.hasSession(sessionId);
+
     if (request.method === "GET") {
-      throw new HttpError(405, "Use POST for JSON-RPC requests");
+      // The spec's streaming half: a client that says it wants an event stream gets one, and
+      // messages Branch starts itself — "the tools have changed", "that task has finished" — come
+      // down it. A plain GET is still refused, because a plain GET cannot carry them.
+      if (!/text\/event-stream/i.test(String(request.headers.accept ?? "")))
+        throw new HttpError(405, "Use POST for JSON-RPC requests, or ask for text/event-stream to open a stream");
+      if (unknownSession) throw new HttpError(404, "That conversation is not open. Send initialize first.");
+      openEventStream(mcp, request, response, sessionId);
+      return true;
     }
 
     const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
@@ -1401,11 +1514,17 @@ async function handleMcpRequest(
         })
         .strict();
       const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
-      const result = await mcp.handle(jsonRpcRequest, sessionId);
-      const session = mcp.getSession(sessionId);
+      if (unknownSession && jsonRpcRequest.method !== "initialize")
+        throw new HttpError(404, "That conversation is not open. Send initialize first.");
+      // A client that did not bring a conversation of its own is given one, named in the reply to
+      // its first message, so everything it does afterwards is kept together.
+      const opened = !sessionId && jsonRpcRequest.method === "initialize" ? mcp.getSession().id : undefined;
+      const session = mcp.getSession(sessionId ?? opened);
+      const result = await mcp.handle(jsonRpcRequest, session.id);
       response.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "mcp-protocol-version": session.protocolVersion,
+        ...(opened ? { "mcp-session-id": opened } : {}),
       });
       response.end(JSON.stringify(result));
       return true;
@@ -1421,6 +1540,32 @@ async function handleMcpRequest(
     }
     return true;
   }
+}
+/**
+ * The stream half of the modern MCP transport. The connection stays open and Branch writes down it
+ * whenever something changes on this side; a colon line every half minute keeps it from being
+ * closed by something in the middle for going quiet.
+ */
+function openEventStream(
+  mcp: McpServer, request: IncomingMessage, response: ServerResponse, sessionId?: string,
+): void {
+  const session = mcp.getSession(sessionId);
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "mcp-session-id": session.id,
+    "mcp-protocol-version": session.protocolVersion,
+  });
+  response.write(": connected\n\n");
+  const stop = mcp.openStream(session.id, (notification) => {
+    response.write(`event: message\ndata: ${JSON.stringify(notification)}\n\n`);
+  });
+  const beat = setInterval(() => response.write(": keep-alive\n\n"), 30000);
+  beat.unref?.();
+  const end = () => { clearInterval(beat); stop(); response.end(); };
+  request.on("close", end);
+  request.on("error", end);
 }
 /**
  * How another AI tool starts Branch as a child program on this machine. The child is given this
@@ -1512,6 +1657,9 @@ export async function startServer(
       if (await whatsAppWebhook(app, request, response, path)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
+      // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
+      // A frame cannot carry the session key, so the address itself is the one-time secret.
+      if (mcpAppPage(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1815,7 +1963,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

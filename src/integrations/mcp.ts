@@ -51,7 +51,7 @@ function definition(client: Client, config: McpConfig, tool: Tool, secrets: stri
     throw new Error('MCP discovery contains a configured credential');
   const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema as JsonSchemaType);
   const name = mcpToolName(config.id, tool.name);
-  return { name, description: tool.description?.slice(0, 2000) ?? tool.name,
+  return { name, description: tool.description?.slice(0, 2000) ?? tool.name, external: true,
     permission: name, parameters: z.record(z.string(), z.unknown()), inputSchema: tool.inputSchema,
     execute: async (args: unknown, context: ToolContext) => {
       if (!validate(args).valid) throw new Error('MCP arguments do not match the configured tool schema');
