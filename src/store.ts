@@ -18,7 +18,7 @@ import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -61,8 +61,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id), body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS usage(run_id TEXT PRIMARY KEY REFERENCES tasks(id), estimated_input INTEGER NOT NULL DEFAULT 0, estimated_output INTEGER NOT NULL DEFAULT 0, reported_input INTEGER NOT NULL DEFAULT 0, reported_output INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance"])
+      CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS trigger_log(id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL, owner TEXT NOT NULL, run_id TEXT, payload_summary TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS delivery_log(id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id TEXT NOT NULL, owner TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT, created_at TEXT NOT NULL);`);
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
@@ -426,6 +428,49 @@ export class Store {
       )
       .all(owner, now)
       .map((row) => this.toRecord(row));
+  }
+  logTriggerFire(triggerId: string, owner: string, runId: string | null, payloadSummary: string, status: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO trigger_log(trigger_id, owner, run_id, payload_summary, status, created_at) VALUES(?, ?, ?, ?, ?, ?)",
+      )
+      .run(triggerId, owner, runId, payloadSummary, status, new Date().toISOString());
+  }
+  getTriggerLog(
+    triggerId: string,
+    owner: string,
+    limit = 50,
+  ): Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }> {
+    return this.db
+      .prepare(
+        "SELECT id, run_id as runId, payload_summary as payloadSummary, status, created_at as createdAt FROM trigger_log WHERE trigger_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
+      )
+      .all(triggerId, owner, limit) as Array<{ id: number; runId: string | null; payloadSummary: string; status: string; createdAt: string }>;
+  }
+  logWebhookDelivery(
+    webhookId: string,
+    owner: string,
+    eventType: string,
+    status: string,
+    attempt: number,
+    nextRetryAt: string | null,
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO delivery_log(webhook_id, owner, event_type, status, attempt, next_retry_at, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(webhookId, owner, eventType, status, attempt, nextRetryAt, new Date().toISOString());
+  }
+  getWebhookLog(
+    webhookId: string,
+    owner: string,
+    limit = 50,
+  ): Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }> {
+    return this.db
+      .prepare(
+        "SELECT id, event_type as eventType, status, attempt, next_retry_at as nextRetryAt, created_at as createdAt FROM delivery_log WHERE webhook_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
+      )
+      .all(webhookId, owner, limit) as Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }>;
   }
   private interruptSchedules(): void {
     this.db.exec(

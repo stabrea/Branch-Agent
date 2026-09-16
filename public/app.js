@@ -460,6 +460,7 @@ async function refresh() {
   renderSpecialists();
   renderProcedures();
   renderSchedules();
+  renderAutomations();
   renderIdentity();
   renderSkills();
   renderModels();
@@ -1651,6 +1652,16 @@ if ($("voice-settings-save")) {
 }
 if (token && typeof loadVoiceSettings !== "undefined") {
   loadVoiceSettings().catch((e) => console.error("Failed to load voice settings:", e));
+}
+let automations = null;
+import("./automations.js").then((module) => {
+  automations = module;
+  if (state) renderAutomations();
+}).catch(() => {});
+function renderAutomations() {
+  const container = $("automations-container");
+  if (!container || !automations || !state) return;
+  container.replaceChildren(automations.showAutomations(state, { el, api, toast, refresh }));
 }
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});

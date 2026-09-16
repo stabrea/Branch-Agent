@@ -22,6 +22,7 @@ import { allPresets, findPreset } from "./providers/presets.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { readBodyWithRaw } from "./triggers.js";
 import { standardSuite } from "./evaluation.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -114,6 +115,7 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -323,6 +325,8 @@ function state(app: Branch): unknown {
     specialists: app.store.list("specialists", owner),
     procedures: app.store.list("procedures", owner),
     schedules: app.store.list("schedules", owner),
+    triggers: app.triggers.list(owner),
+    webhooks: app.webhooks.list(owner),
     tools: app.registry.descriptions(new Set(app.registry.permissions())),
   };
 }
@@ -343,6 +347,8 @@ async function api(
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
+  if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -634,6 +640,107 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
   const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
   return { runId: run.id, status: run.status };
 }
+const triggerBodyLimit = 256 * 1024;
+async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
+  const trigger = app.triggers.get(app.runtime.owner, triggerId);
+  if (!trigger) throw new HttpError(404, "Trigger not found");
+  if (Number(request.headers["content-length"] ?? 0) > triggerBodyLimit)
+    throw new HttpError(413, `Request exceeds ${triggerBodyLimit / 1024} KiB`);
+
+  const { raw, parsed } = await readBodyWithRaw(request, triggerBodyLimit).catch((error: unknown) => {
+    const message = errorText(error);
+    throw new HttpError(message.includes("exceeds") ? 413 : 400, message);
+  });
+
+  const verified = app.triggers.verify(trigger, request.headers, raw);
+  if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
+
+  return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
+    const message = errorText(error);
+    if (message.includes("disabled")) throw new HttpError(403, message);
+    if (message.includes("Rate limit")) throw new HttpError(429, message);
+    throw error;
+  });
+}
+async function triggersApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  const context = app.runtime.context();
+
+  if (request.method === "GET" && path === "/api/triggers")
+    return { triggers: app.triggers.list(owner) };
+
+  if (request.method === "POST" && path === "/api/triggers")
+    return app.triggers.create(context, await readBody(request));
+
+  const match = /^\/api\/triggers\/([a-f0-9-]{36})(?:\/(log|rotate-secret|enabled|remove))?$/.exec(path);
+  if (!match) throw new HttpError(404, "Endpoint not found");
+
+  const trigger = app.triggers.get(owner, match[1]!);
+  if (!trigger) throw new HttpError(404, "Trigger not found");
+
+  if (request.method === "GET" && !match[2])
+    return trigger;
+
+  if (request.method === "GET" && match[2] === "log")
+    return { log: app.triggers.getLog(match[1]!, owner) };
+
+  if (request.method === "POST" && match[2] === "rotate-secret") {
+    z.object({}).strict().parse(await readBody(request));
+    const secret = app.triggers.rotateSecret(owner, match[1]!);
+    return { secret };
+  }
+
+  if (request.method === "POST" && match[2] === "enabled") {
+    const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
+    return app.triggers.setEnabled(owner, match[1]!, enabled);
+  }
+
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
+    app.triggers.remove(owner, match[1]!);
+    return { removed: true };
+  }
+
+  throw new HttpError(404, "Endpoint not found");
+}
+async function webhooksApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  const context = app.runtime.context();
+
+  if (request.method === "GET" && path === "/api/webhooks")
+    return { webhooks: app.webhooks.list(owner) };
+
+  if (request.method === "POST" && path === "/api/webhooks")
+    return app.webhooks.create(context, await readBody(request));
+
+  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable))?$/.exec(path);
+  if (!match) throw new HttpError(404, "Endpoint not found");
+
+  const webhook = app.webhooks.get(owner, match[1]!);
+  if (!webhook) throw new HttpError(404, "Webhook not found");
+
+  if (request.method === "GET" && !match[2])
+    return webhook;
+
+  if (request.method === "GET" && match[2] === "log")
+    return { log: app.webhooks.getLog(match[1]!, owner) };
+
+  if (request.method === "POST" && match[2] === "test") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.webhooks.test(owner, match[1]!);
+  }
+
+  if (["POST", "DELETE"].includes(request.method ?? "") && match[2] === "remove") {
+    app.webhooks.remove(owner, match[1]!);
+    return { removed: true };
+  }
+
+  if (request.method === "POST" && match[2] === "enable") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.webhooks.enable(owner, match[1]!);
+  }
+
+  throw new HttpError(404, "Endpoint not found");
+}
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
@@ -752,6 +859,11 @@ export async function startServer(
         return;
       if (path.startsWith("/hooks/")) {
         send(response, 200, await hook(app, request, path));
+        return;
+      }
+      const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
+      if (triggerFireMatch && request.method === "POST") {
+        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
       authorize(request, url, token);
@@ -888,7 +1000,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
   );
 }
 function configureLimits(server: Server): void {
