@@ -330,3 +330,96 @@ test("code.run runs a small script under its limits, and refuses until the owner
     { language: "javascript", source: "const until = Date.now() + 30000; while (Date.now() < until) {}" }, context);
   assert.notEqual(slow.status, "completed", "a script that will not stop is stopped for it");
 });
+
+// -------------------------------------------------- O5: flows as an API
+
+/** A fake endpoint that records what arrives, so a callback can be waited for. */
+async function fakeEndpoint(t) {
+  const { createServer } = await import("node:http");
+  const received = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => { received.push(JSON.parse(Buffer.concat(chunks).toString("utf8"))); response.writeHead(200).end("{}"); });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return {
+    url: `http://127.0.0.1:${server.address().port}/hook`,
+    received,
+    async wait(event, count = 1) {
+      const deadline = Date.now() + 4000;
+      const found = () => received.filter((entry) => entry.event === event);
+      while (found().length < count) {
+        if (Date.now() > deadline) throw new Error(`Only ${found().length} ${event} deliveries arrived`);
+        await delay(20);
+      }
+      return found();
+    },
+  };
+}
+
+test("flows are made, read, changed, run and removed over HTTP, and every step is drawn", async (t) => {
+  const { api } = await served(t, ({ user }) => say(/gather/i.test(user) ? "found nothing at all" : "wrote it up"));
+  const graph = {
+    name: "Weekly look",
+    description: "Gather, then decide whether to write it up.",
+    nodes: [
+      { name: "Gather", kind: "prompt", prompt: "gather what happened" },
+      { name: "Anything to say?", kind: "branch", contains: "something", skipAhead: 1 },
+      { name: "Write it up", kind: "prompt", prompt: "write it up" },
+      { name: "Finish", kind: "prompt", prompt: "say we are done" },
+    ],
+  };
+  const made = await api("flows", graph);
+  assert.equal(made.name, "Weekly look");
+  assert.deepEqual(made.graph.nodes.map((n) => [n.id, n.kind]), [["n1", "prompt"], ["n2", "branch"], ["n3", "prompt"], ["n4", "prompt"]]);
+  assert.deepEqual(made.graph.edges, [
+    { from: "n1", to: "n2", when: "next" },
+    { from: "n2", to: "n3", when: "matched" },
+    { from: "n2", to: "n4", when: "skipped" },
+    { from: "n3", to: "n4", when: "next" },
+  ], "a branch has one arrow for each way it can go");
+  assert.equal((await api("flows")).flows.length, 1);
+  await api(`flows/${made.id}`, { ...graph, description: "Changed." }, "PUT");
+  assert.equal((await api(`flows/${made.id}`)).description, "Changed.");
+  const ran = await api(`flows/${made.id}/run`, {});
+  assert.equal(ran.status, "completed");
+  const states = Object.fromEntries(ran.graph.nodes.map((n) => [n.name, n.status]));
+  assert.equal(states.Gather, "done");
+  assert.equal(states["Write it up"], "waiting", "the branch skipped it: the answer never said \"something\"");
+  assert.equal(states.Finish, "done");
+  assert.deepEqual(await api(`flows/${made.id}`, undefined, "DELETE"), { removed: true });
+  assert.equal((await api("flows")).flows.length, 0);
+});
+
+test("whoever asked is told as each step of a flow finishes", async (t) => {
+  const { app, api } = await served(t, () => say("all done here"));
+  app.web.policy.configure({ allowPrivateAddresses: true });
+  app.webhooks.retryDelays = [1, 1];
+  const endpoint = await fakeEndpoint(t);
+  await api("webhooks", { name: "watcher", url: endpoint.url, events: ["flow.node"] });
+  const made = await api("flows", { name: "Two steps", description: "", nodes: [
+    { name: "First", kind: "prompt", prompt: "do the first thing" },
+    { name: "Second", kind: "prompt", prompt: "do the second thing" },
+  ] });
+  await api(`flows/${made.id}/run`, {});
+  const notes = await endpoint.wait("flow.node", 2);
+  assert.deepEqual(notes.map((n) => [n.node, n.name, n.status]), [["n1", "First", "done"], ["n2", "Second", "done"]]);
+  assert.equal(notes[0].flowId, made.id);
+});
+
+test("a flow that stops for the owner says so, and carries on when they say yes", async (t) => {
+  const { api } = await served(t, () => say("done"));
+  const made = await api("flows", { name: "Ask first", description: "", nodes: [
+    { name: "Check with them", kind: "approval", question: "Shall I go on?" },
+    { name: "Do it", kind: "prompt", prompt: "do it" },
+  ] });
+  const waiting = await api(`flows/${made.id}/run`, {});
+  assert.equal(waiting.status, "waiting_approval");
+  assert.equal(waiting.question, "Shall I go on?");
+  assert.equal(waiting.graph.nodes[0].status, "waiting");
+  const carried = await api(`flows/${made.id}/resume`, {});
+  assert.equal(carried.status, "completed");
+  assert.deepEqual(carried.graph.nodes.map((n) => n.status), ["approved", "done"]);
+});

@@ -57,6 +57,7 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 import { audit } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -186,6 +187,8 @@ async function staticFile(
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
     "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
+    // Batch 20 (wave 7): flows drawn as boxes and arrows, under Procedures.
+    "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -450,6 +453,12 @@ async function api(
   if (handlesMiscPath(path))
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
+  // running, and the switches for the project's check, those programs, and small scripts.
+  if (handlesOrchestrationPath(path))
+    return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
@@ -1652,7 +1661,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|flows|deferred|processes)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

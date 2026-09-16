@@ -62,6 +62,7 @@ import { jsonWriteProblem } from "./approvals.js";
 // Durable workflows: a saved list of steps the app works through on its own (built against the
 // wave6/collab-workflows branch, which had not reached staging when this batch was written).
 import { Workflows, registerWorkflows } from "./workflows.js";
+import { Flows, registerFlows } from "./flows.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
@@ -241,6 +242,11 @@ export async function createBranch(options: {
   registerSchedules(registry, scheduler);
   const workflows = new Workflows(store, runtime, knowledge);
   registerWorkflows(registry, workflows);
+  // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
+  // each box finishes; the notifier is connected once the webhooks exist, further down.
+  const flows = new Flows(store, runtime.owner, workflows);
+  flows.notifyEvent = webhooks.notifier(runtime.owner);
+  registerFlows(registry, flows);
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
@@ -360,6 +366,8 @@ export async function createBranch(options: {
     webhooks,
     /** Saved workflows: steps the app works through on its own, remembered across restarts. */
     workflows,
+    /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
+    flows,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** Programs left running, and the switch that stops them all when the app closes. */
@@ -539,6 +547,7 @@ export * from "./code-change.js";
 export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
+export * from "./flows.js";
 export * from "./media.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
