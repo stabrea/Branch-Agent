@@ -9,6 +9,12 @@ export const tableStart = "<!-- channels-table:start -->";
 export const tableEnd = "<!-- channels-table:end -->";
 
 const yes = (value: boolean) => (value ? "yes" : "no");
+/**
+ * How far the claim in each row goes. Every service's shape was taken from its own published
+ * documentation and proved against a stand-in that answers the way that documentation says, not
+ * against the real service, so the last column says exactly that rather than implying more.
+ */
+const checked = "tested against a fake of the documented shape";
 
 /** The table and the setup notes, exactly as they appear in the documentation. */
 export function renderChannelTable(catalog: ChannelCatalog = channelCatalog()): string {
@@ -21,14 +27,15 @@ export function renderChannelTable(catalog: ChannelCatalog = channelCatalog()): 
     yes(entry.can.buttons),
     entry.receive ? "yes" : "send only",
     String(entry.maxTextLength),
+    checked,
   ].join(" | "));
   const notes = catalog.services.map((entry) =>
     `- **${entry.name}** (\`${entry.id}\`) — ${entry.note} You need: ${entry.needs.map((need) => need.replace(/\.$/, "")).join("; ")}.`);
   return [
     tableStart,
     "",
-    "| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message | How this was checked |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
     "",
     ...notes,

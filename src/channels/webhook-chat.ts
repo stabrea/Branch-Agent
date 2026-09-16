@@ -3,6 +3,7 @@ import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js"
 import { handle } from "./email.js";
 import { type ChannelEntry, type SignatureScheme, type VerifyScheme } from "./catalog.js";
 import { fill, fillJson, readPath } from "../json-template.js";
+import { SeenMessages } from "./seen.js";
 
 /**
  * One adapter for every team-chat service that works the same way: an address the owner pastes in
@@ -43,12 +44,15 @@ export class WebhookChatAdapter implements ChannelAdapter {
   private deliver: ((message: InboundMessage) => Promise<void>) | null = null;
   /** Chat and message ids can be longer than the ledger allows, so long ones get a short handle. */
   private readonly longIds = new Map<string, string>();
+  /** What has already been taken in, so a service that resends a message is answered only once. */
+  private readonly seen: SeenMessages;
   constructor(private readonly options: WebhookChatOptions) {
     this.id = options.id;
     this.kind = options.entry.id;
     this.maxTextLength = options.entry.maxTextLength;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
+    this.seen = new SeenMessages(undefined, () => this.now());
   }
   botName(): string | null { return this.options.botName ?? null; }
   health(): ChannelHealth { return this.state; }
@@ -81,6 +85,9 @@ export class WebhookChatAdapter implements ChannelAdapter {
       const inbound = this.inbound(event);
       if (!inbound || !this.deliver) continue;
       accepted++;
+      // Only after the post is proved genuine, so nobody can fill this list with made-up ids and
+      // stop a real message getting through. A resend of one already taken in is counted and dropped.
+      if (!this.seen.first(SeenMessages.key(inbound.messageId ?? "", inbound.senderId, inbound.chatId, inbound.text))) continue;
       await this.deliver(inbound).catch(() => undefined);
     }
     return { accepted };

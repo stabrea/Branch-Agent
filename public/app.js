@@ -580,6 +580,10 @@ async function renderChannels() {
     node.append(el("strong", `${channel.kind}${channel.botName ? " · @" + channel.botName : ""}`),
       el("p", channelState(channel.health), "meta"),
       el("p", `${channel.activation === "always" ? "Answers every group message" : "Answers when mentioned or replied to"} · ${channel.pairing ? "new people pair with a code" : "only listed people"}`, "meta"));
+    // Messenger and Instagram will not carry a message to anybody outside your own team until Meta
+    // has looked over the app, so the card says so rather than letting you find out by trying.
+    if (channel.needsAppReview)
+      node.append(el("p", "Waiting on the service's app review: until it passes, only people on your own team can write to this.", "meta"));
     node.append(button("Check the connection", async () => {
       await renderChannels();
       const now = (await api("channels")).channels.find((c) => c.id === channel.id);

@@ -147,18 +147,24 @@ export async function digest(router: ChannelRouter, brief: DigestSource, owner: 
   return { channel, chatId, queued: result.queued, characters: markdown.length };
 }
 
+/** Refuses anybody but the owner. The chats belong to them, so nobody else may write to them. */
+export interface OwnerCheck { requireOwner(what?: string): void }
+const onlyTheOwner = "Sending messages to your chats";
+
 /** The two tools that send on their own rather than answering somebody. */
-export function registerChannelTools(registry: ToolRegistry, router: ChannelRouter, brief: DigestSource): void {
+export function registerChannelTools(registry: ToolRegistry, router: ChannelRouter, brief: DigestSource, people: OwnerCheck): void {
   registry.register({
     name: "channels.broadcast", permission: "channels.send",
     description: "Send one message to several linked chats at once. Leave the list empty to reach every chat that has talked to the assistant.",
     parameters: BroadcastSchema,
-    execute: async (input, context) => broadcast(router, context.owner, input),
+    // The chats are the owner's own. Somebody else sharing this computer under their own profile
+    // must not be able to write to them, whether or not they name a chat themselves.
+    execute: async (input, context) => { people.requireOwner(onlyTheOwner); return broadcast(router, context.owner, input); },
   });
   registry.register({
     name: "channels.digest", permission: "channels.send",
     description: "Send the morning brief as it stands right now to one chat, whichever chat app it is on.",
     parameters: DigestSchema,
-    execute: async (input, context) => digest(router, brief, context.owner, input),
+    execute: async (input, context) => { people.requireOwner(onlyTheOwner); return digest(router, brief, context.owner, input); },
   });
 }

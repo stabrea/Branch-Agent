@@ -422,18 +422,18 @@ The **longest message** column is what the service itself accepts. Branch splits
 
 <!-- channels-table:start -->
 
-| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| [Mattermost](https://developers.mattermost.com/integrate/webhooks/) | yes | no | no | no | no | yes | 4000 |
-| [Rocket.Chat](https://docs.rocket.chat/docs/integrations) | yes | no | no | no | no | yes | 4000 |
-| [Google Chat](https://developers.google.com/chat/how-tos/webhooks) | yes | no | no | no | no | yes | 4000 |
-| [Microsoft Teams](https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook) | yes | no | no | no | no | yes | 4000 |
-| [Zulip](https://zulip.com/api/outgoing-webhooks) | yes | no | no | no | no | yes | 4000 |
-| [Feishu / Lark](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) | yes | no | no | no | no | yes | 4000 |
-| [DingTalk](https://open.dingtalk.com/document/robots/custom-robot-access) | yes | no | no | no | no | yes | 2000 |
-| [WeCom group robot](https://developer.work.weixin.qq.com/document/path/91770) | yes | no | no | no | no | send only | 2000 |
-| [LINE](https://developers.line.biz/en/docs/messaging-api/receiving-messages/) | yes | no | no | no | no | yes | 4900 |
-| [Viber](https://developers.viber.com/docs/api/rest-bot-api/) | yes | no | no | no | no | yes | 7000 |
+| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message | How this was checked |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Mattermost](https://developers.mattermost.com/integrate/webhooks/) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Rocket.Chat](https://docs.rocket.chat/docs/integrations) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Google Chat](https://developers.google.com/chat/how-tos/webhooks) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Microsoft Teams](https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Zulip](https://zulip.com/api/outgoing-webhooks) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Feishu / Lark](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [DingTalk](https://open.dingtalk.com/document/robots/custom-robot-access) | yes | no | no | no | no | yes | 2000 | tested against a fake of the documented shape |
+| [WeCom group robot](https://developer.work.weixin.qq.com/document/path/91770) | yes | no | no | no | no | send only | 2000 | tested against a fake of the documented shape |
+| [LINE](https://developers.line.biz/en/docs/messaging-api/receiving-messages/) | yes | no | no | no | no | yes | 4900 | tested against a fake of the documented shape |
+| [Viber](https://developers.viber.com/docs/api/rest-bot-api/) | yes | no | no | no | no | yes | 7000 | tested against a fake of the documented shape |
 
 - **Mattermost** (`mattermost`) — Outgoing webhooks post the words people type with the token you chose; incoming webhooks carry the reply back. Text only. You need: The address of an incoming webhook (Integrations, then Incoming Webhooks); The token you set on the matching outgoing webhook.
 - **Rocket.Chat** (`rocketchat`) — Two integrations, one each way, sharing the token Rocket.Chat shows you. Text only. You need: The address of an incoming webhook integration; The token shown on the matching outgoing webhook integration.
@@ -458,7 +458,7 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>`. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>`. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -502,7 +502,7 @@ Use `"type": "instagram"` for Instagram, with the professional account's id as `
 
 ### Sending without being asked
 
-Two tools send on the assistant's own initiative rather than answering somebody. `channels.broadcast` sends one message to several linked chats at once — leave the list empty to reach every chat that has talked to the assistant — and `channels.digest` sends the morning brief as it stands right now to one chat on any connected service. Both go through the same waiting line every reply uses, so quiet hours, splitting and retries apply unchanged: during quiet hours the message is written down and sent when they end.
+Two tools send on the assistant's own initiative rather than answering somebody. `channels.broadcast` sends one message to several linked chats at once — leave the list empty to reach every chat that has talked to the assistant — and `channels.digest` sends the morning brief as it stands right now to one chat on any connected service. Both go through the same waiting line every reply uses, so quiet hours, splitting and retries apply unchanged: during quiet hours the message is written down and sent when they end. Both are the owner's alone: somebody else using this computer under their own profile is refused, because the chats belong to the owner. Neither is available to a task started from a chat message, so somebody you have paired cannot make the assistant write to everyone else.
 
 ### Chat services a plugin brings
 

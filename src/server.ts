@@ -1174,31 +1174,41 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
  * hands over the exact bytes and the headers. Like the WhatsApp route it carries no session key,
  * so the signature check is the only thing letting a post through.
  */
-async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
   const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
   if (!match) return false;
+  // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
+  // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
+  const from = requestSource(request.socket?.remoteAddress);
+  const waiting = limiter.refusal(from, "signature");
+  if (waiting) throw new HttpError(429, waiting);
   const adapter = app.channels.adapter(match[1]!);
-  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response);
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
   if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const result = await adapter.receive(raw, request.headers)
-    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error); });
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, { limiter, from }); });
+  limiter.succeed(from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
   return true;
 }
+/** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
+interface ChatWebhookLimit { limiter: AuthLimiter; from: string }
 /** A post that did not prove it came from the service is refused, and the refusal is written down. */
-function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown): HttpError {
+function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
   audit(app.store, app.runtime.owner, {
     action: "auth.refused", actor: `the ${kind} connection`, subject: `/webhooks/chat/${channel}`, source: "system",
     reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
     outcome: "refused",
   });
+  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
+  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
   return new HttpError(401, errorText(error));
 }
 /** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
-async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse): Promise<boolean> {
+async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
   if (request.method === "GET") {
     const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
     const challenge = tryOr(() => adapter.verify(query), 403);
@@ -1210,7 +1220,8 @@ async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: 
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const signature = request.headers["x-hub-signature-256"];
   const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
-    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error); });
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
   send(response, 200, result);
   return true;
 }
@@ -1759,6 +1770,9 @@ export async function startServer(
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
   // place is made to wait, with a line written into the record of what the assistant was allowed to do.
   const authLimiter = new AuthLimiter(options.authLimits);
+  // Counted separately from the session key, so a chat service that is set up wrongly can slow
+  // itself down without ever standing between the owner and their own app.
+  const webhookLimiter = new AuthLimiter(options.authLimits);
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
@@ -1773,7 +1787,7 @@ export async function startServer(
         return;
       }
       if (await whatsAppWebhook(app, request, response, path)) return;
-      if (await chatWebhook(app, request, response, path)) return;
+      if (await chatWebhook(app, request, response, path, webhookLimiter)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.

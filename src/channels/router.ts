@@ -42,6 +42,11 @@ export interface ChannelAdapter {
   readonly kind: string;
   /** Longest single message this channel accepts; the ledger splits replies to fit. */
   readonly maxTextLength?: number;
+  /**
+   * True when the service will not let the assistant write to anybody outside the owner's own team
+   * until that service has reviewed the app. Shown in Connections so it is not a surprise.
+   */
+  readonly needsAppReview?: boolean;
   botName(): string | null;
   /** Connection state in plain language, shown in Settings -> Channels. */
   health?(): ChannelHealth;
@@ -174,7 +179,8 @@ export class ChannelRouter {
     const owner = this.runtime.owner;
     return {
       channels: [...this.adapters.values()].map(({ adapter, policy }) => ({ id: adapter.id, kind: adapter.kind, botName: adapter.botName(),
-        health: adapter.health?.() ?? { state: "connected" as const }, ...policy })),
+        health: adapter.health?.() ?? { state: "connected" as const },
+        ...(adapter.needsAppReview ? { needsAppReview: true } : {}), ...policy })),
       pending: this.pairs(owner).filter((p) => p.status === "pending"),
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
       chats: this.chats(owner),

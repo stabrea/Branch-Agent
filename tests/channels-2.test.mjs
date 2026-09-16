@@ -9,7 +9,7 @@ import {
   createBranch, WebhookChatAdapter, MetaMessagingAdapter, MatrixAdapter, SignalAdapter,
   channelEntry, channelEntries, channelCatalog, sign, metaSignature, signalCliInstalled,
   renderChannelTable, currentChannelTable, replaceChannelTable, broadcast, digest,
-  ChannelConnectors, fillFrom, readPath,
+  ChannelConnectors, fillFrom, readPath, Budget,
 } from "../dist/index.js";
 import { readFile } from "node:fs/promises";
 import { startServer } from "../dist/server.js";
@@ -316,6 +316,16 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   assert.equal(listed.services.find((service) => service.id === "wecom").canReceive, false);
   assert.ok(listed.services.every((service) => service.needs.length > 0 && service.docs.startsWith("https://")));
   assert.ok(!JSON.stringify(listed).includes("{{"), "no template is shown to the owner");
+
+  // Nothing here carries the session key, so somewhere posting rubbish over and over is made to
+  // wait rather than being allowed to fill the record of refusals.
+  const tryBadly = () => fetch(`${server.url}/webhooks/chat/line`, {
+    method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
+  });
+  const codes = [];
+  for (let attempt = 0; attempt < 6; attempt++) codes.push((await tryBadly()).status);
+  assert.deepEqual(codes.slice(0, 5), [401, 401, 401, 401, 401]);
+  assert.equal(codes[5], 429, "a place that keeps posting rubbish is made to wait");
   await adapter.stop();
 });
 
@@ -631,4 +641,111 @@ test("a plugin chat service may not reach an address the network settings refuse
   assert.ok(waiting, "the message is held rather than sent");
   assert.match(waiting.lastError ?? "", /private|local address|not on the allowed list/,
     "the plugin could not reach an address the network settings refuse");
+});
+
+/**
+ * A service that does not hear back quickly sends the same message again. These prove the second
+ * copy is recognised and dropped, so nobody is answered twice, and that the check happens only
+ * after the post has been proved genuine.
+ */
+test("a service that sends the same message twice is answered only once", async (t) => {
+  const { app, provider } = await fixture(t);
+  const service = await chatService(t);
+  const row = table.find((candidate) => candidate.id === "line");
+  const adapter = new WebhookChatAdapter({ id: "line", entry: channelEntry("line"), ...row.options(service.base) });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["user-9"] });
+  const raw = body(row.post({ text: "did you get that", sender: "user-9", chat: "c1", group: false }));
+  const headers = row.headers(raw);
+  assert.equal((await adapter.receive(raw, headers)).accepted, 1);
+  await until(() => service.calls.length >= 1, "the first copy is answered");
+  // The very same post again, exactly as the service would resend it.
+  await adapter.receive(raw, headers);
+  await delay(200);
+  assert.equal(service.calls.length, 1, "the second copy is dropped rather than answered again");
+  assert.equal(provider.requests.length, 1, "and it never reaches the model a second time");
+  await adapter.stop();
+});
+
+test("Messenger drops a repeated post too", async (t) => {
+  const { app, provider } = await fixture(t);
+  const service = await chatService(t);
+  const adapter = new MetaMessagingAdapter({ id: "messenger", service: "messenger", pageId: "page-1",
+    token: TOKEN, verifyToken: SECRET, appSecret: SECRET, apiBase: service.base });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["psid-1"] });
+  const raw = body({ object: "page", entry: [{ id: "page-1", messaging: [
+    { sender: { id: "psid-1" }, recipient: { id: "page-1" }, message: { mid: "mid-1", text: "are you there" } }] }] });
+  const signature = metaSignature(raw, SECRET);
+  assert.equal((await adapter.receive(raw, signature)).accepted, 1);
+  await until(() => service.calls.length >= 1, "the first copy is answered");
+  await adapter.receive(raw, signature);
+  await delay(200);
+  assert.equal(service.calls.length, 1, "Meta's retry is not answered a second time");
+  assert.equal(provider.requests.length, 1);
+  await adapter.stop();
+});
+
+test("a first message on Matrix or Signal gets a pairing code and never reaches the model", async (t) => {
+  const { app, provider } = await fixture(t);
+  const sends = [];
+  let served = 0;
+  const server = createServer(async (request, response) => {
+    let raw = ""; for await (const part of request) raw += part;
+    if (request.url.startsWith("/_matrix/client/v3/sync")) {
+      served++;
+      response.writeHead(200, { "content-type": "application/json" });
+      // The first answer is whatever was already in the room, which is never replied to, so the
+      // stranger's first message comes on the one after it.
+      const events = served === 2 ? [{ type: "m.room.message", event_id: "$1", sender: "@stranger:example.org",
+        content: { msgtype: "m.text", body: "@branch:example.org hello" } }] : [];
+      response.end(JSON.stringify({ next_batch: `s${served}`, rooms: { join: { "!room:example.org": { timeline: { events } } } } }));
+      return;
+    }
+    sends.push(JSON.parse(raw));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ event_id: "$sent" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const matrix = new MatrixAdapter({ id: "matrix", homeserver: `http://127.0.0.1:${server.address().port}`,
+    userId: "@branch:example.org", accessToken: TOKEN, syncTimeoutMs: 30, reconnectBaseMs: 5 });
+  await app.channels.attach(matrix, { activation: "always", pairing: true, allowlist: [] });
+  const offered = await until(() => sends[0], "a pairing code on Matrix");
+  assert.match(offered.body, /\b\d{6}\b/, "a stranger on Matrix is offered a code, not an answer");
+  assert.equal(provider.requests.length, 0, "and never reaches the model");
+  await matrix.stop();
+
+  const written = [];
+  const stdout = new (await import("node:stream")).PassThrough();
+  const fake = { stdout, stdin: { writable: true, write: (line) => written.push(JSON.parse(line)) }, on: () => undefined, kill: () => undefined };
+  const signal = new SignalAdapter({ id: "signal-pairing", path: "anything", account: "+15550000000",
+    exists: async () => true, spawnProcess: () => fake });
+  await app.channels.attach(signal, { activation: "always", pairing: true, allowlist: [] });
+  stdout.write(JSON.stringify({ method: "receive", params: { envelope: { source: "+15552222222", sourceName: "Stranger",
+    timestamp: 21, dataMessage: { message: "hello" } } } }) + "\n");
+  const reply = await until(() => written[0], "a pairing code on Signal");
+  assert.match(reply.params.message, /\b\d{6}\b/, "a stranger on Signal is offered a code, not an answer");
+  assert.equal(provider.requests.length, 0);
+  await signal.stop();
+});
+
+test("only the owner may send to their own chats", async (t) => {
+  const { app } = await fixture(t);
+  const service = await chatService(t);
+  const row = table.find((candidate) => candidate.id === "mattermost");
+  const adapter = new WebhookChatAdapter({ id: "mattermost", entry: channelEntry("mattermost"), ...row.options(service.base) });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: [] });
+  const context = { owner: app.runtime.owner, workspace: ".", runId: "r1", signal: new AbortController().signal,
+    budget: new Budget(), permissions: new Set(["channels.send"]), depth: 0 };
+  // Somebody else sharing this computer, under their own profile with their own PIN.
+  const person = app.store.profiles.create({ name: "Sam", pin: "4321" });
+  app.store.profiles.switch({ profileId: person.id, pin: "4321" });
+  await assert.rejects(() => app.registry.execute("channels.broadcast", { text: "hello everyone" }, context), /owner/);
+  await assert.rejects(() => app.registry.execute("channels.digest", { channel: "mattermost", chatId: "c1" }, context), /owner/);
+  await delay(120);
+  assert.equal(service.calls.length, 0, "nothing was sent to the owner's chats");
+  // Back as the owner, the same call goes through.
+  app.store.profiles.switch({ profileId: null });
+  await app.registry.execute("channels.digest", { channel: "mattermost", chatId: "c1" }, context);
+  await until(() => service.calls.length >= 1, "the owner's own brief goes out");
+  await adapter.stop();
 });

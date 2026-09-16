@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import { SeenMessages } from "./seen.js";
 
 /**
  * The pieces every Meta service shares: the one-off check Meta makes on a web address, and the
@@ -9,7 +10,8 @@ import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js"
  *
  * Messenger and Instagram additionally need Meta to review the app before anybody outside your own
  * team can write to it. Branch builds the connection; the review is something the owner has to
- * apply for, and `needsAppReview` says so wherever the connection is listed.
+ * apply for. `needsAppReview` is carried through the channel summary so the Connections card says
+ * so, and the channel's health line repeats it.
  */
 export function metaSignature(raw: Buffer, appSecret: string): string {
   return "sha256=" + createHmac("sha256", appSecret).update(raw).digest("hex");
@@ -76,6 +78,8 @@ export class MetaMessagingAdapter implements ChannelAdapter {
   private readonly fetch: typeof fetch;
   private state: ChannelHealth = { state: "connected" };
   private deliver: ((message: InboundMessage) => Promise<void>) | null = null;
+  /** Meta resends a post when an answer is slow, so a copy already taken in is dropped. */
+  private readonly seen = new SeenMessages();
   constructor(private readonly options: MetaMessagingOptions) {
     this.id = options.id;
     this.kind = options.service;
@@ -101,10 +105,12 @@ export class MetaMessagingAdapter implements ChannelAdapter {
       if (event.message?.is_echo || !event.message?.text || event.sender.id === this.options.pageId) continue;
       if (!this.deliver) continue;
       accepted++;
+      const messageId = event.message.mid ?? `${entry.id ?? this.options.pageId}:${accepted}`;
+      // Checked only after the signature, so nobody can crowd out a real message with made-up ids.
+      if (!this.seen.first(SeenMessages.key(messageId, event.sender.id, event.sender.id, event.message.text))) continue;
       await this.deliver({
         channel: this.id, chatId: event.sender.id, chatKind: "direct", senderId: event.sender.id,
-        senderName: event.sender.id, text: event.message.text, addressed: true,
-        messageId: event.message.mid ?? `${entry.id ?? this.options.pageId}:${accepted}`,
+        senderName: event.sender.id, text: event.message.text, addressed: true, messageId,
       }).catch(() => undefined);
     }
     return { accepted };

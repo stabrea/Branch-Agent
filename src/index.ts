@@ -367,7 +367,7 @@ export async function createBranch(options: {
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
-  registerChannelTools(registry, channels, brief);
+  registerChannelTools(registry, channels, brief, store.profiles);
   scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
   scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });

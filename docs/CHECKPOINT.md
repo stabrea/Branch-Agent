@@ -1672,3 +1672,12 @@ brief over any connected service, both through the ledger so quiet hours apply. 
 shape per event, a signing key named in the locker rather than copied into the row, and a preview route for the
 shape editor; inbound triggers gained optional timestamp-and-nonce replay protection. The Connections table in
 `docs/configuration.md` is generated from `data/channels.json` and a test regenerates it byte for byte.
+
+Tightened while merging: every chat connection now remembers for two minutes what it has already taken in
+(`src/channels/seen.ts`), checked only after a post is proved genuine, so a service that resends a message is
+answered once rather than twice; repeated unproved posts to `/webhooks/chat/<id>` are counted per place they came
+from and made to wait after five tries, on a counter of their own so a badly set-up service can never stand between
+the owner and their own app; `channels.broadcast` and `channels.digest` are refused to anybody but the owner;
+`needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
+are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
+against a fake of its documented shape, not against the real service.
