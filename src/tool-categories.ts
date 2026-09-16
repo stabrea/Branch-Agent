@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ToolRegistry } from "./registry.js";
-import { PolicyDecisionSchema, isReadOnlyPermission, type PolicyDecision, type PolicyRule } from "./policy.js";
+import { PolicyDecisionSchema, isReadOnlyPermission, maximumPolicyRules, type PolicyDecision, type PolicyRule } from "./policy.js";
 
 /**
  * Grouping the tools so the owner decides once per kind of thing rather than once per tool. There
@@ -90,13 +90,39 @@ export function rulesForDecisions(registry: ToolRegistry, input: unknown): Polic
     for (const tool of grouped.get(id) ?? [])
       rules.push({ tool: tool.name, match: "*", applies: "any", decision, remember: "session" });
   }
-  return rules.slice(0, 100);
+  return rules.slice(0, maximumPolicyRules);
+}
+
+/**
+ * A rule this mechanism wrote: one named tool, whatever it would touch, whether or not it changes
+ * something. A rule the owner wrote by hand, and a standing yes remembered for one web address,
+ * both look different, and neither is ever replaced by a choice made here.
+ */
+const isCategoryRule = (rule: PolicyRule): boolean =>
+  !rule.tool.includes("*") && rule.match === "*" && rule.applies === "any";
+
+/**
+ * The saved rules with one or more kinds decided again. Only the rules this mechanism itself wrote
+ * for the kinds named in this request are replaced: another kind decided earlier stays, and so does
+ * every hand-edited rule and every standing yes remembered from a question the owner answered.
+ * The new rules go after those, so a narrower rule the owner set deliberately still wins.
+ */
+export function mergeCategoryRules(registry: ToolRegistry, current: readonly PolicyRule[], input: unknown): PolicyRule[] {
+  const decisions = CategoryDecisionsSchema.parse(input ?? {}) as CategoryDecisions;
+  const grouped = categorise(registry);
+  const replaced = new Set<string>();
+  for (const id of toolCategories)
+    if (decisions[id]) for (const tool of grouped.get(id) ?? []) replaced.add(tool.name);
+  const kept = current.filter((rule) => !(isCategoryRule(rule) && replaced.has(rule.tool)));
+  return [...kept, ...rulesForDecisions(registry, input)].slice(0, maximumPolicyRules);
 }
 
 /** What the saved rules say each kind is set to now; null when the tools inside it disagree. */
 export function decisionsFromRules(registry: ToolRegistry, rules: readonly PolicyRule[]): CategoryView[] {
   const grouped = categorise(registry);
-  const byTool = new Map(rules.filter((rule) => !rule.tool.includes("*")).map((rule) => [rule.tool, rule.decision]));
+  // Only the rules this mechanism writes are read back, so a narrower rule elsewhere is not
+  // mistaken for a decision about a whole kind.
+  const byTool = new Map(rules.filter(isCategoryRule).map((rule) => [rule.tool, rule.decision]));
   return toolCategories.map((id) => {
     const tools = grouped.get(id) ?? [];
     const decisions = new Set(tools.map((tool) => byTool.get(tool.name)));

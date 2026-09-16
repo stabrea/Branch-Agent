@@ -765,8 +765,12 @@ nobody anticipated counts as changing settings rather than as reading.
 `GET /api/approvals/categories` lists the kinds with the tools in each and what that kind is
 currently set to (null when the tools inside it disagree). `POST /api/approvals/categories`
 `{"commands": "deny"}` saves it, expanding to one rule per tool — never a wildcard — through the
-same `savePolicy` the hand-edited rule list uses. Settings → When to check with me shows it under
-the preset.
+same `savePolicy` the hand-edited rule list uses. **Only the kinds named in the request change**:
+a kind decided earlier stays decided, and every rule you wrote by hand and every standing yes
+remembered from a question you answered is kept, ahead of the new rules, so a narrower rule you set
+deliberately still wins. Because one kind can be dozens of tools, a policy may now hold up to 300
+rules rather than 100 (`maximumPolicyRules` in `src/policy.ts`). Settings → When to check with me
+shows it under the preset.
 
 ### Ask me questions first
 

@@ -393,7 +393,10 @@ handed to a command (by name, never by value), policy changes, channel pairing, 
 switches; `GET /api/audit` with filters, `/api/audit/export.csv`, `allowed.json` in the diagnostics
 folder, and a plain-language section at the foot of Usage. **Approval kinds**
 (`src/tool-categories.ts`): tools sorted into seven kinds from their permission with a small
-override map, so one choice covers a kind rather than a tool; saving expands to one rule per tool.
+override map, so one choice covers a kind rather than a tool; saving expands to one rule per tool
+and merges — only the kinds named in the request are rewritten, so a kind decided earlier, a
+hand-edited rule and a standing yes from an answered approval all survive, and the rule cap rose
+from 100 to 300 because one kind can be dozens of tools.
 **Ask me questions first** (`src/ask-first.ts`): up to five short questions with suggested answers
 before a task starts, skipped for short plain requests by the same `looksMultiPart` judgement
 auto-plan uses; the answers are written underneath the request. **The practice workspace**

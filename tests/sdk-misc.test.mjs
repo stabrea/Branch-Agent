@@ -9,7 +9,11 @@ import {
   auditCsv,
   categoryOf,
   rulesForDecisions,
+  mergeCategoryRules,
   decisionsFromRules,
+  maximumPolicyRules,
+  readPolicy,
+  addPolicyRule,
   lexicalRerank,
   modelRerank,
   worthAsking,
@@ -178,6 +182,41 @@ test("saving kinds over the API becomes real policy, and is written into the rec
   const recorded = app.store.audit.list(app.runtime.owner, { action: "policy.changed" });
   assert.equal(recorded.length, 1);
   assert.match(recorded[0].reason, /a whole kind of thing/);
+});
+
+test("deciding one kind leaves every other kind, and every rule the owner set, alone", async (t) => {
+  const { app, api } = await served(t);
+  const owner = app.runtime.owner;
+  // A standing yes the owner gave to one question, for one web address only.
+  addPolicyRule(app.store, owner, { tool: "web.fetch", match: "example.com", decision: "allow", remember: "always" });
+  // And a rule they wrote by hand.
+  savePolicy(app.store, owner, { rules: [...readPolicy(app.store, owner).rules, { tool: "files.write", match: "notes/*", decision: "deny" }] });
+
+  await api("POST", "/api/approvals/categories", { files: "ask" });
+  await api("POST", "/api/approvals/categories", { settings: "deny" });
+
+  const read = await api("GET", "/api/approvals/categories");
+  const kind = (id) => read.body.categories.find((row) => row.id === id).decision;
+  assert.equal(kind("files"), "ask", "the kind decided first is still decided");
+  assert.equal(kind("settings"), "deny");
+  assert.equal(kind("read"), null, "a kind nobody decided is still undecided");
+
+  const rules = readPolicy(app.store, owner).rules;
+  assert.ok(rules.some((rule) => rule.tool === "web.fetch" && rule.match === "example.com" && rule.decision === "allow"),
+    "the standing yes survives");
+  const byHand = rules.findIndex((rule) => rule.tool === "files.write" && rule.match === "notes/*");
+  const byKind = rules.findIndex((rule) => rule.tool === "files.write" && rule.match === "*");
+  assert.ok(byHand >= 0, "the hand-written rule survives");
+  assert.ok(byHand < byKind, "and still wins, because the first rule that matches decides");
+});
+
+test("deciding every kind at once stays inside the rule limit", async (t) => {
+  const { app } = await fixture(t);
+  const all = Object.fromEntries(["read", "files", "commands", "browse", "message", "spend", "settings"].map((id) => [id, "ask"]));
+  const rules = mergeCategoryRules(app.registry, [], all);
+  assert.equal(rules.length, app.registry.inventory().length, "one rule per tool, and none dropped");
+  assert.ok(rules.length <= maximumPolicyRules);
+  assert.doesNotThrow(() => savePolicy(app.store, app.runtime.owner, { rules }));
 });
 
 test("a kind with a decision is refused when the decision is not one of the three", async (t) => {

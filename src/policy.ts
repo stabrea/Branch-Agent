@@ -38,12 +38,17 @@ export const PolicyLimitsSchema = z
   .strict();
 export type PolicyLimits = z.infer<typeof PolicyLimitsSchema>;
 
+/**
+ * Most rules one policy may hold. It is well above the number of tools this app has, because
+ * deciding a whole kind of thing at once (see src/tool-categories.ts) writes one rule per tool.
+ */
+export const maximumPolicyRules = 300;
 export const PolicyPresetSchema = z.enum(["off", "ask-before-changes", "workspace", "read-only", "custom"]);
 export type PolicyPresetName = z.infer<typeof PolicyPresetSchema>;
 export const PolicySchema = z
   .object({
     preset: PolicyPresetSchema.default("off"),
-    rules: z.array(PolicyRuleSchema).max(100).default([]),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).default([]),
     limits: PolicyLimitsSchema.prefault({}),
   })
   .strict();
@@ -51,7 +56,7 @@ export type Policy = z.infer<typeof PolicySchema>;
 export const PolicyInputSchema = z
   .object({
     preset: PolicyPresetSchema.optional(),
-    rules: z.array(PolicyRuleSchema).max(100).optional(),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
     limits: PolicyLimitsSchema.partial().optional(),
   })
   .strict();
@@ -182,7 +187,7 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
   const added = PolicyRuleSchema.parse(rule);
-  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, 100) };
+  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,

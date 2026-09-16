@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { audit, auditCsv, AuditQuerySchema } from "./audit.js";
 import { clarifyingQuestions, promptWithAnswers, askFirstSettings, saveAskFirstSettings } from "./ask-first.js";
-import { decisionsFromRules, rulesForDecisions } from "./tool-categories.js";
+import { decisionsFromRules, mergeCategoryRules } from "./tool-categories.js";
 import { readPolicy, savePolicy } from "./policy.js";
 import { IssueLinkSchema } from "./integrations/issue-context.js";
 import type { createBranch } from "./index.js";
@@ -76,7 +76,8 @@ async function categoriesApi(
   if (request.method === "GET")
     return { categories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules) };
   if (request.method === "POST") {
-    const rules = rulesForDecisions(app.registry, await readBody(request));
+    // Only the kinds named in the request change; every other rule the owner has is kept.
+    const rules = mergeCategoryRules(app.registry, readPolicy(app.store, owner).rules, await readBody(request));
     const policy = savePolicy(app.store, owner, { rules }, "Decided a whole kind of thing at once in the approval settings");
     return { policy, categories: decisionsFromRules(app.registry, policy.rules) };
   }
