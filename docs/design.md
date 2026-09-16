@@ -104,6 +104,17 @@ every rule, `--copper-text` for links and `--font-mono` for code. The "Look insi
 in `--line` filled with `--copper`, small `--faint` text, and below 520 px the cost drops out so
 the bar still fits a phone. Nothing here introduces a colour of its own.
 
+## Settings → Developer → How the assistant finds its tools
+
+A read-only card, folded away under Developer beside "Try things out", using the same `.card`,
+`details`/`summary` and `.subtle` pieces as everything else — no new colours and no new components.
+It says in ordinary sentences how many tools are installed, how many travelled with the last
+request in full, how many were named in one line, how many were left to look up, and what that
+weighed against its allowance. Under that: the tools the computer made ready before being asked and
+the plain reason for each, and the short things it has been told to remember about a tool, each
+with a Delete button. One button at the foot forgets all of it. Nothing on this card can change how
+the assistant behaves, and no tool can be switched on or off from here.
+
 ## Artwork
 
 The KeepOak logo and the revolving acorn stay. Logo PNGs are bundled locally.

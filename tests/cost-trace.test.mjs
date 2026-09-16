@@ -411,8 +411,10 @@ test("the diagnostics folder can be written straight from the store", async (t) 
     health: { ok: true, items: [] }, version: branch.version,
   });
   assert.equal(bundle.events, 0, "a fresh install has nothing to report");
-  // health, versions, events, spans (batch 19, wave 7), pricing, allowed (wave 6) and the README.
-  assert.equal(bundle.files.length, 7);
+  // health, versions, events, spans (batch 19, wave 7), pricing, allowed (wave 6), tools (wave 7)
+  // and the README.
+  assert.equal(bundle.files.length, 8);
   assert.ok(bundle.files.includes("allowed.json"));
   assert.ok(bundle.files.includes("spans.json"));
+  assert.ok(bundle.files.includes("tools.json"), "how the assistant is finding its tools");
 });

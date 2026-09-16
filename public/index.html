@@ -993,6 +993,38 @@
             <h3>How to connect</h3>
             <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
             <div id="mcp-connection" class="card-list"></div>
+            <!-- Wave 7: what is held back and why, connections to other people's servers, and a
+                 bench for trying one out. Everything here lives in public/mcp-workbench.js. -->
+            <details id="mcp-offered">
+              <summary>What another tool is offered, and what is held back</summary>
+              <p class="subtle">Your approval settings are checked before anything is offered. A tool you have said no to is never offered at all. A tool you want to be asked about is still offered, but the call waits for your yes here in Branch.</p>
+              <div id="mcp-preflight" class="card-list"></div>
+            </details>
+            <h3>Other people's servers</h3>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <div class="field-row">
+              <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
+              <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
+              <label for="mcp-max-servers">Most servers connected at once</label>
+              <input id="mcp-max-servers" type="number" min="1" max="20" step="1" />
+              <button id="mcp-connections-save" type="button">Save</button>
+            </div>
+            <div id="mcp-health" class="card-list"></div>
+            <details id="mcp-try">
+              <summary>Try a server</summary>
+              <p class="subtle">Paste a web address, or the command that starts the server. Branch asks it what it offers, you fill in the boxes for one of its tools, and you see exactly what came back. Every try is written down in Activity.</p>
+              <label for="mcp-try-url">Address or command</label>
+              <input id="mcp-try-url" type="text" maxlength="300" placeholder="https://example.com/mcp" />
+              <button id="mcp-try-go" type="button">See what it offers</button>
+              <div id="mcp-try-run-row" hidden>
+                <label for="mcp-try-tool">Which tool</label>
+                <select id="mcp-try-tool"></select>
+                <div id="mcp-try-form"></div>
+                <button id="mcp-try-call" type="button">Run it once</button>
+              </div>
+              <p id="mcp-try-status" class="subtle" role="status"></p>
+              <pre id="mcp-try-result" hidden></pre>
+            </details>
           </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
@@ -1019,6 +1051,16 @@
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
+            </details>
+            <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
+                 apart from the button that deletes what it has learned. -->
+            <details id="tool-catalog">
+              <summary>How the assistant finds its tools</summary>
+              <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
+              <div id="tool-catalog-summary" aria-live="polite"></div>
+              <div id="tool-catalog-lists"></div>
+              <button id="tool-catalog-forget" type="button">Forget what it has learned about tools</button>
+              <p id="tool-catalog-status" class="subtle" role="status"></p>
             </details>
           </section>
           <section id="diagnostics-card" class="card">
@@ -1193,6 +1235,7 @@
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>

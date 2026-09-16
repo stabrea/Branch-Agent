@@ -53,7 +53,7 @@ const maxSchemaDescriptionChars = 120;
 /** A regular expression longer than this tells the model nothing it can use, so it is dropped. */
 const maxPatternChars = 40;
 /** How many unrecognised tools ("other") stay open before that toolbox is worth closing too. */
-const unrecognisedOpenUpTo = 12;
+export const unrecognisedOpenUpTo = 12;
 /**
  * Schema keywords the model cannot act on. Every call is parsed against the real zod schema before
  * a tool sees it, so these bounds are still enforced; sending them is pure catalog weight.

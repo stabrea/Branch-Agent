@@ -8,12 +8,23 @@ const common = {
   tools: z.array(z.string().min(1).max(200)).min(1).max(64),
   expectedVersion: z.string().min(1).max(100),
 };
+const stdioShape = {
+  transport: z.literal('stdio'), command: z.string().min(1),
+  args: z.array(z.string()).max(40).default([]), cwd: z.string().optional(),
+  envKeys: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).max(20).default([]),
+};
+const httpShape = {
+  transport: z.literal('http'), url: z.string().url(),
+  bearerEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+};
+/** Just how to reach a server, without the allowlist a permanently configured one also needs. */
+export const McpTransportSchema = z.discriminatedUnion('transport', [
+  z.object(stdioShape).strict(), z.object(httpShape).strict(),
+]);
+export type McpTransportConfig = z.infer<typeof McpTransportSchema>;
 export const McpConfigSchema = z.discriminatedUnion('transport', [
-  z.object({ ...common, transport: z.literal('stdio'), command: z.string().min(1),
-    args: z.array(z.string()).max(40).default([]), cwd: z.string().optional(),
-    envKeys: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).max(20).default([]) }).strict(),
-  z.object({ ...common, transport: z.literal('http'), url: z.string().url(),
-    bearerEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional() }).strict(),
+  z.object({ ...common, ...stdioShape }).strict(),
+  z.object({ ...common, ...httpShape }).strict(),
 ]);
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
@@ -23,7 +34,7 @@ function credential(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
-export function makeTransport(config: McpConfig, env: NodeJS.ProcessEnv, policy?: { guard(base: typeof fetch): typeof fetch }) {
+export function makeTransport(config: McpTransportConfig, env: NodeJS.ProcessEnv, policy?: { guard(base: typeof fetch): typeof fetch }) {
   if (config.transport === 'stdio') {
     const selected = Object.fromEntries(config.envKeys.map(key => [key, credential(env, key)]));
     const transport = new StdioClientTransport({ command: config.command, args: config.args,
