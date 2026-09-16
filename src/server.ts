@@ -28,6 +28,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -111,6 +112,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -357,6 +359,10 @@ async function api(
     app.store.save("settings", app.runtime.owner, "preferences", value);
     return value;
   }
+  if (request.method === "GET" && path === "/api/voice/settings")
+    return voiceSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/voice/settings")
+    return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
@@ -758,6 +764,50 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  if (request.method === "POST" && path === "/api/voice/transcribe") {
+    const contentType = request.headers["content-type"] ?? "";
+    if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
+      throw new HttpError(415, "Use audio/* content-type");
+    }
+    const maxBytes = 25 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of request) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > maxBytes) throw new HttpError(413, "Audio exceeds 25 MiB");
+      chunks.push(Buffer.from(chunk));
+    }
+    const audio = new Uint8Array(Buffer.concat(chunks));
+    try {
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      response.end(JSON.stringify({ text }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HttpError(400, msg);
+    }
+    return true;
+  }
+  if (request.method === "POST" && path === "/api/voice/speak") {
+    const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
+    try {
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
+      response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
+      response.end(Buffer.from(audio));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HttpError(400, msg);
+    }
     return true;
   }
   if (request.method === "POST" && path === "/v1/chat/completions") {

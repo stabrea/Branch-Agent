@@ -1,4 +1,4 @@
-# Branch Agent checkpoint — 2026-09-15 (evening)
+# Branch Agent checkpoint — 2026-09-15 (late evening)
 
 ## Where things stand
 
@@ -268,6 +268,17 @@ Coverage after this session: 26 implemented, 52 partial, 90 missing, 1 external 
 - Anthropic thinking budgets and OpenAI `reasoning_effort` were verified at the request-body level
   only, not against live providers.
 - The `identity-ui` file failed once under parallel Chromium load and passed alone; watch for flakiness.
+
+## Batch 19 (wave 1) — voice
+
+Voice input and output: `POST /api/voice/transcribe` sends binary audio to the configured provider's
+OpenAI-compatible `/v1/audio/transcriptions` endpoint and returns transcribed text; client records
+with MediaRecorder (WebM) and displays transcription in the message box without auto-sending.
+`POST /api/voice/speak` sends text to the provider's `/v1/audio/speech` endpoint and streams the
+audio back (MP3); client plays it with the Web Audio API. Browser's speechSynthesis is always
+available and free (offline); higher-quality voice from provider is optional. Voice settings (auto
+read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
+read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
 ## Next work (local until a checkpoint worth publishing)
 

@@ -3,6 +3,9 @@ import type { Completion, CompletionRequest, Provider } from "./contracts.js";
 /** A deterministic protocol fixture. It does not interpret arbitrary requests. */
 export class DemoProvider implements Provider {
   readonly name = "offline-demo-fixture";
+  audio(): null {
+    return null;
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     request.signal.throwIfAborted();
     const lastUser = request.messages.findLastIndex((m) => m.role === "user");
