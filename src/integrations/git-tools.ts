@@ -185,7 +185,7 @@ function registerPublish(registry: ToolRegistry, github: GitHubAccess, git: GitT
       folder, name: repositoryName, description: z.string().max(350).optional(),
       private: z.boolean().default(true), branch: branchName.optional(), remote: remoteName,
     }).strict(),
-    target: (args) => `publish ${args.folder} to GitHub as ${args.name}`,
+    target: (args) => `publish ${args.folder} to GitHub as ${args.name} (${args.private === false ? "public" : "private"}), sending it to the remote "${args.remote ?? "origin"}"`,
     execute: async (input, context: ToolContext) => {
       const created = (await github.createRepo(input)) as { repository?: string; address?: string; private?: boolean };
       const url = `https://github.com/${String(created.repository ?? input.name)}.git`;

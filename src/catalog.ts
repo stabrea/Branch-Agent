@@ -12,7 +12,7 @@ import { estimateTokens } from "./contracts.js";
 /** Toolboxes a tool can belong to. "core" is always open; "other" catches anything unrecognised. */
 export const toolGroups = [
   "core", "files", "code", "git", "web", "browser", "desktop", "memory", "documents",
-  "data", "research", "media", "channels", "schedules", "agents", "skills", "settings", "other",
+  "data", "research", "media", "channels", "schedules", "agents", "skills", "settings", "services", "other",
 ] as const;
 
 /** Name prefixes that decide a tool's group when the tool does not name one itself. */
@@ -37,6 +37,10 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
   ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models."]],
+  // A service the owner turned into tools from its own OpenAPI description. These have their own
+  // box rather than the unrecognised one, which closes as soon as there are more than a dozen
+  // things in it — one ordinary document can bring far more tools than that on its own.
+  ["services", ["api."]],
 ];
 
 /** The group a tool belongs to, worked out from its name. */
@@ -275,6 +279,7 @@ const groupWords: Record<string, readonly string[]> = {
   agents: ["delegate", "specialist", "specialists", "agent", "agents", "parallel", "plan", "procedure", "team"],
   skills: ["skill", "skills", "plugin", "plugins", "recipe", "how-to"],
   settings: ["setting", "settings", "preference", "model", "cost", "spending", "password", "secret", "permission"],
+  services: ["api", "service", "endpoint", "integration", "notion", "operation", "openapi"],
 };
 
 export interface RelevanceSignals {

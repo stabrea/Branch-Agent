@@ -91,7 +91,8 @@ export class KeptArtifacts {
 
 export function registerKeptArtifacts(registry: ToolRegistry, kept: KeptArtifacts, files: WorkspaceFiles): void {
   registry.register({
-    name: "artifacts.keep", permission: "files.read", group: "code",
+    // Keeping a file writes one: it belongs with the changing permissions, not the looking ones.
+    name: "artifacts.keep", permission: "files.write", group: "code",
     description: "Keep a file the task produced — a picture, a zip, a built program — under a name of your choosing. Keeping the same name again makes the next version rather than replacing the last one. Each version records its size and its checksum.",
     parameters: z.object({
       path: z.string().min(1).max(500),

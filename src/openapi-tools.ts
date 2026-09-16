@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
@@ -110,7 +109,7 @@ export class OpenApiTools {
   private registerOne(input: FromOpenApiInput, source: Record<string, unknown>, operation: OpenApiOperation, base: string): string {
     const name = toolNameFor(input.name, operation.id);
     this.registry.register({
-      name, permission: openApiPermission, group: "other",
+      name, permission: openApiPermission, group: "services",
       description: operation.summary,
       parameters: OperationArgsSchema,
       inputSchema: operationSchema(source, operation),
@@ -146,7 +145,11 @@ export class OpenApiTools {
     if (input.auth === "none" || !input.secret) return {};
     const project = this.host.store.projects.active(context.owner).id;
     const values = await this.host.store.locker.resolve(context.owner, project, [input.secret]);
-    return { key: values[input.secret]! };
+    const key = values[input.secret];
+    // Without this the call would simply go out with no key at all and come back "not allowed",
+    // which says nothing about what is actually wrong. Say what is missing and where to put it.
+    if (!key) throw new Error(`Save a secret called ${input.secret} in the active project first; that is where this service's key is read from.`);
+    return { key };
   }
 }
 
@@ -203,9 +206,4 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     target: (args) => `forget api.${args.name}`,
     execute: async (args) => ({ name: args.name, removed: tools.remove(args.name) }),
   });
-}
-
-/** Reads a description from the workspace without registering anything, for the screens. */
-export async function describeOpenApiFile(path: string): Promise<unknown> {
-  return readOpenApi(parseOpenApiText(await readFile(path, "utf8")));
 }

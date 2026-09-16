@@ -175,6 +175,19 @@ test("a rename lands as one change set across files, and can be shown without wr
   assert.ok(kept.length >= 1, "the previous bytes were kept, so the rename can be put back");
 });
 
+test("a rename that reaches outside the workspace is refused and writes nothing", async (t) => {
+  const { app, workspace, root } = await withLanguageServer(t);
+  await put(workspace, "src/sums.ts", "export const total = 1;\n");
+  await writeFile(join(root, "outside-the-workspace.ts"), "export const untouched = 1;\n");
+
+  await assert.rejects(
+    app.runtime.executeTool("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "escapeOutside" }),
+    /outside your workspace/,
+  );
+  assert.equal(await readFile(join(root, "outside-the-workspace.ts"), "utf8"), "export const untouched = 1;\n");
+  assert.equal(await readFile(join(workspace, "src/sums.ts"), "utf8"), "export const total = 1;\n");
+});
+
 test("code.rename asks before it writes, the way every multi-file change does", async (t) => {
   const { app } = await withLanguageServer(t);
   const rename = app.registry.inventory().find((tool) => tool.name === "code.rename");
@@ -542,6 +555,7 @@ test("an OpenAPI description becomes tools with the right shapes, and only the a
   const retrieve = described.find((tool) => tool.name === "api.notion.retrieve_page");
   assert.equal(retrieve.description.includes("evil.invalid"), false, "a description that reads like instructions to the assistant is dropped");
   assert.equal(retrieve.description, "GET /v1/pages/{page_id}", "and a plain fallback is used in its place");
+  assert.equal(app.registry.groupOf("api.notion.retrieve_page"), "services", "a service has its own toolbox, not the unrecognised one");
 });
 
 test("a call built from the document fills the path, sends the key in the header and comes back as data", async (t) => {
@@ -648,6 +662,25 @@ test("undo and redo walk back and forward through this conversation's changes", 
   assert.equal(await read(), "three\n");
 
   await assert.rejects(app.registry.execute("workspace.redo", {}, context), /nothing to put back/);
+});
+
+test("undo puts back a picture's exact bytes, and takes away a file that was new", async (t) => {
+  const { app, workspace } = await fixture(t);
+  // Bytes that no text encoding would survive: a lone 0x80, a zero and a carriage return.
+  const original = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x80, 0x00, 0x0d, 0xff]);
+  await writeFile(join(workspace, "logo.png"), original);
+  const { context } = conversation(app);
+
+  await app.store.workspaceHistory.before("logo.png", context);
+  await writeFile(join(workspace, "logo.png"), Buffer.from([0x00]));
+  await app.registry.execute("files.write", { path: "fresh.txt", content: "new\n" }, context);
+  assert.equal(await readFile(join(workspace, "fresh.txt"), "utf8"), "new\n");
+
+  await app.registry.execute("workspace.undo", {}, context);
+  assert.equal(existsSync(join(workspace, "fresh.txt")), false, "undoing a file that was new removes it again");
+
+  await app.registry.execute("workspace.undo", {}, context);
+  assert.deepEqual([...(await readFile(join(workspace, "logo.png")))], [...original], "byte for byte, including the ones no text could hold");
 });
 
 test("undo leaves another conversation's changes alone", async (t) => {

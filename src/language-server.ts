@@ -133,11 +133,23 @@ function toDiagnostic(root: string, uri: string, entry: Record<string, unknown>)
 }
 /** A file address from the server, written the way the rest of the app writes paths. */
 export function relativeTo(root: string, uri: string): string {
-  try {
-    const path = fileURLToPath(uri);
-    const rel = path.slice(root.length).replace(/\\/g, "/").replace(/^\//, "");
-    return rel || path;
-  } catch { return uri; }
+  const inside = insideWorkspace(root, uri);
+  if (inside !== null) return inside || uri;
+  try { return fileURLToPath(uri); } catch { return uri; }
+}
+
+/**
+ * The workspace-relative path for an address the server sent, or null when it points somewhere
+ * else entirely. Whole folder names are compared, not the letters they start with: a folder called
+ * `workspace-notes` begins the same way as `workspace` without being anywhere inside it.
+ */
+export function insideWorkspace(root: string, uri: string): string | null {
+  let path: string;
+  try { path = fileURLToPath(uri); } catch { return null; }
+  const tidy = (value: string): string => value.split("\\").join("/").replace(/\/+$/, "");
+  const base = tidy(root), here = tidy(path);
+  if (here.toLowerCase() === base.toLowerCase()) return "";
+  return here.toLowerCase().startsWith(`${base.toLowerCase()}/`) ? here.slice(base.length + 1) : null;
 }
 
 export class LanguageServers {
@@ -249,7 +261,10 @@ export class LanguageServers {
     if (!byUri.size) throw new Error("The language server did not offer a rename here.");
     const planned: { path: string; before: string; after: string }[] = [];
     for (const [uri, edits] of byUri) {
-      const path = relativeTo(this.files.base, uri);
+      // A rename reaching outside the workspace is refused outright rather than bent back inside
+      // it: the address is said plainly so the person can see what the server actually asked for.
+      const path = insideWorkspace(this.files.base, uri);
+      if (!path) throw new Error(`The language server wanted to change a file outside your workspace (${relativeTo(this.files.base, uri)}), so nothing was changed.`);
       const absolute = await this.files.checked(path);
       const before = await readFile(absolute, "utf8");
       planned.push({ path, before, after: applyEdits(before, edits) });

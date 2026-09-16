@@ -44,6 +44,11 @@ function handle(message) {
   }
   if (method === "textDocument/hover") { reply(id, { contents: { kind: "plaintext", value: "const total: number" } }); return; }
   if (method === "textDocument/rename") {
+    // A server that names a file outside the workspace, so the client can be shown refusing one.
+    if (params.newName === "escapeOutside") {
+      reply(id, { changes: { [new URL("../../outside-the-workspace.ts", lastUri).href]: [{ range: at(0, 0, 1), newText: "x" }] } });
+      return;
+    }
     reply(id, { changes: { [lastUri]: [{ range: at(0, 13, 5), newText: params.newName }, { range: at(1, 12, 5), newText: params.newName }] } });
     return;
   }

@@ -1189,8 +1189,10 @@ registered. The shapes come from the document itself, the address goes through t
 rules as everything else, and the key comes out of your locker at the moment of a call and is
 scrubbed back out of the answer. Descriptions written in the document are capped and put through
 the same filter a web page gets, so a document cannot talk the assistant into anything.
-`tools.services` shows what is registered and `tools.forget_service` takes one back out. Notion is
-the worked example:
+`tools.services` shows what is registered and `tools.forget_service` takes one back out. Every tool
+a service brings is filed in its own **services** toolbox, so one large document can never crowd out
+the built-in tools. Registered services last as long as the app is running; add them again after a
+restart. Notion is the worked example:
 
 ```
 tools.from_openapi { name: "notion", file: "notion-openapi.json",
