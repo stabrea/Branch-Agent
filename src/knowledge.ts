@@ -485,7 +485,7 @@ function registerSpecialists(
   registry.register({
     name: "specialists.delegate",
     description:
-      "Delegate to an evaluated active specialist with the same shared budget and reduced permissions. Optionally require the answer to match a JSON schema or declared checks (exit criteria); a miss is reported back as unresolved with the reason. Children stop after timeoutMs (default 120 s).",
+      "Hand part of this task to a specialist with fewer permissions and a share of the same budget.",
     permission: "specialists.use",
     parameters: idArgs.extend({ prompt: z.string().min(1).max(8000), timeoutMs: z.number().int().min(1000).max(120000).optional(), resultSchema: ResultSchemaSchema.optional(), checks: CompletionCheckSchema.optional(),
       background: z.boolean().optional().describe("Let the specialist keep working after this task finishes; its result is recorded on this task when it arrives.") }),

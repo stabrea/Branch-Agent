@@ -6,7 +6,8 @@ import { Bm25 } from "./bm25.js";
 import { chunkDocument, type Chunk } from "./chunking.js";
 import { Citations, type Citation } from "./citations.js";
 import { errorText, estimateTokens } from "./contracts.js";
-import { documentType, extractText } from "./document-text.js";
+import { documentType, knownExtension } from "./document-text.js";
+import { readableTypes, tryReadDocument } from "./document-readers.js";
 import { fuseRanks } from "./document-embeddings.js";
 import { CachedEmbeddings, EmbeddingCache, embeddingConnection, embeddingsFor, noEmbeddingsMessage,
   textFingerprint, type EmbeddingLedger } from "./embeddings.js";
@@ -59,6 +60,8 @@ export const KnowledgeSearchSchema = z.object({
 export interface CollectionInfo {
   id: string; name: string; sources: CollectionSource[]; model: string; attached: boolean;
   documents: number; chunks: number; embedded: number; lastIndexedAt: string | null; note: string;
+  /** The files in this collection that could not be read, each with the reason in plain language. */
+  unread: { file: string; reason: string }[];
   /** Roughly how much new reading this knowledge base has been charged for, added up over every read. */
   indexTokens: number;
 }
@@ -66,6 +69,8 @@ export interface IndexProgress {
   event: "knowledge.index.progress";
   collection: string; name: string;
   files: number; filesDone: number; chunks: number; embedded: number;
+  /** Files whose contents had not changed since the last read, so they were left as they were. */
+  unchanged: number;
   /** Roughly how much new reading this pass was charged for; zero when the reader is on this computer. */
   tokens: number;
   status: string; finished: boolean; error?: string;
@@ -108,7 +113,10 @@ export class KnowledgeBases {
         chunk_index INTEGER NOT NULL, heading TEXT NOT NULL DEFAULT '', page INTEGER, chunk_text TEXT NOT NULL,
         text_hash TEXT NOT NULL, UNIQUE(owner,collection,chunk_id));
       CREATE INDEX IF NOT EXISTS kb_chunks_collection ON kb_chunks(owner,collection);
-      CREATE INDEX IF NOT EXISTS kb_chunks_document ON kb_chunks(owner,collection,doc_id);`);
+      CREATE INDEX IF NOT EXISTS kb_chunks_document ON kb_chunks(owner,collection,doc_id);
+      CREATE TABLE IF NOT EXISTS kb_documents(owner TEXT NOT NULL, collection TEXT NOT NULL, doc_id TEXT NOT NULL,
+        file_hash TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
+        PRIMARY KEY(owner,collection,doc_id));`);
     // Added after the first release of this table; an install that already has it simply keeps it.
     try { this.db.exec("ALTER TABLE kb_collections ADD COLUMN index_tokens INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
   }
@@ -159,6 +167,7 @@ export class KnowledgeBases {
       documents: Number(counts?.documents ?? 0), chunks: Number(counts?.chunks ?? 0),
       embedded, note: String(row.note ?? ""), indexTokens: Number(row.index_tokens ?? 0),
       lastIndexedAt: row.last_indexed_at === null ? null : String(row.last_indexed_at),
+      unread: this.unread(owner, id),
     };
   }
   one(owner: string, id: string): CollectionInfo {
@@ -199,6 +208,7 @@ export class KnowledgeBases {
     const kept = current.sources.filter((entry) => entry.path !== path);
     const info = this.saveSources(owner, current.id, kept);
     await this.forgetDocument(owner, current.id, path);
+    this.db.prepare("DELETE FROM kb_documents WHERE owner=? AND collection=? AND doc_id=?").run(owner, current.id, path);
     return info;
   }
   private saveSources(owner: string, id: string, sources: CollectionSource[]): CollectionInfo {
@@ -217,6 +227,7 @@ export class KnowledgeBases {
     const current = this.one(owner, id);
     this.clearChunks(owner, current.id);
     await this.vectors.removeCollection(owner, current.id);
+    this.db.prepare("DELETE FROM kb_documents WHERE owner=? AND collection=?").run(owner, current.id);
     this.db.prepare("DELETE FROM kb_collections WHERE owner=? AND id=?").run(owner, current.id);
     this.latest.delete(current.id);
     return { removed: current.id };
@@ -227,10 +238,14 @@ export class KnowledgeBases {
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=?").run(owner, collection);
   }
   private async forgetDocument(owner: string, collection: string, docId: string): Promise<void> {
+    this.forgetChunkRows(owner, collection, docId);
+    await this.vectors.removeDocument(owner, collection, docId);
+  }
+  /** The passages of one document dropped from the database; the vectors are dealt with separately. */
+  private forgetChunkRows(owner: string, collection: string, docId: string): void {
     if (this.ranked) this.db.prepare(`DELETE FROM kb_search WHERE rowid IN
       (SELECT row_id FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?)`).run(owner, collection, docId);
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?").run(owner, collection, docId);
-    await this.vectors.removeDocument(owner, collection, docId);
   }
 
   /** Every file a collection's folders and files come to, as workspace-relative paths. */
@@ -255,9 +270,36 @@ export class KnowledgeBases {
   }
 
   /**
-   * Reads a collection from scratch: every file cut into passages, then the passages a connected
-   * model has not already read turned into lists of numbers. Progress is reported after each file,
-   * so a large folder shows movement rather than a frozen button.
+   * A fact card written into a collection and indexed exactly like a passage from a file, so a
+   * search finds it the same way and an answer can cite it. The card's own title is what a citation
+   * shows; `source` says where it came from, which for a card from a conversation is that turn.
+   */
+  addCard(
+    owner: string, collection: string, card: { title: string; body: string; source?: string },
+  ): { collection: string; docId: string; chunks: number } {
+    const current = this.one(owner, collection);
+    const docId = `card:${textFingerprint(`${card.title}\n${card.body}`, "card")}`;
+    const text = `# ${card.title.trim()}\n\n${card.body.trim()}${card.source ? `\n\nNoted from: ${card.source.trim()}` : ""}`;
+    this.forgetChunkRows(owner, current.id, docId);
+    const chunks = chunkDocument({ key: docId, title: card.title.trim().slice(0, 200), text, markdown: true });
+    this.writeChunks(owner, current.id, docId, chunks);
+    this.noteDocument(owner, current.id, docId, textFingerprint(text, "file"), "");
+    // The card is searchable by its words at once. Comparing it by meaning waits for the next
+    // reading of the collection or the nightly pass, so accepting a suggestion never stalls.
+    return { collection: current.id, docId, chunks: chunks.length };
+  }
+
+  /** The files of this collection that could not be read, with the reason for each. */
+  unread(owner: string, collection: string): { file: string; reason: string }[] {
+    return this.db.prepare("SELECT doc_id, reason FROM kb_documents WHERE owner=? AND collection=? AND reason<>'' ORDER BY doc_id LIMIT 200")
+      .all(owner, collection).map((row) => ({ file: String(row.doc_id), reason: String(row.reason) }));
+  }
+
+  /**
+   * Reads a collection again: every file cut into passages, then the passages a connected model has
+   * not already read turned into lists of numbers. A file whose contents have not changed since the
+   * last read keeps the passages it already has, so reading a large folder again is quick. Progress
+   * is reported after each file, so a large folder shows movement rather than a frozen button.
    */
   async reindex(
     owner: string, id: string,
@@ -267,24 +309,22 @@ export class KnowledgeBases {
     const current = this.one(owner, id);
     const paths = await this.filesIn(owner, current.id);
     let progress: IndexProgress = { event: "knowledge.index.progress", collection: current.id, name: current.name,
-      files: paths.length, filesDone: 0, chunks: 0, embedded: 0, tokens: 0, status: "Reading your files", finished: false };
+      files: paths.length, filesDone: 0, chunks: 0, embedded: 0, unchanged: 0, tokens: 0, status: "Reading your files", finished: false };
     const report = (next: Partial<IndexProgress>) => { progress = { ...progress, ...next }; this.latest.set(current.id, progress); onProgress(progress); };
     report({});
-    this.clearChunks(owner, current.id);
-    await this.vectors.removeCollection(owner, current.id);
-    let skipped = 0;
+    await this.forgetMissing(owner, current.id, paths);
     for (const path of paths) {
       signal.throwIfAborted();
-      const chunks = await this.readFileChunks(path).catch(() => [] as Chunk[]);
-      if (!chunks.length) skipped++;
-      this.writeChunks(owner, current.id, path, chunks);
-      report({ filesDone: progress.filesDone + 1, chunks: progress.chunks + chunks.length });
+      const read = await this.readOneFile(owner, current.id, path);
+      report({ filesDone: progress.filesDone + 1, chunks: progress.chunks + read.chunks,
+        unchanged: progress.unchanged + (read.unchanged ? 1 : 0) });
     }
     const meaning = await this.embedCollection(owner, current.id, signal, runId);
-    // A file too large, or one no reader could turn into text, is counted here rather than passed over
-    // in silence, so the owner can see why a folder came out smaller than they expected.
-    const skippedNote = skipped ? `${skipped} file${skipped === 1 ? "" : "s"} could not be read (too large, or no readable text).` : "";
-    const note = [meaning.note, skippedNote].filter(Boolean).join(" ");
+    // A file too large, or one no reader could turn into text, is named rather than passed over in
+    // silence, so the owner can see why a folder came out smaller than they expected.
+    const unread = this.unread(owner, current.id);
+    const unreadNote = unread.length ? `${unread.length} file${unread.length === 1 ? "" : "s"} could not be read; open the knowledge base to see which.` : "";
+    const note = [meaning.note, unreadNote].filter(Boolean).join(" ");
     report({ embedded: meaning.embedded, tokens: meaning.tokens, status: note || "Ready", finished: true,
       ...(meaning.error ? { error: meaning.error } : {}) });
     this.db.prepare(`UPDATE kb_collections SET last_indexed_at=?, model=?, note=?, updated_at=?,
@@ -292,16 +332,61 @@ export class KnowledgeBases {
       .run(new Date().toISOString(), meaning.model, note, new Date().toISOString(), meaning.tokens, owner, current.id);
     return progress;
   }
-  private async readFileChunks(path: string): Promise<Chunk[]> {
-    if (!this.files) return [];
-    const full = await this.files.checked(path);
-    const info = await stat(full);
-    if (!info.isFile() || info.size > maximumFileBytes) return [];
-    const type = documentType(path);
-    const text = extractText(await readFile(full), type);
-    if (text === null) return [];
+  /** Passages of files the collection no longer points at are dropped before anything is read. */
+  private async forgetMissing(owner: string, collection: string, paths: string[]): Promise<void> {
+    const wanted = new Set(paths);
+    // Cards the owner accepted have no file behind them, so a reading of the folders leaves them be.
+    const gone = this.db.prepare("SELECT doc_id FROM kb_documents WHERE owner=? AND collection=?").all(owner, collection)
+      .map((row) => String(row.doc_id)).filter((docId) => !wanted.has(docId) && !docId.startsWith("card:"));
+    for (const docId of gone) {
+      await this.forgetDocument(owner, collection, docId);
+      this.db.prepare("DELETE FROM kb_documents WHERE owner=? AND collection=? AND doc_id=?").run(owner, collection, docId);
+    }
+  }
+  /** One file: left alone when its contents have not changed, otherwise read again from scratch. */
+  private async readOneFile(owner: string, collection: string, path: string): Promise<{ chunks: number; unchanged: boolean }> {
+    const opened = await this.fileBytes(path);
+    if (!opened.bytes) {
+      await this.forgetDocument(owner, collection, path);
+      this.noteDocument(owner, collection, path, "", opened.reason);
+      return { chunks: 0, unchanged: false };
+    }
+    const hash = textFingerprint(opened.bytes.toString("latin1"), "file");
+    const before = this.db.prepare("SELECT file_hash, reason FROM kb_documents WHERE owner=? AND collection=? AND doc_id=?")
+      .get(owner, collection, path);
+    const held = Number(this.db.prepare("SELECT COUNT(*) AS n FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?")
+      .get(owner, collection, path)?.n ?? 0);
+    if (before && String(before.file_hash) === hash && !String(before.reason) && held) return { chunks: held, unchanged: true };
+    const read = tryReadDocument(opened.bytes, path, { byteLimit: maximumFileBytes });
+    await this.forgetDocument(owner, collection, path);
+    if (!read.document || !read.document.text.trim()) {
+      this.noteDocument(owner, collection, path, hash,
+        read.reason || read.document?.limits[0] || "No readable text was found in this file.");
+      return { chunks: 0, unchanged: false };
+    }
     const title = path.split("/").pop() ?? path;
-    return chunkDocument({ key: path, title, text, markdown: type === "md" });
+    // Reader output always carries its shape as Markdown headings and page markers, so it is cut at
+    // those boundaries and every passage keeps the page, slide or sheet it came from.
+    const chunks = chunkDocument({ key: path, title, text: read.document.text, markdown: true });
+    this.writeChunks(owner, collection, path, chunks);
+    this.noteDocument(owner, collection, path, hash, read.document.limits.join(" "));
+    return { chunks: chunks.length, unchanged: false };
+  }
+  private noteDocument(owner: string, collection: string, docId: string, hash: string, reason: string): void {
+    this.db.prepare(`INSERT OR REPLACE INTO kb_documents(owner,collection,doc_id,file_hash,reason,updated_at)
+      VALUES(?,?,?,?,?,?)`).run(owner, collection, docId, hash, reason.slice(0, 300), new Date().toISOString());
+  }
+  /** The bytes of one workspace file, or the reason it could not be opened. */
+  private async fileBytes(path: string): Promise<{ bytes: Buffer | null; reason: string }> {
+    if (!this.files) return { bytes: null, reason: "Workspace files are not available in this launch." };
+    try {
+      const full = await this.files.checked(path);
+      const info = await stat(full);
+      if (!info.isFile()) return { bytes: null, reason: "That path is not a file." };
+      if (info.size > maximumFileBytes)
+        return { bytes: null, reason: `This file is larger than ${maximumFileBytes / 1048576} MB, so it was left out.` };
+      return { bytes: await readFile(full), reason: "" };
+    } catch (error) { return { bytes: null, reason: errorText(error).slice(0, 200) }; }
   }
   private writeChunks(owner: string, collection: string, docId: string, chunks: Chunk[]): void {
     for (const chunk of chunks) {
@@ -444,7 +529,6 @@ function toHit(row: Record<string, unknown>, names: Map<string, string>, score: 
     score: Number(score.toFixed(6)), matched,
   };
 }
-const readableExtensions = new Set(["txt", "text", "log", "md", "markdown", "html", "htm", "csv", "tsv", "json", "docx", "docm", "xlsx", "xlsm"]);
-/** Whether a file is one the existing readers can turn into text; nothing new is parsed here. */
+/** Whether this build has a reader for a file; anything else is never walked into a collection. */
 export const readableFile = (path: string): boolean =>
-  readableExtensions.has(path.toLowerCase().split(".").pop() ?? "");
+  knownExtension(path) && readableTypes.includes(documentType(path));

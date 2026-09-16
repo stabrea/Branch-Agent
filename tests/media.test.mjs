@@ -44,7 +44,7 @@ async function fakeService(t, handlers) {
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       const body = Buffer.concat(chunks);
-      seen.push({ url: request.url, method: request.method, contentType: request.headers["content-type"] ?? "", body });
+      seen.push({ url: request.url, method: request.method, contentType: request.headers["content-type"] ?? "", headers: request.headers, body });
       const handler = Object.entries(handlers).find(([route]) => (request.url ?? "").startsWith(route))?.[1];
       if (!handler) {
         response.writeHead(404).end("{}");
@@ -132,7 +132,11 @@ test("Gemini asks its own route for a picture, and a model with no picture servi
   });
   const gemini = toolsFor(app, new GeminiProvider({ endpoint: service.endpoint, model: "gemini-2.0-flash", apiKey: "key" }));
   const made = await gemini.image({ prompt: "a river", size: "1024x1024" }, context(app));
-  assert.match(service.seen[0].url, /^\/v1beta\/models\/gemini-2\.5-flash-image:generateContent\?key=/);
+  // The key goes in the header Google documents for keys, never in the address: an address is
+  // written down in logs and history, and a key written down there stays written down.
+  assert.equal(service.seen[0].url, "/v1beta/models/gemini-2.5-flash-image:generateContent");
+  assert.equal(service.seen[0].headers["x-goog-api-key"], "key");
+  assert.equal(service.seen[0].headers.authorization, undefined);
   assert.equal(JSON.parse(service.seen[0].body.toString("utf8")).generationConfig.responseModalities[0], "IMAGE");
   assert.equal(made.mediaType, "image/png");
 

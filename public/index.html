@@ -321,6 +321,15 @@
             <h3>Set aside</h3>
             <div id="archived-list" class="card-list"></div>
           </div>
+          <div class="card" id="memory-tidy-all-card">
+            <h2>Tidy my memory</h2>
+            <p>One look over everything saved: the same thing saved twice, a newer fact that disagrees with an older one, facts not touched in a long time, facts never used, and notes left over from a job. Nothing is removed &mdash; anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
+            <div class="input-row">
+              <button id="memory-tidy-all-look" type="button">Look over my memory</button>
+              <button id="memory-tidy-all-suggest" type="button">Turn what it found into suggestions</button>
+            </div>
+            <div id="memory-tidy-all-result" role="status"></div>
+          </div>
           <div class="card" id="memory-tidy-card">
             <h2>Repeats, disagreements and facts you never use</h2>
             <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
@@ -578,7 +587,25 @@
           <div class="card" id="documents-drop">
             <h3>Or drop files here</h3>
             <p class="subtle">Drag files onto this box, or choose them below. Up to 20 MB each.</p>
-            <input id="documents-file" type="file" multiple accept=".txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pdf" />
+            <input id="documents-file" type="file" multiple accept=".txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pptx,.odt,.ods,.epub,.rtf,.pdf" />
+          </div>
+          <div class="card" id="document-ask-card">
+            <h3>Ask about one file</h3>
+            <p class="subtle">Point at a file in your workspace and ask a question about it. The answer says which heading or page it came from, and any table in the file is opened so you can ask about the figures.</p>
+            <div class="input-row">
+              <input id="document-ask-file" type="text" maxlength="500" placeholder="notes/handbook.docx" />
+              <input id="document-ask-question" type="text" maxlength="500" placeholder="how much paid leave do staff get?" />
+              <button id="document-ask-go" type="button">Ask</button>
+            </div>
+            <div id="document-ask-result" role="status"></div>
+            <h3>Compare two files</h3>
+            <p class="subtle">What was added, taken out or reworded between two versions, section by section.</p>
+            <div class="input-row">
+              <input id="document-compare-a" type="text" maxlength="500" placeholder="contracts/old.docx" />
+              <input id="document-compare-b" type="text" maxlength="500" placeholder="contracts/new.docx" />
+              <button id="document-compare-go" type="button">Compare</button>
+            </div>
+            <div id="document-compare-result" role="status"></div>
           </div>
           <form id="documents-search-form" class="card">
             <h3>Search your documents</h3>
@@ -885,6 +912,9 @@
             <h3>Messages still to send</h3>
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
+            <h3>Other chat services</h3>
+            <p class="subtle">These all work the same way: you paste in an address to send to, and the service sends what people write to an address of yours. Open one to see what it needs and what it can carry. Add it with <code>{"channels":[{"type":"chat","id":"work-chat","service":"&lt;the name in brackets&gt;"}]}</code> and the secrets it asks for.</p>
+            <div id="chat-services-list" class="card-list"></div>
             <h3>Add a way to reach your assistant</h3>
             <p class="subtle">Pick one below. Each needs two things: the sign-in details saved under <strong>Secrets</strong> in the default project, and one line added to the connections file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards and it appears in the list above. Whichever you choose, messages from a chat app can never run commands on this computer.</p>
             <details class="card-list">
@@ -994,6 +1024,16 @@
             <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
             <p id="browser-status" class="subtle" role="status"></p>
             <div id="browser-profiles" class="card-list"></div>
+            <hr />
+            <h3>Letting Branch use the browser you already have open</h3>
+            <p>Instead of its own fresh browser, Branch can work in the browser <em>you</em> are already using, so every website you are signed in to already knows you. <strong>Be careful with this one.</strong> While it is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. It is only on for one task, it turns itself off after fifteen minutes, and banks and password websites are always refused. Branch works in a new tab of its own and closes only that tab; your own tabs are never touched, and it still never types a password.</p>
+            <p class="subtle">To use this, start Chrome or Edge yourself with its debugging door open — close it first, then start it with <code>--remote-debugging-port=9222</code> — and put that same number below.</p>
+            <label for="browser-attach-port">Debugging door number</label>
+            <input id="browser-attach-port" type="number" min="1024" max="65535" step="1" value="9222" />
+            <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
+            <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
+            <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
+            <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
@@ -1016,8 +1056,13 @@
               <div id="mcp-preflight" class="card-list"></div>
             </details>
             <h3>Other people's servers</h3>
-            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
             <div class="field-row">
+              <label for="mcp-connect-when">Start these servers</label>
+              <select id="mcp-connect-when">
+                <option value="startup">When Branch starts</option>
+                <option value="on-demand">Only when a task needs one</option>
+              </select>
               <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
               <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
               <label for="mcp-max-servers">Most servers connected at once</label>
@@ -1067,6 +1112,19 @@
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
             </details>
+            <!-- Wave 7: help with code. Every program named here is one you already have. -->
+            <details id="code-ide">
+              <summary>Help with code</summary>
+              <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
+              <label class="check-row"><input type="checkbox" id="ls-enabled" /> Let Branch use my language servers</label>
+              <label for="ls-list">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
+              <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Users\me\AppData\Roaming\npm\node_modules\typescript-language-server\lib\cli.mjs | --stdio | TypeScript, JavaScript"></textarea>
+              <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
+              <label for="dbg-list">One per line: a short name, the full address of the program, and anything that goes after it</label>
+              <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
+              <button id="code-ide-save" type="button">Save</button>
+              <p id="code-ide-status" class="subtle" aria-live="polite"></p>
+            </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
             <details id="tool-catalog">
@@ -1074,6 +1132,7 @@
               <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
               <div id="tool-catalog-summary" aria-live="polite"></div>
               <div id="tool-catalog-lists"></div>
+              <div id="tool-catalog-meaning"></div>
               <button id="tool-catalog-forget" type="button">Forget what it has learned about tools</button>
               <p id="tool-catalog-status" class="subtle" role="status"></p>
             </details>
@@ -1203,6 +1262,10 @@
         <div id="context-receipts" class="context-rows"></div>
       </div>
       <div class="context-block">
+        <h2 class="context-head">Pages to open</h2>
+        <div id="context-apps" class="context-rows"></div>
+      </div>
+      <div class="context-block">
         <h2 class="context-head">Saved memory</h2>
         <div id="context-facts" class="context-rows"></div>
       </div>
@@ -1251,6 +1314,7 @@
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
+    <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
@@ -1265,6 +1329,7 @@
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
+    <script src="/docs-memory-2.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
@@ -1273,5 +1338,6 @@
     <script src="/flows.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
+    <script src="/code-ide.js" type="module"></script>
   </body>
 </html>

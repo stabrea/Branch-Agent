@@ -2,7 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
-import { connectMcp } from './mcp.js';
+import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import type { RunArtifacts } from '../artifacts.js';
@@ -14,6 +14,11 @@ import { DiscordAdapter } from '../channels/discord.js';
 import { SlackAdapter } from '../channels/slack.js';
 import { WhatsAppAdapter } from '../channels/whatsapp.js';
 import { EmailAdapter } from '../channels/email.js';
+import { WebhookChatAdapter } from '../channels/webhook-chat.js';
+import { channelEntry } from '../channels/catalog.js';
+import { MetaMessagingAdapter } from '../channels/meta-graph.js';
+import { MatrixAdapter } from '../channels/matrix.js';
+import { SignalAdapter } from '../channels/signal-cli.js';
 import { connectWebSocket, type WebSocketConnect } from '../channels/ws-client.js';
 import { WebConfigSchema, type WebAccess } from './web.js';
 import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
@@ -22,6 +27,7 @@ import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
 import { GitHubAccess, GitHubConfigSchema } from './github.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
+import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
 
@@ -83,8 +89,58 @@ export const EmailChannelSchema = z.object({
   /** How often to look for new mail, in seconds. */
   pollSeconds: z.number().int().min(5).max(3600).default(60),
 }).merge(ChannelPolicySchema).strict();
+/**
+ * Every team-chat service that works the same way: a row in `data/channels.json` says how it sends
+ * and how it proves a post is genuine, and this says which of that service's things the owner saved.
+ */
+export const WebhookChatChannelSchema = z.object({
+  id: channelId,
+  type: z.literal('chat'),
+  /** Which row of the service list to use, for example "mattermost". */
+  service: z.string().regex(/^[a-z][a-z0-9-]{1,29}$/),
+  /** The incoming webhook address the owner pasted, for the services that send that way. */
+  webhookUrlSecret: credentialName.optional(),
+  /** The access token, for the services with a proper API. */
+  tokenSecret: credentialName.optional(),
+  /** The shared word or signing key the service proves itself with. */
+  secretSecret: credentialName.optional(),
+  /** The service's own address, for the ones hosted per company (Zulip, Mattermost). */
+  apiBase: z.string().url().optional(),
+  /** What the bot is called, so a mention of it can be spotted in a group. */
+  botName: z.string().min(1).max(60).optional(),
+}).merge(ChannelPolicySchema).strict();
+/** Facebook Messenger and Instagram direct messages, which share WhatsApp's webhook and send shape. */
+const metaMessagingFields = {
+  id: channelId,
+  /** The page or professional account the assistant answers as. */
+  pageId: z.string().min(1).max(64),
+  tokenSecret: credentialName.default('META_PAGE_TOKEN'),
+  verifyTokenSecret: credentialName.default('META_VERIFY_TOKEN'),
+  appSecretSecret: credentialName.default('META_APP_SECRET'),
+  apiBase: z.string().url().optional(),
+};
+export const MessengerChannelSchema = z.object({ ...metaMessagingFields, type: z.literal('messenger') }).merge(ChannelPolicySchema).strict();
+export const InstagramChannelSchema = z.object({ ...metaMessagingFields, type: z.literal('instagram') }).merge(ChannelPolicySchema).strict();
+export const MatrixChannelSchema = z.object({
+  id: channelId.default('matrix'),
+  type: z.literal('matrix'),
+  homeserver: z.string().url(),
+  /** The assistant's own Matrix user id, so it does not answer itself. */
+  userId: z.string().min(3).max(120),
+  tokenSecret: credentialName.default('MATRIX_ACCESS_TOKEN'),
+  syncSeconds: z.number().int().min(5).max(120).default(30),
+}).merge(ChannelPolicySchema).strict();
+export const SignalChannelSchema = z.object({
+  id: channelId.default('signal'),
+  type: z.literal('signal'),
+  /** Full path to the signal-cli program you installed. Nothing is downloaded. */
+  path: z.string().min(3).max(400),
+  /** The registered number, in +country form. */
+  account: z.string().min(5).max(20),
+}).merge(ChannelPolicySchema).strict();
 export const ChannelConfigSchema = z.discriminatedUnion('type', [
   TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
+  WebhookChatChannelSchema, MessengerChannelSchema, InstagramChannelSchema, MatrixChannelSchema, SignalChannelSchema,
 ]).superRefine((value, context) => {
   if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
@@ -97,12 +153,25 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   /** Where screenshots and saved pages are kept, beside the private database. */
   artifacts?: RunArtifacts;
   /** Saved browser sign-ins, encrypted with the device's locker key. */
-  browserProfiles?: BrowserProfiles }
+  browserProfiles?: BrowserProfiles;
+  /** When outside servers are started, and where their last tool list is kept. */
+  mcp?: McpHost;
+  /**
+   * The two halves of the shared "look at this, press that" tools. The window half is always
+   * there; the page half is filled in here once a browser turns out to be configured.
+   */
+  computer?: { page?: unknown };
+  /** Settings and spans, so the browser can read the "use my browser" switch and record healing. */
+  store?: unknown; tracer?: unknown;
+  /** Things to let go of when Branch locks itself, such as a browser of the owner's it had borrowed. */
+  onLock?: (release: () => Promise<unknown>) => void }
 
 /** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
 export const GitConfigSchema = z.object({
   remote: z.boolean().default(false),
   github: GitHubConfigSchema.partial().optional(),
+  /** Reading issues, releases and pipelines from GitLab; needs its own saved token. */
+  gitlab: GitLabConfigSchema.partial().optional(),
 }).strict();
 
 /** Where the person's issues live. Each tracker is off until it is named here with a saved key. */
@@ -139,8 +208,8 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     throw new Error('MCP server IDs must be unique');
   try {
     for (const server of config.mcp) {
-      const connection = await connectMcp(registry, server, env, policy);
-      closers.push(connection.close);
+      const stop = await startMcp(registry, server, env, policy, channels?.mcp);
+      if (stop) closers.push(stop);
     }
     if (config.browser) {
       const browser = new BranchBrowser(config.browser);
@@ -148,6 +217,13 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.files = channels?.files;
       browser.artifacts = channels?.artifacts;
       browser.profiles = channels?.browserProfiles;
+      browser.store = channels?.store as never;
+      browser.tracer = channels?.tracer as never;
+      // The page half of the shared "look at this, press that" tools is this browser.
+      if (channels?.computer) channels.computer.page = browser;
+      // Locking Branch gives back any browser of the owner's a task had borrowed, so a locked
+      // Branch is never still holding the door to their signed-in windows open.
+      channels?.onLock?.(() => browser.releaseBorrowed());
       hosted.browser = browser;
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }
@@ -177,6 +253,55 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   } catch (error) { await close().catch(() => undefined); throw error; }
 }
 
+/**
+ * Starting one outside MCP server, the way the owner's "when to connect" setting says.
+ *
+ * **startup** (what has always happened, and still the default) opens it now and puts its tools in
+ * the list. **on-demand** puts its tools in the list from what that server said the last time it
+ * was connected and opens nothing; the connection is made the first time a task really calls one
+ * of them, through the same manager that keeps it warm, caps how many are open and retries a
+ * server that will not answer. Either way the tools are there to be found from the first moment,
+ * which is the point: a tool that is not in the list might as well not exist.
+ *
+ * A server on demand that has never been connected has no list to show, so it is connected now —
+ * once — rather than being silently missing.
+ */
+async function startMcp(
+  registry: ToolRegistry, server: unknown, env: NodeJS.ProcessEnv,
+  policy: NetworkPolicy | undefined, host: McpHost | undefined,
+): Promise<(() => Promise<void>) | null> {
+  const guard = policy ? { guard: (base: typeof fetch) => policy.guard(base) } : undefined;
+  const connect = () => connectMcp(registry, server, env, guard, host?.cache);
+  if (!host || host.connectWhen() !== 'on-demand') {
+    const connection = await connect();
+    return connection.close;
+  }
+  const id = McpConfigSchema.parse(server).id;
+  // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
+  // `connectMcp`: the same connection, without a second registration to collide with the first.
+  host.connections.register(id, () => openMcp(server, env, guard, host.cache));
+  const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
+    // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
+    // says its tools are NOW, and the credentials it was opened with, travel back with it: the
+    // first call is checked against the live shape, and anything echoed back has them taken out.
+    const opened = await host.connections.acquire(`mcp:${id}`, id) as unknown as LiveMcp & { found?: LiveMcp['tools'] };
+    return { call: opened.call, ...(opened.secrets ? { secrets: opened.secrets } : {}),
+      ...(opened.found ? { tools: opened.found } : {}) };
+  });
+  if (!names.length) {
+    const connection = await connect();
+    return connection.close;
+  }
+  return async () => { for (const name of names) registry.unregister(name); };
+}
+/** What `loadIntegrations` needs to run outside servers on demand rather than at startup. */
+export interface McpHost {
+  connectWhen(): 'startup' | 'on-demand';
+  cache: McpToolCache;
+  connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
+    acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
+}
+
 type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
 
 /**
@@ -201,11 +326,25 @@ function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | un
 async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
   const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
   const connect = guardedSocket(policy);
-  const base = channel.type === 'email' ? {} : channel.apiBase ? { apiBase: channel.apiBase } : {};
+  const base = 'apiBase' in channel && channel.apiBase ? { apiBase: channel.apiBase } : {};
+  if (channel.type === 'chat') return buildWebhookChat(channel, env, host, guardedFetch);
+  if (channel.type === 'messenger' || channel.type === 'instagram')
+    return new MetaMessagingAdapter({ id: channel.id, service: channel.type, pageId: channel.pageId,
+      token: await credential(channel.tokenSecret, env, host), verifyToken: await credential(channel.verifyTokenSecret, env, host),
+      appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
+  if (channel.type === 'matrix') {
+    await policy?.assertAllowed(new URL(channel.homeserver), 'Matrix home server');
+    return new MatrixAdapter({ id: channel.id, homeserver: channel.homeserver, userId: channel.userId,
+      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch });
+  }
+  if (channel.type === 'signal') return new SignalAdapter({ id: channel.id, path: channel.path, account: channel.account });
   if (channel.type === 'telegram') {
     const token = channel.tokenEnv ? env[channel.tokenEnv] : await host.secret(channel.tokenSecret!);
     if (!token) throw new Error(`Channel ${channel.id} has no bot token; set ${channel.tokenEnv ?? channel.tokenSecret}`);
-    return new TelegramAdapter({ id: channel.id, token, ...base });
+    // Same guard as Discord and WhatsApp: every call Telegram makes — sending a reply and
+    // fetching a voice note — is checked against the network settings first, so a made-up
+    // apiBase cannot be used to reach somewhere the owner never allowed.
+    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base });
   }
   if (channel.type === 'discord')
     return new DiscordAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
@@ -220,6 +359,25 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
       appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
   return buildEmail(channel, env, host, policy);
 }
+/**
+ * One of the services in `data/channels.json`. Which of the three saved things it needs comes from
+ * that row, so a service that wants only a webhook address is not asked for a token as well.
+ */
+async function buildWebhookChat(
+  channel: Extract<ChannelConfig, { type: 'chat' }>, env: NodeJS.ProcessEnv, host: ChannelHost, guardedFetch: typeof fetch,
+): Promise<ChannelAdapter> {
+  const entry = channelEntry(channel.service);
+  if (!entry) throw new Error(`There is no chat service called ${channel.service}. See docs/configuration.md for the list.`);
+  return new WebhookChatAdapter({
+    id: channel.id, entry, fetch: guardedFetch,
+    ...(channel.webhookUrlSecret ? { webhookUrl: await credential(channel.webhookUrlSecret, env, host) } : {}),
+    ...(channel.tokenSecret ? { token: await credential(channel.tokenSecret, env, host) } : {}),
+    ...(channel.secretSecret ? { secret: await credential(channel.secretSecret, env, host) } : {}),
+    ...(channel.apiBase ? { apiBase: channel.apiBase } : {}),
+    ...(channel.botName ? { botName: channel.botName } : {}),
+  });
+}
+
 /** Mail uses its own encrypted sockets, so its two servers are checked against the policy by name. */
 async function buildEmail(channel: Extract<ChannelConfig, { type: 'email' }>, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
   const password = await credential(channel.passwordSecret, env, host);
@@ -233,12 +391,24 @@ async function buildEmail(channel: Extract<ChannelConfig, { type: 'email' }>, en
 function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchema>, host: ChannelHost | undefined, policy: NetworkPolicy | undefined): void {
   if (!host?.git) throw new Error('Version control settings are configured but this launch cannot host them');
   if (config.remote) registerGitRemote(registry, host.git);
+  if (config.gitlab) enableGitLab(registry, config.gitlab, host, policy);
   if (!config.github) return;
   if (!policy || !host.activeSecret) throw new Error('GitHub needs the network settings and the secrets locker');
   const secret = host.activeSecret, name = GitHubConfigSchema.parse(config.github).tokenSecret;
   registerGitHub(registry, new GitHubAccess(config.github, policy, async () => {
     const value = await secret(name).catch(() => '');
     if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
+    return value;
+  }), host.git);
+}
+
+/** Reading from GitLab; the token comes out of the active project's secrets at the moment of a call. */
+function enableGitLab(registry: ToolRegistry, settings: unknown, host: ChannelHost, policy: NetworkPolicy | undefined): void {
+  if (!policy || !host.activeSecret) throw new Error('GitLab needs the network settings and the secrets locker');
+  const secret = host.activeSecret, name = GitLabConfigSchema.parse(settings).tokenSecret;
+  registerGitLab(registry, new GitLabAccess(settings, policy, async () => {
+    const value = await secret(name).catch(() => '');
+    if (!value) throw new Error(`Connect GitLab first: save a secret called ${name} in the active project holding a GitLab personal access token.`);
     return value;
   }));
 }

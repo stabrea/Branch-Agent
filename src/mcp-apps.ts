@@ -39,6 +39,28 @@ export function appHeaders(): Record<string, string> {
   };
 }
 
+/**
+ * An MCP answer can carry a small page as well as words. This picks one out of a tool's result:
+ * an embedded resource whose type is HTML. Anything else — text, a picture, a file — is not an
+ * app and is left exactly where it was.
+ */
+export function mcpAppIn(result: unknown): { uri: string; html: string } | null {
+  const parts = (result as { content?: unknown } | null)?.content;
+  if (!Array.isArray(parts)) return null;
+  for (const part of parts.slice(0, 20)) {
+    const resource = (part as { type?: unknown; resource?: unknown })?.resource as
+      { uri?: unknown; mimeType?: unknown; text?: unknown } | undefined;
+    if ((part as { type?: unknown })?.type !== "resource" || !resource) continue;
+    if (!/^text\/html\b/i.test(String(resource.mimeType ?? ""))) continue;
+    const html = String(resource.text ?? "");
+    if (!html.trim()) continue;
+    return { uri: String(resource.uri ?? "").slice(0, 500) || "an app", html: html.slice(0, maxAppHtml) };
+  }
+  return null;
+}
+/** How much of a page Branch will keep with the task. Beyond this it is simply cut off. */
+export const maxAppHtml = 200_000;
+
 export const AppResourceSchema = z.object({
   /** Which connected server the page came from, for the heading above the frame. */
   server: z.string().min(1).max(80),

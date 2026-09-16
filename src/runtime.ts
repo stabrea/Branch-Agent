@@ -36,6 +36,7 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
+import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -64,7 +65,9 @@ import {
   rankGroups, type ContextBudget,
 } from "./catalog.js";
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
-import { ToolLoader, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
+import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
@@ -157,6 +160,11 @@ export interface RunOptions {
   traceparent?: string | null;
   /** Internal: the working style of the specialist carrying out this run. */
   style?: SpecialistStyle;
+  /**
+   * Wave 7: extra labels for this task's own span, so an evaluation or a study can be picked out
+   * of an export afterwards. Scrubbed like every other attribute before it is written down.
+   */
+  traceAttributes?: Record<string, string | number | boolean>;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -178,6 +186,11 @@ export class Runtime {
   readonly reliability: ReliabilityOptions;
   /** The person's document library, when one is open: passages go in front of their own tasks. */
   documents: { contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> } | null = null;
+  /**
+   * Reading tool descriptions by meaning, set by the launcher when a connected model can compare
+   * writing. It is only ever used when the owner has switched "meaning search for tools" on.
+   */
+  toolMeaning: RunToolEmbedder | null = null;
   /** Where screenshots are kept, so a model that can look at pictures can be shown one. */
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
@@ -535,6 +548,7 @@ export class Runtime {
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
       "gen_ai.system": this.provider.name, "branch.run.depth": context.depth,
+      ...(options.traceAttributes ?? {}),
     }, { inbound: options.traceparent ?? null, parentRunId: parent?.runId ?? null });
     let status: Run["status"] = "completed";
     let output: string;
@@ -886,7 +900,9 @@ export class Runtime {
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context),
       },
     ];
-    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId, context.agent);
+    // Read under whoever is using the app: with a household profile switched on, their task is
+    // given their own remembered facts and never the owner's.
+    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);
@@ -985,6 +1001,9 @@ export class Runtime {
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
       noteOf: (name) => notes.get(name) ?? "",
+      // Only when the owner has said yes. With nothing here, searching is by words alone and
+      // nothing about the request ever leaves this computer.
+      ...this.meaningOption(run.id),
     });
     this.catalogs.set(run.id, catalog);
     this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
@@ -1002,8 +1021,21 @@ export class Runtime {
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
       noteOf: (name) => notes.get(name) ?? "",
+      // Only when the owner has said yes. With nothing here, searching is by words alone and
+      // nothing about the request ever leaves this computer.
+      ...this.meaningOption(run.id),
     });
     this.store.event(run.id, "catalog.reindexed", { tools: catalog.stats().tools });
+  }
+  /**
+   * The reader that compares a request with what each tool says it does, for one task. Nothing
+   * comes back unless the owner has switched meaning search on; when it does, the task it belongs
+   * to travels with it, so what the reading costs is charged there and not spent out of sight.
+   */
+  private meaningOption(runId: string): { embedder?: ToolEmbedder } {
+    const reader = this.toolMeaning;
+    if (!reader || !meaningSearchOn(this.store, this.owner)) return {};
+    return { embedder: { embed: (texts) => reader.embed(texts, runId) } };
   }
   /** Remembers, for this task only, that a tool was called; the lesson is written when it finishes. */
   private rememberToolWork(runId: string, name: string, round: number): void {
@@ -1506,13 +1538,13 @@ export class Runtime {
    * permissions, so a narrowed task cannot find one it may not use: such a name is simply not
    * there, worded exactly as a misspelling is, so refusal cannot be told apart from absence.
    */
-  private searchTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+  private async searchTools(call: ToolCall, context: ToolContext, args: unknown): Promise<{ ok: boolean; result?: unknown; error?: string }> {
     const catalog = this.catalogs.get(context.runId);
     if (!catalog) return { ok: false, error: "There are no tools to search in this task." };
     const asked = (args as { query?: unknown; limit?: unknown }) ?? {};
     const query = String(asked.query ?? "").trim();
     if (!query) return { ok: false, error: `Say what you want to do, for example {"query":"send a message"}.` };
-    const found = catalog.search(query, Number.isFinite(Number(asked.limit)) ? Number(asked.limit) : 8);
+    const found = await catalog.search(query, Number.isFinite(Number(asked.limit)) ? Number(asked.limit) : 8);
     const work = this.toolWork.get(context.runId);
     for (const match of found.matches) if (work && !work.searched.includes(match.name)) work.searched.push(match.name);
     this.store.event(context.runId, "tools.searched", { query: query.slice(0, 120), found: found.matches.map((m) => m.name) });
@@ -1566,6 +1598,17 @@ export class Runtime {
     return { deferred: true, id: entry.id,
       note: "This is not finished yet and you are not to wait for it. Carry on with whatever else you can do, and finish your answer. When it is done, what came of it arrives as a new message in this conversation." };
   }
+  /**
+   * Some servers answer with a small page meant to be looked at rather than read out. It is kept
+   * with the task so the context pane can offer to open it, in the frame that can do nothing.
+   * Only a tool from outside can offer one — Branch's own tools answer in words.
+   */
+  private noteApp(call: ToolCall, context: ToolContext, result: unknown): void {
+    if (!this.registry.isExternal(call.name)) return;
+    const app = mcpAppIn(result);
+    if (!app) return;
+    this.store.event(context.runId, "mcp.app", { tool: call.name, server: call.name.split(".")[1] ?? call.name, ...app });
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -1594,6 +1637,7 @@ export class Runtime {
       const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
+      this.noteApp(call, context, result);
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);

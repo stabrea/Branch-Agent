@@ -234,6 +234,9 @@ test("C3+C6: a refused tool is never offered, an asked-about one waits, and the 
       { tool: "browser.click", match: "*", decision: "ask" },
     ],
   });
+  // A call that needs a yes now waits for the owner to give one. This test is about what is
+  // offered and what is refused, not about the waiting, so it waits for no time at all.
+  app.store.save("settings", app.runtime.owner, "mcp-serving", { idleMinutes: 30, askWaitSeconds: 0 });
 
   const listed = await rpc(url, token, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, sessionId);
   const names = listed.data.result.tools.map((tool) => tool.name);
@@ -250,7 +253,7 @@ test("C3+C6: a refused tool is never offered, an asked-about one waits, and the 
     jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "browser.click", arguments: { selector: "#go" } },
   }, sessionId);
   assert.equal(clicked.data.result.isError, true);
-  assert.match(clicked.data.result.content[0].text, /needs your yes/);
+  assert.match(clicked.data.result.content[0].text, /waiting for your yes in Branch/);
 
   const preflight = await api(url, token, "/api/mcp/preflight");
   assert.deepEqual(preflight.hidden.map((entry) => entry.name), ["files.write"]);

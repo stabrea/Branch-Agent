@@ -8,6 +8,7 @@ import type { ToolContext } from "./contracts.js";
 import { schemaFor } from "./skill-http-tools.js";
 import { ParametersSchema, type InputValue } from "./recipes.js";
 import type { BranchPluginProvider } from "./provider-plugins.js";
+import type { BranchPluginChannel } from "./channels/connectors.js";
 
 /**
  * Plugins are single files a developer drops into the `plugins` folder beside the private data.
@@ -40,10 +41,17 @@ export interface BranchPlugin {
   tools?: BranchPluginTool[]; hooks?: BranchPluginHook[];
   /** Ways of talking to a model this plugin brings; see src/provider-plugins.ts. */
   providers?: BranchPluginProvider[];
+  /** Chat services this plugin brings; see src/channels/connectors.ts. */
+  channels?: BranchPluginChannel[];
 }
 /** Where a plugin's model connections go. Kept structural so the loader needs no extra import. */
 export interface PluginProviderHost {
   register(pluginId: string, entry: BranchPluginProvider): unknown;
+  forget(pluginId: string): unknown;
+}
+/** Where a plugin's chat services go. Kept structural so the loader needs no extra import. */
+export interface PluginChannelHost {
+  register(pluginId: string, entry: BranchPluginChannel): unknown;
   forget(pluginId: string): unknown;
 }
 export interface PluginSummary { id: string; name: string; description: string; permissions: string[]; tools: { name: string; description: string; permission: string }[]; hooks: string[] }
@@ -53,6 +61,8 @@ export class Plugins {
   private readonly loaded = new Map<string, Loaded>();
   /** Set by the launch when this copy can hold model connections; left unset, plugins bring none. */
   providers?: PluginProviderHost | undefined;
+  /** Set by the launch when this copy can host chat services; left unset, plugins bring none. */
+  channels?: PluginChannelHost | undefined;
   constructor(private readonly store: Store, private readonly owner: string, private readonly registry: ToolRegistry, private readonly folder: string) {}
   private key(id: string): string { return `plugin:${id}`; }
   private saved(id: string): { enabled: boolean; summary?: PluginSummary } | undefined {
@@ -108,9 +118,12 @@ export class Plugins {
       }
       // A way of talking to a model is only made available to choose; no model is switched over.
       for (const provider of plugin.providers ?? []) this.providers?.register(id, provider);
+      // A chat service is only made available to connect; no chat starts answering by itself.
+      for (const channel of plugin.channels ?? []) this.channels?.register(id, channel);
     } catch (error) {
       for (const name of toolNames) this.registry.unregister(name);
       this.providers?.forget(id);
+      this.channels?.forget(id);
       throw error;
     }
     for (const hook of plugin.hooks ?? [])
@@ -125,7 +138,7 @@ export class Plugins {
     for (const name of entry?.toolNames ?? []) this.registry.unregister(name);
     for (const stop of entry?.stopHooks ?? []) stop();
     // Its model connections go with it, along with every preset made from them.
-    if (entry) this.providers?.forget(id);
+    if (entry) { this.providers?.forget(id); this.channels?.forget(id); }
     this.loaded.delete(id);
   }
   /** Switches a plugin off: its tools leave the catalog, its hooks stop, and it stays off next time. */

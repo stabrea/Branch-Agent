@@ -47,9 +47,10 @@ async function renderConnections() {
   const state = await api("mcp/connections");
   $("mcp-keep-warm").value = String(state.settings.keepWarmMinutes);
   $("mcp-max-servers").value = String(state.settings.maxConcurrentServers);
+  if ($("mcp-connect-when")) $("mcp-connect-when").value = state.settings.connect;
   box.replaceChildren();
   if (!state.servers.length) {
-    box.append(el("p", "Nothing to show. Servers you set up in the connections file are opened when Branch starts; this list only covers servers opened while a task needs them.", "subtle"));
+    box.append(el("p", "Nothing to show. No server you set up in the connections file has been started in this launch.", "subtle"));
     return;
   }
   for (const server of state.servers) {
@@ -64,6 +65,7 @@ async function saveConnections() {
     await api("mcp/connections", {
       keepWarmMinutes: Number($("mcp-keep-warm").value),
       maxConcurrentServers: Number($("mcp-max-servers").value),
+      ...($("mcp-connect-when") ? { connect: $("mcp-connect-when").value } : {}),
     });
     $("mcp-try-status").textContent = "Saved.";
     await renderConnections();

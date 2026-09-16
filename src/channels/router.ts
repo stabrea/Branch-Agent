@@ -42,6 +42,11 @@ export interface ChannelAdapter {
   readonly kind: string;
   /** Longest single message this channel accepts; the ledger splits replies to fit. */
   readonly maxTextLength?: number;
+  /**
+   * True when the service will not let the assistant write to anybody outside the owner's own team
+   * until that service has reviewed the app. Shown in Connections so it is not a surprise.
+   */
+  readonly needsAppReview?: boolean;
   botName(): string | null;
   /** Connection state in plain language, shown in Settings -> Channels. */
   health?(): ChannelHealth;
@@ -174,7 +179,8 @@ export class ChannelRouter {
     const owner = this.runtime.owner;
     return {
       channels: [...this.adapters.values()].map(({ adapter, policy }) => ({ id: adapter.id, kind: adapter.kind, botName: adapter.botName(),
-        health: adapter.health?.() ?? { state: "connected" as const }, ...policy })),
+        health: adapter.health?.() ?? { state: "connected" as const },
+        ...(adapter.needsAppReview ? { needsAppReview: true } : {}), ...policy })),
       pending: this.pairs(owner).filter((p) => p.status === "pending"),
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
       chats: this.chats(owner),
@@ -337,8 +343,10 @@ export class ChannelRouter {
     try {
       const run = await this.runtime.run({
         prompt, ...(sessionId ? { sessionId } : {}),
-        // A message from a chat app can read and change the local copy, but never publish it.
-        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "git.remote", "github.manage"].includes(p)),
+        // A message from a chat app can read and change the local copy, but never publish it, and
+        // never send to somebody else's chat: a paired person in one group must not be able to
+        // make the assistant write to every chat it is linked to.
+        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,

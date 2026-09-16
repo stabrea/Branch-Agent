@@ -1,6 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import { assertMetaSigned, metaChallenge } from "./meta-graph.js";
 
 /**
  * WhatsApp through Meta's Cloud API. WhatsApp pushes messages to a web address instead of holding a
@@ -69,19 +69,13 @@ export class WhatsAppAdapter implements ChannelAdapter {
   }
   async stop(): Promise<void> { this.deliver = null; }
   /** Answers Meta's one-off check that this address belongs to the owner. */
-  verify(query: URLSearchParams): string {
-    const mode = query.get("hub.mode"), token = query.get("hub.verify_token"), challenge = query.get("hub.challenge");
-    if (mode !== "subscribe" || !challenge) throw new Error("That is not a WhatsApp verification request");
-    if (!sameSecret(token ?? "", this.options.verifyToken)) throw new Error("The verification word did not match");
-    return challenge;
-  }
+  verify(query: URLSearchParams): string { return metaChallenge(query, this.options.verifyToken, "WhatsApp"); }
   /**
    * Checks the signature over the exact bytes Meta sent, then turns each message into one the
    * router can answer. An unsigned or wrongly signed request is refused before anything is read.
    */
   async receive(raw: Buffer, signature: string | undefined): Promise<{ accepted: number }> {
-    const expected = "sha256=" + createHmac("sha256", this.options.appSecret).update(raw).digest("hex");
-    if (!sameSecret(signature ?? "", expected)) throw new Error("The message was not signed by WhatsApp");
+    assertMetaSigned(raw, signature, this.options.appSecret, "WhatsApp");
     const body = webhookSchema.parse(JSON.parse(raw.toString("utf8")));
     let accepted = 0;
     for (const entry of body.entry) for (const change of entry.changes) {
@@ -155,9 +149,4 @@ export class WhatsAppAdapter implements ChannelAdapter {
     const parsed = z.object({ messages: z.array(z.object({ id: z.string() }).passthrough()).default([]) }).passthrough().safeParse(await response.json().catch(() => ({})));
     return parsed.success ? parsed.data.messages[0]?.id : undefined;
   }
-}
-/** Compares two secrets without leaking how much of them matched. */
-function sameSecret(supplied: string, expected: string): boolean {
-  const a = Buffer.from(supplied), b = Buffer.from(expected);
-  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
 }
