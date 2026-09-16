@@ -409,6 +409,14 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.13.0 (2026-09-17)
+
+Knowledge bases, talk mode and voice notes, installer and background running, phone access over Tailscale, screen control (off by default), traces and metrics, permission rules with resources, shareable pages, labels, durable workflows, queue, holidays, household profiles, terminal UI, SDK, audit record, web UI extras, toolboxes, figures and research. Published from `release/0.13.0` (PR #99); the in-app update from 0.12.0 was rehearsed on a staged copy in 42 seconds with no console window and the previous copy kept.
+
+## Community
+
+No outside pull requests or issues yet. Process: an Opus reviewer checks each PR, decides, thanks the contributor with the decision, then merges, requests changes or declines.
+
 ## Released 0.12.0 (2026-09-16)
 
 Secrets vault and session lock, models on this computer, pictures and sound, shareable skills and plugins, A2A/ACP interop, evaluation suites with history. Published from `release/0.12.0` (PR #98); the in-app update from 0.11.0 was rehearsed on a staged copy with no console window and the previous copy kept.
