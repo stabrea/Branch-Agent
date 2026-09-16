@@ -43,6 +43,9 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(async () => (await caches.match(request)) ?? (await caches.match("/")) ?? Response.error()),
+      /* Only opening the app falls back to the saved page; a missing picture must not become one. */
+      .catch(async () => (await caches.match(request))
+        ?? (request.mode === "navigate" ? await caches.match("/") : null)
+        ?? Response.error()),
   );
 });

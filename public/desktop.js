@@ -45,4 +45,6 @@ async function render() {
 $("desktop-enabled").addEventListener("change", (event) => void save({ enabled: event.target.checked }));
 $("desktop-cap-save").addEventListener("click", () =>
   void save({ maxActionsPerRun: Math.max(1, Math.min(200, Number($("desktop-cap").value) || 40)) }));
-window.branchDesktop = { render };
+// `branchDesktop` is the desktop app's own bridge (see src/desktop/preload.cts) and the whole page
+// reads it as "am I running inside the desktop app". This screen must not answer to that name.
+window.branchScreenControl = { render };

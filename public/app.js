@@ -494,7 +494,7 @@ async function refresh() {
   renderAttention();
   void window.branchMcp?.render();
   void window.branchApprovals?.render();
-  void window.branchDesktop?.render();
+  void window.branchScreenControl?.render();
   void window.branchDiagnostics?.render();
 }
 const notifiedAttention = new Set();

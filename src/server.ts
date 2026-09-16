@@ -435,8 +435,12 @@ async function api(
   // The developer playground: the form for every tool, and running one by hand through the gate.
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
   if (request.method === "POST" && path === "/api/tools/try")
-    return tryTool(app.registry, app.store, app.runtime.owner, app.runtime.context(),
-      TryToolSchema.parse(await readBody(request)));
+    // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
+    // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
+    return app.runtime.hideSecrets(
+      await tryTool(app.registry, app.store, app.runtime.owner,
+        app.runtime.context({ signal: AbortSignal.timeout(120000) }),
+        TryToolSchema.parse(await readBody(request))));
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -673,7 +677,9 @@ async function api(
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const receipts = await receiptsView(app, run.id);
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
-    return inspectRun(app.store, run.id, {
+    // A tool call's raw arguments are read back off the assistant message, which the runtime never
+    // scrubbed; nothing leaves here carrying a saved password or key.
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
       receipts, version: app.version, cost: receipts.cost,
       timeline: app.store.usageStore().getRunTimeline(run.id),
       /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
@@ -681,7 +687,7 @@ async function api(
         const estimate = estimateCost(model, tokens, overrides);
         return { amount: estimate.amount, display: formatCost(estimate) };
       },
-    });
+    }));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
