@@ -43,6 +43,7 @@ import { hiddenToolsText } from "./mcp-policy.js";
 import { listSnapshots } from "./mcp-snapshots.js";
 import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
 import { tryServer } from "./mcp-workbench.js";
+import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
@@ -1315,6 +1316,13 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
       return { settings: readLifecycleSettings(app.store, scope), servers: app.mcpConnections.health(), known: app.mcpConnections.known() };
     if (request.method === "POST")
       return { settings: saveLifecycleSettings(app.store, scope, await readBody(request)), servers: app.mcpConnections.health() };
+  }
+  if (path === "/api/mcp/signin" && request.method === "POST") {
+    // The address to open in the owner's own browser; the key lands in the locker, never here.
+    const started = await mcpSignIn(await readBody(request), {
+      store: app.store, owner: app.runtime.owner, connections: app.oauth, policy: app.web.policy,
+    });
+    return { url: started.url, redirectUri: started.redirectUri, expiresInMs: started.expiresInMs };
   }
   if (path === "/api/mcp/try" && request.method === "POST")
     return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);

@@ -312,13 +312,18 @@ export class McpServer {
       this.registry.descriptions(new Set(this.registry.permissions()), { diet: false }).map((d) => [d.name, d.parameters]),
     );
     const allowed = new Set(this.preflight().allowed.map((entry) => entry.name));
+    // Branch's own `mcp.*` helpers are registered tools as well, so the owner can tick them in the
+    // shared list; they are already above, and a list with the same name twice is not a valid one.
+    const named = new Set(tools.map((tool) => tool.name));
     for (const tool of this.registry.inventory())
-      if (allowed.has(tool.name))
+      if (allowed.has(tool.name) && !named.has(tool.name)) {
+        named.add(tool.name);
         tools.push({
           name: tool.name,
           description: tool.description,
           inputSchema: schemas.get(tool.name) ?? { type: 'object', properties: {} },
         });
+      }
     return tools;
   }
 

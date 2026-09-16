@@ -201,6 +201,13 @@ test("C2: the exact list a client was shown is written down and can be checked a
   const listed = await api(url, token, "/api/mcp/snapshots");
   assert.equal(listed.snapshots[0].id, id);
   assert.equal(typeof listed.snapshots[0].tools, "number");
+
+  // Branch's own helpers are registered tools too, so ticking one must not list it twice.
+  await share(url, token, ["mcp.dry_run", "mcp.servers", "files.read"]);
+  const both = await rpc(url, token, { jsonrpc: "2.0", id: 5, method: "tools/list", params: {} }, sessionId);
+  const names = both.data.result.tools.map((tool) => tool.name);
+  assert.deepEqual(names, [...new Set(names)], "no tool is offered twice");
+  assert.ok(names.includes("mcp.dry_run") && names.includes("mcp.servers"));
 });
 
 test("C3+C6: a refused tool is never offered, an asked-about one waits, and the note says which is which", async (t) => {
@@ -266,7 +273,7 @@ test("C3: a dry run says what would happen and changes nothing", async (t) => {
 });
 
 test("C4: Branch registers itself with a server that needs a sign-in, and the key never leaves the locker", async (t) => {
-  const { app } = await fixture(t);
+  const { app, url, token } = await fixture(t);
   const secret = "fixture-access-token-not-real";
   const seen = [];
   const auth = createServer(async (request, response) => {
@@ -307,6 +314,7 @@ test("C4: Branch registers itself with a server that needs a sign-in, and the ke
     store: app.store, owner: app.runtime.owner, connections: app.oauth, policy: app.web.policy,
   });
   assert.equal(started.registered, "dynamically-registered");
+  assert.match(started.redirectUri, /^http:\/\/127\.0\.0\.1:\d+\/oauth\/callback$/);
   const authorize = new URL(started.url);
   assert.equal(authorize.searchParams.get("client_id"), "dynamically-registered");
   assert.equal(authorize.searchParams.get("code_challenge_method"), "S256");
@@ -327,6 +335,16 @@ test("C4: Branch registers itself with a server that needs a sign-in, and the ke
   assert.equal(again.registered, "dynamically-registered");
   assert.ok(!seen.includes("/register"));
   await app.oauth.cancel("mcp-fixture");
+
+  // The same sign-in from the app's own route, so the path a person uses is the path that is tested.
+  const viaRoute = await api(url, token, "/api/mcp/signin", { id: "fixture", url: `http://127.0.0.1:${port}/mcp` });
+  assert.match(viaRoute.url, /code_challenge_method=S256/);
+  assert.ok(!JSON.stringify(viaRoute).includes(secret), "the route never carries the key");
+  await app.oauth.cancel("mcp-fixture");
+  await assert.rejects(
+    api(url, token, "/api/mcp/signin", { id: "nowhere", url: "http://127.0.0.1:1/mcp" }),
+    /does not publish how to sign in/,
+  );
 
   const everything = JSON.stringify([
     app.store.runs(app.runtime.owner).flatMap((run) => app.store.events(run.id)),
