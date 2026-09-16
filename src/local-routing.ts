@@ -1,0 +1,149 @@
+import { z } from "zod";
+import type { Store } from "./store.js";
+import type { ModelRouter } from "./models.js";
+import { estimateCost } from "./pricing.js";
+
+/**
+ * Per-task routing: which model answers which kind of task. A private note can stay on this
+ * computer; a long, tool-heavy task can go to the cloud model that handles it best; and when the
+ * cloud answer would cost more than the owner is happy with for something simple, the free model
+ * on this computer is used instead. Nothing here changes what the owner explicitly chose for a
+ * conversation — an explicit choice always wins.
+ */
+const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i).nullable();
+export const RoutingSettingsSchema = z.object({
+  /** Off by default: nothing is routed automatically until the owner turns it on. */
+  enabled: z.boolean().default(false),
+  /** Keep tasks that mention personal details on this computer. */
+  localForPrivate: z.boolean().default(true),
+  /** Send long or tool-heavy tasks to the cloud model. */
+  cloudForHard: z.boolean().default(true),
+  /** Use the free local model when a simple task would cost more than this in the cloud. */
+  costCeilingDollars: z.number().min(0).max(100).default(0.02),
+  /** Which connection counts as "on this computer"; empty means the first local one found. */
+  localPreset: presetId.default(null),
+  /** Which connection counts as "the cloud one"; empty means the current default. */
+  cloudPreset: presetId.default(null),
+}).strict();
+export type RoutingSettings = z.infer<typeof RoutingSettingsSchema>;
+
+export function routingSettings(store: Store, owner: string): RoutingSettings {
+  const saved = RoutingSettingsSchema.safeParse(store.get("settings", owner, "routing")?.data ?? {});
+  return saved.success ? saved.data : RoutingSettingsSchema.parse({});
+}
+export function saveRoutingSettings(store: Store, owner: string, input: unknown): RoutingSettings {
+  const value = RoutingSettingsSchema.parse({ ...routingSettings(store, owner), ...(input as object) });
+  store.save("settings", owner, "routing", value);
+  return value;
+}
+
+export interface TaskShape {
+  /** Rough token count: a quarter of the characters. */
+  tokens: number;
+  long: boolean;
+  toolHeavy: boolean;
+  /** True when the words look like they carry personal details. */
+  personal: boolean;
+  simple: boolean;
+}
+/**
+ * Personal-details heuristic. Branch has no PII guard yet (see docs/audit/todo.md A0875), so this
+ * looks for the shapes people actually paste: an email address, a phone number, a long run of card
+ * digits, a national insurance or social security number, and the words around money and health.
+ */
+const personalPatterns: RegExp[] = [
+  /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i,
+  /\b(?:\+?\d[\s-]?){9,14}\d\b/,
+  /\b(?:\d[ -]?){13,19}\b/,
+  /\b\d{3}-\d{2}-\d{4}\b/,
+  /\b(my|our)\s+(password|passport|salary|bank|account number|address|diagnosis|medical|prescription|tax)\b/i,
+  /\b(sort code|iban|national insurance|social security|date of birth)\b/i,
+];
+export function looksPersonal(text: string): boolean {
+  return personalPatterns.some((pattern) => pattern.test(text));
+}
+/** What kind of task this is, from its length, the tools it may need and whether it looks private. */
+export function classifyTask(prompt: string, toolCount = 0): TaskShape {
+  const tokens = Math.ceil(prompt.length / 4);
+  const long = tokens > 1500;
+  const toolHeavy = toolCount > 8 || /\b(search the web|browse|run|open the browser|across (the )?(files|repo)|refactor|debug)\b/i.test(prompt);
+  const personal = looksPersonal(prompt);
+  return { tokens, long, toolHeavy, personal, simple: !long && !toolHeavy };
+}
+
+export type RouteKind = "local" | "cloud" | "unchanged";
+export interface RouteChoice {
+  /** The preset to use, or null to leave the ordinary choice alone. */
+  preset: string | null;
+  kind: RouteKind;
+  /** Plain-language reason, shown in the task's record. */
+  reason: string;
+}
+export interface RouteInputs {
+  /** A connection that runs on this computer, when there is one. */
+  localPreset: string | null;
+  /** The cloud connection to prefer for hard work, when there is one. */
+  cloudPreset: string | null;
+  /** False when the local server is not answering, so local choices fall back to the cloud. */
+  localUp: boolean;
+  /** What the cloud model would probably cost for this task, or null when no price is on file. */
+  cloudCost: number | null;
+}
+
+/** The routing decision itself: pure, so the rules can be read and tested on their own. */
+export function chooseRoute(settings: RoutingSettings, shape: TaskShape, inputs: RouteInputs): RouteChoice {
+  if (!settings.enabled) return { preset: null, kind: "unchanged", reason: "Task routing is switched off" };
+  const local = inputs.localPreset, cloud = inputs.cloudPreset;
+  const wantsLocal = (settings.localForPrivate && shape.personal)
+    || (shape.simple && inputs.cloudCost !== null && inputs.cloudCost > settings.costCeilingDollars);
+  if (settings.cloudForHard && (shape.long || shape.toolHeavy) && !shape.personal && cloud)
+    return { preset: cloud, kind: "cloud", reason: "This is a long or tool-heavy task, so the cloud model takes it" };
+  if (wantsLocal && local && inputs.localUp)
+    return { preset: local, kind: "local", reason: reasonForLocal(settings, shape, inputs) };
+  if (wantsLocal && local && !inputs.localUp && cloud)
+    return { preset: cloud, kind: "cloud", reason: "The model on this computer is not answering, so the cloud model takes it" };
+  if (wantsLocal && !local)
+    return { preset: null, kind: "unchanged", reason: "No model is set up on this computer yet" };
+  return { preset: null, kind: "unchanged", reason: "Nothing about this task asks for a different model" };
+}
+function reasonForLocal(settings: RoutingSettings, shape: TaskShape, inputs: RouteInputs): string {
+  if (settings.localForPrivate && shape.personal) return "This task mentions personal details, so it stays on this computer";
+  return `A simple task, and the cloud model would cost about $${(inputs.cloudCost ?? 0).toFixed(4)}, so the free model on this computer takes it`;
+}
+
+/** A preset id that runs on this computer, preferring the owner's choice. */
+export function pickLocalPreset(models: ModelRouter, chosen: string | null): string | null {
+  if (chosen && models.presets.has(chosen)) return chosen;
+  for (const preset of models.presets.values()) if (models.runsLocally(preset.id)) return preset.id;
+  return null;
+}
+/** A preset id that does not run on this computer, preferring the owner's choice. */
+export function pickCloudPreset(models: ModelRouter, chosen: string | null): string | null {
+  if (chosen && models.presets.has(chosen)) return chosen;
+  for (const preset of models.presets.values()) if (!models.runsLocally(preset.id)) return preset.id;
+  return null;
+}
+
+/** Roughly what the cloud model would cost for a task of this size, or null with no price on file. */
+export function estimateTaskCost(models: ModelRouter, preset: string | null, shape: TaskShape): number | null {
+  const chosen = preset ? models.presets.get(preset) : undefined;
+  if (!chosen) return null;
+  return estimateCost(chosen.model, { input: shape.tokens, output: Math.min(shape.tokens, 800) }).amount;
+}
+
+/** The whole decision for one task, ready for the runtime: reads settings, resolves both presets. */
+export function routeForTask(
+  store: Store, models: ModelRouter, owner: string,
+  task: { prompt: string; toolCount?: number; localUp?: boolean },
+): RouteChoice {
+  const settings = routingSettings(store, owner);
+  if (!settings.enabled) return { preset: null, kind: "unchanged", reason: "Task routing is switched off" };
+  const shape = classifyTask(task.prompt, task.toolCount ?? 0);
+  const cloudPreset = pickCloudPreset(models, settings.cloudPreset);
+  return chooseRoute(settings, shape, {
+    localPreset: pickLocalPreset(models, settings.localPreset),
+    cloudPreset,
+    localUp: task.localUp ?? true,
+    cloudCost: estimateTaskCost(models, cloudPreset, shape),
+  });
+}
