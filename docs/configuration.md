@@ -67,7 +67,11 @@ Routes:
 - `POST /api/connections/from-preset` — `{ provider, key, extras, model?, name? }`. Branch checks
   the key by using it *before* anything is saved, puts the key in the secrets locker under the
   project `model-connections`, registers the connection, and answers with the models it found. The
-  key never appears in the answer, in an error message or in the log.
+  key never appears in the answer, in an error message or in the log. The connection itself — its
+  name, the service, the model and the boxes you filled in, never the key — is written down under
+  the setting `model-connections`, so it is still there the next time Branch starts. A connection
+  whose key has since been taken out of the locker by hand is quietly left out rather than half
+  built.
 
 The table below is generated from `data/providers.json` by `npm run docs:providers`. Do not edit it
 by hand; edit the data file and run that command.

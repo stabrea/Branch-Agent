@@ -10,7 +10,9 @@ import { signRequest, signingKey, uriEncode } from "../dist/providers/sigv4.js";
 import { AwsEventFraming, crc32, encodeEvent } from "../dist/providers/aws-event-stream.js";
 import { azureUrl } from "../dist/providers/azure-openai.js";
 import { ProviderHealth, readRateLimit, fallbackReason } from "../dist/provider-health.js";
-import { connectFromPreset, secretNameFor, modelNames, connectionProject } from "../dist/connections-preset.js";
+import { connectFromPreset, restoreConnections, secretNameFor, modelNames, connectionProject } from "../dist/connections-preset.js";
+import { probeProvider } from "../dist/provider-probe.js";
+import * as profiles from "../dist/model-profiles.js";
 import { ModelRouter } from "../dist/models.js";
 import { wireName } from "../dist/providers.js";
 import { ProviderHttpError } from "../dist/provider-retry.js";
@@ -645,4 +647,96 @@ test("the documentation table regenerates to exactly what is checked in", () => 
   assert.equal(after, before, "run `npm run docs:providers` and commit the result");
   assert.ok(before.includes("tested against a fake of the"), "the honest line about fakes is in the docs");
   assert.ok(before.includes("| AWS Bedrock | in the cloud | Bedrock |"));
+});
+
+// ------------------------------------------- Batch 19 (wave 7, integration): the follow-up fixes
+
+const withFakeCatalog = (t, origin, id = "groq") => {
+  const original = providerCatalog();
+  catalogModule.useCatalog({ ...original, services: original.services.map((s) => (s.id === id ? { ...s, baseUrl: `${origin}/v1` } : s)) });
+  t.after(() => catalogModule.useCatalog(original));
+};
+
+test("a second connection to the same service keeps its own record of how it is behaving", async (t) => {
+  let answers = 0;
+  const { origin } = await fake(t, (req, res) => {
+    answers++;
+    if (answers > 2) { res.statusCode = 500; res.end("no"); return; }
+    json(res, { data: [{ id: "one" }] });
+  });
+  const store = await withStore(t);
+  const models = router(t, [stub("demo", undefined)]);
+  withFakeCatalog(t, origin);
+  const deps = { models, locker: store.locker, owner: "local", policy: localPolicy(), store };
+  await connectFromPreset(deps, { provider: "groq", key: "one" });
+  const second = await connectFromPreset(deps, { provider: "groq", key: "two" });
+  assert.equal(second.id, "groq-2");
+  // Only the second connection makes this call, so only its card may change.
+  await models.presets.get("groq-2").provider.complete({ ...request, tools: [] }).catch(() => {});
+  assert.equal(models.health.get("groq-2").consecutiveFailures, 1, "the failure landed on the connection that made it");
+  assert.equal(models.health.get("groq").consecutiveFailures, 0, "the first connection was not blamed for it");
+});
+
+test("one failed call is written down once, not twice", async (t) => {
+  const models = router(t, [stub("demo", undefined)]);
+  const watched = models.health.watch("demo", async () => new Response("no", { status: 500 }));
+  const response = await watched("http://127.0.0.1:1/x");
+  assert.equal(response.status, 500);
+  models.markFailure("local", "demo", new ProviderHttpError(500, undefined, undefined, true, true));
+  assert.equal(models.health.get("demo").consecutiveFailures, 1);
+});
+
+test("a connection added from a preset is still here after Branch restarts", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { data: [{ id: "one" }] }));
+  const store = await withStore(t);
+  withFakeCatalog(t, origin);
+  const models = router(t, [stub("demo", undefined)]);
+  const deps = { models, locker: store.locker, owner: "local", policy: localPolicy(), store };
+  await connectFromPreset(deps, { provider: "groq", key: "sk-secret-value", name: "My Groq" });
+  // A fresh router is what a restart looks like: nothing but the built-in presets.
+  const afterRestart = new ModelRouter(store, [stub("demo", undefined)]);
+  assert.equal(afterRestart.presets.has("groq"), false, "nothing is there until it is put back");
+  assert.deepEqual(await restoreConnections({ ...deps, models: afterRestart }), ["groq"]);
+  assert.equal(afterRestart.presets.get("groq").name, "My Groq");
+  assert.equal(afterRestart.presets.get("groq").catalogId, "groq");
+  // The key stayed in the locker and was never written into settings.
+  const saved = JSON.stringify(store.get("settings", "local", "model-connections").data);
+  assert.ok(!saved.includes("sk-secret-value"), "the key is not in the settings record");
+  assert.ok(store.locker.exists("local", connectionProject, "GROQ_KEY"));
+});
+
+test("a connection whose key was taken out of the locker by hand is skipped, not fatal", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { data: [{ id: "one" }] }));
+  const store = await withStore(t);
+  withFakeCatalog(t, origin);
+  const models = router(t, [stub("demo", undefined)]);
+  const deps = { models, locker: store.locker, owner: "local", policy: localPolicy(), store };
+  await connectFromPreset(deps, { provider: "groq", key: "sk-secret-value" });
+  store.locker.remove("local", connectionProject, "GROQ_KEY");
+  const afterRestart = new ModelRouter(store, [stub("demo", undefined)]);
+  assert.deepEqual(await restoreConnections({ ...deps, models: afterRestart }), [], "it is left out rather than half built");
+  assert.equal(afterRestart.presets.has("groq"), false);
+});
+
+test("a routing profile does not send picture work to a connection that cannot see one", async (t) => {
+  const store = await withStore(t);
+  const models = new ModelRouter(store, [stub("g", "groq"), stub("o", "openai")]);
+  profiles.saveProfileSettings(store, "local", models, {
+    active: "mine",
+    profiles: [{ id: "mine", name: "Mine", description: "", fallback: { preset: "g", fallbacks: ["o"] }, routes: {} }],
+  });
+  const forPictures = profiles.routeByProfile(store, models, "local", "vision");
+  assert.equal(forPictures.preset, "o", "the one that can be shown a picture took it");
+  assert.match(forPictures.reason, /asked for g first/);
+  // Ordinary conversation is unchanged: Groq can hold one, so it still goes first.
+  assert.equal(profiles.routeByProfile(store, models, "local", "chat").preset, "g");
+});
+
+test("the connection card says in plain words what a connection can and cannot do", async (t) => {
+  const models = router(t, [stub("g", "groq")]);
+  const probe = await probeProvider(models, "g", localPolicy(), async () => { throw new Error("no network in this test"); });
+  assert.ok(probe.canSaid.some((line) => line.includes("hold a conversation")), probe.canSaid.join(" "));
+  assert.ok(probe.canSaid.some((line) => line.startsWith("It cannot") && line.includes("be shown a picture")), probe.canSaid.join(" "));
+  assert.equal(probe.can.vision, false);
+  assert.equal(probe.can.chat, true);
 });

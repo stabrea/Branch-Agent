@@ -102,6 +102,31 @@ export function supportsCapability(entry: CatalogEntry, capability: Capability):
   return entry.capabilities.includes(capability);
 }
 
+/** What each thing a model can do is called in ordinary words, for anything a person reads. */
+const plainWords: Record<Capability, string> = {
+  chat: "hold a conversation",
+  vision: "be shown a picture",
+  tools: "use your tools",
+  "json-mode": "reply in a fixed format",
+  streaming: "reply as it goes",
+  embeddings: "compare passages",
+  audio: "handle speech",
+  images: "make pictures",
+};
+export function plainCapability(capability: Capability): string {
+  return plainWords[capability];
+}
+
+/** The two plain sentences a person reads on a connection's card: what it can and cannot do. */
+export function capabilitySentences(can: Record<Capability, boolean>): string[] {
+  const yes = capabilities.filter((name) => can[name]).map(plainCapability);
+  const no = capabilities.filter((name) => !can[name]).map(plainCapability);
+  return [
+    yes.length ? `It can ${yes.join(", ")}.` : "It is not known to do anything on this list.",
+    ...(no.length ? [`It cannot ${no.join(", ")}.`] : []),
+  ];
+}
+
 /** Which of the filled-in boxes a service still needs, in words a person can act on. */
 export function missingExtras(entry: CatalogEntry, extras: Record<string, string>): string[] {
   return (entry.extras ?? [])

@@ -2,7 +2,7 @@ import type { Provider } from "./contracts.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import {
   type CatalogEntry, type Capability,
-  catalogEntry, missingExtras, resolveBaseUrl, supportsCapability,
+  catalogEntry, missingExtras, plainCapability, resolveBaseUrl, supportsCapability,
 } from "./provider-catalog.js";
 import { AnthropicProvider, OpenAIProvider } from "./providers.js";
 import { AzureOpenAIProvider } from "./providers/azure-openai.js";
@@ -119,16 +119,4 @@ export function capabilityRefusal(
   if (!able.length) return `${entry.name} cannot ${plain}, and no other connection you have set up can either.`;
   return `${entry.name} cannot ${plain}. ${able.map((other) => other.name).join(" or ")} can, so use one of those instead.`;
 }
-const plainWords: Record<Capability, string> = {
-  chat: "hold a conversation",
-  vision: "be shown a picture",
-  tools: "use your tools",
-  "json-mode": "reply in a fixed format",
-  streaming: "reply as it goes",
-  embeddings: "compare passages",
-  audio: "handle speech",
-  images: "make pictures",
-};
-export function plainCapability(capability: Capability): string {
-  return plainWords[capability];
-}
+export { plainCapability } from "./provider-catalog.js";

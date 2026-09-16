@@ -1297,14 +1297,25 @@ AWS Bedrock (Converse, signed with SigV4 written by hand against `node:crypto`, 
 Amazon's binary event frames), Cohere chat v2, OpenAI's Responses route and Ollama's own route were
 added. No AWS SDK and no new dependency of any kind.
 
-Planning is capability-aware: `ModelRouter.planFor` refuses to send picture, tool or fixed-format
-work to a connection whose catalog line lacks it, and names one that could take it. Each connection
+Planning is capability-aware where it can be checked: a question that carries a picture goes
+through `ModelRouter.planFor`, which will not send it to a connection whose catalog line says it
+cannot be shown one — it moves to a connection that can, and if none can, it says so and names what
+would be needed instead of sending the picture anyway. Routing profiles do the same: a profile only
+offers a connection work its catalog line covers. Tools and fixed-format replies are *not* gated on
+the ordinary path, because every task offers tools and a wrongly-filled catalog line would take a
+working connection away; `planFor` and `capabilityRefusal` answer for them, and the Settings card
+and `branch doctor --probe` say in plain words what each connection can and cannot do. A connection
+Branch did not set up from the catalog is never assumed to be worse than it is. Each connection
 records what it has actually been doing — latency, last complaint, the allowance the service
 reports in its rate-limit headers — and a failing connection is skipped and comes back after its
 rest, with the "why this model" line now saying which one was passed over. `POST
 /api/connections/from-preset` adds a service in plain language: the key is checked by using it
 before anything is saved, then stored in the secrets locker under the project `model-connections`,
-never in a settings file and never in an answer or a log.
+never in a settings file and never in an answer or a log. The connection itself — its name, the
+service, the model and the boxes that were filled in — is written down under the setting
+`model-connections` and built again when Branch starts, so a service added this way is still there
+after a restart; a record whose key has since been removed by hand is left out rather than half
+built.
 
 Honest gaps. **A2258 (multiple agent runtimes)** was not built. Branch runs one runtime, and that is
 deliberate: a second one would double the surface that has to be inspected, approved and audited
@@ -1315,13 +1326,16 @@ retired the PaLM API in favour of Gemini, so an adapter for it would be dead cod
 written. Gemini and Vertex AI are both in the catalog.
 
 Every claim here is tested against a fake of the service, not against the real one.
-`tests/providers-2.test.mjs` (70 tests) checks the catalog against its schema, completes a chat
+`tests/providers-2.test.mjs` (81 tests) checks the catalog against its schema, completes a chat
 against a fake of every entry's own shape, streams every shape that says it streams, reproduces two
 of Amazon's published SigV4 test vectors step by step (canonical request, string to sign, signature),
 decodes Amazon's event frames including one split across two reads and one deliberately damaged,
 checks the Azure address and header, the Cohere mapping, the capability refusal, the from-preset
-route storing nothing when a key is refused, the skip-and-return of a failing connection, and that
-the documentation table regenerates byte for byte. No new dependency.
+route storing nothing when a key is refused, the skip-and-return of a failing connection, that a
+second connection to the same service keeps its own health record, that a connection added from a
+preset comes back after a restart with its key still in the locker, that a routing profile will not
+send picture work to a connection that cannot see one, and that the documentation table regenerates
+byte for byte. No new dependency.
 
 
 ## Batch 20 (wave 7) — orchestration, second pass: styles, patches, processes, flows

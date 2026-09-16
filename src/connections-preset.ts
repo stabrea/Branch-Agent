@@ -3,6 +3,7 @@ import type { Provider } from "./contracts.js";
 import type { Locker } from "./locker.js";
 import type { ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
+import type { Store } from "./store.js";
 import { catalogEntry, modelsAddress } from "./provider-catalog.js";
 import { buildConnection } from "./provider-factory.js";
 import { countModels } from "./provider-probe.js";
@@ -63,7 +64,67 @@ export interface FromPresetDeps {
   locker: Locker;
   owner: string;
   policy: NetworkPolicy;
+  /** Where the connection itself is written down, so it is still here after a restart. */
+  store?: Store;
   fetchImpl?: typeof globalThis.fetch;
+}
+
+/**
+ * What is written down about a connection: everything except the key, which stays in the locker.
+ * This is enough to build the same connection again when Branch starts, and it is readable by the
+ * person whose computer it is.
+ */
+const ConnectionRecordSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(80),
+  catalogId: z.string().min(1).max(64),
+  model: z.string().min(1).max(256),
+  extras: z.record(z.string().min(1).max(40), z.string().max(500)).default({}),
+}).strict();
+export type ConnectionRecord = z.infer<typeof ConnectionRecordSchema>;
+const ConnectionsSchema = z.object({ connections: z.array(ConnectionRecordSchema).max(32).default([]) }).strict();
+/** The settings row the saved connections live in, beside every other setting. */
+export const connectionsSetting = "model-connections";
+
+/** The connections written down for this person, or none when the record is missing or damaged. */
+export function savedConnections(store: Store, owner: string): ConnectionRecord[] {
+  const saved = ConnectionsSchema.safeParse(store.get("settings", owner, connectionsSetting)?.data ?? {});
+  return saved.success ? saved.data.connections : [];
+}
+
+/** Writes one connection down, replacing any earlier one with the same name. */
+function rememberConnection(deps: FromPresetDeps, record: ConnectionRecord): void {
+  if (!deps.store) return;
+  const kept = savedConnections(deps.store, deps.owner).filter((saved) => saved.id !== record.id);
+  kept.push(ConnectionRecordSchema.parse(record));
+  deps.store.save("settings", deps.owner, connectionsSetting, { connections: kept.slice(-32) });
+}
+
+/**
+ * Builds every written-down connection again, taking each key out of the locker. One connection
+ * that cannot be rebuilt — a key removed by hand, a service dropped from the catalog — is skipped
+ * rather than being allowed to stop Branch from starting. Returns the ones that came back.
+ */
+export async function restoreConnections(deps: FromPresetDeps): Promise<string[]> {
+  if (!deps.store) return [];
+  const back: string[] = [];
+  for (const record of savedConnections(deps.store, deps.owner)) {
+    try {
+      const secret = secretNameFor(record.id);
+      const held = deps.locker.exists(deps.owner, connectionProject, secret)
+        ? (await deps.locker.resolve(deps.owner, connectionProject, [secret]))[secret] ?? ""
+        : "";
+      const built = buildConnection({
+        provider: record.catalogId, key: held, extras: record.extras, model: record.model,
+        policy: deps.policy, fetchImpl: deps.models.health.watch(record.id, deps.fetchImpl ?? globalThis.fetch),
+      });
+      deps.models.register({
+        id: record.id, name: record.name, provider: built.provider, model: built.model, catalogId: record.catalogId,
+      });
+      back.push(record.id);
+    } catch { /* one connection that cannot be rebuilt never stops the others, or the program */ }
+  }
+  return back;
 }
 
 /**
@@ -78,23 +139,25 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
     throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
   const call = deps.fetchImpl ?? globalThis.fetch;
+  // Named after the connection, not the service, so a second key for the same service does not
+  // quietly replace the first one. Worked out before anything is built, because the health record
+  // is kept under this name and a second connection must not write onto the first one's card.
+  const id = uniqueId(deps.models, asked.provider);
   const built = buildConnection({
     provider: asked.provider, key: asked.key, extras: asked.extras,
     ...(asked.model ? { model: asked.model } : {}),
-    policy: deps.policy, fetchImpl: deps.models.health.watch(asked.provider, call),
+    policy: deps.policy, fetchImpl: deps.models.health.watch(id, call),
   });
   const list = modelsAddress(entry, built.baseUrl);
   const found = list ? await probeList(deps, list, asked.key, entry.auth, call) : null;
   if (!list) await probeChat(built.provider);
-  // Named after the connection, not the service, so a second key for the same service does not
-  // quietly replace the first one.
-  const id = uniqueId(deps.models, asked.provider);
+  const name = asked.name || entry.name;
   if (asked.key) await deps.locker.set(deps.owner, connectionProject, secretNameFor(id), asked.key);
-  deps.models.register({
-    id, name: asked.name || entry.name, provider: built.provider, model: built.model, catalogId: entry.id,
-  });
+  deps.models.register({ id, name, provider: built.provider, model: built.model, catalogId: entry.id });
+  // The connection itself (never the key) is written down, so it is still here after a restart.
+  rememberConnection(deps, { id, name, catalogId: entry.id, model: built.model, extras: asked.extras });
   return {
-    id, name: asked.name || entry.name, provider: entry.id, model: built.model,
+    id, name, provider: entry.id, model: built.model,
     models: found ?? [], modelsFound: found ? found.length : null,
     can: entry.capabilities,
     secret: { project: connectionProject, name: secretNameFor(id) },

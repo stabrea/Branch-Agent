@@ -31,7 +31,7 @@ import type { WebhookNotifier } from "./webhooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
-import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
+import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
@@ -731,6 +731,23 @@ export class Runtime {
     this.store.event(run.id, "model.routed", { preset: choice.preset, kind: choice.kind, reason: choice.reason });
     return { ...override, preset: choice.preset };
   }
+  /**
+   * Which connection answers this piece of work. When a picture is part of the question, only the
+   * connections whose catalog line says they can be shown one are considered; if none can, the
+   * refusal says so and names a connection that could, rather than sending the picture anyway.
+   */
+  private planned(run: Run, owner: string, override: RunModelOverride, withPictures: boolean): ModelPlan {
+    const routed = this.routed(run, owner, override);
+    if (!withPictures) return this.models.plan(owner, run.sessionId, routed);
+    const plan = this.models.planFor(owner, run.sessionId, "vision", routed);
+    if (plan.refusal) {
+      this.store.event(run.id, "images.unsupported", { model: plan.choice.presetName, reason: plan.refusal });
+      throw new Error(plan.refusal);
+    }
+    if (plan.choice.fallbackReason)
+      this.store.event(run.id, "model.routed", { preset: plan.choice.presetId, kind: "vision", reason: plan.choice.fallbackReason });
+    return { choice: plan.choice, candidates: plan.candidates };
+  }
   private async loop(
     run: Run,
     context: ToolContext,
@@ -747,7 +764,7 @@ export class Runtime {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     const catalog = this.openCatalog(run, context, messages, shape.groups);
-    const plan = this.models.plan(context.owner, run.sessionId, this.routed(run, context.owner, override));
+    const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };

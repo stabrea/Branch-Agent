@@ -54,7 +54,14 @@ export function readRateLimit(headers: Headers): RateLimitReading | null {
 
 export class ProviderHealth {
   private readonly records = new Map<string, ConnectionHealth>();
+  /** Connections whose own fetch already reports every call, so nothing counts a failure twice. */
+  private readonly watched = new Set<string>();
   constructor(private readonly now: () => number = Date.now, private readonly limit = 64) {}
+
+  /** True when this connection's own fetch is already writing down what happens to every call. */
+  reportsForItself(id: string): boolean {
+    return this.watched.has(id);
+  }
 
   get(id: string): ConnectionHealth {
     return this.records.get(id) ?? empty(id);
@@ -102,6 +109,7 @@ export class ProviderHealth {
    */
   watch(id: string, base: typeof fetch = globalThis.fetch): typeof fetch {
     const health = this;
+    this.watched.add(id);
     return async function watched(input: string | URL | Request, init?: RequestInit) {
       const started = Date.now();
       try {

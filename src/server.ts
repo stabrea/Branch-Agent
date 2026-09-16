@@ -1013,7 +1013,7 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
   // Batch 19 (wave 7): adding a model service from the catalog, checked before anything is saved.
   if (request.method === "POST" && path === "/api/connections/from-preset")
     return connectFromPreset(
-      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy },
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
       await readBody(request, 16 * 1024),
     );
   if (request.method === "GET" && path === "/api/connections/catalog")

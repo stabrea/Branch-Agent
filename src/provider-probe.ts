@@ -1,7 +1,7 @@
 import type { Provider } from "./contracts.js";
 import type { ModelPreset, ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
-import { type Capability, capabilities, catalogEntry } from "./provider-catalog.js";
+import { type Capability, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
 
 /**
@@ -24,6 +24,8 @@ export interface ProviderProbe {
   resting: boolean;
   /** What this connection can do, one answer per capability, from the catalog where there is one. */
   can: Record<Capability, boolean>;
+  /** The same answers in ordinary words, ready to show without the screen knowing the names. */
+  canSaid: string[];
   /** One line a person can act on. */
   summary: string;
   fix?: string;
@@ -83,6 +85,7 @@ export async function probeProvider(
     onThisComputer: models.runsLocally(id),
     resting: models.coolingDown(id),
     can: capabilitiesOf(preset),
+    canSaid: capabilitySentences(capabilitiesOf(preset)),
     summary: "",
   };
   const target = modelsUrl(preset.provider);

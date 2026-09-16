@@ -118,6 +118,8 @@ async function probeConnections() {
       const card = el("div", undefined, "record");
       card.append(el("strong", `${connection.name} — ${connection.signedIn ? "working" : "needs attention"}`));
       card.append(el("p", connection.summary, "meta"));
+      // What this connection can and cannot be asked to do, in the words the server sent.
+      for (const line of connection.canSaid ?? []) card.append(el("p", line, "meta"));
       if (connection.fix) card.append(el("p", connection.fix, "meta"));
       return card;
     }));

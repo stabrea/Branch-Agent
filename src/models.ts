@@ -59,10 +59,13 @@ export type ModelSettings = z.infer<typeof ModelSettingsSchema>;
 export interface RunModelOverride { preset?: string | null; reasoning?: ReasoningEffort | null }
 export type SessionModel = z.infer<typeof SessionModelSchema>;
 
-/** What a plan says when the chosen connection cannot do the kind of work that was asked for. */
-export interface CapabilityPlan {
+/** Which connection answers, and which others are tried after it if it fails. */
+export interface ModelPlan {
   choice: ModelChoice;
   candidates: ModelPreset[];
+}
+/** What a plan says when the chosen connection cannot do the kind of work that was asked for. */
+export interface CapabilityPlan extends ModelPlan {
   /** Null when the choice can do the work; otherwise one sentence naming a connection that can. */
   refusal: string | null;
 }
@@ -130,7 +133,7 @@ export class ModelRouter {
     return value;
   }
   /** Ordered candidates: the chosen preset first, then configured fallbacks that are not cooling down. */
-  plan(owner: string, sessionId: string, override: RunModelOverride = {}): { choice: ModelChoice; candidates: ModelPreset[] } {
+  plan(owner: string, sessionId: string, override: RunModelOverride = {}): ModelPlan {
     if (override.preset && !this.presets.has(override.preset)) throw new Error(`Unknown model preset ${override.preset}`);
     const owned = this.settings(owner), scoped = this.session(owner, sessionId);
     const chosen = override.preset ?? scoped.preset;
@@ -189,7 +192,9 @@ export class ModelRouter {
   }
   /** Records a cooldown for an eligible provider failure; returns the cooldown end or null when not eligible. */
   markFailure(owner: string, id: string, error: unknown): string | null {
-    this.health.recordFailure(id, error);
+    // A connection built from the catalog writes its own failures down as they happen; recording
+    // this one again would make a single bad call look like two.
+    if (!this.health.reportsForItself(id)) this.health.recordFailure(id, error);
     if (!fallbackEligible(error)) return null;
     const until = this.now() + this.settings(owner).cooldownMs;
     this.cooldowns.set(id, until);
