@@ -177,6 +177,23 @@ function peopleSection(profile, helpers) {
   for (const person of profile.all ?? []) {
     const card = el("div", undefined, "collab-card");
     card.appendChild(el("strong", person.name));
+    // What this person may have Branch do, and what they are held to, in their own card.
+    const held = (profile.roles ?? []).find((entry) => entry.profileId === person.id);
+    if (held) {
+      const words = profile.roleLabels?.[held.grant.role];
+      card.appendChild(el("p", `${words?.label ?? held.grant.role}: ${words?.description ?? ""}`, "collab-meta"));
+      const limits = [
+        held.grant.projects.length ? `Only in: ${held.grant.projects.join(", ")}` : "",
+        held.grant.dailySpendLimit > 0 ? `Up to ${held.grant.dailySpendLimit.toFixed(2)} a day` : "",
+      ].filter(Boolean);
+      if (limits.length) card.appendChild(el("p", limits.join(" · "), "collab-meta"));
+      if (profile.isOwner)
+        for (const role of ["owner", "adult", "child"])
+          if (role !== held.grant.role)
+            card.appendChild(smallButton(helpers, `Make them ${profile.roleLabels?.[role]?.label ?? role}`, async () => {
+              await api(`/api/profiles/${person.id}/role`, { role }); toast("Saved"); await refresh();
+            }));
+    }
     const pin = el("input"); pin.type = "password"; pin.inputMode = "numeric"; pin.placeholder = "PIN";
     card.appendChild(pin);
     card.appendChild(smallButton(helpers, "Switch to this person", async () => {

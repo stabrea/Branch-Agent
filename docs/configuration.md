@@ -2821,3 +2821,21 @@ not be asked about that one again. Nothing else changed: a file, a web page or a
 rule mentions is still simply allowed, exactly as before. If you would rather have the old behaviour
 back, set `unmatchedCommands` to `allow` on the approval settings; the rules you already have are
 untouched either way.
+
+## What each person here may do (batch 26, wave 8)
+
+A profile already keeps one person's conversations and saved facts apart from everybody else's. It
+now also says what they may have Branch do. There are three roles. **Owner** may do anything.
+**Adult** may read, write files, run commands, use web pages and send messages, but may not change
+how Branch is set up and may not spend money. **Child** may look things up and answer questions, and
+nothing else.
+
+Alongside the role, the owner can hold a profile to particular projects and to a daily allowance.
+All three are checked at the tool boundary, in the same place the approval rules are checked, so
+there is no way round them; a refusal is one plain sentence naming the person and what is missing. A
+grant can only narrow what a role allows, never widen it, and the owner is never held to any of it.
+Each person's card on the People screen shows their role and what they are held to.
+
+New routes: `GET|POST /api/profiles/{id}/role` (only the owner may set one). The grant is
+`{ role, categories, projects, dailySpendLimit }`; `categories` uses the same seven kinds the
+approval settings group tools by.

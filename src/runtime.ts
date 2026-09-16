@@ -52,6 +52,8 @@ import {
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
+import { ProfileRoles, grantRefusal } from "./profile-roles.js";
+import { categoryOf } from "./tool-categories.js";
 import type { SandboxChoice } from "./sandbox.js";
 import { Tracer } from "./tracing.js";
 import { audit } from "./audit.js";
@@ -90,6 +92,8 @@ export interface PolicyCheck {
   remember: PolicyRemember;
   /** How tightly the rule that matched wants a program held; null when it did not say. */
   sandbox: SandboxChoice | null;
+  /** Why this was refused, when the reason is something other than the approval rules. */
+  reason?: string;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
 interface GateOutcome { refusal: unknown | null; sandbox: SandboxChoice | null }
@@ -213,6 +217,8 @@ export class Runtime {
   hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
+  /** What each person who shares this computer may have Branch do. The owner is not held to it. */
+  readonly roles: ProfileRoles;
   /** The shape of each task while it runs: one trace per task, a span per round, call and sub-task. */
   readonly tracer: Tracer;
   private readonly rates: RateLimiter;
@@ -235,6 +241,7 @@ export class Runtime {
     this.orchestration = new Orchestration(store, this.owner, workspace);
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
+    this.roles = new ProfileRoles(store, this.owner);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -1365,6 +1372,10 @@ export class Runtime {
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
     const resource = resourceOf(tool, permission, target, args);
+    // Somebody else in the house, working under their own profile, is held to their role first.
+    // A role can only refuse; it never lets anything through that the rules would have stopped.
+    const refusal = this.roleRefusal(tool, permission);
+    if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, reason: refusal };
     const { decision, rule } = evaluatePolicy(this.policy(source), { tool, target, readOnly, resource });
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
@@ -1374,6 +1385,22 @@ export class Runtime {
     return { decision: answered ?? decision, label, target, readOnly,
       remember: source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null };
+  }
+  /**
+   * Why the person using this app right now may not have that done, or null. The owner is never
+   * held to anything here; somebody else in the house is held to the role and the grant the owner
+   * gave their profile — which kinds of thing, which projects, and how much a day.
+   */
+  private roleRefusal(tool: string, permission: string): string | null {
+    const profile = this.store.profiles.active();
+    if (!profile) return null;
+    const grant = this.roles.get(profile.id);
+    const spentToday = grant.dailySpendLimit > 0
+      ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
+      : 0;
+    return grantRefusal(grant, profile.name, {
+      category: categoryOf(tool, permission), project: this.store.projects.active(this.owner).id, spentToday,
+    });
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
@@ -1421,7 +1448,7 @@ export class Runtime {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision: ruled, label, target, readOnly, remember, sandbox } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision: ruled, label, target, readOnly, remember, sandbox, reason } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
       return { refusal: simulatedResult(label), sandbox };
@@ -1432,8 +1459,9 @@ export class Runtime {
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
     if (decision === "allow") return { refusal: null, sandbox };
     if (decision === "deny") {
-      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target, ...(verdict ? { hook: verdict.hook } : {}) });
-      return { refusal: { ok: false, error: verdict?.reason || refusedByPolicy(label) }, sandbox };
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
+        ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
+      return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, sandbox };
     }
     const source: RunSource = context.source ?? "owner";
     const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;

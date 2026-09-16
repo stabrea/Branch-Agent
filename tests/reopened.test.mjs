@@ -354,3 +354,51 @@ test("A1629 a command nobody has ruled on is asked about, and saying yes settles
   assert.equal(evaluatePolicy(back, command("rm -rf notes")).decision, "allow");
   assert.equal(back.rules.length, 1, "and the rules they already had are untouched");
 });
+
+// ---------------------------------------------------------------- A2006
+
+test("A2006 a child's profile is refused a purchase-class tool and a project outside its grant", async (t) => {
+  const { app } = await fixture(t);
+  const { grantedCategories, grantRefusal, roleLabels } = await import("../dist/profile-roles.js");
+  const roles = app.runtime.roles;
+
+  // The three roles say plainly what each may have Branch do.
+  assert.deepEqual(grantedCategories({ role: "child", projects: [], dailySpendLimit: 0 }), ["read"]);
+  assert.ok(!grantedCategories({ role: "adult", projects: [], dailySpendLimit: 0 }).includes("spend"));
+  assert.ok(grantedCategories({ role: "owner", projects: [], dailySpendLimit: 0 }).includes("settings"));
+  assert.match(roleLabels.child.description, /look things up/);
+
+  const child = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  roles.save(child.id, { role: "child", projects: [], dailySpendLimit: 2 });
+  assert.deepEqual(roles.all([child.id])[0].categories, ["read"]);
+
+  // The owner is never held to any of this.
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "a.txt" }, app.runtime.context({ runId: taskContext(app).run.id })).decision, "allow");
+
+  // Switched to the child's profile, a tool that spends money is refused, in their own words.
+  app.store.profiles.switch({ profileId: child.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const { context } = taskContext(app);
+  const { categoryOf } = await import("../dist/tool-categories.js");
+  assert.equal(categoryOf("payments.charge", "payments.spend"), "spend");
+  assert.match(grantRefusal({ role: "child", projects: [], dailySpendLimit: 0 }, "Sam",
+    { category: "spend", project: "default", spentToday: 0 }),
+    /Sam is set up as "Child" here, which does not cover spend money/);
+  const write = app.runtime.checkPolicy("files.write", { path: "a.txt" }, context);
+  assert.equal(write.decision, "deny", "a child may not change files either");
+  assert.equal(app.runtime.checkPolicy("files.read", { path: "a.txt" }, context).decision, "allow", "but may still look things up");
+
+  // A project outside the grant is refused, whatever the role allows.
+  roles.save(child.id, { role: "adult", projects: ["homework"] });
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "a.txt" }, context).decision, "deny");
+  assert.match(app.runtime.checkPolicy("files.write", { path: "a.txt" }, context).reason,
+    /not set up to work in the project "default"/);
+  roles.save(child.id, { role: "adult", projects: [] });
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "a.txt" }, context).decision, "allow");
+
+  // And a day's allowance that has been used up refuses everything that is not looking.
+  assert.match(grantRefusal({ role: "adult", projects: [], dailySpendLimit: 1 }, "Sam",
+    { category: "files", project: "default", spentToday: 1.5 }), /used up today's allowance of 1\.00/);
+  assert.equal(grantRefusal({ role: "adult", projects: [], dailySpendLimit: 1 }, "Sam",
+    { category: "files", project: "default", spentToday: 0.2 }), null);
+});
