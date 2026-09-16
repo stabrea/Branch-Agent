@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -167,4 +168,62 @@ test("E4 a screen watch notices a change, and is off until the owner asks twice"
   const kept = app.store.sqlite.prepare("SELECT fingerprint FROM screen_watches WHERE id=?").get(made.id);
   assert.match(String(kept.fingerprint), /^[a-f0-9]{64}$/);
   assert.deepEqual(watches.remove(owner, made.id), { removed: made.id });
+});
+
+test("E2 the paired listener really answers the question a browser asks before the box may send", async (t) => {
+  // widgetOrigin returning the right string is not proof a browser would be let through: the answer
+  // has to come back on the paired door with the exact origin on it. This drives that door.
+  // node:http rather than fetch, for two reasons: fetch refuses to set a Host header, and its
+  // connection pool keeps the process alive after the server is closed.
+  const { startServer } = await import("../dist/server.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-embeds-cors-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const handle = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const paired = createServer(handle.remoteHandler);
+  await new Promise((done) => paired.listen(0, "127.0.0.1", done));
+  const port = paired.address().port;
+  // In use the paired door answers on the Tailscale address, which is one of the hosts the server
+  // accepts. Here it answers on a spare port, so the request carries a host the server accepts:
+  // the host check comes first by design, and this test is about what happens after it.
+  const host = new URL(handle.url).host;
+  t.after(async () => {
+    paired.closeAllConnections?.();
+    await new Promise((done) => paired.close(done));
+    await handle.close(); await app.close(); await rm(root, { recursive: true, force: true });
+  });
+
+  const ask = (origin, onHost = host) => new Promise((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port, path: "/api/run", method: "OPTIONS",
+      headers: { origin, host: onHost, connection: "close", "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization" } },
+      (res) => { res.resume(); resolve(res); });
+    req.setTimeout(10000, () => req.destroy(new Error("the paired door never answered")));
+    req.on("error", reject);
+    req.end();
+  });
+
+  // Nothing is listed yet, so no page may ask at all.
+  const before = await ask("https://notes.example.com");
+  assert.equal(before.headers["access-control-allow-origin"], undefined,
+    "a page was let through before the owner listed it");
+
+  saveEmbedSettings(app.store, app.runtime.owner,
+    { widget: true, widgetSites: ["https://notes.example.com"] });
+
+  const allowed = await ask("https://notes.example.com");
+  assert.equal(allowed.statusCode, 204, "the browser's question went unanswered, so the box could not send");
+  assert.equal(allowed.headers["access-control-allow-origin"], "https://notes.example.com");
+  assert.notEqual(allowed.headers["access-control-allow-origin"], "*", "any page holding the key could send");
+  assert.match(allowed.headers["access-control-allow-headers"] ?? "", /authorization/);
+  assert.match(allowed.headers["vary"] ?? "", /Origin/);
+
+  const stranger = await ask("https://other.example.com");
+  assert.equal(stranger.headers["access-control-allow-origin"], undefined,
+    "a page the owner never listed was let through");
+
+  // The host check still comes first: the right origin on a host the server does not accept is refused.
+  const wrongHost = await ask("https://notes.example.com", `127.0.0.1:${port}`);
+  assert.equal(wrongHost.statusCode, 403);
+  assert.equal(wrongHost.headers["access-control-allow-origin"], undefined);
 });

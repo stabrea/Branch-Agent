@@ -2084,6 +2084,12 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     url,
     token,
     remote,
+    /**
+     * The same handler the paired listener is given. It is exposed so the behaviour that only
+     * happens on that door — the question a browser asks before letting a page of the owner's own
+     * send anything — can be tested without a Tailscale address and a real network.
+     */
+    remoteHandler,
     close: async () => {
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
