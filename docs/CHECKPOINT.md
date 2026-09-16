@@ -1894,3 +1894,52 @@ is the composer's live variant, and it only appears when the connection in use c
 
 Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
 tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.
+
+## The audit rows that were already done under another name
+
+### Already covered elsewhere
+
+These rows of the audit are done, by a feature that exists under another name.
+
+- **A1011 local studio / playground** — the developer playground: `GET /api/tools/forms` gives a form
+  for every tool and `POST /api/tools/try` runs one by hand, through the same approval gate, scrubbed
+  on the way out.
+- **A0279 human-in-the-loop executor** and **A0624 approval-gated side effects** — the approval gate
+  (`src/approvals.ts`): a task stops, the question is kept with what it is about, and the owner's yes
+  is remembered for this conversation or as a standing rule. Whole kinds of thing can be decided at
+  once (`POST /api/approvals/categories`), and "ask me questions first" runs before a task starts.
+- **A0323 OAuth login flows** — `src/oauth.ts` is the standard authorization-code flow with PKCE:
+  the service's own page opens in the default browser, the answer lands on a tiny page on this
+  computer, the key goes straight into the locker. Branch never sees the password.
+- **A0354 Answer Engine**, **A0355 shareable pages**, **A0840 metadata filtering**, **A1745 retriever
+  pipeline** — knowledge bases with word and meaning search, a second ranking pass
+  (`src/retrieval.ts`), numbered sources on every answer (`src/citations.ts`), and a conversation
+  shared as one page that can do nothing (`src/conversation-share.ts`).
+- **A0847 chat engines** — the runtime is the chat engine: conversations, compaction, tool rounds,
+  per-conversation model choice and working styles.
+- **A1410 structured output** — a delegated task may be required to match a JSON shape
+  (`resultSchema`), checked before the answer is accepted. Pydantic is a Python library; the same job
+  is done here by zod and JSON Schema.
+- **A1509 SDKs** — the TypeScript client is `packages/sdk`, and its types are generated from the app's
+  own checks by `scripts/generate-sdk-types.mjs`. Other languages need no library of ours: the
+  OpenAPI description above is enough to generate one.
+- **A1561 action trace recording** and **A1589 bounded visual trajectory** — a task's whole trajectory
+  is written as one JSON file (`src/trajectory.ts`), spans and all, with secrets scrubbed; pictures
+  are capped per turn and never written into the conversation store, so they are not replayed.
+- **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
+  well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
+  `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
+- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
+  carry one between installs (`src/templates.ts`).
+- **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
+  naming which programs may be left running at all.
+- **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
+  a script can read; `branch mcp-serve` and `branch acp-serve` speak over standard input and output.
+  Nothing needs a window.
+- **A2334 artifact file operations** — `src/artifacts.ts` for what a task produced and
+  `src/build-artifacts.ts` for kept versions with sizes and checksums.
+- **A2377 fallback dispatch** — a failed connection is passed over for the next one in the fallback
+  order, with a cool-off and a sentence saying why (`src/provider-retry.ts`, `src/provider-health.ts`).
+- **A1193 bidirectional live streaming** — talk mode plus the per-task WebSocket already carry speech
+  and text both ways. A provider's own realtime socket stays deferred, as recorded in wave 7.
+

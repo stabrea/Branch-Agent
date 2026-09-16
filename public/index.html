@@ -80,6 +80,7 @@
           <button id="menu-settings" type="button" role="menuitem" data-t="menu.settings">Settings and connections</button>
           <button id="menu-appearance" type="button" role="menuitem" data-t="menu.appearance">Change the appearance</button>
           <button id="lock" type="button" role="menuitem" hidden>Lock session</button>
+          <button id="menu-help" type="button" role="menuitem" data-t="menu.help">Help</button>
           <button id="menu-updates" type="button" role="menuitem" data-t="menu.updates">Check for updates</button>
           <button id="menu-about" type="button" role="menuitem" data-t="menu.about">About Branch Agent</button>
         </div>
@@ -590,7 +591,7 @@
           </div>
         </section>
         <section id="documents" class="view" hidden>
-          <p class="section-intro" data-t="documents.intro.your-own-documents-kept-on">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, web pages, notes, tables and plain text can be read. PDFs are listed but need a helper first.</p>
+          <p class="section-intro" data-t="documents.intro.your-own-documents-kept-on">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, slide decks, OpenDocument files, e-books, rich text, web pages, notes, tables, plain text and PDFs are all read here. A PDF that is pictures of text has no words to lift out, and says so.</p>
           <div class="card">
             <h2 data-t="documents.card.answering-from-your-documents">Answering from your documents</h2>
             <p>While this is on, your assistant looks through the documents below before it answers, and says which one it took each line from.</p>
@@ -1273,6 +1274,12 @@
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
     <aside class="context-panel" id="context-panel" aria-label="This conversation" data-connected="false">
+      <!-- Help in the app: one chapter of the owner's handbook (public/help.js). Hidden until asked. -->
+      <div class="context-block" id="context-help" hidden>
+        <h2 class="context-head" id="context-help-title">Help</h2>
+        <div id="context-help-body" class="markdown context-help-body"></div>
+        <button id="context-help-close" class="context-help-close" type="button" data-t="help.close">Close help</button>
+      </div>
       <div class="context-block">
         <h2 class="context-head">Model</h2>
         <div class="context-provider" id="context-provider">Connect to begin</div>
@@ -1348,6 +1355,7 @@
     <script src="/voice-live.js" type="module"></script>
     <script src="/model-profiles.js" type="module"></script>
     <script src="/app.js" type="module"></script>
+    <script src="/help.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
     <script src="/studies.js" type="module"></script>
