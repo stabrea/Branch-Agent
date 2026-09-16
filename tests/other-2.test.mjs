@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   createBranch, openApiDocument, apiMarkdown, apiRoutes,
   saveCacheSettings, requestHash,
@@ -527,6 +528,18 @@ test("the context branch watch builds is allowed to replay a saved procedure", a
   assert.equal(context.permissions.has("procedures.use"), true);
 });
 
+/** The short ("8.3") name Windows may also keep for a folder, or null where it keeps none. */
+function shortPathOf(folder) {
+  if (process.platform !== "win32") return null;
+  const script = `(Get-Item -LiteralPath '${folder.replace(/'/g, "''")}').FullName; ` +
+    `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${folder.replace(/'/g, "''")}').ShortPath`;
+  try {
+    const out = execFileSync("powershell", ["-NoProfile", "-Command", script], { encoding: "utf8" });
+    const short = out.trim().split(/\r?\n/).pop()?.trim();
+    return short && short.includes("~") ? short : null;
+  } catch { return null; }
+}
+
 test("branch watch runs the action on a change, never twice at once, and stops cleanly", async (t) => {
   const base = await mkdtemp(join(tmpdir(), "branch-watch-"));
   t.after(() => discard(base));
@@ -564,4 +577,28 @@ test("branch watch runs the action on a change, never twice at once, and stops c
   assert.equal(ignored("dist\\app.js", ["dist"]), true);
   assert.equal(ignored("src/app.ts~", ["dist"]), true);
   assert.equal(ignored("src/app.ts", ["dist", "node_modules"]), false);
+});
+
+test("branch watch survives a folder named the short Windows way", async (t) => {
+  // Windows keeps short names like RUNNER~1 for some folders, and the watcher underneath Node stops
+  // the whole program with an assertion when it is handed one. A build machine's temp folder is
+  // often named that way even though a desktop's is not, so the short name is asked for outright
+  // and the test says plainly when this disk has none rather than quietly proving nothing.
+  const base = await mkdtemp(join(tmpdir(), "branch-watch-short-"));
+  t.after(() => discard(base));
+  const folder = join(base, "a folder with spaces");
+  await mkdir(folder, { recursive: true });
+
+  const short = shortPathOf(folder);
+  if (!short) { t.skip("this disk keeps no short names, so there is nothing to watch through"); return; }
+  assert.notEqual(short.toLowerCase(), folder.toLowerCase(), "the short name is the long one again");
+
+  const reasons = [];
+  const handle = watchFolder(short, async (reason) => { reasons.push(reason); }, { settleMs: 20 });
+  t.after(() => handle.stop());
+  await writeFile(join(folder, "one.txt"), "hello");
+  for (let waited = 0; waited < 100 && handle.runs === 0; waited++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(handle.runs >= 1, "watching through the short name never noticed the change");
+  assert.match(reasons[0] ?? "", /changed/);
 });
