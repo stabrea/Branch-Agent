@@ -256,10 +256,14 @@ test("G2 a button press is refused from another chat, from a stranger, with the 
   assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "a stranger cannot answer it");
   assert.match(sent.at(-1).text, /private/i, "they are told the assistant is private");
 
-  /* A press carrying the fingerprint of some other request is refused by the binding. */
+  /* A press carrying the fingerprint of some other request is refused by the binding, and the chat
+     is told the button does not fit rather than being told a yes landed. */
+  const { staleButtonNote } = await import("../dist/channels/router.js");
   await press("501", "42", `y:${"f".repeat(32)}`, "4");
   assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "a different request's answer is refused");
   assert.equal(app.runtime.allowedNow(sessionId).length, 0);
+  await until(() => sent.at(-1)?.text === staleButtonNote, "the chat is told the button does not fit");
+  assert.doesNotMatch(staleButtonNote, /already been answered/, "it never claims an answer landed");
 
   /* The real press works once. */
   await press("501", "42", yes, "5");
@@ -269,8 +273,7 @@ test("G2 a button press is refused from another chat, from a stranger, with the 
 
   /* Pressing it again changes nothing, and is not run as if somebody had typed it. */
   await press("501", "42", yes, "6");
-  const { alreadyAnsweredNote } = await import("../dist/channels/router.js");
-  await until(() => sent.some((m) => m.text === alreadyAnsweredNote), "the second press is answered with words");
+  await until(() => sent.at(-1)?.text === staleButtonNote, "the second press is answered with words");
   assert.equal(app.runtime.allowedNow(sessionId).length, allowed, "no second yes was remembered");
   assert.equal(app.store.runs(app.runtime.owner).length, runsBefore, "and no task was started from the button");
 

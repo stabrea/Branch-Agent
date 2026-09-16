@@ -88,11 +88,16 @@ export function readApprovalAnswer(value: string): { decision: "allow" | "deny";
 export const approvalFallbackNote = "Reply y for yes, a for yes always, or n for no.";
 /**
  * A pressed button, as opposed to a typed letter: it carries the fingerprint of the exact request.
- * Pressing the same button a second time must not become a new task saying "y:8f3a…", so a payload
- * of this shape with nothing left waiting is answered with a word instead of being run.
+ * Pressing the same button again must not become a new task saying "y:8f3a…", so a payload of this
+ * shape that answered nothing is answered with words instead of being run.
+ *
+ * It covers two cases that look the same from here and must not be told apart wrongly: the question
+ * has gone, and the button belongs to a different request from the one waiting now. The words
+ * therefore promise neither — they say the button no longer fits and what to do next.
  */
 const buttonPayload = /^[yan]:[0-9a-f]{1,32}$/;
-export const alreadyAnsweredNote = "That question has already been answered.";
+export const staleButtonNote =
+  "That button does not match the question waiting here. Send me a message and I will ask again.";
 export const ChannelPolicySchema = z.object({
   activation: z.enum(["mention", "always"]).default("mention"),
   pairing: z.boolean().default(true),
@@ -310,10 +315,11 @@ export class ChannelRouter {
         `answered:${message.messageId}`, message.messageId).catch(() => undefined);
       return "replied";
     }
-    // A button pressed twice, or pressed after the question went away: say so rather than treating
-    // the button's own value as something the person typed and running it as a task.
+    // A button pressed twice, pressed after the question went away, or carrying the fingerprint of
+    // some other request: say so rather than treating the button's own value as something the
+    // person typed and running it as a task.
     if (buttonPayload.test(message.text.trim().toLowerCase())) {
-      await this.deliver(message.channel, message.chatId, alreadyAnsweredNote,
+      await this.deliver(message.channel, message.chatId, staleButtonNote,
         `stale:${message.messageId}`, message.messageId).catch(() => undefined);
       return "replied";
     }
