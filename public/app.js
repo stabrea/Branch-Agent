@@ -1689,13 +1689,8 @@ if (window.branchDesktop) {
 }
 // Voice input and output handlers
 if (typeof initVoiceRecording !== "undefined") {
-  initVoiceRecording().then((supported) => {
-    if (supported) {
-      $("voice-record").hidden = false;
-    }
-  }).catch(() => {
-    $("voice-record").hidden = true;
-  });
+  // Show the button when this browser can record; permission is asked for on the first press.
+  $("voice-record").hidden = !navigator.mediaDevices?.getUserMedia;
   $("voice-record").addEventListener("mousedown", startVoiceRecording);
   $("voice-record").addEventListener("mouseup", stopVoiceRecording);
   $("voice-record").addEventListener("touchstart", startVoiceRecording);
