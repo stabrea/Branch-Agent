@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 
 /**
@@ -165,7 +166,7 @@ export function readPolicy(store: Store, owner: string): Policy {
   return saved.success ? saved.data : PolicySchema.parse({});
 }
 /** Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value. */
-export function savePolicy(store: Store, owner: string, input: unknown): Policy {
+export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
   const value = PolicyInputSchema.parse(input ?? {});
   const current = readPolicy(store, owner);
   const next: Policy = {
@@ -174,12 +175,18 @@ export function savePolicy(store: Store, owner: string, input: unknown): Policy 
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
   };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;
 }
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
-  const next: Policy = { ...current, rules: [PolicyRuleSchema.parse(rule), ...current.rules].slice(0, 100) };
+  const added = PolicyRuleSchema.parse(rule);
+  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, 100) };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, {
+    action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
+    reason: `A standing "${added.decision}" was remembered from a question you answered`, outcome: "saved",
+  });
   return next;
 }

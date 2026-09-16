@@ -1,0 +1,123 @@
+import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import type { Store } from "./store.js";
+
+/**
+ * The record of what the assistant was allowed to do. Every moment that widens or narrows what
+ * Branch Agent may reach — a yes or no to a question, a secret being handed to a command, a change
+ * to the approval settings, a messaging account being paired, something being exported, a switch
+ * to another project — is written here once and never changed afterwards. Two database rules
+ * refuse any later edit or removal, so the list can only grow.
+ */
+export const auditActions = [
+  "approval.decided", "secret.used", "policy.changed", "channel.paired",
+  "data.exported", "profile.switched", "practice.switched",
+] as const;
+export type AuditAction = (typeof auditActions)[number];
+
+/** Where the moment came from: the owner's own app, a schedule, a trigger, or another AI tool. */
+export const auditSources = ["owner", "trigger", "schedule", "mcp", "system"] as const;
+export type AuditSource = (typeof auditSources)[number];
+
+export const AuditEntrySchema = z.object({
+  action: z.enum(auditActions),
+  /** Who did it, in plain words: the owner's name, or the part of the app that acted. */
+  actor: z.string().trim().min(1).max(120).default("owner"),
+  /** What it was about: a tool and target, a secret name, a channel, the thing exported. */
+  subject: z.string().trim().max(300).default(""),
+  /** Why, in plain language, for the person reading this later. */
+  reason: z.string().trim().max(500).default(""),
+  source: z.enum(auditSources).default("owner"),
+  runId: z.string().max(64).nullable().default(null),
+  /** How it ended: "allowed", "refused", "saved", "failed" — one short word. */
+  outcome: z.string().trim().min(1).max(60).default("done"),
+}).strict();
+export type AuditEntryInput = z.input<typeof AuditEntrySchema>;
+export interface AuditEntry {
+  id: number; owner: string; at: string; action: AuditAction; actor: string;
+  subject: string; reason: string; source: AuditSource; runId: string | null; outcome: string;
+}
+export const AuditQuerySchema = z.object({
+  action: z.enum(auditActions).optional(),
+  source: z.enum(auditSources).optional(),
+  /** ISO moments; entries outside the pair are left out. */
+  from: z.string().max(40).optional(),
+  to: z.string().max(40).optional(),
+  limit: z.number().int().min(1).max(1000).default(200),
+}).strict();
+export type AuditQuery = z.infer<typeof AuditQuerySchema>;
+
+/** Plain-language labels for the "What the assistant was allowed to do" section. */
+const actionLabels: Record<AuditAction, string> = {
+  "approval.decided": "You answered a question about something it wanted to do",
+  "secret.used": "A saved password or key was handed to a command",
+  "policy.changed": "The approval settings were changed",
+  "channel.paired": "A messaging account was connected or disconnected",
+  "data.exported": "Something was exported out of the app",
+  "profile.switched": "The active project was switched",
+  "practice.switched": "The practice workspace was switched on or off",
+};
+export const auditLabel = (action: AuditAction): string => actionLabels[action];
+
+export class AuditLog {
+  constructor(private readonly db: DatabaseSync) {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL,
+      at TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, subject TEXT NOT NULL, reason TEXT NOT NULL,
+      source TEXT NOT NULL, run_id TEXT, outcome TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS audit_owner_at ON audit(owner, at);
+      CREATE TRIGGER IF NOT EXISTS audit_is_append_only_update BEFORE UPDATE ON audit
+        BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be changed'); END;
+      CREATE TRIGGER IF NOT EXISTS audit_is_append_only_delete BEFORE DELETE ON audit
+        BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be removed'); END;`);
+  }
+  /** Writes one moment down. Nothing here may fail a task, so an unreadable entry is dropped. */
+  record(owner: string, input: AuditEntryInput): AuditEntry | null {
+    const parsed = AuditEntrySchema.safeParse(input);
+    if (!parsed.success) return null;
+    const value = parsed.data, at = new Date().toISOString();
+    const row = this.db.prepare(`INSERT INTO audit(owner,at,action,actor,subject,reason,source,run_id,outcome)
+      VALUES(?,?,?,?,?,?,?,?,?) RETURNING id`)
+      .get(owner, at, value.action, value.actor, value.subject, value.reason, value.source, value.runId, value.outcome);
+    return { id: Number(row?.id ?? 0), owner, at, ...value };
+  }
+  /** Entries newest first, narrowed by what happened, where it came from and when. */
+  list(owner: string, input: unknown = {}): AuditEntry[] {
+    const query = AuditQuerySchema.parse(input ?? {});
+    const where = ["owner=?"];
+    const values: (string | number)[] = [owner];
+    if (query.action) { where.push("action=?"); values.push(query.action); }
+    if (query.source) { where.push("source=?"); values.push(query.source); }
+    if (query.from) { where.push("at>=?"); values.push(query.from); }
+    if (query.to) { where.push("at<=?"); values.push(query.to); }
+    return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+      .all(...values, query.limit).map(toEntry);
+  }
+  /** How many of each kind there are, for the plain-language summary. */
+  counts(owner: string): { action: AuditAction; label: string; count: number }[] {
+    const rows = this.db.prepare("SELECT action, COUNT(*) AS n FROM audit WHERE owner=? GROUP BY action").all(owner);
+    const found = new Map(rows.map((row) => [String(row.action), Number(row.n)]));
+    return auditActions.map((action) => ({ action, label: auditLabel(action), count: found.get(action) ?? 0 }));
+  }
+}
+function toEntry(row: Record<string, unknown>): AuditEntry {
+  return {
+    id: Number(row.id), owner: String(row.owner), at: String(row.at), action: String(row.action) as AuditAction,
+    actor: String(row.actor), subject: String(row.subject), reason: String(row.reason),
+    source: String(row.source) as AuditSource, runId: row.run_id === null ? null : String(row.run_id),
+    outcome: String(row.outcome),
+  };
+}
+const csvCell = (value: unknown): string => `"${String(value ?? "").replace(/"/g, '""')}"`;
+/** The same entries as a spreadsheet file the owner can open anywhere. */
+export function auditCsv(entries: AuditEntry[]): string {
+  return ["at,action,what it means,who,about,why,came from,task,outcome"]
+    .concat(entries.map((entry) => [
+      entry.at, entry.action, auditLabel(entry.action), entry.actor, entry.subject,
+      entry.reason, entry.source, entry.runId ?? "", entry.outcome,
+    ].map(csvCell).join(",")))
+    .join("\n");
+}
+/** Convenience for call sites that hold a store: never throws, whatever the entry looks like. */
+export function audit(store: Store, owner: string, input: AuditEntryInput): void {
+  try { store.audit.record(owner, input); } catch { /* the record is a witness, never a gate */ }
+}

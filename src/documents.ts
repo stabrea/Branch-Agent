@@ -72,8 +72,17 @@ export function chunkText(text: string, size = chunkSize, overlap = chunkOverlap
   return chunks;
 }
 
+/** One passage on its way to a second pass that puts the best first; see src/retrieval.ts. */
+export interface RerankablePassage { key: string; source: string; text: string; score: number; from: string }
+export type PassageReranker = (owner: string, query: string, passages: RerankablePassage[], signal?: AbortSignal) => Promise<RerankablePassage[]>;
+
 export class DocumentLibrary {
   private readonly db: DatabaseSync;
+  /**
+   * Puts the passages a search found into the best order before they go in front of a task. It is
+   * set once at start-up; without it the search's own order is used, exactly as before.
+   */
+  reranker: PassageReranker | undefined;
   /** False only where this build of SQLite has no full-text search; word search then falls back. */
   readonly ranked: boolean;
   constructor(private readonly store: Store, private readonly models?: ModelRouter, private readonly files?: WorkspaceFiles) {
@@ -323,12 +332,24 @@ export class DocumentLibrary {
   /** Passages to put in front of a task, each labelled with the document it came from. */
   async contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> {
     if (!this.answersUseDocuments(owner)) return null;
-    const results = await this.search(owner, { query: prompt.slice(0, 500), limit: 3 }, signal ?? AbortSignal.timeout(20000));
+    const query = prompt.slice(0, 500);
+    const results = await this.search(owner, { query, limit: this.reranker ? 10 : 3 }, signal ?? AbortSignal.timeout(20000));
     if (!results.length) return null;
+    const chosen = await this.bestFirst(owner, query, results, signal);
     return {
-      text: results.map((row) => `From "${row.source}" (passage ${row.passage + 1}):\n${row.text}`).join("\n\n"),
-      sources: [...new Set(results.map((row) => row.source))],
+      text: chosen.map((row) => `From "${row.source}" (passage ${row.passage + 1}):\n${row.text}`).join("\n\n"),
+      sources: [...new Set(chosen.map((row) => row.source))],
     };
+  }
+  /** The second pass, when one is set: the passages it keeps, in its order, otherwise the first three. */
+  private async bestFirst(owner: string, query: string, results: DocumentPassage[], signal?: AbortSignal): Promise<DocumentPassage[]> {
+    if (!this.reranker) return results.slice(0, 3);
+    const keyed = new Map(results.map((row) => [`documents:${row.documentId}:${row.passage}`, row]));
+    const ordered = await this.reranker(owner, query,
+      [...keyed].map(([key, row]) => ({ key, source: row.source, text: row.text, score: row.score, from: "documents" })), signal)
+      .catch(() => null);
+    if (!ordered?.length) return results.slice(0, 3);
+    return ordered.flatMap((passage) => { const row = keyed.get(passage.key); return row ? [row] : []; }).slice(0, 3);
   }
 }
 interface Match { key: string; documentId: string; source: string; passage: number; text: string; highlight: string }

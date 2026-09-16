@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Event } from "./contracts.js";
 import type { Store } from "./store.js";
 import { pricingTableInUse } from "./pricing.js";
+import { auditLabel } from "./audit.js";
 
 /**
  * Branch sends nothing anywhere. When something goes wrong and the owner wants help, they save a
@@ -70,6 +71,7 @@ and nothing leaves this computer unless you send it yourself.
   versions.json which version of Branch, Node.js and Windows this is
   events.json   the last events from your tasks: what ran, how it ended, and how long it took
   pricing.json  the model prices used to estimate costs, including any you corrected yourself
+  allowed.json  what the assistant was allowed to do: approvals, secrets handed over, settings changed
 
 What is deliberately missing: your messages, the assistant's replies, the contents of any file in
 your workspace, tool results, API keys, tokens and passwords. Read the files before sharing them.
@@ -78,6 +80,20 @@ your workspace, tool results, API keys, tokens and passwords. Read the files bef
 async function writeJson(folder: string, name: string, value: unknown): Promise<string> {
   await writeFile(join(folder, name), JSON.stringify(value, null, 2), { mode: 0o600 });
   return name;
+}
+
+/**
+ * The record of what the assistant was allowed to do, the same as the Usage screen shows. Only
+ * the shape of each moment goes in — what happened, when, and why — with every free-text field
+ * put through the same scrub as everything else here.
+ */
+function allowedRecord(store: Store, owner: string): unknown {
+  const entries = store.audit.list(owner, { limit: 200 }).map((entry) => ({
+    at: entry.at, action: entry.action, means: auditLabel(entry.action), actor: scrubText(entry.actor).slice(0, 120),
+    subject: scrubText(entry.subject).slice(0, 200), reason: scrubText(entry.reason).slice(0, 300),
+    source: entry.source, outcome: entry.outcome,
+  }));
+  return { counts: store.audit.counts(owner), count: entries.length, entries };
 }
 
 /**
@@ -101,6 +117,7 @@ export async function writeDiagnosticsBundle(
     }),
     await writeJson(folder, "events.json", { count: events.length, events }),
     await writeJson(folder, "pricing.json", pricingTableInUse(store, owner)),
+    await writeJson(folder, "allowed.json", allowedRecord(store, owner)),
   ];
   await writeFile(join(folder, "README.txt"), explanation, { mode: 0o600 });
   files.push("README.txt");

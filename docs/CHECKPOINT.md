@@ -373,6 +373,45 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 19 (wave 6) — the client library, issue context, and the record of what it was allowed to do
+
+Eight smaller pieces that had no home in the other themes. **A TypeScript client**
+(`packages/sdk/`, no publish step, no dependency): one file of plain JavaScript covering runs
+(start, stream over SSE, watch over a socket, steer, cancel, resume, approve), sessions, memory,
+documents, schedules, policy and the new routes below. Its types are not written by hand —
+`scripts/generate-sdk-types.mjs` reads the app's own zod schemas out of `dist/`, turns each into
+JSON Schema and emits `packages/sdk/types.d.ts`, so what the types promise cannot drift from what
+the app accepts. `packages/sdk/test/sdk.test.mjs` proves every call against a real `startServer`.
+**Issue-tracker context** (`src/integrations/issue-context.ts`, `linear.ts`, `issue-tools.ts`):
+`issues.search/get/comment` over GitHub REST and Linear GraphQL behind one interface, each with its
+own token in the locker and scrubbed out of every reply; pasting an issue address pulls the title,
+body and comments into the task as a document-style passage with a citation and a line saying it is
+other people's words; `github.open_pull_request` gained `issue` and `changes`, which build the
+description from a template that closes the issue. **The record** (`src/audit.ts`): an append-only
+`audit` table — two SQLite triggers refuse any UPDATE or DELETE — written for approvals, secrets
+handed to a command (by name, never by value), policy changes, channel pairing, exports and project
+switches; `GET /api/audit` with filters, `/api/audit/export.csv`, `allowed.json` in the diagnostics
+folder, and a plain-language section at the foot of Usage. **Approval kinds**
+(`src/tool-categories.ts`): tools sorted into seven kinds from their permission with a small
+override map, so one choice covers a kind rather than a tool; saving expands to one rule per tool.
+**Ask me questions first** (`src/ask-first.ts`): up to five short questions with suggested answers
+before a task starts, skipped for short plain requests by the same `looksMultiPart` judgement
+auto-plan uses; the answers are written underneath the request. **The practice workspace**
+(`src/practice-workspace.ts`): a project whose folder holds four made-up files and a demo
+conversation, one click each way, with the files left behind when you leave. **Retrieval and
+reordering** (`src/retrieval.ts`): documents and saved facts behind one `Retriever` interface, with
+a second pass that is a deterministic word count by default and one model request (top 20 → top 5)
+when the owner turns it on; `DocumentLibrary.contextFor` uses it. **Provider plugins**
+(`src/provider-plugins.ts`): `plugin.provider.<id>` adapters a plugin can bring, handed the network
+check to call rather than trusted to make their own requests, and taken back out with their model
+presets when the plugin is switched off. Routes live in `src/misc-api.ts` so `src/server.ts` gained
+one dispatch line. Tests: `tests/sdk-misc.test.mjs`, `packages/sdk/test/sdk.test.mjs`. No new
+dependency. Covers A0308, A0174, A0395, A0591, A0434, A0370, A0326, A0817, A0995, A0575 and A0300.
+Deliberately left out: the provider-plugin loader is a standalone module rather than a change to
+`src/plugins.ts`, which is not on this base — `BranchPlugin` needs `providers?: BranchPluginProvider[]`
+added and `Plugins.enable`/`disable` need to call `ProviderPlugins.register`/`forget` when the two
+branches meet.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh

@@ -22,6 +22,8 @@ import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
 import { GitHubAccess, GitHubConfigSchema } from './github.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
+import { LinearAccess, LinearConfigSchema } from './linear.js';
+import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
 
 const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
 const credentialName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
@@ -103,16 +105,23 @@ export const GitConfigSchema = z.object({
   github: GitHubConfigSchema.partial().optional(),
 }).strict();
 
+/** Where the person's issues live. Each tracker is off until it is named here with a saved key. */
+export const IssuesConfigSchema = z.object({
+  github: z.boolean().default(false),
+  linear: LinearConfigSchema.partial().optional(),
+}).strict();
+
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional(),
   channels: z.array(ChannelConfigSchema).max(8).default([]), web: WebConfigSchema.optional(),
   git: GitConfigSchema.optional(),
+  issues: IssuesConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
-  const hosted: { browser?: BranchBrowser } = {};
+  const hosted: { browser?: BranchBrowser; issues?: IssueAccess } = {};
   const before = new Set(registry.names());
   const close = async () => {
     for (const name of registry.names()) if (!before.has(name)) registry.unregister(name);
@@ -150,6 +159,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       registerShell(registry, created); closers.push(() => created.close());
     }
     if (config.git) enableGit(registry, config.git, channels, policy);
+    if (config.issues) hosted.issues = enableIssues(registry, config.issues, config.git, channels, policy);
     const hookShell = shell;
     if (config.hooks.length) {
       if (!hookShell || !channels?.hooks || !channels.context) throw new Error('Hooks need the shell integration (their executables come from it) and a launch that can host them');
@@ -231,6 +241,35 @@ function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchem
     if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
     return value;
   }));
+}
+
+/**
+ * Turns on the issue tools. Each tracker needs its own saved key, taken out of the active
+ * project's secrets the moment a request is made and never held anywhere else.
+ */
+function enableIssues(
+  registry: ToolRegistry, config: z.infer<typeof IssuesConfigSchema>,
+  git: z.infer<typeof GitConfigSchema> | undefined, host: ChannelHost | undefined, policy: NetworkPolicy | undefined,
+): IssueAccess {
+  if (!policy || !host?.activeSecret) throw new Error('The issue tools need the network settings and the secrets locker');
+  const secret = host.activeSecret;
+  const held = (name: string, tracker: string, what: string) => async () => {
+    const value = await secret(name).catch(() => '');
+    if (!value) throw new Error(`Connect ${tracker} first: save a secret called ${name} in the active project holding ${what}.`);
+    return value;
+  };
+  const trackers: IssueTrackers = {};
+  if (config.github) {
+    const settings = GitHubConfigSchema.parse(git?.github ?? {});
+    trackers.github = new GitHubAccess(settings, policy, held(settings.tokenSecret, 'GitHub', 'a GitHub personal access token'));
+  }
+  if (config.linear) {
+    const settings = LinearConfigSchema.parse(config.linear);
+    trackers.linear = new LinearAccess(settings, policy, held(settings.tokenSecret, 'Linear', 'a Linear API key'));
+  }
+  const access = new IssueAccess(trackers);
+  if (access.available().length) registerIssues(registry, access);
+  return access;
 }
 
 /** Hooks run through the shell integration's declared executables; a busy shell is retried briefly, then counts as a failure. */

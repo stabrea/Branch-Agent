@@ -45,6 +45,7 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyRemember, type RunSource,
 } from "./policy.js";
+import { audit } from "./audit.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -1122,6 +1123,11 @@ export class Runtime {
     this.approvals.resolve(sessionId);
     if (remember !== "never") this.approvals.remember(sessionId, waiting.tool, waiting.target, decision);
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
+    audit(this.store, this.owner, {
+      action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
+      reason: waiting.label || waiting.question, source: waiting.source, runId: waiting.runId,
+      outcome: decision === "allow" ? "allowed" : "refused",
+    });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember };
   }
   /** Lists everything a practice run would have done, once it has finished. */

@@ -12,6 +12,7 @@ import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Receipts } from "./receipts.js";
+import { AuditLog } from "./audit.js";
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup } from "./backup.js";
@@ -43,6 +44,7 @@ export class Store {
   readonly projects: Projects;
   private lockerStore: Locker | undefined;
   private receiptsStore: Receipts | undefined;
+  private auditStore: AuditLog | undefined;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -201,6 +203,10 @@ export class Store {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
     return this.lockerStore;
   }
+  /** The append-only record of what the assistant was allowed to do. */
+  get audit(): AuditLog {
+    return (this.auditStore ??= new AuditLog(this.db));
+  }
   sessionTemporary(sessionId: string): boolean {
     return Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(sessionId)?.temporary ?? 0) === 1;
   }
@@ -231,6 +237,12 @@ export class Store {
   private discardTemporarySessions(): void {
     for (const row of this.db.prepare("SELECT id FROM sessions WHERE temporary=1").all())
       this.purgeSession(String(row.id));
+  }
+  /** An empty conversation with no task in it, for history the app writes itself. */
+  createSession(owner: string): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO sessions(id,owner,created_at,temporary) VALUES(?,?,?,0)").run(id, owner, new Date().toISOString());
+    return id;
   }
   ownsSession(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);

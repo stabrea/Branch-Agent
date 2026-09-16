@@ -45,6 +45,11 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { audit } from "./audit.js";
+import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
+import { PracticeWorkspace } from "./practice-workspace.js";
+import { ProviderPlugins } from "./provider-plugins.js";
+import type { IssueAccess } from "./integrations/issue-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -167,6 +172,15 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  // Documents and saved facts are both asked the same way, and the best answer is put first.
+  const retrieval = new Retrieval(store, runtime.owner, runtime.models);
+  retrieval.add(new DocumentRetriever(documents));
+  retrieval.add(new MemoryRetriever(memory.retrieval));
+  documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // A safe folder of made-up files to try things in before pointing the app at real work.
+  const practice = new PracticeWorkspace(store, files);
+  // Model connections a plugin brought; nothing is registered until a plugin is switched on.
+  const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -177,6 +191,17 @@ export async function createBranch(options: {
     documents,
     /** Finding, tidying and moving saved facts. */
     memory,
+    /** Documents and saved facts behind one interface, with the best answer put first. */
+    retrieval,
+    /** The practice workspace: made-up files to try tools on safely. */
+    practice,
+    /** Model connections plugins have brought. */
+    providerPlugins,
+    /**
+     * Searching, reading and commenting on issues, once the launcher has loaded the integration
+     * settings. It stays null while no tracker is set up.
+     */
+    issues: null as null | IssueAccess,
     git,
     scheduler,
     chatgpt,
@@ -191,8 +216,15 @@ export async function createBranch(options: {
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
-    secretsFor: (context: ToolContext, names: string[]) =>
-      store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
+    secretsFor: async (context: ToolContext, names: string[]) => {
+      const project = store.projects.active(context.owner).id;
+      const values = await store.locker.resolve(context.owner, project, names);
+      // The names only; a value never leaves the locker, and never reaches this record.
+      for (const name of Object.keys(values))
+        audit(store, context.owner, { action: "secret.used", actor: "a command you allowed", subject: `${name} (project ${project})`,
+          reason: "A command this assistant ran needed it", source: context.source ?? "owner", runId: context.runId, outcome: "handed over" });
+      return values;
+    },
     channels,
     web,
     hooks,
@@ -206,8 +238,13 @@ export async function createBranch(options: {
       router: channels,
       git,
       /** A secret from whichever project is active right now, for GitHub's personal access token. */
-      activeSecret: async (name: string) =>
-        (await store.locker.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name]))[name]!,
+      activeSecret: async (name: string) => {
+        const project = store.projects.active(runtime.owner).id;
+        const value = (await store.locker.resolve(runtime.owner, project, [name]))[name]!;
+        audit(store, runtime.owner, { action: "secret.used", actor: "a connection you set up", subject: `${name} (project ${project})`,
+          reason: "A service this assistant talked to needed it", outcome: "handed over" });
+        return value;
+      },
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
       hooks,
@@ -306,3 +343,13 @@ export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+export * from "./audit.js";
+export * from "./tool-categories.js";
+export * from "./ask-first.js";
+export * from "./practice-workspace.js";
+export * from "./retrieval.js";
+export * from "./provider-plugins.js";
+export * from "./misc-api.js";
+export * from "./integrations/linear.js";
+export * from "./integrations/issue-context.js";
+export * from "./integrations/issue-tools.js";
