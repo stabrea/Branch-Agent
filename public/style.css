@@ -367,6 +367,11 @@ code {
   font-family: "Geist Mono", Consolas, monospace;
   font-size: 12px;
 }
+/* A long example written inline (a web address, a line of settings) breaks rather than
+   running off the side of a narrow window, where the end of it would be cut away. */
+code {
+  overflow-wrap: anywhere;
+}
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

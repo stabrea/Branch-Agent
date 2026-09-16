@@ -56,6 +56,9 @@ shape once and never has to learn it again.
 | A plain note | Anything worth saying about consequences | `<p class="subtle">` |
 | One filled button | The single thing this card is for | `<button>`; anything else on the card is `.quiet-button` or `.text-button` |
 
+The last row is the rule to write new cards by; it is not yet true of every card that shipped.
+Nothing checks it, so a few older cards still carry two filled buttons. Fix them as you touch them.
+
 Two rules matter more than the rest because they were the two faults this pass was written to fix:
 
 - **A tick box sits beside its words.** `label:has(> input[type="checkbox"])` is a flex row in the
@@ -97,11 +100,13 @@ Electron. Two scripts do it, both against a scratch workspace that is thrown awa
   prose set in the label face, a control nothing can read out, a stretched tick box, a card with
   no title, a section with no opening line, anything wider than the window. Run this first; it is
   cheaper and more honest than reading the source.
-- `node tests/wave8-screenshots.mjs before` and `… after` take the same 60 pictures — ten sections
-  plus the lock screen, the welcome card, the palette, the workspace menu, the context pane, an
-  answered conversation and the receipt sheet — in Forest and Daylight at 1280×800 and 400×800,
-  into `claude-session-files/wave8-design-qa/<stage>/`. The names match between the two runs so
-  `contact-sheet.html` in that folder can put each pair side by side.
+- `node tests/wave8-screenshots.mjs before` and `… after` take the same 70 pictures of eighteen
+  screens — ten sections plus the lock screen, the welcome card before and after a choice is made,
+  the palette, the workspace menu, the context pane, an answered conversation and the receipt
+  sheet — in Forest and Daylight at 1280×800 and 400×800, into
+  `claude-session-files/wave8-design-qa/<stage>/`. (The context pane is a wide-window thing, so it
+  is taken at 1280 only, which is why the count is 70 and not 72.) The names match between the two
+  runs so `contact-sheet.html` in that folder can put each pair side by side.
 
 ## Tokens
 

@@ -416,8 +416,11 @@ test("Q3 at 400 px nothing on any screen is wider than the window", async (t) =>
   for (const [, view] of SCREENS) {
     await openScreen(f.page, view);
     const tooWide = await f.page.evaluate((id) => {
+      /* Only a scroller INSIDE the reading column excuses a wide box. The column itself
+         (#workspace) scrolls up and down, which makes the browser report its sideways
+         overflow as "auto" too; walking past it would excuse every element on the page. */
       const scrolls = (node) => {
-        for (let p = node; p; p = p.parentElement) {
+        for (let p = node; p && p.id !== "workspace"; p = p.parentElement) {
           const x = getComputedStyle(p).overflowX;
           if (x === "auto" || x === "scroll") return true;
         }
@@ -436,6 +439,12 @@ test("Q3 at 400 px nothing on any screen is wider than the window", async (t) =>
     assert.deepEqual(tooWide, [], `${view} has something wider than a 400 px window`);
     const sideways = await f.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(sideways <= 1, `${view} makes the page scroll sideways by ${sideways}px`);
+    /* The reading column must not gain a sideways bar of its own either. */
+    const inColumn = await f.page.evaluate(() => {
+      const column = document.getElementById("workspace");
+      return column.scrollWidth - column.clientWidth;
+    });
+    assert.ok(inColumn <= 1, `${view} makes the reading column scroll sideways by ${inColumn}px`);
   }
   assert.deepEqual(f.errors, []);
 });
