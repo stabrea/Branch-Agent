@@ -991,8 +991,13 @@
               <div id="mcp-preflight" class="card-list"></div>
             </details>
             <h3>Other people's servers</h3>
-            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
             <div class="field-row">
+              <label for="mcp-connect-when">Start these servers</label>
+              <select id="mcp-connect-when">
+                <option value="startup">When Branch starts</option>
+                <option value="on-demand">Only when a task needs one</option>
+              </select>
               <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
               <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
               <label for="mcp-max-servers">Most servers connected at once</label>

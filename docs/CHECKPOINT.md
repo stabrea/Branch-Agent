@@ -1452,3 +1452,48 @@ computer has seen that kind of job it loads every tool up front and spends no ro
 those jobs spend one to two rounds finding tools, and never a wasted one). `ToolCatalog` in
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
+
+## Batch 26 (wave 7) — the hardening pass: closing the gaps the integrators handed back
+Twelve specific things the reviewers wrote down as "not fixed". Every one is now fixed and pinned
+by a test in `tests/hardening.test.mjs` (17 tests: fakes, plus the real stdio MCP fixture).
+
+**Lazy MCP connections are real.** `mcp.connect` (`"startup"` | `"on-demand"`, default `"startup"`,
+so nothing about an existing install moves) decides when a configured server is started. `openMcp`
+in `src/integrations/mcp.ts` is the connect-without-registering half that `connectMcp` is now built
+on; `registerCachedMcp` puts a server's tools in the list from what it said the last time it was
+connected — kept per server as `mcp-tools:<id>`, rewritten on every connect — and opens the
+connection, through `McpConnections.acquire`, the first time one of them is actually called, so
+keep-warm, the concurrency cap and the retries all apply to it. A server nobody has ever connected
+has no list to show, so it is connected once and never again at startup. `health()` lists a server
+it knows how to open but has not opened as `idle`, "Set up, not connected yet." The seam is
+`ChannelHost.mcp`, so `cli.ts` and `desktop/main.ts` are untouched. The paragraph in
+docs/configuration.md and the Connections card that said none of this was wired up now say what is
+true. **MCP `ask` is an answerable pause.** A call from outside that the settings want a question
+about becomes a real pending approval — same bytes, same fingerprint, keyed to the client's own
+connection — and the JSON-RPC call is held open for `mcp.askWaitSeconds` (default 120) while the
+owner answers in the app. On the timeout the question is left waiting and the client is told to ask
+again; the answer is bound to those bytes, so the retry finds it and a different request does not.
+**MCP apps got a surface**: a tool from outside answering with an HTML resource is kept as an
+`mcp.app` event and offered in the context pane as "Open in Branch", opening the sandboxed,
+one-time-address frame that was already built for it. **Idle MCP sessions** are dropped after
+`mcp.idleMinutes` (default 30) as well as at the hundred-session cap; one with a stream open is
+never dropped for being quiet, because the stream is Branch talking, not the client going away.
+
+**The rest.** `process.list`, `process.read` and `process.stop` are scoped to the conversation that
+started the program; the owner still sees every one of them in Activity. Forcing a skill revision
+past its trial needs the owner's own profile, a second button, and the exact sentence with the
+request, and is audited as `skill.forced`. Telegram gets `fetch: guardedFetch` like Discord and
+WhatsApp, so replies and voice-note downloads both go through the network policy.
+`provider-probe.ts` and `media-images.ts` read Gemini's `bearer` flag, and the picture route stopped
+putting the credential in the address; `tests/media.test.mjs` asserts the header instead. Tool
+search got its embeddings half: with a connected model that can compare writing and the owner's
+"Also find tools by meaning" ticked (off by default, one plain sentence saying what is sent),
+descriptions are read once — cached by sha-256 of description and model, in the same store as every
+other read passage — and fused with BM25 by reciprocal rank, so "make a graphic" finds `data.chart`;
+`ToolLoader.search` is async now. `unhandledRejection` is recorded as a span and then thrown on, so
+Node ends exactly as it would have with nobody listening, and the desktop shell's own crashes reach
+the same tracer through Electron's IPC. `flows.list` no longer names its own toolbox, so the
+`"flows."` prefix in `src/catalog.ts` is really used. And facts saved during a household profile's
+task land in that profile's scope, which is also what stops a profile's task reading the owner's —
+not through `memory.search`, and not through the snapshot a task opens with. Models, settings and
+the secrets locker still belong to the owner; only what is remembered moves.

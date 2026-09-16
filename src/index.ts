@@ -26,7 +26,8 @@ import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
-import { McpConnections } from "./mcp-lifecycle.js";
+import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
+import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
 import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
@@ -536,6 +537,18 @@ export async function createBranch(options: {
       artifacts,
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
+      // Whether another person's server is started as Branch starts or only when a task really
+      // needs it, and what it last said its tools are, so they can be listed either way.
+      mcp: {
+        connectWhen: () => readLifecycleSettings(store, store.profiles.scope()).connect,
+        cache: {
+          read: (id: string) =>
+            ((store.get("settings", runtime.owner, `mcp-tools:${id}`)?.data as { tools?: CachedMcpTool[] } | undefined)?.tools) ?? [],
+          write: (id: string, tools: CachedMcpTool[]) =>
+            void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
+        },
+        connections: mcpConnections,
+      },
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,

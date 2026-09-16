@@ -2,7 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
-import { connectMcp } from './mcp.js';
+import { connectMcp, openMcp, registerCachedMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import type { RunArtifacts } from '../artifacts.js';
@@ -97,7 +97,9 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   /** Where screenshots and saved pages are kept, beside the private database. */
   artifacts?: RunArtifacts;
   /** Saved browser sign-ins, encrypted with the device's locker key. */
-  browserProfiles?: BrowserProfiles }
+  browserProfiles?: BrowserProfiles;
+  /** When outside servers are started, and where their last tool list is kept. */
+  mcp?: McpHost }
 
 /** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
 export const GitConfigSchema = z.object({
@@ -139,8 +141,8 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     throw new Error('MCP server IDs must be unique');
   try {
     for (const server of config.mcp) {
-      const connection = await connectMcp(registry, server, env, policy);
-      closers.push(connection.close);
+      const stop = await startMcp(registry, server, env, policy, channels?.mcp);
+      if (stop) closers.push(stop);
     }
     if (config.browser) {
       const browser = new BranchBrowser(config.browser);
@@ -176,6 +178,53 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     return { close, count: closers.length, hosted };
   } catch (error) { await close().catch(() => undefined); throw error; }
 }
+
+/**
+ * Starting one outside MCP server, the way the owner's "when to connect" setting says.
+ *
+ * **startup** (what has always happened, and still the default) opens it now and puts its tools in
+ * the list. **on-demand** puts its tools in the list from what that server said the last time it
+ * was connected and opens nothing; the connection is made the first time a task really calls one
+ * of them, through the same manager that keeps it warm, caps how many are open and retries a
+ * server that will not answer. Either way the tools are there to be found from the first moment,
+ * which is the point: a tool that is not in the list might as well not exist.
+ *
+ * A server on demand that has never been connected has no list to show, so it is connected now —
+ * once — rather than being silently missing.
+ */
+async function startMcp(
+  registry: ToolRegistry, server: unknown, env: NodeJS.ProcessEnv,
+  policy: NetworkPolicy | undefined, host: McpHost | undefined,
+): Promise<(() => Promise<void>) | null> {
+  const guard = policy ? { guard: (base: typeof fetch) => policy.guard(base) } : undefined;
+  const connect = () => connectMcp(registry, server, env, guard, host?.cache);
+  if (!host || host.connectWhen() !== 'on-demand') {
+    const connection = await connect();
+    return connection.close;
+  }
+  const id = McpConfigSchema.parse(server).id;
+  // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
+  // `connectMcp`: the same connection, without a second registration to collide with the first.
+  host.connections.register(id, () => openMcp(server, env, guard, host.cache));
+  const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
+    // Opened through the manager, so keep-warm, the cap and the retries all apply to it.
+    const opened = await host.connections.acquire(`mcp:${id}`, id) as unknown as { call: McpCallThrough };
+    return { call: opened.call };
+  });
+  if (!names.length) {
+    const connection = await connect();
+    return connection.close;
+  }
+  return async () => { for (const name of names) registry.unregister(name); };
+}
+/** What `loadIntegrations` needs to run outside servers on demand rather than at startup. */
+export interface McpHost {
+  connectWhen(): 'startup' | 'on-demand';
+  cache: McpToolCache;
+  connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
+    acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
+}
+type McpCallThrough = (tool: string, args: Record<string, unknown>, context: ToolContext) => Promise<unknown>;
 
 type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
 

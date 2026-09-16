@@ -6,14 +6,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { startServer } from "../dist/server.js";
-import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy, ToolLoader } from "../dist/index.js";
+import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy, ToolLoader, readLifecycleSettings, saveLifecycleSettings } from "../dist/index.js";
+import { loadIntegrations } from "../dist/integrations/bootstrap.js";
+import { mcpToolName } from "../dist/integrations/mcp.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -437,4 +439,62 @@ test("3 — a page an outside server sent is offered by name, and opens at a one
   const again = await fetch(server.url + opened.body.url, { headers: { origin: server.url } });
   assert.equal(again.status, 404, "and the address is good for one fetch only");
   void headers;
+});
+
+/** The real stdio fixture server, as a connections file Branch would be started with. */
+async function mcpConfigFile(root) {
+  const path = join(root, "integrations.json");
+  await writeFile(path, JSON.stringify({ mcp: [{ id: "fixture", transport: "stdio",
+    command: process.execPath, args: [resolve("tests/fixtures/mcp-server.mjs")],
+    tools: ["echo"], expectedVersion: "1.0.0" }] }));
+  return path;
+}
+
+test("1 — on demand, a server's tools are in the list before anything is started", async (t) => {
+  const { app, root } = await fixture(t);
+  const path = await mcpConfigFile(root);
+  const scope = app.store.profiles.scope();
+  const name = mcpToolName("fixture", "echo");
+
+  // Still "startup" unless the owner changes it: nothing about an existing install moves.
+  assert.equal(readLifecycleSettings(app.store, scope).connect, "startup");
+  const eager = await loadIntegrations(app.registry, path, {}, app.secretsFor, app.channelHost);
+  assert.ok(app.registry.names().includes(name), "connecting at startup works exactly as before");
+  // Connecting wrote down what that server said its tools are.
+  const remembered = app.store.get("settings", app.runtime.owner, "mcp-tools:fixture").data;
+  assert.deepEqual(remembered.tools.map((tool) => tool.name), ["echo"]);
+  await eager.close();
+
+  // Now on demand, with that list already written down.
+  saveLifecycleSettings(app.store, scope, { connect: "on-demand" });
+  const lazy = await loadIntegrations(app.registry, path, {}, app.secretsFor, app.channelHost);
+  t.after(() => lazy.close().catch(() => undefined));
+  assert.ok(app.registry.names().includes(name), "the tool is in the list");
+  const listed = app.registry.descriptions(new Set([name]));
+  assert.deepEqual(listed[0].parameters.required, ["text"], "with the inputs it had last time");
+  assert.equal(app.mcpConnections.openCount(), 0, "and nothing has been started");
+
+  const health = app.mcpConnections.health().find((entry) => entry.id === "fixture");
+  assert.equal(health.state, "idle");
+  assert.match(health.summary, /not connected yet/);
+
+  // Calling it is what starts it.
+  const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "say hello").id });
+  const answer = await app.registry.execute(name, { text: "hello" }, { ...context, permissions: new Set([name]) });
+  assert.equal(JSON.parse(answer.content[0].text).text, "hello");
+  assert.equal(app.mcpConnections.openCount(), 1, "now it is connected");
+  assert.equal(app.mcpConnections.health().find((entry) => entry.id === "fixture").state, "ready");
+});
+
+test("1 — on demand, a server nobody has ever connected is connected once rather than left out", async (t) => {
+  const { app, root } = await fixture(t);
+  const path = await mcpConfigFile(root);
+  saveLifecycleSettings(app.store, app.store.profiles.scope(), { connect: "on-demand" });
+
+  const loaded = await loadIntegrations(app.registry, path, {}, app.secretsFor, app.channelHost);
+  t.after(() => loaded.close().catch(() => undefined));
+  const name = mcpToolName("fixture", "echo");
+  assert.ok(app.registry.names().includes(name), "its tools are there, because they had to be asked for");
+  assert.deepEqual(app.store.get("settings", app.runtime.owner, "mcp-tools:fixture").data.tools.map((t2) => t2.name),
+    ["echo"], "and now they are written down, so next time nothing need be started");
 });
