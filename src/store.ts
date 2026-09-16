@@ -9,6 +9,7 @@ import { MemoryFacts } from "./memory.js";
 import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
+import { Receipts } from "./receipts.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries";
@@ -28,6 +29,7 @@ export class Store {
   readonly skills: InstalledSkills;
   readonly projects: Projects;
   private lockerStore: Locker | undefined;
+  private receiptsStore: Receipts | undefined;
   private closed = false;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -145,7 +147,13 @@ export class Store {
   }
   /** Opens the secrets locker with a key source; values stay encrypted in the database. */
   openLocker(keys: LockerKeySource): Locker {
+    this.receiptsStore ??= new Receipts(keys);
     return (this.lockerStore ??= new Locker(this.db, keys));
+  }
+  /** Signs and verifies tool-success receipts with a key derived from the locker key. */
+  get receipts(): Receipts {
+    if (!this.receiptsStore) throw new Error("Receipts need the secrets locker to be open");
+    return this.receiptsStore;
   }
   get locker(): Locker {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");

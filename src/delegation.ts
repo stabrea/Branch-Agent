@@ -54,6 +54,8 @@ export const FanoutTaskSchema = z.object({
   prompt: z.string().min(1).max(8000),
   dependsOn: z.array(z.string()).max(8).default([]),
   resultSchema: ResultSchemaSchema.optional(),
+  /** Exit criteria for this task (same shape as a run's checks). */
+  checks: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 export type FanoutTask = z.infer<typeof FanoutTaskSchema>;
 

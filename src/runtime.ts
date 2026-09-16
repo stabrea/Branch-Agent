@@ -24,8 +24,9 @@ import { assistantIdentity, identityInstructions } from "./identity.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
+import { describeToolCall } from "./activity.js";
 import {
-  CheckError, StallError, ReliabilityOptionsSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
@@ -37,7 +38,7 @@ import {
 } from "./provider-retry.js";
 
 const childConcurrency = 4;
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown> }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const compactionThreshold = 11000;
 const compactionKeep = 6;
@@ -250,7 +251,7 @@ export class Runtime {
       depth: parent.depth + 1,
     };
     try {
-      return await this.track(() => this.execute({ prompt, signal: context.signal }, context, instructions));
+      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
     } finally {
       clearTimeout(timer);
       const left = (this.children.get(parent.runId) ?? 1) - 1;
@@ -260,8 +261,9 @@ export class Runtime {
   /** A delegated run plus the check of its answer against the schema the parent asked for. */
   async delegateChecked(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}) {
     const run = await this.delegate(prompt, parent, permissions, instructions, options);
+    const evidence = run.status === "failed" && run.output.startsWith("The answer did not pass its check") ? `: ${run.output}` : "";
     const result: ResultCheck = run.status !== "completed"
-      ? { status: "unresolved", reason: `The child ended with status ${run.status}` }
+      ? { status: "unresolved", reason: `The child ended with status ${run.status}${evidence}` }
       : checkResult(run.output, options.resultSchema);
     if (result.status === "unresolved" && parent.runId)
       this.store.event(parent.runId, "delegation.unresolved", { childRunId: run.id, reason: result.reason });
@@ -279,8 +281,10 @@ export class Runtime {
         const task = byId.get(id)!, spec = resolve(id);
         const context = task.dependsOn.length
           ? `\n\nResults from earlier tasks:\n${task.dependsOn.map((d) => `[${d}] ${outcomes[d]?.output ?? ""}`).join("\n")}` : "";
-        const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions,
-          task.resultSchema ? { resultSchema: task.resultSchema } : {});
+        const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions, {
+          ...(task.resultSchema ? { resultSchema: task.resultSchema } : {}),
+          ...(task.checks ? { checks: CompletionCheckSchema.parse(task.checks) } : {}),
+        });
         outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
       }));
     }
@@ -653,18 +657,16 @@ export class Runtime {
     call: ToolCall,
     context: ToolContext,
   ): Promise<unknown> {
-    this.store.event(context.runId, "tool.started", { name: call.name, id: call.id });
+    let args: unknown, validArgs = true;
+    try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
+    this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {
-      let args: unknown;
-      try {
-        args = JSON.parse(call.arguments);
-      } catch {
-        throw new Error("Invalid JSON tool arguments");
-      }
+      if (!validArgs) throw new Error("Invalid JSON tool arguments");
       const result = await this.registry.execute(call.name, args, scoped);
-      this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result });
+      const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
+      this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       return { ok: true, result };
     } catch (e) {
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) throw e;

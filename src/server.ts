@@ -11,6 +11,9 @@ import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
+import { liveActivity } from "./activity.js";
+import { classifyToolEvent } from "./receipts.js";
+import { SkillScanPolicySchema } from "./skill-scan.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -201,6 +204,7 @@ function state(app: Branch): unknown {
     memory: app.store.list("memory", owner),
     memoryCapacity: app.store.memoryCapacity(owner),
     skills: app.store.skills.list(owner),
+    skillPolicy: app.store.skills.policy(owner),
     specialists: app.store.list("specialists", owner),
     procedures: app.store.list("procedures", owner),
     schedules: app.store.list("schedules", owner),
@@ -237,7 +241,7 @@ async function api(
     app.store.save("settings", app.runtime.owner, "preferences", value);
     return value;
   }
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.runtime.owner)
@@ -246,6 +250,7 @@ async function api(
       return { cancelled: app.runtime.cancel(run.id) };
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
+    if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
     if (request.method === "GET" && !match[2])
       return {
         run,
@@ -253,6 +258,11 @@ async function api(
         messages: app.store.messages(run.sessionId),
         usage: app.store.usage(run.id),
       };
+  }
+  if (request.method === "GET" && path === "/api/activity") return liveActivity(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/receipts/verify") {
+    const body = z.object({ runId: z.string().min(1).max(64), data: z.record(z.string(), z.unknown()) }).strict().parse(await readBody(request));
+    return app.store.receipts.verify(body.runId, body.data);
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
@@ -421,8 +431,28 @@ async function chatgptApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
+async function receiptsView(app: Branch, runId: string) {
+  const events = app.store.events(runId).filter((e) => e.kind.startsWith("tool."));
+  const items = [];
+  for (const event of events) {
+    const outcome = await classifyToolEvent(app.store.receipts, runId, event.kind, event.data);
+    if (outcome) items.push({ eventId: event.id, kind: event.kind, name: event.data.name ?? null, id: event.data.id ?? null, outcome, at: event.createdAt });
+  }
+  const counts: Record<string, number> = {};
+  for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1;
+  return { runId, counts, items };
+}
 async function skillsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner, skills = app.store.skills;
+  if (path === "/api/skills/policy") {
+    if (request.method === "GET") return { policy: skills.policy(owner) };
+    if (request.method === "POST") {
+      const value = SkillScanPolicySchema.parse(await readBody(request));
+      app.store.save("settings", owner, "skill-scan", value);
+      return value;
+    }
+  }
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
   const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read))?$/.exec(path);

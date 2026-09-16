@@ -753,8 +753,9 @@ form("models-form", async () => {
   await refresh();
 });
 function renderSkills() {
+  if (document.activeElement !== $("skill-policy")) $("skill-policy").value = state.skillPolicy || "block";
   list("skills-list", state.skills || [], value => {
-    const node = recordCard(value.name, value.activeVersion === null ? "disabled" : "enabled");
+    const node = recordCard(value.name, value.needsReview ? "needs your review" : value.activeVersion === null ? "disabled" : "enabled");
     node.dataset.skillId = value.id;
     node.append(el("p", value.description), el("p", `Latest v${value.headVersion} · ${value.activeVersion === null ? "No active version" : `Active v${value.activeVersion}: ${value.activeName}`}`, "meta"));
     const open = button("Open skill", () => skillOperation(async () => {
@@ -773,7 +774,25 @@ function selectSkill(value) {
     const option = el("option", `v${item.version}: ${item.name}`); option.value = item.version; return option;
   }));
   if (value) $("skill-version").value = value.activeVersion ?? value.headVersion;
+  renderSkillFindings();
 }
+function renderSkillFindings() {
+  const version = skillView?.versions?.find((item) => String(item.version) === String($("skill-version").value));
+  const findings = version?.findings || [];
+  list("skill-findings", findings, (finding) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", `Line ${finding.line}: ${finding.reason}`), el("p", finding.excerpt, "meta"));
+    return node;
+  }, "");
+  $("skill-findings").hidden = !findings.length;
+  $("skill-acknowledge-row").hidden = !findings.length;
+  $("skill-acknowledge").checked = false;
+}
+$("skill-version").addEventListener("change", renderSkillFindings);
+$("skill-policy").addEventListener("change", async () => {
+  try { await api("skills/policy", { policy: $("skill-policy").value }); toast($("skill-policy").value === "block" ? "Risky skills are blocked." : "Risky skills wait for your review."); }
+  catch (e) { toast(e.message); }
+});
 async function skillOperation(work) {
   if (skillBusy) return;
   skillBusy = true; setSkillControls(true); $("skill-status").textContent = "Working…";
@@ -817,7 +836,7 @@ $("skill-read").onclick = () => { void skillOperation(async () => {
   if (skillView) $("skill-document").value = (await api(`skills/${skillView.id}/read`, { version: Number($("skill-version").value) })).document;
 }); };
 for (const operation of ["activate", "disable", "remove"]) $("skill-" + operation).onclick = () => {
-  void skillOperation(() => mutateSkill(operation, operation === "activate" ? { version: Number($("skill-version").value) } : {}));
+  void skillOperation(() => mutateSkill(operation, operation === "activate" ? { version: Number($("skill-version").value), acknowledge: $("skill-acknowledge").checked } : {}));
 };
 selectSkill(null);
 function renderIdentity() {
@@ -1084,6 +1103,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   if (!sessionId) $("conversation").replaceChildren();
   message("user", prompt);
   $("prompt").value = "";
+  const stopActivity = watchActivity(prompt);
   try {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     const run = await api("run", {
@@ -1103,9 +1123,31 @@ $("chat-form").addEventListener("submit", async (event) => {
   } catch (e) {
     message("assistant", e.message);
   } finally {
+    stopActivity();
     setConversationBusy(false);
   }
 });
+/** While a task runs, shows what the assistant is doing right now and how earlier steps ended. */
+function watchActivity(prompt) {
+  const box = $("activity");
+  const marks = { done: "✓", failed: "✗", stopped: "⏱", working: "…" };
+  const render = (item) => {
+    box.replaceChildren(el("strong", item.current || "Finishing up"));
+    const steps = item.steps.slice(-6);
+    if (steps.length) box.append(el("p", steps.map((s) => `${marks[s.status] || ""} ${s.label}`).join("  ·  "), "meta"));
+    box.hidden = false;
+  };
+  const poll = async () => {
+    try {
+      const running = await api("activity");
+      const mine = running.find((r) => (sessionId ? r.sessionId === sessionId : r.prompt === prompt));
+      if (mine) render(mine); else if (!box.hidden) box.replaceChildren(el("strong", "Finishing up"));
+    } catch { /* the reply itself will report problems */ }
+  };
+  box.replaceChildren(el("strong", "Thinking")); box.hidden = false;
+  const timer = setInterval(poll, 1000);
+  return () => { clearInterval(timer); box.hidden = true; box.replaceChildren(); };
+}
 $("new-session").addEventListener("click", async () => {
   if (conversationBusy) return;
   if (currentTemporary && sessionId) {

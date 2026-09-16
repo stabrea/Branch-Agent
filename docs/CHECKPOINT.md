@@ -47,6 +47,14 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 11 (local, unreleased): skill scanning, receipts, content guard, delegated exit criteria, live activity
+
+`src/skill-scan.ts` + policy in `InstalledSkills` (scan column on skill_versions, acknowledge on activate),
+`src/receipts.ts` (HMAC receipts on tool.completed, verify/classify; `/api/runs/:id/receipts`,
+`/api/receipts/verify`), `src/content-guard.ts` wired into web.fetch/web.search with the `injection`
+policy and `content.flagged` events, `checks` on delegate/fan-out, `src/activity.ts` + `/api/activity`
++ the activity panel above the conversation. Receipts need the locker open (createBranch always opens it).
+
 ## Batch 10 (local, unreleased): completion checks, stalls, overflow, continue, delivery ledger
 
 `src/reliability.ts` (CompletionCheckSchema/evaluateChecks, StallError/withStallWatchdog,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T00:15:12.771645+00:00",
+  "assessment_date": "2026-09-16T00:25:38.508373+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -2420,34 +2420,42 @@
       "family": "security",
       "name": "Untrusted-output wrapping and detection",
       "acceptance_criterion": "Wrap untrusted tool output with provenance and apply configured detection policy to an injection fixture.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/integrations/browser.ts"
+          "src/content-guard.ts",
+          "src/integrations/web.ts",
+          "src/index.ts",
+          "tests/trust.test.mjs"
         ],
-        "tests": [],
-        "detail": "System prompt treats tool/memory data as untrusted, but does not implement detection/enforcement."
+        "tests": [
+          "web content is wrapped in provenance and instruction-like lines are flagged, removed or refused by policy"
+        ],
+        "detail": "web.fetch returns a provenance envelope (source, url, fetchedAt, trust: untrusted, note) and warnings for lines that read like instructions to the assistant; web.search snippets are checked the same way. The owner's web policy `injection` (warn, redact, block) decides whether flagged lines are kept, replaced with a notice, or the page/result refused; every detection is a content.flagged event on the run."
       },
-      "remaining": "Add provenance envelopes and configured detection policy tested against injected instructions."
+      "remaining": ""
     },
     {
       "id": "security.audit",
       "family": "security",
       "name": "Execution audit and authenticated successful-call receipts",
       "acceptance_criterion": "Record a tool call and verify its successful-result receipt while detecting a modified result.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/receipts.ts",
           "src/runtime.ts",
-          "src/store.ts"
+          "src/tool-trace.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "successful tool results carry receipts; edited results and made-up receipts are rejected"
         ],
-        "detail": "Persisted tool.started/completed/failed events are unsigned and have no tamper verification."
+        "detail": "Each successful tool result is hashed and signed (HMAC over run id, call id, tool name, hash and time) with a key derived from the device locker key. GET /api/runs/:id/receipts classifies every tool event (success with genuine receipt, modified, forged, unsigned, failed, blocked, stalled); POST /api/receipts/verify rejects an edited result or a receipt made without the key."
       },
-      "remaining": "Add verifiable successful-result receipts and detect modified results."
+      "remaining": ""
     },
     {
       "id": "security.passkeys",
@@ -2569,19 +2577,21 @@
       "family": "security",
       "name": "Scan skills before activation",
       "acceptance_criterion": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
+          "src/skill-scan.ts",
+          "src/skills.ts",
           "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "public/app.js",
+          "tests/trust.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "skills with a pasted secret or exfiltration instructions are blocked, or held for review under the review policy"
+        ],
+        "detail": "Every installed or updated skill version is scanned for hardcoded secrets (AWS/OpenAI/GitHub/Slack keys, private keys, secret-like assignments), exfiltration instructions and rule overrides. Policy block (default) refuses to save it; policy review installs it disabled with the findings shown and requires an explicit acknowledgement to enable that version. Settings: POST /api/skills/policy; Skills view select and per-version findings."
       },
-      "remaining": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation."
+      "remaining": ""
     },
     {
       "id": "interop.openai",
@@ -3045,20 +3055,22 @@
       "family": "reliability",
       "name": "Streaming tool activity",
       "acceptance_criterion": "Stream actual tool progress to the client and finish with the tool's real status.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/activity.ts",
           "src/runtime.ts",
-          "src/store.ts",
           "src/server.ts",
-          "public/app.js"
+          "public/app.js",
+          "public/index.html",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "live activity names each step in plain words and shows what is happening right now"
         ],
-        "detail": "Tools produce durable start/completion/failure records; UI polls run state and trace is inspected on demand."
+        "detail": "tool.started events carry a plain-language label; GET /api/activity lists running tasks with the current step and each earlier step's terminal status (done, failed, stopped). The conversation view polls it once a second while a task runs and shows it above the reply."
       },
-      "remaining": "Stream actual in-progress tool activity to clients with terminal tool status."
+      "remaining": ""
     },
     {
       "id": "reliability.context",
@@ -3171,19 +3183,20 @@
       "family": "reliability",
       "name": "Differentiate successful receipts from failed and blocked audit events",
       "acceptance_criterion": "Distinguish receipt-bearing successful calls from blocked or failed audit events and reject a forged receipt.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/receipts.ts",
           "src/runtime.ts",
-          "src/store.ts"
+          "src/server.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "demo writes, reads, verifies, and persists a multi-step session",
-          "malformed arguments produce a recorded tool error without side effects"
+          "successful tool results carry receipts; edited results and made-up receipts are rejected"
         ],
-        "detail": "Success/failure audit events are distinct, but there are no cryptographic receipts."
+        "detail": "Receipt-bearing successes are distinguished from failed, blocked and stalled tool events in the receipts view, and a forged or transplanted receipt is rejected."
       },
-      "remaining": "Add receipt-bearing successes and forged-receipt rejection."
+      "remaining": ""
     },
     {
       "id": "reliability.checkpoints",
@@ -3276,19 +3289,20 @@
       "family": "reliability",
       "name": "Runtime-verified task exit criteria",
       "acceptance_criterion": "Evaluate declared task exit criteria and report failed evidence rather than accepting a child's self-reported completion.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/runtime.ts",
           "src/knowledge.ts",
-          "src/runtime.ts"
+          "src/delegation.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "specialists require evidence to promote and delegation cannot escalate",
-          "procedure with wrong expected output is never verified"
+          "exit criteria on a delegated task are checked by the runtime and failed evidence reaches the parent"
         ],
-        "detail": "Specialist evaluation checks real files; subsequent delegate execution itself can complete without evaluating those exit checks."
+        "detail": "specialists.delegate and fan-out tasks accept `checks` (the run check shape); the runtime evaluates them on the child's answer, a miss fails the child with the reason and the parent receives it as unresolved with that evidence (delegation.unresolved)."
       },
-      "remaining": "Apply declared exit criteria to each delegated task outcome and report failed evidence to parent."
+      "remaining": ""
     },
     {
       "id": "reliability.evaluation",

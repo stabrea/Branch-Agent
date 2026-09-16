@@ -112,6 +112,7 @@
             >
           </div>
           <div id="session-context" class="session-context" hidden></div>
+          <div id="activity" class="activity" hidden></div>
           <div id="conversation" aria-live="polite">
             <div class="welcome">
               <span class="eyebrow">// A LITTLE HELP, A LITTLE HEADWAY</span>
@@ -312,6 +313,10 @@
         <section id="skills" class="view" hidden>
           <p class="section-intro">Install a single SKILL.md file. Bundled scripts and assets are not imported. Skills do not grant tool permissions; allowed-tools metadata is informational.</p>
           <p>Enabled skills share their names and descriptions with the assistant. The assistant reads a selected skill's instructions when needed.</p>
+          <div class="card">
+            <label for="skill-policy">If a skill looks risky (a pasted key, instructions to send your data somewhere, or attempts to override the assistant's rules)</label>
+            <select id="skill-policy"><option value="block">Block it (recommended)</option><option value="review">Let me review it first</option></select>
+          </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">
             <h2 id="skill-editor-title">Install a skill</h2>
@@ -328,6 +333,8 @@
             <div id="skill-version-controls" hidden>
               <label for="skill-version">Retained version</label>
               <select id="skill-version"></select>
+              <div id="skill-findings" class="card-list"></div>
+              <label id="skill-acknowledge-row" class="check-row" hidden><input type="checkbox" id="skill-acknowledge" /> I read the warnings above and still want to enable this version</label>
               <div class="skill-actions">
                 <button id="skill-read" type="button">Load version into editor</button>
                 <button id="skill-activate" type="button">Activate selected version</button>
