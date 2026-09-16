@@ -40,6 +40,8 @@ Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`lo
 
 For an interactive terminal conversation, run `npm run chat`. Text streams as the provider sends it. Press Ctrl+C or type a revised request to interrupt the current task and continue the same conversation. `/new` starts a new conversation; `/exit` closes the terminal assistant.
 
+- **A terminal worth using.** `branch chat` draws a status line (model, tokens, cost, when it checks with you), wraps answers to the window, shows one short row per step, and understands `/model`, `/preset`, `/plan`, `/verify`, `/dry-run`, `/attach`, `/history`, `/export` and more. Enter sends, Alt+Enter adds a line, the up arrow brings a message back, Ctrl+C stops the task and Ctrl+D leaves. When a task pauses for a yes, answer it right there with y, n, a or s. It uses nothing but Node's own readline, and falls back to the plain streaming view when the terminal cannot take it. For scripts, `branch run --json` prints the events as JSON Lines and exits 0, 2, 3 or 4; `branch status`, `branch logs <task id>` and `branch approve <task id> yes|no` round it out, and `branch completion bash|powershell` writes a completion script. See [the command line section](docs/configuration.md#command-line-and-terminal).
+
 For the native desktop application:
 
 ```sh
