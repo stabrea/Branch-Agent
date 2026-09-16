@@ -294,6 +294,22 @@ export class KnowledgeBases {
     return { collection: current.id, docId, chunks: chunks.length };
   }
 
+  /**
+   * One document put into a collection from words already read elsewhere — a knowledge base brought
+   * back from a saved copy, or a picture somebody described. It is cut and stored exactly as a file
+   * from the workspace is, so a search finds it and cites it the same way.
+   */
+  putDocument(
+    owner: string, collection: string, document: { docId: string; title: string; text: string },
+  ): { collection: string; docId: string; chunks: number } {
+    const current = this.one(owner, collection);
+    this.forgetChunkRows(owner, current.id, document.docId);
+    const chunks = chunkDocument({ key: document.docId, title: document.title.slice(0, 200), text: document.text, markdown: true });
+    this.writeChunks(owner, current.id, document.docId, chunks);
+    this.noteDocument(owner, current.id, document.docId, textFingerprint(document.text, "file"), "");
+    return { collection: current.id, docId: document.docId, chunks: chunks.length };
+  }
+
   /** The files of this collection that could not be read, with the reason for each. */
   unread(owner: string, collection: string): { file: string; reason: string }[] {
     return this.db.prepare("SELECT doc_id, reason FROM kb_documents WHERE owner=? AND collection=? AND reason<>'' ORDER BY doc_id LIMIT 200")

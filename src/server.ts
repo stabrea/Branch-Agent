@@ -42,6 +42,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
+import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -606,6 +607,10 @@ async function api(
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
       request.method ?? "GET", path, () => readBody(request));
     if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    // Batch 20 (wave 8): summaries, the map of names, pictures in words, housekeeping and limits.
+    const more = await knowledgeExtrasApi(app.knowledgeParts, app.store, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (more !== undefined) return app.runtime.hideSecrets(more);
     throw new HttpError(404, "Not found");
   }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
