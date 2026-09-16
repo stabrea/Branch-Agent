@@ -191,6 +191,7 @@ async function staticFile(
     // better versions of a skill under Skills.
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
