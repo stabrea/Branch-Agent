@@ -56,6 +56,8 @@ export class ProviderStreamError extends Error {
 export interface Provider {
   readonly name: string;
   complete(request: CompletionRequest): Promise<Completion>;
+  /** Optional audio endpoints (OpenAI-compatible transcription and speech); null if unavailable. */
+  audio?(): { endpoint: string; apiKey: string } | null;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),

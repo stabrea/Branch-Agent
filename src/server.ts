@@ -648,9 +648,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     }
     const audio = new Uint8Array(Buffer.concat(chunks));
     try {
-      // Voice transcription requires OpenAI-compatible provider with API key
-      // ChatGPT plan sign-in does not provide an API key for audio endpoints
-      const text = await transcribeAudio(audio, null, app.web.policy, globalThis.fetch);
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       response.end(JSON.stringify({ text }));
     } catch (e) {
@@ -662,8 +664,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   if (request.method === "POST" && path === "/api/voice/speak") {
     const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
     try {
-      // Voice synthesis requires OpenAI-compatible provider with API key
-      const audio = await generateSpeech(body.text, null, app.web.policy, globalThis.fetch);
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
       response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
       response.end(Buffer.from(audio));
     } catch (e) {

@@ -30,6 +30,9 @@ export class ChatGPTProvider implements Provider {
     this.userAgent = options.userAgent ?? "BranchAgent";
     this.fetch = options.fetch ?? globalThis.fetch;
   }
+  audio(): null {
+    return null;
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     const stream = new ResponsesStream(request.onTextDelta ?? (() => {}));
     try {

@@ -32,14 +32,11 @@ export function saveVoiceSettings(
 }
 
 /**
- * Client-side speech synthesis is always available (browser's Web Speech API).
- * When useProviderVoice is true, use the configured provider's /audio/speech endpoint.
- * The provider endpoint requires an OpenAI-compatible API key; ChatGPT plan sign-in
- * does not furnish one for /audio/speech calls.
+ * Audio endpoint info from a provider's audio() method
  */
-export interface VoiceProvider {
+export interface AudioProvider {
   readonly endpoint: string;
-  readonly apiKey?: string;
+  readonly apiKey: string;
 }
 
 /**
@@ -50,11 +47,11 @@ export interface VoiceProvider {
  */
 export async function transcribeAudio(
   audio: Uint8Array,
-  provider: VoiceProvider | null,
+  provider: AudioProvider | null,
   policy: NetworkPolicy,
   fetch: typeof globalThis.fetch,
 ): Promise<string> {
-  if (!provider?.apiKey) {
+  if (!provider) {
     throw new Error(
       "Speech to text needs an OpenAI-compatible provider with a key. Add one in Settings → Model.",
     );
@@ -99,11 +96,11 @@ export async function transcribeAudio(
  */
 export async function generateSpeech(
   text: string,
-  provider: VoiceProvider | null,
+  provider: AudioProvider | null,
   policy: NetworkPolicy,
   fetch: typeof globalThis.fetch,
 ): Promise<Uint8Array> {
-  if (!provider?.apiKey) {
+  if (!provider) {
     throw new Error(
       "Higher-quality voice needs an OpenAI-compatible provider with a key. Add one in Settings → Model.",
     );

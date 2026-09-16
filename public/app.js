@@ -987,6 +987,18 @@ function message(role, content, source) {
   if (source?.messageId && !source.toolCalls?.length) {
     const controls = el("div", undefined, "message-controls");
     controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    if (role === "assistant" && typeof speakText !== "undefined") {
+      const readBtn = button("Read aloud", async () => {
+        const settings = await api("voice/settings").catch(() => ({}));
+        const useProvider = settings.useProviderVoice ?? false;
+        await speakText(content, useProvider);
+      });
+      readBtn.classList.add("text-button");
+      controls.append(readBtn);
+      const stopBtn = button("Stop", () => stopSpeaking?.());
+      stopBtn.classList.add("text-button");
+      controls.append(stopBtn);
+    }
     node.append(controls);
   }
   $("conversation").append(node);
@@ -1278,6 +1290,16 @@ $("chat-form").addEventListener("submit", async (event) => {
     await loadConversation(run.sessionId, run.status);
     await refresh();
     await loadSessionModel();
+    // Auto-read-aloud when setting is enabled
+    if (typeof speakText !== "undefined") {
+      try {
+        const settings = await api("voice/settings").catch(() => ({}));
+        if (settings.autoReadAloud) {
+          const useProvider = settings.useProviderVoice ?? false;
+          await speakText(run.output, useProvider).catch(() => {});
+        }
+      } catch { /* voice is optional */ }
+    }
   } catch (e) {
     message("assistant", e.message);
   } finally {

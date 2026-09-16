@@ -145,6 +145,9 @@ export class OpenAIProvider implements Provider {
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
   }
+  audio(): { endpoint: string; apiKey: string } | null {
+    return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);
     if (request.onTextDelta) {
@@ -233,6 +236,9 @@ export class AnthropicProvider implements Provider {
   readonly name = "anthropic";
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
+  }
+  audio(): null {
+    return null;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);
