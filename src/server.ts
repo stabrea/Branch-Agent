@@ -1422,7 +1422,9 @@ export async function startServer(
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
-  let executions = 0;
+  // The same count the waiting line uses, so the two together never run more than this computer is
+  // meant to handle.
+  const executions = app.executions;
   const remote = new RemoteAccess(token);
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
@@ -1451,9 +1453,9 @@ export async function startServer(
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
-      if (executes && executions >= 8)
+      const place = executes ? executions.take() : null;
+      if (executes && !place)
         throw new HttpError(429, "Too many active executions");
-      if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
@@ -1462,7 +1464,7 @@ export async function startServer(
         }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
-        if (executes) executions--;
+        place?.();
       }
     } catch (e) {
       if (!response.headersSent)

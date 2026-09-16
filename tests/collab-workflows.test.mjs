@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createBranch, shareHtml, redactText, dayOffDecision, inQuietHours, quietUntil,
-  weeklyReviewWorkflow, RedactionSchema,
+  weeklyReviewWorkflow, RedactionSchema, savePolicy, readPolicy,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -252,6 +252,105 @@ test("a paused workflow does not move until it is carried on", async (t) => {
   assert.equal(carried.status, "completed");
 });
 
+/* ---- W3b: a workflow's steps go through the approval settings ---- */
+
+/** One workflow whose only step keeps a note, which counts as a change to the settings. */
+const keepsANote = (app, name = "Keeps a note") => app.workflows.create("local", {
+  name, steps: [{ name: "Keep it", kind: "tool", tool: "memory.put", args: { text: "from a step", source: "a workflow" } }],
+});
+
+test("a tool step stops for the owner under an ask rule and runs once they say yes", async (t) => {
+  const { app, call } = await served(t);
+  savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "ask" }] });
+  const made = keepsANote(app);
+  const stopped = await app.workflows.run("local", made.id);
+  assert.equal(stopped.status, "waiting_approval", "the step may not use the tool without a yes");
+  assert.match(stopped.question, /Before I go ahead/);
+  assert.equal(app.store.list("memory", "local").length, 0, "nothing was done while it waits");
+  await assert.rejects(
+    () => app.runtime.executeTool("workflows.resume", { id: made.id }),
+    /waiting for the owner/,
+    "the assistant cannot say yes to the question its own step raised",
+  );
+  assert.equal(app.workflows.view("local", made.id).status, "waiting_approval");
+  const carried = await call(`/api/workflows/${made.id}/resume`, {});
+  assert.equal(carried.body.status, "completed", carried.body.error ?? "");
+  assert.equal(app.store.list("memory", "local").length, 1, "the step ran, rather than being skipped");
+  assert.equal(carried.body.state[0].status, "done");
+  const decided = app.store.audit.list("local", {}).filter((row) => row.action === "approval.decided");
+  assert.equal(decided.length, 1, "the yes is written into the record of what was allowed");
+  assert.equal(decided[0].outcome, "allowed");
+});
+
+test("a tool step is refused in plain words under a deny rule", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "deny" }] });
+  const failed = await app.workflows.run("local", keepsANote(app, "Not allowed").id);
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /Your settings do not allow this/);
+  assert.equal(app.store.list("memory", "local").length, 0);
+});
+
+test("a standing yes lets a tool step run, and a workflow started by another app is still held back", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, "local", { rules: [
+    { tool: "memory.put", match: "*", decision: "allow", remember: "always" },
+    { tool: "*", applies: "changes", decision: "ask" },
+  ] });
+  const made = keepsANote(app, "Allowed for good");
+  assert.equal((await app.workflows.run("local", made.id)).status, "completed");
+  assert.equal(app.store.list("memory", "local").length, 1);
+  const again = keepsANote(app, "Set going by another app");
+  const held = await app.workflows.run("local", again.id, "mcp");
+  assert.equal(held.status, "waiting_approval",
+    "a standing yes does not carry over to a workflow another app set going");
+});
+
+test("the owner's yes can be kept as a standing rule, and one workflow's yes stays its own", async (t) => {
+  const { app, call } = await served(t);
+  savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "ask" }] });
+  const first = keepsANote(app, "First");
+  await app.workflows.run("local", first.id);
+  const carried = await call(`/api/workflows/${first.id}/resume`, { remember: "always" });
+  assert.equal(carried.body.status, "completed");
+  assert.deepEqual(readPolicy(app.store, "local").rules[0],
+    { tool: "memory.put", match: "*", applies: "any", decision: "allow", remember: "always" });
+  const second = keepsANote(app, "Second");
+  assert.equal((await app.workflows.run("local", second.id)).status, "completed",
+    "the standing rule covers the next workflow too");
+});
+
+test("a yes remembered for one workflow only does not cover the next one", async (t) => {
+  const { app, call } = await served(t);
+  savePolicy(app.store, "local", { rules: [{ tool: "memory.put", decision: "ask" }] });
+  const first = keepsANote(app, "Just this one");
+  await app.workflows.run("local", first.id);
+  await call(`/api/workflows/${first.id}/resume`, { remember: "session" });
+  assert.equal(readPolicy(app.store, "local").rules.length, 1, "nothing standing was written");
+  const second = keepsANote(app, "A different one");
+  assert.equal((await app.workflows.run("local", second.id)).status, "waiting_approval");
+});
+
+test("a replayed recipe's own steps are checked, and nothing runs until the owner says yes", async (t) => {
+  const { app, call } = await served(t);
+  const context = app.runtime.context();
+  const recipe = app.knowledge.proposeProcedure(context, {
+    name: "write a file", preconditions: [],
+    steps: [{ tool: "files.write", args: { path: "out.txt", content: "hello" }, expected: { path: "out.txt", bytes: 5 } }],
+  });
+  assert.equal((await app.knowledge.verifyProcedure(context, recipe.id)).data.status, "verified");
+  savePolicy(app.store, "local", { rules: [{ tool: "files.write", decision: "ask" }] });
+  const made = app.workflows.create("local", {
+    name: "Replay it", steps: [{ name: "Replay", kind: "recipe", recipeId: recipe.id }],
+  });
+  const stopped = await app.workflows.run("local", made.id);
+  assert.equal(stopped.status, "waiting_approval", "the step inside the recipe is checked too");
+  assert.match(stopped.question, /out\.txt/);
+  await assert.rejects(() => app.runtime.executeTool("workflows.resume", { id: made.id }), /waiting for the owner/);
+  const carried = await call(`/api/workflows/${made.id}/resume`, {});
+  assert.equal(carried.body.status, "completed", carried.body.error ?? "");
+});
+
 /* ---- W4: the waiting line ---- */
 
 test("tasks join a waiting line in order of who asked, and a queued one can be taken out", async (t) => {
@@ -278,6 +377,45 @@ test("tasks join a waiting line in order of who asked, and a queued one can be t
   const after = await call("/api/queue");
   assert.equal(after.body.waiting.length, 0, "the line empties once there is room");
   assert.deepEqual(after.body.recent.filter((e) => e.status === "done").map((e) => e.prompt).sort(), ["first", "mine"]);
+});
+
+test("the waiting line and the app's own screen share one count of what is working", async (t) => {
+  const { app, provider } = await served(t);
+  const limit = app.executions.limit;
+  let release;
+  provider.hold = new Promise((resolve) => { release = resolve; });
+  app.runQueue.configure("local", { atOnce: 8 });
+  // Three things are already working from the app's own screen: those places are taken.
+  const fromTheScreen = [app.executions.take(), app.executions.take(), app.executions.take()];
+  assert.ok(fromTheScreen.every(Boolean));
+  for (let i = 0; i < 10; i++) app.runQueue.submit("local", { prompt: `task ${i}`, source: "owner" });
+  const working = app.runQueue.list("local").filter((entry) => entry.status === "running");
+  assert.equal(app.executions.count, limit, "the two together stop exactly at the limit");
+  assert.equal(working.length, limit - fromTheScreen.length, "the line only started what was left over");
+  assert.ok(app.runQueue.list("local").some((entry) => entry.status === "waiting"), "the rest wait their turn");
+  release();
+  provider.hold = null;
+  for (const give of fromTheScreen) give();
+  for (let i = 0; i < 200 && app.runQueue.list("local").length; i++) {
+    assert.ok(app.executions.count <= limit, `never more than ${limit} at once`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(app.runQueue.list("local").length, 0, "the line empties once there is room");
+  assert.equal(app.executions.count, 0, "every place is given back");
+});
+
+test("a queued task starts by itself as soon as a place comes back", async (t) => {
+  const { app } = await served(t);
+  const held = [];
+  for (let i = 0; i < app.executions.limit; i++) held.push(app.executions.take());
+  assert.ok(held.every(Boolean), "every place is taken by something else");
+  const waiting = app.runQueue.submit("local", { prompt: "waits for room", source: "owner" });
+  assert.equal(waiting.status, "waiting", "there is no room for it yet");
+  for (const give of held) give();
+  for (let i = 0; i < 200 && app.runQueue.entry("local", waiting.id).status === "waiting"; i++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.notEqual(app.runQueue.entry("local", waiting.id).status, "waiting",
+    "nobody had to add another task for the line to move");
 });
 
 test("a task already working is cancelled rather than simply dropped", async (t) => {

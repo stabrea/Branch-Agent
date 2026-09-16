@@ -1324,11 +1324,15 @@ workflow that was working is marked "stopped when the app closed" and carries on
 step. Resuming a workflow that is waiting on an approval is you saying yes, and only from your own
 screen: the assistant's `workflows.resume` tool refuses a workflow that is waiting for you, so it
 can never say yes on your behalf. The same five things are tools (`workflows.create`, `.list`,
-`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. Be
-aware that a `tool` step uses its tool the way pressing a button in the app does — with the whole
-run of the app and without stopping to ask — so treat a saved workflow as something you have
-already approved. Workflows are the owner's: they are refused while somebody else's profile is
-switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
+`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. A
+`tool` step, and every step inside a `recipe` step, goes through your approval settings exactly as
+the assistant does mid-conversation: a step your settings allow simply runs, one they refuse fails
+with the same plain refusal, and one they say to ask about stops the workflow where it is and waits
+for you — `POST /api/workflows/:id/resume` is you saying yes, and it may carry
+`{"remember":"always"}` to keep that yes as a standing rule. A yes that is not standing counts for
+that workflow only. A workflow another app or a schedule set going is held to the same limits that
+task would have been, so starting one is no way around them. Workflows are the owner's: they are
+refused while somebody else's profile is switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
 it in memory, and send it on.
 
 **The waiting line.** `POST /api/queue` puts a task in line instead of turning it away when as many
@@ -1339,7 +1343,9 @@ stops one that is working, and `POST /api/queue/settings` sets how many run at o
 three by default). A conversation only ever has one task working, so its others wait their turn. A
 task from the line runs as the owner, so the line is the owner's: it is refused while somebody
 else's profile is switched on, and they start tasks the ordinary way instead. The line's "how many
-at once" is separate from the eight requests the web server itself will carry out at a time.
+at once" sits under the same ceiling as everything else: the whole app runs at most eight things at
+a time, counted once across the line and the requests the app's own screen makes, so the two
+together can never go past it.
 
 **Days off and quiet hours.** `GET`/`POST /api/calendar` holds the country whose holidays to use,
 your own days off, which weekdays you work, and quiet hours. A schedule created with

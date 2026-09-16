@@ -5,6 +5,8 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
+import type { PolicyRemember, RunSource } from "./policy.js";
 
 /**
  * A workflow is a saved list of steps the app works through on its own: ask the assistant, replay a
@@ -56,6 +58,16 @@ export interface WorkflowView {
   /** What it was doing when it was stopped, so carrying it on picks the same thread back up. */
   pausedFrom: WorkflowStatus | null;
 }
+/**
+ * What a workflow stopped to ask about: the tool one of its steps wanted to use, what that would
+ * touch, and who set the workflow going. Kept with the workflow, so the question survives a restart
+ * and the owner's yes is remembered against the right thing.
+ */
+export interface WorkflowApproval {
+  tool: string; target: string; label: string; source: RunSource; remember: PolicyRemember;
+}
+/** Where a workflow's remembered answers are kept, since a workflow is not a conversation. */
+const approvalKeyFor = (id: string): string => `workflow:${id}`;
 
 /** The example that ships with the app: look back at the week, write it up, keep it, send it on. */
 export function weeklyReviewWorkflow(deliverTo?: { channel: string; chatId: string }): WorkflowDefinition {
@@ -147,40 +159,58 @@ export class Workflows {
     if (["completed", "failed"].includes(current.status)) throw new Error("That workflow has already finished");
     return this.setStatus(owner, id, { status: "paused", pausedFrom: current.status });
   }
-  /** Carries on from where it stopped; on an approval step this is the owner saying yes. */
-  async resume(owner: string, id: string): Promise<WorkflowView> {
+  /** What the workflow stopped to ask about, when a step wanted to use a tool the settings guard. */
+  private pending(owner: string, id: string): WorkflowApproval | null {
+    const data = this.store.get("workflows", owner, id)?.data as { pendingApproval?: WorkflowApproval } | undefined;
+    return data?.pendingApproval ?? null;
+  }
+  /**
+   * Carries on from where it stopped; on a step that is waiting this is the owner saying yes. A
+   * step that wanted to use a tool is tried again with that yes remembered, rather than skipped:
+   * `remember` says whether the yes lasts for this workflow only or is kept as a standing rule.
+   */
+  async resume(owner: string, id: string, options: { remember?: PolicyRemember; source?: RunSource } = {}): Promise<WorkflowView> {
     const current = this.view(owner, id);
     if (current.status === "running") throw new Error("That workflow is working right now");
     if (current.status === "completed") throw new Error("That workflow has already finished");
     const waitingForYes = current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval");
-    if (waitingForYes) {
-      const step = current.steps[current.cursor];
-      if (step) this.writeStep(owner, id, current.cursor, step, { status: "approved", attempts: 1, output: "Approved by the owner" });
-      this.setStatus(owner, id, { cursor: current.cursor + 1, question: null, pausedFrom: null });
+    if (!waitingForYes) return this.run(owner, id, options.source ?? "owner");
+    const asked = this.pending(owner, id);
+    if (asked) {
+      this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);
+      this.setStatus(owner, id, { question: null, pausedFrom: null, pendingApproval: null });
+      return this.run(owner, id, asked.source);
     }
-    return this.run(owner, id);
+    const step = current.steps[current.cursor];
+    if (step) this.writeStep(owner, id, current.cursor, step, { status: "approved", attempts: 1, output: "Approved by the owner" });
+    this.setStatus(owner, id, { cursor: current.cursor + 1, question: null, pausedFrom: null });
+    return this.run(owner, id, options.source ?? "owner");
   }
   /**
    * The same as `resume`, but it will not say yes on the owner's behalf. The assistant calls this
    * one, so a workflow that stopped to ask can only be let past from the owner's own screen.
    */
-  async resumeWithoutApproving(owner: string, id: string): Promise<WorkflowView> {
+  async resumeWithoutApproving(owner: string, id: string, source: RunSource = "owner"): Promise<WorkflowView> {
     const current = this.view(owner, id);
     if (current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval"))
       throw new Error("That workflow is waiting for the owner to say yes. Ask them to approve it on their screen.");
-    return this.resume(owner, id);
+    return this.resume(owner, id, { source });
   }
-  /** Works through the steps until one needs the owner, a time to pass, or everything is done. */
-  async run(owner: string, id: string): Promise<WorkflowView> {
+  /**
+   * Works through the steps until one needs the owner, a time to pass, or everything is done.
+   * `source` is whoever set it going: a workflow started by a schedule or another app is held to
+   * the same limits that task would have been, so it cannot be used to get around them.
+   */
+  async run(owner: string, id: string, source: RunSource = "owner"): Promise<WorkflowView> {
     let current = this.view(owner, id);
     if (current.status === "running") throw new Error("That workflow is working right now");
     const fresh = ["idle", "completed", "failed"].includes(current.status);
-    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, ...(fresh ? { cursor: 0 } : {}) });
+    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, ...(fresh ? { cursor: 0 } : {}) });
     for (let index = current.cursor; index < current.steps.length; index++) {
       const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current);
+      const outcome = await this.step(owner, id, index, step, current, source);
       if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
       // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
       current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
@@ -188,7 +218,7 @@ export class Workflows {
     }
     return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
   }
-  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView):
+  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     if (step.kind === "approval") {
       this.writeStep(owner, id, index, step, { status: "waiting", attempts: 0, output: step.question ?? "" });
@@ -209,38 +239,61 @@ export class Workflows {
       this.writeStep(owner, id, index, step, { status: "done", attempts: 1, output: matched ? "carried on" : "skipped ahead" });
       return { halt: false, cursor: index + 1 + (matched ? 0 : step.skipAhead ?? 1) };
     }
-    return this.attempt(owner, id, index, step);
+    return this.attempt(owner, id, index, step, source);
   }
   /** Runs one working step, giving it its allowed number of second tries before the workflow stops. */
-  private async attempt(owner: string, id: string, index: number, step: WorkflowStep):
+  private async attempt(owner: string, id: string, index: number, step: WorkflowStep, source: RunSource):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     let lastError = "";
     for (let attempt = 1; attempt <= step.retries + 1; attempt++) {
       this.writeStep(owner, id, index, step, { status: "running", attempts: attempt });
       try {
-        const result = await this.execute(step);
+        const result = await this.execute(step, id, source);
         this.writeStep(owner, id, index, step, { status: "done", attempts: attempt, output: result.output, runId: result.runId });
         return { halt: false, cursor: index + 1 };
       } catch (error) {
+        // The settings say to ask about this one first: the workflow stops here, the same way an
+        // approval step does, and the owner's yes on their own screen sets it going again.
+        if (error instanceof ApprovalRequiredError)
+          return this.waitForYes(owner, id, index, step, error, source, attempt - 1);
         lastError = errorText(error);
+        // The settings refuse this outright, so trying again cannot help: the workflow stops here.
+        if (error instanceof PolicyRefusedError) {
+          this.writeStep(owner, id, index, step, { status: "failed", attempts: attempt, output: lastError });
+          return { halt: true, cursor: index, patch: { status: "failed", error: lastError } };
+        }
         this.writeStep(owner, id, index, step, { status: attempt > step.retries ? "failed" : "retrying", attempts: attempt, output: lastError });
       }
     }
     return { halt: true, cursor: index, patch: { status: "failed", error: lastError } };
   }
-  private async execute(step: WorkflowStep): Promise<{ output: string; runId: string | null }> {
+  private waitForYes(owner: string, id: string, index: number, step: WorkflowStep,
+    asked: ApprovalRequiredError, source: RunSource, attempts: number):
+    { halt: boolean; cursor: number; patch: Record<string, unknown> } {
+    this.writeStep(owner, id, index, step, { status: "waiting", attempts, output: asked.message });
+    const pendingApproval: WorkflowApproval = {
+      tool: asked.tool, target: asked.target, label: asked.label, source, remember: asked.remember,
+    };
+    return { halt: true, cursor: index, patch: { status: "waiting_approval", question: asked.message, pendingApproval } };
+  }
+  private async execute(step: WorkflowStep, id: string, source: RunSource): Promise<{ output: string; runId: string | null }> {
     const signal = AbortSignal.timeout(step.timeoutMs);
     if (step.kind === "prompt") {
       const run = await this.runtime.run({ prompt: step.prompt!, signal, source: "schedule", onTextDelta: () => undefined });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }
+    const context = this.runtime.context({ signal, source, approvalKey: approvalKeyFor(id) });
     if (step.kind === "tool") {
+      // A saved step uses its tool under the owner's approval settings, exactly as the assistant
+      // does mid-conversation: allowed, asked about, or refused in the same words.
+      const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context);
+      if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
+      if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember);
       const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };
     }
     if (!this.knowledge) throw new Error("Saved procedures are not available in this launch");
-    const context = this.runtime.context({ signal });
     const replayed = await this.knowledge.replayProcedure(context, step.recipeId!, step.inputs ?? {});
     return { output: JSON.stringify(replayed.results).slice(0, 4000), runId: null };
   }
@@ -267,7 +320,9 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Start a saved workflow, or carry on one that was stopped part of the way through.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id),
+    // The workflow is held to whatever this task is held to: starting one is no way around the
+    // approval settings a schedule or another app is kept to.
+    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner"),
   });
   registry.register({
     name: "workflows.pause",
@@ -281,6 +336,7 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Carry a stopped workflow on. A workflow waiting for the owner's approval is not carried on by this; the owner says yes on their own screen.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) => workflows.resumeWithoutApproving(workflows.forOwner(context.owner), value.id),
+    execute: async (value, context) =>
+      workflows.resumeWithoutApproving(workflows.forOwner(context.owner), value.id, context.source ?? "owner"),
   });
 }
