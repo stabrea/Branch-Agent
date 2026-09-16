@@ -249,7 +249,12 @@ test("a program started in the background outlives its tool call, is listed, rea
   await delay(250);
   const listed = await app.registry.execute("process.list", {}, context);
   assert.equal(listed.processes.filter((p) => p.status === "running").length, 1, "it is still going after the tool call ended");
-  const read = await app.registry.execute("process.read", { id: started.id }, context);
+  // A slow computer can take a few seconds to start Node and print the first line: wait for it.
+  let read = await app.registry.execute("process.read", { id: started.id }, context);
+  for (let attempt = 0; attempt < 60 && !/tick/.test(read.output); attempt++) {
+    await delay(100);
+    read = await app.registry.execute("process.read", { id: started.id }, context);
+  }
   assert.match(read.output, /tick/);
   const stopped = await app.registry.execute("process.stop", { id: started.id }, context);
   assert.equal(stopped.status, "stopped");
