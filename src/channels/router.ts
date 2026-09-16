@@ -56,6 +56,13 @@ export class ChannelRouter {
   readonly deliveries: Deliveries;
   private pump: ReturnType<typeof setInterval> | undefined;
   private flushing: Promise<void> = Promise.resolve();
+  /**
+   * The last look at a message before it leaves this computer: personal details are hidden and,
+   * when the owner has switched it on, the provider's content check runs. `createBranch` connects
+   * the real check; on its own this lets everything through unchanged.
+   */
+  outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
+    async (text) => ({ text, blocked: false });
   constructor(private readonly store: Store, private readonly runtime: Runtime, public pumpMs = 10000) {
     this.deliveries = new Deliveries(store, runtime.owner);
   }
@@ -109,7 +116,9 @@ export class ChannelRouter {
   async deliver(channel: string, chatId: string, text: string, key = `delivery:${Date.now()}:${randomInt(1e9)}`, replyTo?: string): Promise<{ messageId?: string | undefined; queued: number }> {
     const target = this.adapters.get(channel);
     if (!target) throw new Error(`Channel ${channel} is not connected`);
-    this.deliveries.enqueue(channel, chatId, text, key, replyTo, target.adapter.maxTextLength);
+    const checked = await this.outboundGuard(text);
+    if (checked.blocked) throw new Error(checked.reason ?? "The message was held back before it was sent");
+    this.deliveries.enqueue(channel, chatId, checked.text, key, replyTo, target.adapter.maxTextLength);
     await this.flush();
     const now = this.deliveries.list().filter((d) => d.key === key);
     const first = now.find((d) => d.seq === 0);

@@ -1333,6 +1333,8 @@ $("login-form").addEventListener("submit", async (event) => {
   token = $("token").value.trim();
   try {
     await refresh();
+    // Signing back in is what unlocks the secrets locker again.
+    await api("lock/unlock", {}).catch(() => undefined);
     sessionStorage.setItem("branch-token", token);
     $("token").value = "";
   } catch (e) {
@@ -1340,6 +1342,8 @@ $("login-form").addEventListener("submit", async (event) => {
   }
 });
 $("lock").addEventListener("click", () => {
+  // Also tell the assistant itself: while it is locked it will not open the secrets locker.
+  api("lock", {}).catch(() => undefined);
   token = "";
   sessionStorage.removeItem("branch-token");
   $("workspace").hidden = true;

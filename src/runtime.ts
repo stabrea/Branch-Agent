@@ -136,6 +136,11 @@ export class Runtime {
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /**
+   * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
+   * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
+   */
+  hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
   private readonly rates: RateLimiter;
@@ -325,18 +330,18 @@ export class Runtime {
     let failure: unknown;
     let status: Run["status"] = "completed";
     try {
-      result = await this.registry.execute(name, args, context);
+      result = this.hideSecrets(await this.registry.execute(name, args, context));
       this.store.event(run.id, "tool.completed", { name, result });
     } catch (e) {
       failure = e;
       status = this.failureStatus(context, e);
-      this.store.event(run.id, "tool.failed", { name, error: errorText(e) });
+      this.store.event(run.id, "tool.failed", { name, error: this.hideSecrets(errorText(e)) });
     }
     const settled = await this.settleRun(
       run,
       context,
       status,
-      status !== "completed" ? errorText(failure) : JSON.stringify(result),
+      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result)),
     );
     if (status !== "completed") throw failure;
     if (settled.status !== "completed") throw new Error(settled.output);
@@ -1162,14 +1167,15 @@ export class Runtime {
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
-      const result = await this.registry.execute(call.name, args, scoped);
+      // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
+      const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       return { ok: true, result };
     } catch (e) {
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) throw e;
       const stalled = timeout.aborted;
-      const error = stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e);
+      const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
       return { ok: false, error };
     }

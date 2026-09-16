@@ -1,0 +1,211 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { z } from "zod";
+import type { NetworkPolicy } from "./network-policy.js";
+import type { Secrets } from "./vault.js";
+
+/**
+ * Signing in to an outside service the ordinary way: Branch Agent opens the service's own sign-in
+ * page in the default browser, the service sends the answer back to a tiny page running on this
+ * computer only, and the resulting key is put straight into the locker. It never sees the password.
+ * This is the standard authorization-code flow with PKCE, so it works for Google, Microsoft,
+ * GitHub, Slack and anything else that follows OAuth 2.0.
+ */
+export const OAuthProviderSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, "Use a short name such as github"),
+  label: z.string().trim().min(1).max(60),
+  authorizeUrl: z.string().min(1).max(500),
+  tokenUrl: z.string().min(1).max(500),
+  clientId: z.string().min(1).max(300),
+  /** Only for services that still insist on one; public clients use PKCE alone. */
+  clientSecret: z.string().max(500).optional(),
+  scopes: z.array(z.string().min(1).max(120)).max(40).default([]),
+  /** Extra values the service asks for on the sign-in address, such as access_type. */
+  extra: z.record(z.string().max(40), z.string().max(200)).default({}),
+}).strict();
+export type OAuthProvider = z.infer<typeof OAuthProviderSchema>;
+export interface OAuthTokens {
+  accessToken: string; refreshToken: string | null; tokenType: string;
+  expiresAt: string | null; scope: string | null; obtainedAt: string;
+}
+export interface OAuthStart { id: string; url: string; redirectUri: string; expiresInMs: number }
+
+const base64url = (input: Buffer): string => input.toString("base64url");
+const sameText = (a: string, b: string): boolean => {
+  const left = Buffer.from(a), right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+};
+/** The locker name a connection's tokens are kept under, in the default project. */
+export const oauthSecretName = (id: string): string => `OAUTH_${id.toUpperCase().replace(/-/g, "_")}`;
+
+interface Flow {
+  provider: OAuthProvider; verifier: string; state: string; redirectUri: string;
+  server: Server; settle: (tokens: OAuthTokens) => void; fail: (error: Error) => void;
+  done: Promise<OAuthTokens>; timer: NodeJS.Timeout;
+}
+
+export class OAuthConnections {
+  private readonly flows = new Map<string, Flow>();
+  constructor(private readonly owner: string, private readonly secrets: Secrets, private readonly policy: NetworkPolicy,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch, private readonly windowMs = 300_000) {}
+
+  /** Starts a sign-in: the address to open, and a promise that settles when the service answers. */
+  async start(input: unknown): Promise<OAuthStart> {
+    const provider = OAuthProviderSchema.parse(input);
+    // The sign-in page is opened in the person's own browser, so it has to be an ordinary web
+    // address and nothing else; the address the key comes from is checked again by the policy.
+    webAddress(provider.authorizeUrl, "sign-in page");
+    webAddress(provider.tokenUrl, "sign-in address");
+    await this.cancel(provider.id);
+    const verifier = base64url(randomBytes(32)), state = base64url(randomBytes(24));
+    const server = createServer();
+    const port = await listenOnLoopback(server);
+    const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
+    let settle!: (tokens: OAuthTokens) => void, fail!: (error: Error) => void;
+    const done = new Promise<OAuthTokens>((resolve, reject) => { settle = resolve; fail = reject; });
+    const timer = setTimeout(() => { void this.cancel(provider.id, new Error("The sign-in window timed out")); }, this.windowMs);
+    timer.unref();
+    const flow: Flow = { provider, verifier, state, redirectUri, server, settle, fail, done, timer };
+    done.catch(() => undefined);
+    this.flows.set(provider.id, flow);
+    server.on("request", (request, response) => { void this.callback(flow, request.url ?? "/", response); });
+    return { id: provider.id, url: this.authorizeUrl(flow), redirectUri, expiresInMs: this.windowMs };
+  }
+  /** Settles when the service has answered and the tokens are in the locker. */
+  waitFor(id: string): Promise<OAuthTokens> {
+    const flow = this.flows.get(id);
+    if (!flow) return Promise.reject(new Error(`No sign-in is waiting for ${id}`));
+    return flow.done;
+  }
+  /** Stops a sign-in that is still waiting and closes its little page. */
+  async cancel(id: string, reason?: Error): Promise<void> {
+    const flow = this.flows.get(id);
+    if (!flow) return;
+    this.flows.delete(id);
+    clearTimeout(flow.timer);
+    flow.fail(reason ?? new Error("The sign-in was cancelled"));
+    await new Promise<void>((resolve) => flow.server.close(() => resolve()));
+  }
+  async closeAll(): Promise<void> { await Promise.all([...this.flows.keys()].map((id) => this.cancel(id))); }
+
+  private authorizeUrl(flow: Flow): string {
+    const url = new URL(flow.provider.authorizeUrl);
+    const challenge = base64url(createHash("sha256").update(flow.verifier).digest());
+    for (const [key, value] of Object.entries(flow.provider.extra)) url.searchParams.set(key, value);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("client_id", flow.provider.clientId);
+    url.searchParams.set("redirect_uri", flow.redirectUri);
+    url.searchParams.set("state", flow.state);
+    url.searchParams.set("code_challenge", challenge);
+    url.searchParams.set("code_challenge_method", "S256");
+    if (flow.provider.scopes.length) url.searchParams.set("scope", flow.provider.scopes.join(" "));
+    return url.href;
+  }
+  private async callback(flow: Flow, target: string, response: import("node:http").ServerResponse): Promise<void> {
+    const url = new URL(target, flow.redirectUri);
+    if (!url.pathname.startsWith("/oauth/callback")) { response.writeHead(404).end(); return; }
+    const code = url.searchParams.get("code") ?? "", state = url.searchParams.get("state") ?? "";
+    const failure = url.searchParams.get("error");
+    try {
+      if (failure) throw new Error(`The service refused the sign-in: ${failure.slice(0, 120)}`);
+      if (!sameText(state, flow.state)) throw new Error("The answer did not match the sign-in that was started");
+      if (!code) throw new Error("The service did not send a sign-in code");
+      const tokens = await this.exchange(flow, code);
+      reply(response, 200, "Signed in. You can close this window and go back to Branch Agent.");
+      this.finish(flow, tokens);
+    } catch (error) {
+      reply(response, 400, "That sign-in could not be finished. Go back to Branch Agent and try again.");
+      this.flows.delete(flow.provider.id);
+      clearTimeout(flow.timer);
+      flow.fail(error instanceof Error ? error : new Error("The sign-in failed"));
+      flow.server.close();
+    }
+  }
+  private finish(flow: Flow, tokens: OAuthTokens): void {
+    this.flows.delete(flow.provider.id);
+    clearTimeout(flow.timer);
+    flow.settle(tokens);
+    flow.server.close();
+  }
+  private async exchange(flow: Flow, code: string): Promise<OAuthTokens> {
+    const body = new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: flow.redirectUri,
+      client_id: flow.provider.clientId, code_verifier: flow.verifier });
+    return this.token(flow.provider, body);
+  }
+  /** Swaps a refresh key for a fresh access key when the old one has run out. */
+  async refresh(provider: OAuthProvider, tokens: OAuthTokens): Promise<OAuthTokens> {
+    if (!tokens.refreshToken) throw new Error(`${provider.label} did not give a way to renew the sign-in; sign in again`);
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refreshToken, client_id: provider.clientId });
+    const fresh = await this.token(provider, body);
+    return { ...fresh, refreshToken: fresh.refreshToken ?? tokens.refreshToken };
+  }
+  private async token(provider: OAuthProvider, body: URLSearchParams): Promise<OAuthTokens> {
+    const target = new URL(provider.tokenUrl);
+    await this.policy.assertAllowed(target, "sign-in address");
+    if (provider.clientSecret) body.set("client_secret", provider.clientSecret);
+    const response = await this.fetchImpl(target, { method: "POST", redirect: "error",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      body: body.toString(), signal: AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(`The sign-in service answered ${response.status}`);
+    const tokens = readTokens(await response.json());
+    await this.save(provider, tokens);
+    return tokens;
+  }
+  /** Tokens go straight into the locker, and the scrubber learns them so they cannot leak. */
+  private async save(provider: OAuthProvider, tokens: OAuthTokens): Promise<void> {
+    this.secrets.scrubber.remember(oauthSecretName(provider.id), tokens.accessToken);
+    if (tokens.refreshToken) this.secrets.scrubber.remember(`${oauthSecretName(provider.id)}_REFRESH`, tokens.refreshToken);
+    await this.secrets.put(this.owner, "default", oauthSecretName(provider.id), JSON.stringify(tokens));
+  }
+  /** The saved tokens for a connection, or null when it has never been signed in. */
+  async saved(id: string): Promise<OAuthTokens | null> {
+    const name = oauthSecretName(id);
+    const values = await this.secrets.resolve(this.owner, "default", [name], { purpose: `sign-in ${id}` }).catch(() => null);
+    if (!values?.[name]) return null;
+    const saved = StoredTokensSchema.safeParse(JSON.parse(values[name]) as unknown);
+    if (!saved.success) return null;
+    this.secrets.scrubber.remember(name, saved.data.accessToken);
+    return saved.data;
+  }
+  /** A usable access key, renewed first when the saved one has expired. */
+  async accessToken(provider: OAuthProvider): Promise<string> {
+    const tokens = await this.saved(provider.id);
+    if (!tokens) throw new Error(`Branch Agent is not signed in to ${provider.label} yet`);
+    const expired = tokens.expiresAt !== null && Date.parse(tokens.expiresAt) - 30_000 <= Date.now();
+    return expired ? (await this.refresh(provider, tokens)).accessToken : tokens.accessToken;
+  }
+}
+
+/** An ordinary web address, and nothing else: no file, no script, no other scheme. */
+function webAddress(value: string, what: string): void {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error(`The ${what} is not a web address`); }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`The ${what} must start with https://`);
+}
+function reply(response: import("node:http").ServerResponse, status: number, message: string): void {
+  const page = `<!doctype html><meta charset="utf-8"><title>Branch Agent</title><body style="font:16px system-ui;padding:3rem">${message}</body>`;
+  response.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(page);
+}
+function listenOnLoopback(server: Server): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port));
+  });
+}
+/** The shape the locker keeps, which is not the shape the service answers with. */
+const StoredTokensSchema = z.object({
+  accessToken: z.string().min(1).max(4000), refreshToken: z.string().max(4000).nullable().default(null),
+  tokenType: z.string().max(40).default("Bearer"), expiresAt: z.string().nullable().default(null),
+  scope: z.string().max(1000).nullable().default(null), obtainedAt: z.string(),
+}).strict();
+function readTokens(body: unknown): OAuthTokens {
+  const shape = z.object({
+    access_token: z.string().min(1).max(4000), refresh_token: z.string().max(4000).optional(),
+    token_type: z.string().max(40).default("Bearer"), expires_in: z.number().int().min(0).max(31_536_000).optional(),
+    scope: z.string().max(1000).optional(),
+  }).loose().parse(body);
+  return { accessToken: shape.access_token, refreshToken: shape.refresh_token ?? null, tokenType: shape.token_type,
+    expiresAt: shape.expires_in === undefined ? null : new Date(Date.now() + shape.expires_in * 1000).toISOString(),
+    scope: shape.scope ?? null, obtainedAt: new Date().toISOString() };
+}
