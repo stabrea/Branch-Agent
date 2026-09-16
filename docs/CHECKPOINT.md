@@ -518,6 +518,12 @@ sending `image_url` parts and Anthropic sending base64 image blocks. `POST /api/
 four pictures of 5 MB each; **the bytes never reach `store.message`** — the transcript keeps
 `[attached picture: name]` — so nothing is replayed on later turns or counted against the context.
 A text-only model fails the task with "…cannot look at pictures" rather than dropping it silently.
+The browser branch landed its own image plumbing upstream while this branch was open
+(`MessageImage`, `maxImageBytes` 4 MB, a `readonly acceptsImages` flag and a `textOnly()` strip
+helper). On merge **keep theirs**: `supportsImages(provider)` here already reads either an
+`acceptsImages` flag or a `supportsImages()` method, and `ImagePart` is `MessageImage` plus an
+optional `name`, so the only real conflicts are the duplicate adapter bodies in `providers.ts` and
+the duplicate declarations in `contracts.ts`.
 Covers A1795, A1892, A2230, A2245, A2187, A2186, A2035 (partly), A0074, A2023, A2269, A2110, A1640,
 A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deliberately **not**
 retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`

@@ -98,8 +98,9 @@ function validateOptions(options: ProviderOptions): void {
  * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
  */
 export function supportsImages(provider: Provider): boolean {
-  const accessor = (provider as { supportsImages?: () => boolean }).supportsImages;
-  return typeof accessor === "function" ? accessor.call(provider) === true : false;
+  const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
+  if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
+  return said.acceptsImages === true;
 }
 /** Address and key for a provider's other OpenAI-shaped routes, such as `/embeddings`. */
 export interface EmbeddingEndpoint { endpoint: string; apiKey: string }

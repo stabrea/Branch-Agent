@@ -83,6 +83,8 @@ export interface Provider {
   audio?(): { endpoint: string; apiKey: string } | null;
   /** Whether this connection can be shown a picture; absent means it cannot. */
   supportsImages?(): boolean;
+  /** The same answer as a plain flag, the form the browser branch's adapters use. */
+  readonly acceptsImages?: boolean;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
