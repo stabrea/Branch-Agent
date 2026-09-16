@@ -1290,3 +1290,41 @@ Tools: `branch-function-check.mjs`, `branch-agent-archive.py`, `branch-public-co
 `branch-agent-pr.md` under `C:/Users/bishi/AppData/Local/Temp/Codex-session-files/`.
 Stop the running packaged app before `npm run package:desktop`; the packager cannot replace a
 running executable.
+
+## Batch 19 (wave 7) — the screens the last waves left as routes, and the observability leftovers
+
+Several earlier waves landed a route or a module without the screen that uses it. This batch
+finishes them and adds the observability pieces the audit had open.
+
+The details pane now lists what a conversation is allowed to do without asking again: every
+remembered yes with its plain words and its expiry, the standing rules that say "go ahead", and a
+"Take this back" beside each yes (`POST /api/rules/allowed/revoke`). The approval card says what
+each answer leaves behind before it is pressed, and now sends the exact-bytes fingerprint with it.
+
+`provider-probe.ts` honours the provider's `bearer` flag, so a Gemini connection holding a Google
+sign-in token is checked with an `Authorization` header instead of `x-goog-api-key` — it was being
+reported as broken when the key header made Google answer 401. The Gemini card has a "Sign in with
+Google" button behind `/api/models/gemini-signin`, and when Google refuses a sign-in the card says
+exactly why in plain words and keeps pointing at the ordinary key flow.
+
+Slash-command parsing moved into `public/app.js`, so `/model` and `/help` work when
+`model-profiles.js` has not loaded; the module stays the handler when it is there. Profile cards
+name connections rather than listing ids. Labels appear as chips above Recents and inside Ctrl+K,
+filtering through the `labels` search parameter, with a picker on the conversation title. The
+Activity cards and the reply inside Look inside go through the shared markdown renderer, and every
+word on the Appearance card is behind a key answered in English and French.
+
+New: a documented trajectory shape (`/api/runs/<id>/trajectory`, `/api/runs/trajectories.jsonl`, and
+a read-only `runs.export` tool) holding a task's whole record; a Compare button that puts two tasks
+side by side with the difference between their answers; `/api/events/stream`, an authenticated SSE
+feed of every event filtered by kind, which drives a live "Happening now" list on Activity; a month
+view on Usage with a plain "at this pace, about $X this month" sentence, the money broken by model,
+conversation and channel, and a statistics card counted from the ledger; and a metering setting that
+keeps that spreadsheet in a folder of the workspace on the scheduler's existing beat.
+
+Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and 400) in
+`C:/Users/bishi/AppData/Local/Temp/claude-session-files/wave7-polish/`, refreshed by
+`node tests/wave7-screenshots.mjs`. No new dependency.
+
+Known gap: a task is not filed under a project anywhere in the ledger, so there is no
+cost-per-project breakdown; the month view shows model, conversation and channel instead.

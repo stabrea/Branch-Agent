@@ -1713,3 +1713,49 @@ call with what went in and what came back, both clipped to 600 characters, its s
 receipt), `plan`, `verdicts`, `steering`, `questions`, `timeline`, `receiptCounts`, `usage`, `cost`,
 `messages` (the conversation as the model saw it) and `spans` (up to 500 steps recorded while it
 ran). Saved passwords and keys are taken out before anything leaves.
+
+### The live event stream
+`GET /api/events/stream` is Server-Sent Events carrying every event of this workspace, not just one
+task's. It is behind the same local key as every other route, so a browser reads it with `fetch`
+and a stream reader rather than `EventSource`, which cannot carry a key. The Activity screen uses
+it for the "Happening now" feed, and it starts and stops with that screen.
+
+- `kind=tool.completed,tool.failed` — only these kinds. Leave it out for every kind. At most 20.
+- `after=<id>` — everything after that event id, so a client that reconnects carries on rather than
+  repeating itself. `after=0` replays from the beginning. Leaving `after` out means "only what
+  happens from now on", which is what a fresh screen wants.
+- `maxMs=<milliseconds>` — how long the connection is held open. The default is 150 000.
+
+Each message is `id: <n>`, `event: <kind>`, `data: {"id","runId","kind","data","createdAt"}`. The
+stream opens with an `event: ready` naming where it started and closes with an `event: end` naming
+the last id it sent, which is the id to pass as `after` next time.
+
+### What a month cost
+The Usage screen opens on this month: what it has cost so far across the tasks whose model has a
+price on file, one plain sentence saying what it is heading for at that pace ("At this pace, about
+$X this month"), and the same money broken three ways — by model, by conversation, and by where the
+task came from. A month in which no model had a price says so rather than showing $0.00. A task is
+not filed under a project anywhere in the ledger, so there is no cost-per-project breakdown.
+
+Beside it, "How it has been going" counts the middle round's size (the middle, not the average, so
+one enormous task does not colour it), how many rounds were counted, how often a tool worked, and
+how many conversations had to be shortened to make room. All of it comes from `GET /api/usage`,
+which now returns a `statistics` record alongside `data` and `stats`.
+
+The spreadsheet at `GET /api/usage/export.csv` carries `estimatedCostUsd`, `costPerRunUsd`,
+`dearestModel`, `dearestModelCostUsd`, `runsWithPrice` and `runsWithoutPrice`. A day whose models
+had no price leaves the money cells empty rather than writing a zero.
+
+### Keeping a usage spreadsheet on a schedule (metering)
+Branch can keep a spreadsheet of this month's usage in a folder of your own workspace and write it
+again at an interval you choose. It is off until you ask for it, and it is written on this computer
+only — nothing is sent anywhere.
+
+- `GET /api/usage/metering` / `POST /api/usage/metering` — `{ enabled, folder, every }`, where
+  `every` is `hourly`, `daily` or `weekly` and `folder` is a plain name inside the workspace. A
+  folder that would climb out of the workspace is refused when you save it, not later.
+- `POST /api/usage/metering/now` — writes it straight away and says where it went.
+
+The file is named after the month (`usage-2026-09.csv`) and holds the same money columns as the
+export above. The scheduler's existing beat writes it; a folder it cannot write to is passed over
+quietly rather than stopping the rest of the scheduled work.
