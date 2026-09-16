@@ -4,7 +4,9 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createBranch, saveLanguageServerSettings, saveDebugSettings } from "../dist/index.js";
+import { createServer } from "node:http";
+import { createBranch, saveLanguageServerSettings, saveDebugSettings, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab } from "../dist/index.js";
+import { registerGitHubProject } from "../dist/integrations/git-tools.js";
 
 const here = join(fileURLToPath(import.meta.url), "..");
 const fakeLanguageServer = join(here, "fixtures", "fake-language-server.mjs");
@@ -224,6 +226,75 @@ test("a debugger launches with breakpoints, steps, shows the names in view and s
   const ended = await app.runtime.executeTool("debug.stop", {});
   assert.equal(ended.action, "stopped");
   await assert.rejects(app.runtime.executeTool("debug.variables", {}), /Nothing is being debugged/);
+});
+
+// ---------------------------------------------------------------- GitHub and GitLab reading
+
+/** A stand-in for the two APIs, so no real token or network is involved. */
+async function fakeApi(t, routes) {
+  const seen = [];
+  const server = createServer((request, response) => {
+    seen.push({ path: request.url, auth: request.headers.authorization ?? "", token: request.headers["private-token"] ?? "" });
+    const body = routes[request.url.split("?")[0]];
+    response.writeHead(body ? 200 : 404, { "content-type": "application/json" });
+    response.end(JSON.stringify(body ?? { message: "not found" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { base: `http://127.0.0.1:${server.address().port}`, seen };
+}
+
+test("GitHub checks and releases come back in plain words, with the token only in the header", async (t) => {
+  const { app } = await fixture(t);
+  const api = await fakeApi(t, {
+    "/repos/me/thing/commits/main/check-runs": {
+      check_runs: [
+        { name: "tests", status: "completed", conclusion: "success", details_url: "https://example.invalid/1" },
+        { name: "lint", status: "completed", conclusion: "failure", details_url: "https://example.invalid/2" },
+      ],
+    },
+    "/repos/me/thing/releases": [{ tag_name: "v1.2.0", name: "Winter", published_at: "2026-01-02T00:00:00Z", body: "notes", html_url: "https://example.invalid/r" }],
+  });
+  const policy = new NetworkPolicy({ allowPrivateAddresses: true });
+  const github = new GitHubAccess({ apiBase: api.base }, policy, async () => "ghp_fake_token_aaa");
+  registerGitHubProject(app.registry, github);
+
+  const checks = await app.runtime.executeTool("github.checks", { repo: "me/thing", ref: "main" });
+  assert.equal(checks.allPassed, false);
+  assert.match(checks.summary, /1 of 2 checks did not pass: lint/);
+
+  const releases = await app.runtime.executeTool("github.release", { repo: "me/thing" });
+  assert.equal(releases.releases[0].tag, "v1.2.0");
+
+  assert.ok(api.seen.every((call) => call.auth === "Bearer ghp_fake_token_aaa"), "the token travelled in the header");
+  assert.ok(api.seen.every((call) => !call.path.includes("ghp_")), "and never in the address");
+});
+
+test("GitLab issues, releases and pipelines read through the same network rules", async (t) => {
+  const { app } = await fixture(t);
+  const api = await fakeApi(t, {
+    "/projects/group%2Fthing/issues": [{ iid: 4, title: "a bug", state: "opened", web_url: "https://example.invalid/i", created_at: "2026-02-01T00:00:00Z" }],
+    "/projects/group%2Fthing/releases": [{ tag_name: "v0.3", name: "Spring", released_at: "2026-02-02T00:00:00Z", description: "notes" }],
+    "/projects/group%2Fthing/pipelines": [{ id: 9, ref: "main", status: "success", web_url: "https://example.invalid/p", updated_at: "2026-02-03T00:00:00Z" }],
+  });
+  const policy = new NetworkPolicy({ allowPrivateAddresses: true });
+  registerGitLab(app.registry, new GitLabAccess({ apiBase: api.base }, policy, async () => "glpat_fake_bbb"));
+
+  const issues = await app.runtime.executeTool("gitlab.issues", { project: "group/thing" });
+  assert.deepEqual(issues.issues.map((issue) => issue.number), [4]);
+  const releases = await app.runtime.executeTool("gitlab.releases", { project: "group/thing" });
+  assert.equal(releases.releases[0].tag, "v0.3");
+  const pipelines = await app.runtime.executeTool("gitlab.pipelines", { project: "group/thing" });
+  assert.match(pipelines.summary, /passed/);
+  assert.ok(api.seen.every((call) => call.token === "glpat_fake_bbb"));
+  assert.equal(app.registry.groupOf("gitlab.issues"), "git", "it files under version control, not the unrecognised box");
+});
+
+test("a GitLab address outside the allowed list is refused before anything is sent", async (t) => {
+  const { app } = await fixture(t);
+  const policy = new NetworkPolicy({ allowedHosts: ["gitlab.com"] });
+  registerGitLab(app.registry, new GitLabAccess({ apiBase: "https://elsewhere.invalid/api/v4" }, policy, async () => "glpat_fake_bbb"));
+  await assert.rejects(app.runtime.executeTool("gitlab.issues", { project: "group/thing" }), /not on the allowed list/);
 });
 
 // ---------------------------------------------------------------- checkpoints, undo, redo

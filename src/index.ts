@@ -675,6 +675,7 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+export * from "./integrations/gitlab.js";
 export * from "./integrations/desktop.js";
 export * from "./integrations/desktop-tools.js";
 export * from "./integrations/desktop-config.js";

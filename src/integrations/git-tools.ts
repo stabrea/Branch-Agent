@@ -96,8 +96,55 @@ async function openPullRequest(
   return github.openPullRequest({ ...rest, body });
 }
 
+/**
+ * Reading how a project on GitHub is doing, and putting a folder on GitHub for the first time.
+ * Publishing creates the repository and then sends the work with the Git sign-in this computer
+ * already has: no token is written into the repository's settings, and the person is asked first.
+ * A GitHub App is deliberately not built — these tools use the owner's own personal access token.
+ */
+export function registerGitHubProject(registry: ToolRegistry, github: GitHubAccess, git?: GitTools): void {
+  registry.register({
+    name: "github.issues", permission: "github.manage",
+    description: "List the issues on a GitHub repository, newest first, saying which of them are really pull requests.",
+    parameters: z.object({ repo: repositoryPath, state: z.enum(["open", "closed", "all"]).default("open"), limit: z.number().int().min(1).max(50).default(20) }).strict(),
+    execute: (input) => github.listIssues(input),
+  });
+  registry.register({
+    name: "github.checks", permission: "github.manage",
+    description: "Whether the automatic checks passed on a branch or a saved version, and which ones did not.",
+    parameters: z.object({ repo: repositoryPath, ref: revisionRange }).strict(),
+    execute: (input) => github.checks(input),
+  });
+  registry.register({
+    name: "github.release", permission: "github.manage",
+    description: "The releases published for a GitHub repository, newest first, with their notes.",
+    parameters: z.object({ repo: repositoryPath, limit: z.number().int().min(1).max(30).default(10) }).strict(),
+    execute: (input) => github.releases(input),
+  });
+  if (git) registerPublish(registry, github, git);
+}
+
+function registerPublish(registry: ToolRegistry, github: GitHubAccess, git: GitTools): void {
+  registry.register({
+    name: "github.publish_repo", permission: "github.manage",
+    description: "Put a folder on GitHub for the first time: make the repository (private unless you say otherwise) and send the work there. The person is asked before anything leaves this computer.",
+    parameters: z.object({
+      folder, name: repositoryName, description: z.string().max(350).optional(),
+      private: z.boolean().default(true), branch: branchName.optional(), remote: remoteName,
+    }).strict(),
+    target: (args) => `publish ${args.folder} to GitHub as ${args.name}`,
+    execute: async (input, context: ToolContext) => {
+      const created = (await github.createRepo(input)) as { repository?: string; address?: string; private?: boolean };
+      const url = `https://github.com/${String(created.repository ?? input.name)}.git`;
+      const sent = await git.publish({ folder: input.folder, url, remote: input.remote, branch: input.branch }, context.signal);
+      return { ...created, ...sent };
+    },
+  });
+}
+
 /** GitHub; registered only when the owner has set it up with a saved token. */
-export function registerGitHub(registry: ToolRegistry, github: GitHubAccess): void {
+export function registerGitHub(registry: ToolRegistry, github: GitHubAccess, git?: GitTools): void {
+  registerGitHubProject(registry, github, git);
   registry.register({
     name: "github.create_repo", permission: "github.manage",
     description: "Create a repository on GitHub under the owner's account. It is private unless you say otherwise.",

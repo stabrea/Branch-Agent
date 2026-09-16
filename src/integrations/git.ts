@@ -136,6 +136,23 @@ export class GitTools {
     return { folder: input.folder, name: input.name, path: `${WORKTREE_HOME}/${input.name}`, branch: input.branch ?? null };
   }
 
+  /**
+   * Points a folder at a repository on a server and sends its work there for the first time. The
+   * address is set as a plain remote with no sign-in details in it: the push uses whatever Git
+   * sign-in this computer already has, so no token is ever written into the repository's settings.
+   */
+  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
+    const cwd = await this.folder(input.folder);
+    const address = new URL(input.url);
+    if (address.protocol !== "https:" || address.username || address.password)
+      throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
+    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
+    await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branch], signal, { timeoutMs: 180000 });
+    return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
+  }
+
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
   async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);

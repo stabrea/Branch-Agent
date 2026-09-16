@@ -20,7 +20,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["core", ["user.", "tools.", "answer"]],
   ["files", ["files.", "workspace.", "folders."]],
   ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process.", "debug.", "artifacts."]],
-  ["git", ["git.", "github."]],
+  ["git", ["git.", "github.", "gitlab."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows."]],
