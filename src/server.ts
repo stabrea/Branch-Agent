@@ -39,6 +39,11 @@ import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } fro
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+// Wave 5 (deployment): installing, background running and reaching Branch from a phone.
+import { RemoteAccess } from "./remote/remote-access.js";
+import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { clearRunning, writeRunning } from "./install/running.js";
+import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -108,11 +113,22 @@ async function sessionToken(dataDir: string): Promise<string> {
   await writeFile(path, token, { mode: 0o600, flag: "wx" });
   return token;
 }
-function authorize(request: IncomingMessage, url: string, token: string): void {
-  const expected = new URL(url);
-  if (request.headers.host !== expected.host)
+/**
+ * Which addresses a request may claim it was sent to. Normally only this computer's own loopback
+ * address; while "reach Branch from my phone" is on, also the private Tailscale address and name.
+ * Everything else is refused, which is what stops a web page elsewhere talking to Branch.
+ */
+export function hostAllowed(
+  host: string | undefined, origin: string | undefined, url: string, extra: readonly string[] = [],
+): boolean {
+  const hosts = [new URL(url).host, ...extra];
+  if (!host || !hosts.includes(host)) return false;
+  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+}
+function authorize(request: IncomingMessage, url: string, token: string, extra: readonly string[] = []): void {
+  if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
-  if (request.headers.origin && request.headers.origin !== url)
+  if (!hostAllowed(request.headers.host, request.headers.origin, url, extra))
     throw new HttpError(403, "Origin rejected");
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
@@ -142,6 +158,10 @@ async function staticFile(
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
+    "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
@@ -1124,19 +1144,37 @@ function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: s
     },
   };
 }
+/** The pairing door, open only on the phone's listener and only for the invitation on offer. */
+export async function pairingRequest(
+  remote: RemoteAccess, request: IncomingMessage, response: ServerResponse, path: string,
+): Promise<boolean> {
+  if (request.method !== "POST" || path !== "/api/pair") return false;
+  const body = z.object({ id: z.string().max(64), code: z.string().max(16) }).strict()
+    .parse(await readBody(request, 1024));
+  send(response, 200, remote.pairing.redeem(body.id, body.code));
+  return true;
+}
 export async function startServer(
   app: Branch,
-  options: { dataDir: string; port?: number },
+  options: {
+    dataDir: string; port?: number;
+    /** The installed program file and folder, when Branch runs from an install rather than source. */
+    executable?: string | null; installRoot?: string | null;
+    /** Announce this engine to other launches, so a second window joins it instead of starting again. */
+    presence?: "app" | "daemon";
+  },
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
   let executions = 0;
-  const server = createServer(async (request, response) => {
+  const remote = new RemoteAccess(token);
+  const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
-      if (request.headers.host !== new URL(url).host)
+      if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
+      if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -1149,7 +1187,7 @@ export async function startServer(
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
-      authorize(request, url, token);
+      authorize(request, url, token, remote.allowedHosts());
       if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
@@ -1157,6 +1195,10 @@ export async function startServer(
       if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
+        if (path.startsWith("/api/deployment")) {
+          const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
+          if (result !== undefined) { send(response, 200, result); return; }
+        }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
         if (executes) executions--;
@@ -1168,13 +1210,20 @@ export async function startServer(
         });
       else response.end();
     }
+  };
+  const server = createServer((request, response) => void handle(request, response, false));
+  const remoteHandler = (request: IncomingMessage, response: ServerResponse) =>
+    void handle(request, response, true);
+  const deployment = (): DeploymentContext => ({
+    dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
+    executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
   server.on("upgrade", (request, socket) => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
-      const sameHost = request.headers.host === new URL(url).host && (!request.headers.origin || request.headers.origin === url);
+      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
       if (!match || !run || run.owner !== app.runtime.owner || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
@@ -1195,11 +1244,25 @@ export async function startServer(
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  if (options.presence) {
+    await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
+    await noteFirstStart(app, options.dataDir).catch(() => undefined);
+  }
   return {
     url,
     token,
-    close: () => stopServer(app, server),
+    remote,
+    close: async () => {
+      await remote.disable().catch(() => undefined);
+      if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
+      await stopServer(app, server);
+    },
   };
+}
+/** Records whether a version that has just replaced another one came up healthy the first time. */
+async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
+  if ((await readFirstStart(dataDir))?.version === app.version) return;
+  await recordFirstStart(dataDir, app.version, (await healthReport(app)).ok);
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {

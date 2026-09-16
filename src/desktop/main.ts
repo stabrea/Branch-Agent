@@ -6,8 +6,13 @@ import {
   nativeImage,
   type NativeImage,
 } from "electron";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// Wave 5 (deployment): portable folders, joining a background engine, opening straight to the tray.
+import { resolveDataLocation } from "../install/layout.js";
+import { attachToRunning } from "../install/running.js";
+import { writeUpdateBackup } from "../install/update-backup.js";
+import { startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
 import { startServer } from "../server.js";
@@ -63,7 +68,7 @@ function protectWindow(
 }
 
 async function createWindow(
-  url: string, token: string, settings: DesktopSettings,
+  url: string, token: string, settings: DesktopSettings, backup?: () => Promise<void>,
 ): Promise<void> {
   window = new BrowserWindow({
     width: 1440,
@@ -87,14 +92,15 @@ async function createWindow(
   protectWindow(window, url, token);
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
-  registerUpdaterIpc(window, url, app.getVersion(), () => app.quit());
+  registerUpdaterIpc(window, url, app.getVersion(), () => app.quit(), backup);
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
       window?.hide();
     }
   });
-  window.once("ready-to-show", () => window?.show());
+  // "Start quietly in the corner of the taskbar" keeps the window hidden until the tray icon is used.
+  window.once("ready-to-show", () => { if (!startsMinimized(process.argv)) window?.show(); });
   await window.loadURL(`${url}/?desktop=1`);
   createTray();
 }
@@ -121,16 +127,29 @@ function createTray(): void {
   });
 }
 
+/**
+ * Where this launch keeps its files. A `portable.txt` beside the program makes Branch keep
+ * everything next to itself, so the whole assistant travels on a memory stick.
+ */
+async function folders(base: string): Promise<{ dataDir: string; workspace: string }> {
+  const location = await resolveDataLocation(dirname(process.execPath), base);
+  return {
+    dataDir: process.env.BRANCH_DATA_DIR ?? location.dataDir,
+    workspace: process.env.BRANCH_WORKSPACE ?? location.workspace,
+  };
+}
 async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
+  const { dataDir, workspace } = await folders(base);
+  // An engine already working in the background is joined rather than started a second time.
+  const running = await attachToRunning(dataDir);
+  if (running) return createWindow(running.url, running.token, settings);
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(base, "chatgpt-auth.json"), {
     available: () => safeStorage.isEncryptionAvailable(),
     encrypt: (value) => safeStorage.encryptString(value),
     decrypt: (value) => safeStorage.decryptString(value),
   }), { userAgent: `BranchAgent/${app.getVersion()}` });
-  const dataDir = process.env.BRANCH_DATA_DIR ?? join(base, "state");
-  const workspace = process.env.BRANCH_WORKSPACE ?? join(base, "workspace");
   const branch = await createBranch({
     dataDir,
     workspace,
@@ -162,9 +181,14 @@ async function start(): Promise<void> {
     );
     integrationClose = integrations.close;
     branch.browser = integrations.hosted.browser ?? null;
-    const server = await startServer(branch, { dataDir, port: 0 });
+    const server = await startServer(branch, {
+      dataDir, port: 0, presence: "app",
+      executable: app.isPackaged ? process.execPath : null,
+      installRoot: app.isPackaged ? dirname(process.execPath) : null,
+    });
     serverClose = server.close;
-    await createWindow(server.url, server.token, settings);
+    await createWindow(server.url, server.token, settings, () =>
+      writeUpdateBackup(dataDir, branch.store.backup(branch.version), branch.version).then(() => undefined));
   } catch (error) {
     await stop();
     throw error;

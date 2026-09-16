@@ -14,10 +14,13 @@ export type Exec = (file: string, args: string[], options: { windowsHide: boolea
 export type Spawn = (command: string, args: string[], options: Record<string, unknown>) => { unref(): void };
 export type Write = (file: string, content: string) => void;
 
+/** Windows Script Host text that runs any command with window style 0 (hidden) and does not wait. */
+export function hiddenRunner(command: string): string {
+  return `CreateObject("WScript.Shell").Run "${command.replace(/"/g, '""')}", 0, False\r\n`;
+}
 /** The launcher text: runs the script through cmd with window style 0 (hidden) and does not wait. */
 export function hiddenLauncher(script: string, pid: number): string {
-  const command = `cmd.exe /d /c ""${script}" ${pid}"`;
-  return `CreateObject("WScript.Shell").Run "${command.replace(/"/g, '""')}", 0, False\r\n`;
+  return hiddenRunner(`cmd.exe /d /c ""${script}" ${pid}"`);
 }
 
 export async function launchHandOver(script: string, pid: number, deps: { exec?: Exec; spawn?: Spawn; write?: Write; systemRoot?: string } = {}): Promise<"task" | "spawn"> {

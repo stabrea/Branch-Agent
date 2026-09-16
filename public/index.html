@@ -131,6 +131,11 @@
               <button id="first-run-test" type="button" class="quiet-button">Test the connection</button>
               <button id="first-run-done" type="button" hidden>Done, start chatting</button>
             </div>
+            <div id="first-run-extras" class="first-run-extras">
+              <label><input id="first-run-autostart" type="checkbox" /> Open Branch when I sign in to Windows</label>
+              <label><input id="first-run-phone" type="checkbox" /> Let me reach Branch from my phone</label>
+              <p id="first-run-extras-status" role="status"></p>
+            </div>
           </section>
           <details id="saved-conversations" class="card saved-conversations">
             <summary>Saved conversations</summary>
@@ -475,6 +480,30 @@
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>
+          <section id="deployment-card" class="card">
+            <h2>How Branch runs on this computer</h2>
+            <p id="deployment-note" role="status">Choose when Branch starts, whether it keeps working with the window closed, and whether your phone can reach it.</p>
+            <label><input id="start-with-windows" type="checkbox" /> Start Branch when I sign in to Windows</label>
+            <label><input id="start-minimised" type="checkbox" checked /> Start quietly in the corner of the taskbar, without opening the window</label>
+            <p id="start-with-windows-status" role="status" class="meta"></p>
+            <label><input id="keep-running" type="checkbox" /> Keep Branch working when the window is closed</label>
+            <p id="keep-running-status" role="status" class="meta">Timed jobs, chat replies and triggers only happen while Branch is working.</p>
+            <label><input id="phone-switch" type="checkbox" /> Reach Branch from my phone</label>
+            <p id="phone-status" role="status" class="meta"></p>
+            <p class="meta">Your phone reaches Branch over Tailscale, the private network you already sign in to on both devices. Branch never opens itself to the internet or to the network you happen to be on.</p>
+            <button id="phone-invite" type="button" class="quiet-button" hidden>Show the square code for my phone</button>
+            <canvas id="phone-qr" width="240" height="240" aria-label="Square code to scan with your phone" hidden></canvas>
+            <p id="phone-code" role="status" class="meta"></p>
+            <h3>Safety copies</h3>
+            <p id="restore-points" class="meta"></p>
+            <div id="restore-offer" hidden>
+              <p id="restore-offer-note" role="status"></p>
+              <button id="restore-previous" type="button" class="quiet-button">Put back the previous version's saved work</button>
+            </div>
+            <h3>Check this computer is ready</h3>
+            <button id="run-doctor" type="button" class="quiet-button">Check and repair what I can</button>
+            <pre id="doctor-report" class="meta"></pre>
+          </section>
           <form id="identity-form" class="card">
             <h2>Assistant identity</h2>
             <p>Changes apply to the next task, including the next message in an existing conversation. Tasks already running keep their current instructions.</p>
@@ -841,6 +870,7 @@
       </div>
     </div>
     <script src="/update-screen.js"></script>
+    <script src="/deployment.js" type="module"></script>
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>

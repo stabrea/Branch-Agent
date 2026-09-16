@@ -15,6 +15,9 @@ import { startTerminal } from "./terminal.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { healthReport } from "./health.js";
 import { readFile, writeFile } from "node:fs/promises";
+// Wave 5 (deployment): background running and setting-up repairs.
+import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
+import { doctorFix, doctorText } from "./doctor-fix.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -51,7 +54,11 @@ async function serve(
   const port = Number(process.env.BRANCH_PORT ?? 3210);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid BRANCH_PORT");
-  const server = await startServer(app, { dataDir, port });
+  const server = await startServer(app, {
+    dataDir, port, presence: "daemon",
+    executable: process.env.BRANCH_EXECUTABLE ?? null,
+    installRoot: process.env.BRANCH_INSTALL_ROOT ?? null,
+  });
   console.log(
     `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
   );
@@ -73,9 +80,10 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
+  if (command === "daemon") return runDaemonCommand();
   if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] [--fix] | daemon install|uninstall|status | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -161,6 +169,26 @@ async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Prom
   const status = await finishChatGPTSignIn(app.runtime.models, auth, app.runtime.owner, app.userAgent);
   console.log(`Signed in${status.email ? " as " + status.email : ""}. ChatGPT models are now available.`);
 }
+/**
+ * `branch daemon install|uninstall|status`: keeps the assistant's engine working in the background,
+ * with no window, from the moment the owner signs in to Windows.
+ */
+async function runDaemonCommand(): Promise<void> {
+  const action = (process.argv[3] ?? "status") as DaemonAction;
+  if (!["install", "uninstall", "status"].includes(action))
+    throw new Error("Usage: node dist/cli.js daemon install | uninstall | status");
+  const executable = process.env.BRANCH_EXECUTABLE ?? process.execPath;
+  const dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
+  const report = await daemonCommand(action, {
+    executable,
+    script: process.env.BRANCH_DAEMON_SCRIPT ?? fileURLToPath(new URL("cli.js", import.meta.url)),
+    dataDir,
+    workspace: resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
+    port: Number(process.env.BRANCH_PORT ?? 3210),
+    launcherPath: join(dataDir, daemonLauncherName),
+  });
+  console.log(report.message);
+}
 /** Refreshes a source checkout in place: pull, install exact dependencies, rebuild. */
 function updateCheckout(): void {
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -177,6 +205,12 @@ async function printDoctor(
   app: Awaited<ReturnType<typeof createBranch>>,
   dataDir: string,
 ): Promise<void> {
+  if (process.argv.includes("--fix") || process.argv.includes("--repair")) {
+    console.log(doctorText(await doctorFix({
+      fix: true, workspace: app.runtime.workspace, port: Number(process.env.BRANCH_PORT ?? 3210),
+    })));
+    return;
+  }
   const health = await healthReport(app, { probeProvider: process.argv.includes("--probe") });
   console.log(
     JSON.stringify(

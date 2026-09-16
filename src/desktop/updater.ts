@@ -21,6 +21,11 @@ export interface UpdaterOptions {
   scratchDir: string;
   fetch?: typeof fetch;
   extract?: (archive: string, into: string) => Promise<void>;
+  /**
+   * Takes a safety copy of the person's saved work before the new files are put in place. When it
+   * fails the update stops, because an update without something to go back to is not worth the risk.
+   */
+  backup?: () => Promise<void>;
 }
 export interface ReleaseInfo {
   currentVersion: string;
@@ -104,6 +109,7 @@ export class Updater {
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
+      await this.safetyCopy();
       const script = await this.writeScript(stagedDir);
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
@@ -111,6 +117,16 @@ export class Updater {
       this.set("error", error instanceof Error ? error.message : String(error), null, release);
       throw error;
     } finally { this.busy = false; }
+  }
+  /** The safety copy taken just before the files are swapped; three are kept by the caller. */
+  private async safetyCopy(): Promise<void> {
+    if (!this.options.backup) return;
+    this.set("unpacking", "Making a safety copy of your work before the update…", null, this.status.release);
+    try {
+      await this.options.backup();
+    } catch (error) {
+      throw new Error(`The safety copy could not be made, so the update was stopped: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {
