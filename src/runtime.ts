@@ -28,6 +28,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
+import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
@@ -200,6 +201,11 @@ export class Runtime {
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /**
+   * Asks the owner's own checks whether a tool call may go ahead. `createBranch` connects the
+   * lifecycle hooks; on its own nobody has an opinion and every call goes as the policy said.
+   */
+  askHooks: (runId: string, about: Record<string, unknown>) => Promise<HookDecision | null> = async () => null;
   /**
    * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
@@ -1415,18 +1421,23 @@ export class Runtime {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision, label, target, readOnly, remember, sandbox } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision: ruled, label, target, readOnly, remember, sandbox } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
-      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision });
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
       return { refusal: simulatedResult(label), sandbox };
     }
+    // The owner's own checks get a say before the call goes ahead. A check may only make the answer
+    // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
+    const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
+    const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
     if (decision === "allow") return { refusal: null, sandbox };
     if (decision === "deny") {
-      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
-      return { refusal: { ok: false, error: refusedByPolicy(label) }, sandbox };
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target, ...(verdict ? { hook: verdict.hook } : {}) });
+      return { refusal: { ok: false, error: verdict?.reason || refusedByPolicy(label) }, sandbox };
     }
     const source: RunSource = context.source ?? "owner";
-    return this.askApproval(context, { tool: call.name, label, target, source, remember, sandbox,
+    const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
+    return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);

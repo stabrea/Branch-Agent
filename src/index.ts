@@ -377,6 +377,9 @@ export async function createBranch(options: {
   runtime.notifyEvent = webhooks.notifier(runtime.owner);
   channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
+  // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
+  // make the answer stricter — hold it for a yes, or refuse it.
+  runtime.askHooks = (runId, about) => hooks.decide(runId, about);
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.

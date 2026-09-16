@@ -9,22 +9,28 @@ import { createBranch } from "../dist/index.js";
  * Wave 8: the rows the 2026-09-17 ledger verification re-opened. Each test names the audit id it
  * stands for, and asserts the behaviour the row promised rather than that a symbol exists.
  */
-function scripted(name) {
-  const provider = {
-    name, requests: [],
-    async complete(request) { provider.requests.push(request); return { content: `${name} answered`, toolCalls: [] }; },
-  };
+export const say = (content) => ({ content, toolCalls: [] });
+export const call = (name, args) =>
+  ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 9)}`, name, arguments: JSON.stringify(args) }] });
+
+/** A provider whose answer is chosen from the request, so a test can make the model ask for a tool. */
+function scripted(reply) {
+  const provider = { name: "scripted", requests: [], async complete(request) {
+    provider.requests.push(request);
+    const user = [...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    return reply({ user, last: request.messages.at(-1), request });
+  } };
   return provider;
 }
-async function fixture(t) {
+async function fixture(t, reply = () => say("done")) {
   const root = await mkdtemp(join(tmpdir(), "branch-reopened-"));
-  const alpha = scripted("alpha");
+  const provider = scripted(reply);
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
-    presets: [{ id: "alpha", name: "Alpha", provider: alpha, model: "a" }],
+    presets: [{ id: "alpha", name: "Alpha", provider, model: "a" }],
   });
   t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
-  return { app, root, alpha };
+  return { app, root, provider, alpha: provider };
 }
 
 /** A password manager's command line that never leaves this process. */
@@ -178,4 +184,73 @@ test("A0245 the choice reaches the question the model's turn stops on, and an ol
     limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } });
   assert.equal(readPolicy(app.store, app.runtime.owner).rules.length, 1, "an old saved policy is not wiped");
   assert.equal(PolicySchema.parse({ rules: [{ decision: "allow" }] }).rules[0].sandbox, undefined);
+});
+
+// ---------------------------------------------------------------- A0824 / A1126
+
+/** A hook that answers with whatever verdict the test hands it, and counts how often it was asked. */
+function scriptedHook(verdict, { slow = false } = {}) {
+  const seen = [];
+  return {
+    seen,
+    runner: async (hook, payload) => {
+      seen.push({ hook: hook.id, payload });
+      if (slow) await new Promise((resolve) => setTimeout(resolve, hook.timeoutMs + 800).unref?.() ?? setTimeout(resolve, 5));
+      return verdict === "fail" ? { ok: false, error: "the check fell over" } : { ok: true, verdict };
+    },
+  };
+}
+
+test("A0824/A1126 a check turns an allow into a question that really stops the task, and into a refusal", async (t) => {
+  // The model asks to write a file once, then answers; nothing in the policy holds it back.
+  const { app } = await fixture(t, ({ last }) =>
+    last?.role === "tool" ? say("written") : call("files.write", { path: "note.txt", content: "hello" }));
+  const { context } = taskContext(app, "write a file");
+
+  // Nothing registered: the call goes as the policy said, which is exactly how it behaved before.
+  assert.equal(await app.hooks.decide(context.runId, { tool: "files.write" }), null);
+  const plain = await app.runtime.run({ prompt: "write the note" });
+  assert.equal(plain.status, "completed", "with no check, the write goes ahead");
+
+  const ask = scriptedHook({ decision: "ask", reason: "Finance files are checked with you first." });
+  app.hooks.configure([{ id: "finance", event: "tool.before", executable: "checker" }], ask.runner);
+  const stopped = await app.runtime.run({ prompt: "write the note again" });
+  assert.equal(stopped.status, "needs_input", "the check turned an allow into a question");
+  assert.match(stopped.output, /Finance files are checked with you first/);
+  assert.equal(ask.seen[0].payload.event, "tool.before", "the hook is told which moment this is");
+  assert.equal(ask.seen[0].payload.decision, "allow", "and what the policy had already decided");
+  assert.equal(app.store.audit.list(app.runtime.owner).filter((r) => r.action === "hook.blocked")[0].outcome, "held for a yes");
+  assert.ok(app.runtime.approvals.waiting(stopped.sessionId).length, "the task is waiting on a real question");
+
+  // A refusal comes back to the model as the check's own words, and is written down.
+  const deny = scriptedHook({ decision: "deny", reason: "That folder is off limits." });
+  app.hooks.configure([{ id: "guard", event: "tool.before", executable: "checker" }], deny.runner);
+  const refused = await app.runtime.run({ prompt: "write it anyway" });
+  assert.equal(refused.status, "completed");
+  assert.ok(app.store.events(refused.id).some((event) => event.kind === "hook.blocked"), "the refusal is on the task");
+  const denied = app.store.events(refused.id).find((event) => event.kind === "policy.denied");
+  assert.equal(denied.data.hook, "guard");
+  assert.equal(app.store.audit.list(app.runtime.owner).filter((r) => r.action === "hook.blocked")[0].outcome, "refused");
+});
+
+test("A0824 a check that says nothing, or falls over, cannot let something through by accident", async (t) => {
+  const { app } = await fixture(t);
+  const { context } = taskContext(app);
+  // A verdict that is not one leaves the decision alone.
+  app.hooks.configure([{ id: "quiet", event: "tool.before", executable: "checker" }], scriptedHook({ nonsense: true }).runner);
+  assert.equal(await app.hooks.decide(context.runId, { tool: "files.write" }), null);
+  // A check that falls over holds the call for a yes, which is what onTimeout says by default.
+  app.hooks.configure([{ id: "broken", event: "tool.before", executable: "checker" }], scriptedHook("fail").runner);
+  const fallback = await app.hooks.decide(context.runId, { tool: "files.write" });
+  assert.equal(fallback.decision, "ask");
+  assert.match(fallback.reason, /did not answer in time|being put to you/);
+  // Unless the owner said to let it through instead.
+  app.hooks.configure([{ id: "broken", event: "tool.before", executable: "checker", onTimeout: "allow" }], scriptedHook("fail").runner);
+  assert.equal(await app.hooks.decide(context.runId, { tool: "files.write" }), null);
+  // The strictest of several answers wins.
+  app.hooks.configure([
+    { id: "soft", event: "tool.before", executable: "checker" },
+    { id: "hard", event: "tool.before", executable: "checker" },
+  ], async (hook) => ({ ok: true, verdict: { decision: hook.id === "hard" ? "deny" : "ask", reason: hook.id } }));
+  assert.equal((await app.hooks.decide(context.runId, { tool: "files.write" })).hook, "hard");
 });

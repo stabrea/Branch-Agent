@@ -2772,3 +2772,17 @@ approval card before you answer, and `code.run`, `process.start` and the host-co
 honour it — the result each of them hands back says which box it actually ran in. It is not a
 security boundary: the program still runs on this computer as you. It is you deciding how much rope
 one tool gets.
+
+## Your own checks, before something happens (batch 26, wave 8)
+
+A hook used to be told about things after they had already happened. There is now one more moment,
+`tool.before`, which happens *before* a tool call goes ahead — and a hook registered for it can stop
+the call. It prints one line of JSON: `{"decision":"ask","reason":"..."}` holds the call and puts the
+question to you with that reason attached; `{"decision":"deny","reason":"..."}` refuses it outright
+and the reason goes back to the assistant; anything else leaves the decision alone.
+
+A check may only make the answer stricter. It can turn a yes into a question or a refusal; it can
+never turn a refusal into a yes, and it is not consulted at all on something your settings already
+said no to. If the check takes longer than its `timeoutMs` or falls over, the call is held for a yes
+rather than let through, unless you set `onTimeout` to `allow` on that hook. Every time a check
+changes what happened, it is written into "What the assistant was allowed to do".
