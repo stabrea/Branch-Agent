@@ -373,6 +373,36 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 21 (wave 2) — the shell, second pass
+
+The first shell pass kept the old page around the new rail. This pass rebuilds the shape itself:
+the ChatGPT desktop application crossed with the Hermes desktop application, in KeepOak's language.
+The top bar is gone; the brand, the assistant's name, the search and appearance icons and the two
+pane switches moved into the rail head and the main title bar. The icon column folded into the rail
+as a "Sections" group, and the rail now carries, in order: "New conversation", "Find anything",
+Sections, Projects (the workspace folders, the active one marked, clicking switches) and Recents
+(conversations by day, each one line, with rename, pin and "take off this list" revealed on hover —
+these are this browser's own labels and never touch the saved conversation). Each group folds and
+is remembered. At the foot sits the owner row — initial, project, connection dot — opening a menu
+with Settings and connections, Change the appearance, Lock session, Check for updates and About.
+The main pane is one 760 px column: messages are prose with a small role marker, the owner's own
+messages sit in a soft tinted bubble on the right, and tool work is a single quiet row ("Worked
+with 2 tools · files list, files read") that opens in place instead of a card. The composer is a
+rounded box pinned to the foot with attach, microphone, Temporary and Send inside it. The empty
+conversation is a short greeting with four suggestion chips drawn from the owner's recipes when
+there are any. Sections open in the same column with the same title bar and no page-in-page frames
+(`.card` is now a flat block with a hairline under it; only the sign-in and first-run panels still
+read as panels). `public/context-pane.js` replaces the marketing copy in the context pane with the
+model and a link to change it, what is running now, the receipts for this conversation in plain
+language (`GET /api/runs/:id/receipts`), recently saved memory, three counts and the small acorn.
+Shell surfaces were added to `public/tokens.css` as Daylight/Forest variants (`--rail-bg`,
+`--main-bg`, `--head-bg`, `--bubble`, `--composer-bg`, `--step-bg`); nothing outside that file
+hard-codes a colour except the pixel-art walker sprite in `public/update-screen.js`. New static
+route: `/context-pane.js`. Under 1180 px the context pane steps aside, under 860 px the rail slides
+over the page, and the page never scrolls sideways at 400 px. Tests: `tests/shell-ui.test.mjs`
+(the 400 px case now opens the slide-over rail first) and `tests/identity-ui.test.mjs` (the maker
+line moved from `.topbar-brand` to `.rail-maker`).
+
 ## Batch 20 (wave 2) — workspace search and code editing tools
 Seven tools in `src/code-search.ts`, `src/code-edit.ts`, `src/patch.ts` and `src/ignore.ts`, all
 behind the existing `files.read` / `files.write` permissions and `WorkspaceFiles.checked()`

@@ -10,57 +10,85 @@
     <link rel="stylesheet" href="/shell.css" />
   </head>
   <body>
-    <div class="topbar">
-      <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> Branch Agent <span class="topbar-by">by</span> <span class="topbar-maker">KeepOak</span></span
-      ><span class="topbar-caption">Your personal assistant</span
-      ><span class="topbar-actions"
-        ><button id="rail-toggle" class="text-button" type="button" aria-pressed="true">Conversations</button
-        ><button id="cmd-open" class="text-button" type="button">Search everything ⌃K</button
-        ><button id="aside-toggle" class="text-button" type="button" aria-pressed="true">Overview</button
-        ><button id="appearance-shortcut" class="text-button">◐ Appearance</button></span
-      >
-    </div>
-    <aside class="sidebar">
-      <a class="brand" href="/" aria-label="Branch Agent home"
-        ><span class="brand-icon"><img src="/assets/keepoak-mark.png" alt="KeepOak logo" /></span> <span id="brand-name">Branch Agent</span></a
-      >
-      <p class="tagline">
-        PERSONAL ASSISTANT<br />Good work, with room to grow.
-      </p>
-      <p class="nav-label">Your workspace</p>
-      <nav aria-label="Main navigation">
-        <button class="nav active" data-view="chat">Conversation</button
-        ><button class="nav" data-view="runs">Activity</button
-        ><button class="nav" data-view="usage">Usage</button
-        ><button class="nav" data-view="memory">Memory</button
-        ><button class="nav" data-view="skills">Skills</button
-        ><button class="nav" data-view="documents">Documents</button
-        ><button class="nav" data-view="specialists">Specialists</button
-        ><button class="nav" data-view="procedures">Procedures</button
-        ><button class="nav" data-view="schedules">Schedules</button
-        ><button class="nav" data-view="settings">Settings</button>
-      </nav>
-      <div class="sidebar-bottom">
-        <span class="dot"></span> Local workspace
-        <p id="provider">Connect to begin</p>
-        <button id="lock" class="text-button" hidden>Lock session</button>
+    <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
+         conversations by day, and the owner at the foot. public/shell.js fills it. -->
+    <aside class="rail" id="conversation-rail" aria-label="Sidebar">
+      <div class="rail-head">
+        <button id="app-switcher" class="app-switcher" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
+          <span class="brand"><span id="brand-name">Branch Agent</span></span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg>
+        </button>
+        <button id="cmd-open" class="rail-icon" type="button" aria-label="Search everything">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
+        </button>
+        <button id="appearance-shortcut" class="rail-icon" type="button" aria-label="Appearance settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 4v16a8 8 0 000-16z" fill="currentColor" stroke="none" /></svg>
+        </button>
+        <div id="app-menu" class="menu" hidden role="menu" aria-label="Switch project"></div>
       </div>
-    </aside>
-    <!-- Conversation rail (public/shell.js fills it). -->
-    <aside class="rail" id="conversation-rail" aria-label="Conversations">
-      <div class="rail-actions">
-        <button id="rail-new" class="rail-new" type="button">＋ New conversation</button>
-        <button id="rail-find" class="rail-find" type="button">Find anything <kbd>Ctrl K</kbd></button>
+      <div class="rail-scroll" id="rail-scroll">
+        <button id="rail-new" class="rail-row rail-new" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" /><path d="M14 6l4 4" /></svg>
+          <span>New conversation</span>
+          <span class="rail-plus" aria-hidden="true">＋</span>
+        </button>
+        <button id="rail-find" class="rail-row rail-find" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4-4" /></svg>
+          <span>Find anything</span> <kbd>Ctrl K</kbd>
+        </button>
+        <section class="rail-group" data-group="sections">
+          <h2><button class="group-head" type="button" data-toggle="sections" aria-expanded="true">Sections<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <nav aria-label="Sections" id="sections-nav">
+            <button class="nav active" data-view="chat">Conversation</button
+            ><button class="nav" data-view="runs">Activity</button
+            ><button class="nav" data-view="usage">Usage</button
+            ><button class="nav" data-view="memory">Memory</button
+            ><button class="nav" data-view="skills">Skills</button
+            ><button class="nav" data-view="specialists">Specialists</button
+            ><button class="nav" data-view="procedures">Procedures</button
+            ><button class="nav" data-view="schedules">Schedules</button
+            ><button class="nav" data-view="documents">Documents</button
+            ><button class="nav" data-view="settings">Settings</button>
+          </nav>
+        </section>
+        <section class="rail-group" data-group="projects">
+          <h2><button class="group-head" type="button" data-toggle="projects" aria-expanded="true">Projects<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <div id="rail-projects" class="rail-rows"></div>
+        </section>
+        <section class="rail-group" data-group="recents">
+          <h2><button class="group-head" type="button" data-toggle="recents" aria-expanded="true">Recents<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <div id="rail-list" class="rail-rows" aria-live="polite"></div>
+        </section>
       </div>
-      <div class="rail-scroll" id="rail-list" aria-live="polite"></div>
+      <div class="rail-foot">
+        <button id="owner-menu-button" class="owner-row" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="owner-avatar" id="owner-initial" aria-hidden="true">B</span>
+          <span class="owner-lines"><span class="owner-name" id="owner-name">Your workspace</span><span class="owner-status"><span class="dot"></span> <span id="provider">Connect to begin</span></span></span>
+        </button>
+        <div id="owner-menu" class="menu" hidden role="menu" aria-label="Workspace menu">
+          <button id="menu-settings" type="button" role="menuitem">Settings and connections</button>
+          <button id="menu-appearance" type="button" role="menuitem">Change the appearance</button>
+          <button id="lock" type="button" role="menuitem" hidden>Lock session</button>
+          <button id="menu-updates" type="button" role="menuitem">Check for updates</button>
+          <button id="menu-about" type="button" role="menuitem">About Branch Agent</button>
+        </div>
+        <p class="rail-maker">Branch Agent <span class="topbar-by">by</span> <span class="topbar-maker">KeepOak</span></p>
+      </div>
     </aside>
     <main>
       <header>
-        <div>
-          <span class="eyebrow">YOUR WORKSPACE</span>
+        <button id="rail-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Conversations">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+        </button>
+        <div class="head-title">
           <h1 id="page-title">Conversation</h1>
+          <span id="thread-name" class="thread-name"></span>
         </div>
         <span class="status-pill" id="connection">Locked</span>
+        <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
+        </button>
       </header>
       <section id="login" class="card login">
         <span class="eyebrow">// WELCOME TO BRANCH AGENT</span>
@@ -128,19 +156,17 @@
           </div>
           <div id="session-context" class="session-context" hidden></div>
           <div id="activity" class="activity" hidden></div>
-          <div id="conversation" aria-live="polite">
-            <div class="welcome">
-              <span class="eyebrow">// A LITTLE HELP, A LITTLE HEADWAY</span>
-              <h2>Give your next<br />idea a place to grow.</h2>
-              <p>
-                Plan a task, save something worth remembering,<br />or let your
-                assistant help with workspace files.
-              </p>
-              <button id="demo-prompt" class="secondary">
-                Try the file workflow ↗
-              </button>
+          <div class="welcome">
+            <h2 id="greeting">What would you like to do?</h2>
+            <p>Ask for anything, or start from one of these.</p>
+            <div class="chips" id="suggestions">
+              <button id="demo-prompt" class="chip" type="button">Try the file workflow</button>
+              <button class="chip" type="button" data-prompt="Look through my workspace files and tell me what changed most recently.">Catch me up on my files</button>
+              <button class="chip" type="button" data-prompt="Remember this for later: ">Save something to memory</button>
+              <button class="chip" type="button" data-prompt="Make a short plan for ">Plan a piece of work</button>
             </div>
           </div>
+          <div id="conversation" aria-live="polite"></div>
           <div id="model-controls" class="model-controls" hidden>
             <label for="session-model">Model for this conversation</label>
             <select id="session-model"></select>
@@ -165,13 +191,16 @@
               rows="3"
             ></textarea>
             <div>
-              <label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
+              <button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
+              ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
+              ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><span id="session-label"
                 >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
-              ><button id="voice-record" type="button" class="text-button" title="Hold to record audio, release to transcribe">🎤</button
               ><button id="send">Send ↗</button
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
@@ -714,24 +743,28 @@
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
-    <aside class="context-panel" aria-label="Assistant overview">
-      <span class="eyebrow">// YOUR ASSISTANT</span>
-      <h2>One place.<br />Many possibilities.</h2>
-      <p>Bring your tasks, notes, and useful routines together.</p>
-      <div class="context-provider" id="context-provider">Connect to begin</div>
+    <aside class="context-panel" id="context-panel" aria-label="This conversation">
+      <div class="context-block">
+        <h2 class="context-head">Model</h2>
+        <div class="context-provider" id="context-provider">Connect to begin</div>
+        <button id="context-change-model" class="context-link" type="button">Change the model</button>
+      </div>
+      <div class="context-block">
+        <h2 class="context-head">Running now</h2>
+        <div id="context-tasks" class="context-rows"></div>
+      </div>
+      <div class="context-block">
+        <h2 class="context-head">Receipts</h2>
+        <div id="context-receipts" class="context-rows"></div>
+      </div>
+      <div class="context-block">
+        <h2 class="context-head">Saved memory</h2>
+        <div id="context-facts" class="context-rows"></div>
+      </div>
       <dl class="context-stats">
-        <div>
-          <dt>Active tasks</dt>
-          <dd id="context-runs">—</dd>
-        </div>
-        <div>
-          <dt>Saved memories</dt>
-          <dd id="context-memory">—</dd>
-        </div>
-        <div>
-          <dt>Available tools</dt>
-          <dd id="context-tools">—</dd>
-        </div>
+        <div><dt>Tasks</dt><dd id="context-runs">—</dd></div>
+        <div><dt>Memories</dt><dd id="context-memory">—</dd></div>
+        <div><dt>Tools</dt><dd id="context-tools">—</dd></div>
       </dl>
       <div class="acorn-art">
         <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
@@ -739,7 +772,6 @@
         <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
         <button id="acorn-motion" class="acorn-motion" type="button">Pause rotation</button>
       </div>
-      <p class="context-footer">SMALL STEPS. USEFUL PROGRESS.</p>
     </aside>
     <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
       <div class="update-panel">
@@ -761,5 +793,6 @@
     <script src="/mcp.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
+    <script src="/context-pane.js" type="module"></script>
   </body>
 </html>
