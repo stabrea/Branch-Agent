@@ -119,6 +119,80 @@ test("G6 the message box knows its own commands, so /model and /help work withou
   assert.match(module, /presetName/, "profile cards read connection names rather than ids");
 });
 
+/* ---------- D2: trajectory export ---------- */
+
+/**
+ * The smallest check a reader of these files can make: the name and number of the shape, and that
+ * every part the documentation promises is there and of the right kind.
+ */
+const TRAJECTORY_SHAPE = {
+  format: (v) => v === "branch-agent-trajectory",
+  formatVersion: (v) => v === 1,
+  exportedAt: (v) => typeof v === "string" && !Number.isNaN(Date.parse(v)),
+  version: (v) => typeof v === "string" && v.length > 0,
+  run: (v) => v && typeof v.id === "string" && typeof v.prompt === "string" && typeof v.status === "string",
+  rounds: Array.isArray,
+  calls: Array.isArray,
+  plan: Array.isArray,
+  verdicts: Array.isArray,
+  steering: Array.isArray,
+  questions: Array.isArray,
+  timeline: Array.isArray,
+  messages: Array.isArray,
+  spans: Array.isArray,
+  receiptCounts: (v) => v !== null && typeof v === "object",
+};
+function shapeProblems(document) {
+  return Object.entries(TRAJECTORY_SHAPE).filter(([key, ok]) => !ok(document?.[key])).map(([key]) => key);
+}
+
+test("D2 a saved trajectory validates against the documented shape and carries the whole record", async (t) => {
+  const { api } = await served(t, writesAFile("notes.txt"));
+  const run = (await api("POST", "/api/run", { prompt: "write some notes" })).body;
+  assert.equal(run.status, "completed");
+  const saved = (await api("GET", `/api/runs/${run.id}/trajectory`)).body;
+  assert.deepEqual(shapeProblems(saved), [], "every part the documentation promises is there");
+  assert.equal(saved.run.id, run.id);
+  assert.ok(saved.calls.some((call) => call.name === "files.write"), "the tool call is in it");
+  assert.ok(saved.rounds.length >= 1, "the model rounds are in it");
+  assert.ok(saved.messages.some((message) => message.role === "user"), "the conversation is in it");
+  assert.ok(saved.messages.some((message) => message.role === "assistant"));
+  /* What went into a tool and what came back are clipped, so one enormous result never lands here. */
+  for (const call of saved.calls) {
+    if (call.input) assert.ok(call.input.length <= 601, "what went in is clipped");
+    if (call.output) assert.ok(call.output.length <= 601, "what came back is clipped");
+  }
+  assert.equal((await api("GET", "/api/runs/00000000-0000-4000-8000-000000000000/trajectory")).status, 404);
+});
+
+test("D2 many tasks come back as JSON Lines, one trajectory a line", async (t) => {
+  const { server, api } = await served(t, { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } });
+  for (const prompt of ["one", "two", "three"]) await api("POST", "/api/run", { prompt });
+  const response = await fetch(server.url + "/api/runs/trajectories.jsonl?limit=2", { headers: { authorization: `Bearer ${server.token}` } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /x-ndjson/);
+  const lines = (await response.text()).trim().split("\n");
+  assert.equal(lines.length, 2, "the limit is honoured");
+  for (const line of lines) assert.deepEqual(shapeProblems(JSON.parse(line)), []);
+  assert.equal(JSON.parse(lines[0]).run.prompt, "three", "newest first");
+});
+
+test("D2 runs.export hands a model the same record, and refuses a task that is not yours", async (t) => {
+  const { app, api } = await served(t, { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } });
+  const run = (await api("POST", "/api/run", { prompt: "a thing" })).body;
+  const context = app.runtime.context({ runId: run.id });
+  const exported = await app.registry.execute("runs.export", { runId: run.id }, context);
+  assert.deepEqual(shapeProblems(exported), []);
+  assert.equal(exported.run.id, run.id);
+  await assert.rejects(
+    app.registry.execute("runs.export", { runId: "00000000-0000-4000-8000-000000000000" }, context),
+    /no task of yours/,
+  );
+  /* Every tool has to land in a toolbox, or the catalog piles it into "other". */
+  const { inferToolGroup } = await import("../dist/catalog.js");
+  assert.equal(inferToolGroup("runs.export"), "memory");
+});
+
 /* ---------- G1: what is allowed right now ---------- */
 
 /** A provider that asks to write one file, then answers. Enough to earn a remembered yes. */

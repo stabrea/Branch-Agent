@@ -16,6 +16,7 @@ import { MemoryHygiene } from "./memory-hygiene.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
+import { registerRunExport } from "./trajectory.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
@@ -236,6 +237,8 @@ export async function createBranch(options: {
   const teams = new Teams(store, runtime.owner);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
+  // Wave 7: one finished task's full record, in the documented trajectory shape.
+  registerRunExport(registry, store, version);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
@@ -641,6 +644,7 @@ export * from "./voice-api.js";
 export * from "./model-profiles.js";
 export * from "./model-switch.js";
 export * from "./provider-probe.js";
+export * from "./trajectory.js";
 export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";

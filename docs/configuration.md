@@ -1676,3 +1676,40 @@ would only let a single guesser pretend to be a thousand different places. On th
 listener that makes every local program one place, which is the honest answer; the phone's listener
 sees each device separately. The socket a running task streams over is not counted, so a wrong key
 there is refused without being held against anyone.
+
+## What is allowed, trajectories, the live feed, the month view and metering (batch 19, wave 7)
+
+### What is allowed right now
+The details pane beside a conversation lists what that conversation is allowed to do without asking
+again: every yes it has remembered, with the plain words of what it covers and when it runs out,
+and beneath them the standing rules that say "go ahead". Each remembered yes has a "Take this back"
+beside it; taking one back makes the assistant ask again the next time. Before you press any of the
+answers on an approval card, a quiet line under each says what that answer leaves behind — nothing,
+a yes for this conversation that runs out in an hour, or a standing rule you can remove later.
+
+- `GET /api/rules/allowed?session=<id>` — `{ session, grants, standing }`. `grants` are this
+  conversation's remembered answers (`tool`, `target`, `decision`, `label`, `grantedAt`,
+  `expiresAt`, `fingerprint`); `standing` are the rules whose decision is "allow", each with the
+  sentence the settings screen shows.
+- `POST /api/rules/allowed/revoke` — `{ session, tool, target }`. Removes one remembered answer and
+  hands back what is left. A yes that is not there any more answers 404.
+
+### A task's trajectory
+A trajectory is one JSON file holding everything a task actually did, in a shape that is written
+down here and does not move, so an evaluation tool can read a file saved months ago. "Save
+trajectory" in the Look inside panel writes one; `runs.export` hands the same thing to the
+assistant itself.
+
+- `GET /api/runs/<id>/trajectory` — one task.
+- `GET /api/runs/trajectories.jsonl?limit=<1-500>` — many tasks, newest first, one trajectory per
+  line, for feeding an evaluation run.
+- Tool: `runs.export` (`{ runId? }`, defaults to the task it is called in; read-only).
+
+The shape: `format` is always `"branch-agent-trajectory"` and `formatVersion` is `1`. Beside them,
+`exportedAt`, `version` (the Branch that ran the task), `run` (`id`, `sessionId`, `prompt`,
+`status`, `output`, times), `seconds`, `rounds` (each model round with its provider, model, preset,
+duration, prompt size, tokens, whether the provider counted them, and its cost), `calls` (each tool
+call with what went in and what came back, both clipped to 600 characters, its status and its
+receipt), `plan`, `verdicts`, `steering`, `questions`, `timeline`, `receiptCounts`, `usage`, `cost`,
+`messages` (the conversation as the model saw it) and `spans` (up to 500 steps recorded while it
+ran). Saved passwords and keys are taken out before anything leaves.

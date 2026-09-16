@@ -29,6 +29,7 @@ import { localRuntimes } from "./local-runtimes.js";
 import { streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
+import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -752,19 +753,17 @@ async function api(
   if (request.method === "GET" && inspectMatch) {
     const run = app.store.run(inspectMatch[1]!);
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
-    const receipts = await receiptsView(app, run.id);
-    const { overrides } = pricingSettings(app.store, app.runtime.owner);
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
-    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
-      receipts, version: app.version, cost: receipts.cost,
-      timeline: app.store.usageStore().getRunTimeline(run.id),
-      /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
-      price: (model, tokens) => {
-        const estimate = estimateCost(model, tokens, overrides);
-        return { amount: estimate.amount, display: formatCost(estimate) };
-      },
-    }));
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Wave 7: the same task as a trajectory — "Look inside" plus the conversation's messages and the
+  // spans — in the documented shape, for keeping or for feeding an evaluation run.
+  const trajectory = /^\/api\/runs\/([a-f0-9-]{36})\/trajectory$/.exec(path);
+  if (request.method === "GET" && trajectory) {
+    const run = app.store.run(trajectory[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return app.runtime.hideSecrets(buildTrajectory(app.store, run.id, await trajectoryOptions(app, run.id)));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
@@ -1719,6 +1718,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     auditCsvResponse(app, request, response);
     return true;
   }
+  // Wave 7: many tasks as JSON Lines, one trajectory per line, for feeding an evaluation run.
+  if (request.method === "GET" && path === "/api/runs/trajectories.jsonl") {
+    await trajectoriesResponse(app, request, response);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -1772,6 +1776,41 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   return true;
 }
 /** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+/**
+ * Every task in the range as JSON Lines, written one line at a time so a thousand of them never
+ * become one enormous string first. Only this person's own tasks are in it.
+ */
+async function trajectoriesResponse(app: Branch, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const limit = Math.min(Math.max(Number(query.get("limit") ?? 50) || 50, 1), 500);
+  const runs = app.store.runs(app.runtime.owner).slice(0, limit);
+  const options = new Map<string, Awaited<ReturnType<typeof trajectoryOptions>>>();
+  for (const run of runs) options.set(run.id, await trajectoryOptions(app, run.id));
+  response.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "content-disposition": `attachment; filename="branch-trajectories.jsonl"`,
+    "cache-control": "no-store",
+  });
+  for (const line of trajectoryLines(app.store, runs.map((run) => run.id), (id) => options.get(id)!))
+    response.write(line + "\n");
+  response.end();
+}
+/**
+ * Everything "Look inside" and a trajectory both need about one task: its receipts, its timeline,
+ * and the workspace's own price table so each model round is costed the way the Usage screen does.
+ */
+export async function trajectoryOptions(app: Branch, runId: string) {
+  const receipts = await receiptsView(app, runId);
+  const { overrides } = pricingSettings(app.store, app.runtime.owner);
+  return {
+    receipts, version: app.version, cost: receipts.cost,
+    timeline: app.store.usageStore().getRunTimeline(runId),
+    price: (model: string, tokens: { input: number; output: number }) => {
+      const estimate = estimateCost(model, tokens, overrides);
+      return { amount: estimate.amount, display: formatCost(estimate) };
+    },
+  };
+}
 function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,
