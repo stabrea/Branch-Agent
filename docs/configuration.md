@@ -139,6 +139,18 @@ Services that need something more than a key, or that do not publish a list of t
 
 <!-- providers:end -->
 
+### Two things Branch deliberately does not do
+
+**One runtime, not several.** Branch runs a single assistant runtime. A second one inside the same
+app would double the surface that has to be inspected, approved and audited, and would give you
+nothing you cannot already have: when a task genuinely belongs to a different agent, Branch hands it
+over across A2A or ACP (see the interoperability section) and reads the result back. So "pick which
+agent engine runs this" is not a setting, and there is no plan for one.
+
+**No Google PaLM.** Google retired the PaLM API in favour of Gemini, so an adapter for it would be
+dead on the day it was written. Use the `gemini` entry for a Google AI Studio key, or `vertex-ai`
+for a Google Cloud project.
+
 ### Models on this computer
 
 **Settings → Models on this computer** manages Ollama and LM Studio directly, so a model can answer without anything leaving this machine and without any charge.

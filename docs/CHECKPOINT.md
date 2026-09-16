@@ -1276,6 +1276,53 @@ No wake word, and nothing listens unless the button is held. `tests/voice-provid
 tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
 all of it. No new dependency.
 
+## Batch 25 (wave 7) — every model service a person might already pay for, as data not code
+
+The list of model services Branch can talk to is now a data file, `data/providers.json`, copied
+next to the built program the way the holiday list is. Thirty-eight services are on it — OpenAI and
+its Responses route, Azure OpenAI, Anthropic, Gemini, Vertex AI, Mistral, Groq, OpenRouter,
+Together, Fireworks, DeepSeek, xAI, Perplexity, Cohere, Cerebras, SambaNova, Hugging Face, GitHub
+Models, Cloudflare Workers AI, AWS Bedrock, Ollama, LM Studio, vLLM, llama.cpp, LocalAI, Jan,
+LiteLLM, Portkey, Moonshot, Zhipu, Qwen, MiniMax, ModelScope, Doubao, Qianfan, Voyage AI, and a
+"something else that speaks OpenAI's shape" entry that takes any address. Each line says which wire
+shape the service speaks, where it lives, how it wants to be shown a key, which of conversation,
+pictures, tools, fixed format, streaming, comparing passages, speech and making pictures it offers,
+what it charges where a price is known, and one plain sentence about anything else it needs. The
+Settings provider list and the documentation table are both derived from that file, so there is no
+second copy to drift.
+
+Adapters are per shape, not per service: the existing OpenAI, Anthropic and Gemini ones became the
+first three, and Azure OpenAI (deployment in the path, `api-version` on the end, `api-key` header),
+AWS Bedrock (Converse, signed with SigV4 written by hand against `node:crypto`, streaming through
+Amazon's binary event frames), Cohere chat v2, OpenAI's Responses route and Ollama's own route were
+added. No AWS SDK and no new dependency of any kind.
+
+Planning is capability-aware: `ModelRouter.planFor` refuses to send picture, tool or fixed-format
+work to a connection whose catalog line lacks it, and names one that could take it. Each connection
+records what it has actually been doing — latency, last complaint, the allowance the service
+reports in its rate-limit headers — and a failing connection is skipped and comes back after its
+rest, with the "why this model" line now saying which one was passed over. `POST
+/api/connections/from-preset` adds a service in plain language: the key is checked by using it
+before anything is saved, then stored in the secrets locker under the project `model-connections`,
+never in a settings file and never in an answer or a log.
+
+Honest gaps. **A2258 (multiple agent runtimes)** was not built. Branch runs one runtime, and that is
+deliberate: a second one would double the surface that has to be inspected, approved and audited
+without giving the owner anything they cannot already have. Where another agent is genuinely wanted,
+Branch hands the task over across A2A or ACP (wave 4) and reads the result back, which is the same
+outcome without a second engine inside the app. **A2367 (Google PaLM)** was not built either: Google
+retired the PaLM API in favour of Gemini, so an adapter for it would be dead code on the day it was
+written. Gemini and Vertex AI are both in the catalog.
+
+Every claim here is tested against a fake of the service, not against the real one.
+`tests/providers-2.test.mjs` (70 tests) checks the catalog against its schema, completes a chat
+against a fake of every entry's own shape, streams every shape that says it streams, reproduces two
+of Amazon's published SigV4 test vectors step by step (canonical request, string to sign, signature),
+decodes Amazon's event frames including one split across two reads and one deliberately damaged,
+checks the Azure address and header, the Cohere mapping, the capability refusal, the from-preset
+route storing nothing when a key is refused, the skip-and-return of a failing connection, and that
+the documentation table regenerates byte for byte. No new dependency.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
