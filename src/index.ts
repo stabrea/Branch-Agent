@@ -8,6 +8,8 @@ import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
 import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
+import { BackgroundProcesses, registerProcesses } from "./processes.js";
+import { CodeRunner, registerCodeRun } from "./code-run.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -138,6 +140,12 @@ export async function createBranch(options: {
   // followed by the check the owner set up for this project.
   const codeChanges = new CodeChanges(store, options.owner ?? "local", files, editor, workspace);
   registerCodeChanges(registry, codeChanges);
+  // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
+  // go through the same approval a host command does, and both are off until the owner sets them up.
+  const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
+  registerProcesses(registry, processes);
+  store.onSessionClosed((sessionId) => { void processes.closeSession(sessionId); });
+  registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
   registerGit(registry, git);
@@ -354,6 +362,8 @@ export async function createBranch(options: {
     workflows,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
+    /** Programs left running, and the switch that stops them all when the app closes. */
+    processes,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -378,6 +388,8 @@ export async function createBranch(options: {
     close: () => (closing ??= (async () => {
       plugins.stop();
       skillPackages.stop();
+      // Nothing the assistant left running outlives the app.
+      await processes.stopAll().catch(() => undefined);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -525,6 +537,8 @@ export * from "./workflows.js";
 export * from "./specialist-styles.js";
 export * from "./code-change.js";
 export * from "./deferred.js";
+export * from "./processes.js";
+export * from "./code-run.js";
 export * from "./media.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
