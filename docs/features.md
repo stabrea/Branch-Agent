@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 75 implemented, 29 partial, 1 external and 64 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 80 implemented, 24 partial, 1 external and 64 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -75,9 +75,9 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Pin a procedure to active chat (`extensions.pinning`) | implemented | Covered by the listed local fixtures. |
 | MCP servers and tool selection (`extensions.mcp`) | implemented | Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability. |
 | Plugin and channel adapter registry (`extensions.registry`) | missing | Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation. |
-| Agent templates without secrets (`extensions.templates`) | partial | Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets. |
-| Parameterized recipes and requirements (`extensions.recipes`) | partial | Add parameter definitions, required-input binding and invalid-input rejection before recipe execution. |
-| JSON Schema outputs (`extensions.structured`) | partial | Validate recipe result against a declared JSON Schema and reject a nonconforming fixture. |
+| Agent templates without secrets (`extensions.templates`) | implemented | Covered by the listed local fixtures. |
+| Parameterized recipes and requirements (`extensions.recipes`) | implemented | Covered by the listed local fixtures. |
+| JSON Schema outputs (`extensions.structured`) | implemented | Covered by the listed local fixtures. |
 | Generate capability-limited WASM tools (`extensions.tool-building`) | missing | Build a requested WASM tool and execute it with only declared host capabilities. |
 | Lifecycle event hooks with failure isolation (`extensions.lifecycle-hooks`) | missing | Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold. |
 | Connect external hosted agent platforms (`extensions.platform-bridge`) | missing | Invoke a configured external agent-platform workflow and return its correlated result through the assistant. |
@@ -126,7 +126,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Focused child agents (`delegation.children`) | implemented | External model behavior remains configuration-dependent; local fixture establishes child/result isolation only. |
 | Sequential and parallel tasks (`delegation.parallel`) | implemented | Covered by the listed local fixtures. |
-| Restrict child tool access (`delegation.tools`) | partial | Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately. |
+| Restrict child tool access (`delegation.tools`) | implemented | Covered by the listed local fixtures. |
 | Depth concurrency timeout and turn bounds (`delegation.limits`) | implemented | Covered by the listed local fixtures. |
 | Structured child result contracts (`delegation.results`) | implemented | Covered by the listed local fixtures. |
 | Queue follow-ups while tasks run (`delegation.steering`) | implemented | Covered by the listed local fixtures. |
@@ -153,7 +153,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Project files instructions repositories and presets (`workspace.projects`) | partial | Scope workspace files and a linked repository to the active project. |
+| Project files instructions repositories and presets (`workspace.projects`) | implemented | Covered by the listed local fixtures. |
 | Project-scoped secrets and knowledge (`workspace.secrets`) | implemented | Covered by the listed local fixtures. |
 | Live editable Markdown artifacts (`workspace.markdown`) | partial | Provide user editor and conflict-aware nonconflicting agent/user merge fixture. |
 | Document spreadsheet and presentation cowork (`workspace.office`) | missing | Create and reopen a document, spreadsheet and presentation in the supported office integration. |

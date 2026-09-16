@@ -18,6 +18,7 @@ import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { streamRunEvents } from "./streams.js";
+import { exportTemplate, importTemplate } from "./templates.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -276,6 +277,9 @@ async function api(
   if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
+  const template = /^\/api\/templates\/(specialist|procedure)\/([a-f0-9-]{36})$/.exec(path);
+  if (template && request.method === "GET") return exportTemplate(app.store, app.runtime.owner, template[1] as "specialist" | "procedure", template[2]!);
+  if (request.method === "POST" && path === "/api/templates/import") return importTemplate(app.knowledge, app.runtime.context(), await readBody(request, 256 * 1024));
   if (request.method === "POST" && path === "/api/receipts/verify") {
     const body = z.object({ runId: z.string().min(1).max(64), data: z.record(z.string(), z.unknown()) }).strict().parse(await readBody(request));
     return app.store.receipts.verify(body.runId, body.data);

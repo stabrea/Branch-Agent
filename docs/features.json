@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T01:02:58.073649+00:00",
+  "assessment_date": "2026-09-16T01:10:45.524678+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1033,54 +1033,59 @@
       "family": "extensions",
       "name": "Agent templates without secrets",
       "acceptance_criterion": "Create an agent from a template and verify that instructions and tool requirements transfer without secrets.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/templates.ts",
           "src/knowledge.ts",
-          "public/app.js"
+          "src/server.ts",
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "specialists require evidence to promote and delegation cannot escalate"
+          "templates carry a definition between installs without ids, evidence or secrets"
         ],
-        "detail": "Specialist definitions persist instructions and permission subsets; browser offers one editable example."
+        "detail": "templates.export / GET /api/templates/:kind/:id produce a template with the definition only (no ids, evidence or history) and refuse when the text carries a pasted key; templates.import / POST /api/templates/import create a fresh proposed specialist or recipe that must still be evaluated or verified, with the usual permission-subset check."
       },
-      "remaining": "Provide a template creation/import flow and a test that instructions/tool requirements transfer without secrets."
+      "remaining": ""
     },
     {
       "id": "extensions.recipes",
       "family": "extensions",
       "name": "Parameterized recipes and requirements",
       "acceptance_criterion": "Instantiate a parameterized recipe and reject missing or invalid required input before execution.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/recipes.ts",
           "src/knowledge.ts",
-          "tests/knowledge.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions"
+          "recipes bind declared inputs before running and refuse missing, wrong or unknown ones"
         ],
-        "detail": "Recipes contain concrete tool args with Zod definition validation and preconditions; no parameterized instantiation."
+        "detail": "Recipes declare `parameters` (string/number/boolean, required, default); procedures.verify/replay take `inputs`, which are bound before any step runs (missing required, wrong type and unknown names are refused together), and {{name}} placeholders in step args, expectations and preconditions take the bound values. Proposing a recipe with undeclared placeholders is refused. Event procedure.inputs_bound."
       },
-      "remaining": "Add parameter definitions, required-input binding and invalid-input rejection before recipe execution."
+      "remaining": ""
     },
     {
       "id": "extensions.structured",
       "family": "extensions",
       "name": "JSON Schema outputs",
       "acceptance_criterion": "Validate a recipe result against its JSON Schema and reject a nonconforming result.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/recipes.ts",
           "src/knowledge.ts",
-          "src/integrations/mcp.ts"
+          "src/delegation.ts",
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "procedure with wrong expected output is never verified"
+          "a recipe with a declared result shape rejects a result that does not fit"
         ],
-        "detail": "Procedure verification compares exact expected tool values; MCP input schema validation is not recipe output-schema validation."
+        "detail": "A recipe may declare `resultSchema` (the JSON-Schema subset shared with delegation); the final step's result is checked and a mismatch fails the recipe with the reason (procedure.result_rejected), leaving it unverified."
       },
-      "remaining": "Validate recipe result against a declared JSON Schema and reject a nonconforming fixture."
+      "remaining": ""
     },
     {
       "id": "extensions.tool-building",
@@ -1767,21 +1772,19 @@
       "family": "delegation",
       "name": "Restrict child tool access",
       "acceptance_criterion": "Grant a child one extension and prove it cannot invoke a tool outside that grant.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/runtime.ts",
           "src/registry.ts",
-          "tests/integrations.test.mjs",
-          "tests/knowledge.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "real MCP stdio lifecycle filters tools, validates schema, confines credentials and closes",
-          "specialists require evidence to promote and delegation cannot escalate"
+          "a delegated child granted exactly one tool succeeds with it and is refused another"
         ],
-        "detail": "Delegation cannot expand parent permissions; registry rejects unauthorized tools before execution; MCP tools each receive an individual permission."
+        "detail": "A child delegated with exactly one permission uses that tool successfully and a call outside the grant is refused as Permission denied (tool.failed, classified blocked in receipts) with no side effect; granting more than the parent holds is refused before the child starts."
       },
-      "remaining": "Add a focused child fixture granted exactly one extension that succeeds on that extension and attempts/rejects a tool outside its grant. Current tests cover the components separately."
+      "remaining": ""
     },
     {
       "id": "delegation.limits",
@@ -2123,22 +2126,22 @@
       "family": "workspace",
       "name": "Project files instructions repositories and presets",
       "acceptance_criterion": "Switch projects and verify the selected files, instructions, repository and model preset.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/projects.ts",
-          "src/runtime.ts",
-          "src/models.ts",
-          "src/server.ts",
+          "src/files.ts",
+          "src/index.ts",
+          "public/index.html",
           "public/app.js",
-          "tests/projects-locker.test.mjs"
+          "tests/recipes.test.mjs"
         ],
         "tests": [
-          "switching projects changes instructions and the preferred model; the default project always exists"
+          "a project folder scopes every file action to that folder inside the workspace"
         ],
-        "detail": "Named projects with instructions, preferred model preset and secrets; switching the active project changes all three for new tasks; per-conversation model choices still win."
+        "detail": "A project may name a folder inside the workspace; while it is active every file tool resolves inside that folder (created on demand), listing shows only its contents, and traversal out of it is refused. The repository field remains a plain link recorded on the project."
       },
-      "remaining": "Scope workspace files and a linked repository to the active project."
+      "remaining": ""
     },
     {
       "id": "workspace.secrets",

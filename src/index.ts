@@ -61,6 +61,7 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   store.openLocker(options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key")));
   const registry = new ToolRegistry();
+  files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   registerFiles(registry, files, {
     before: (path, context) => history.before(path, context),
@@ -172,6 +173,8 @@ export * from "./backup.js";
 export * from "./health.js";
 export * from "./openai-compat.js";
 export * from "./streams.js";
+export * from "./recipes.js";
+export * from "./templates.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";

@@ -571,6 +571,7 @@ function loadProject(project) {
   $("project-id").value = project.id; $("project-id").disabled = project.id === "default";
   $("project-name").value = project.name;
   $("project-instructions").value = project.instructions;
+  $("project-folder").value = project.folder || "";
   $("project-preset").value = project.modelPreset ?? "";
   $("project-remove").hidden = project.id === "default";
 }
@@ -593,6 +594,7 @@ form("projects-form", async () => {
   const saved = await api("projects", {
     id: $("project-id").value.trim(), name: $("project-name").value.trim(),
     instructions: $("project-instructions").value, modelPreset: $("project-preset").value || null, repository: editingProject?.repository ?? "",
+    folder: $("project-folder").value.trim(),
   });
   loadProject(saved); await refresh();
 });

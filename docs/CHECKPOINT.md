@@ -47,6 +47,13 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 14 (local, unreleased): recipe inputs and result shapes, templates, project folders
+
+`src/recipes.ts` (ParametersSchema, bindInputs, substitute, placeholders) used by `Knowledge.bound()` in
+verify/replay; `resultSchema` on procedures checked with the exported `mismatch`; `src/templates.ts`
+(export/import with the skill scanner's secret patterns) + `templates.export/import` tools and
+`/api/templates/*`; `WorkspaceFiles.scope`/`base` driven by the active project's `folder`.
+
 ## Batch 13 (local, unreleased): OpenAI endpoint, SSE, follow-ups, background specialists, backup, health
 
 `src/openai-compat.ts` (`/v1/chat/completions`, `/v1/models`), `src/streams.ts` (`/api/runs/:id/stream`),
