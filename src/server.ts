@@ -17,6 +17,8 @@ import { SkillScanPolicySchema } from "./skill-scan.js";
 import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
+import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
+import { allPresets, findPreset } from "./providers/presets.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -26,6 +28,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -109,6 +112,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -157,6 +161,99 @@ async function testModel(app: Branch, body: unknown): Promise<unknown> {
     throw new HttpError(502, `${chosen.name} did not answer: ${errorText(error)}`);
   }
 }
+
+function providersCatalog(): unknown {
+  return { presets: allPresets() };
+}
+
+const providerTestInput = z.object({
+  preset: z.string().min(1).max(64).optional(), endpoint: z.string().url().max(2048).optional(),
+  model: z.string().min(1).max(256).optional(), apiKey: z.string().min(1).max(4096).optional(),
+}).strict();
+
+/** Sends one tiny request through the same provider classes the assistant uses, so URL rules and errors match real use. */
+async function testProvider(body: unknown): Promise<unknown> {
+  const input = providerTestInput.parse(body);
+  const chosen = input.preset ? findPreset(input.preset) : undefined;
+  if (input.preset && !chosen) throw new HttpError(400, "Unknown provider preset");
+  const endpoint = input.endpoint ?? chosen?.baseUrl, model = input.model ?? chosen?.modelIds[0];
+  if (!endpoint || !model || !input.apiKey) throw new HttpError(400, "Provide the address, a model name and the key to test");
+  const started = Date.now();
+  try {
+    const options = { endpoint, model, apiKey: input.apiKey };
+    const provider = chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
+      : chosen?.headerStyle === "x-api-key" ? new AnthropicProvider(options) : new OpenAIProvider(options);
+    const completion = await provider.complete({
+      messages: [{ role: "system", content: "You are Branch Agent. Reply with the single word OK." }, { role: "user", content: "Connection test" }],
+      tools: [], maxTokens: 16, signal: AbortSignal.timeout(20000),
+    });
+    return { ok: true, model, reply: completion.content.slice(0, 80), ms: Date.now() - started };
+  } catch (error) {
+    return { ok: false, reason: providerFailureReason(error), ms: Date.now() - started };
+  }
+}
+
+function providerFailureReason(error: unknown): string {
+  const text = errorText(error);
+  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
+  if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
+  return "The provider answered with an error: " + text.slice(0, 160);
+}
+
+async function localProviders(): Promise<unknown> {
+  const found: Array<{ runtime: string; baseUrl: string; models: string[] }> = [];
+
+  // Probe Ollama at 127.0.0.1:11434
+  try {
+    const response = await fetch("http://127.0.0.1:11434/api/tags", {
+      signal: AbortSignal.timeout(1000),
+      redirect: "error",
+    });
+    if (response.ok) {
+      const data = (await response.json().catch(() => ({ models: [] }))) as { models?: Array<{ name?: string }> };
+      const models = (data.models || [])
+        .filter((m) => m.name && typeof m.name === "string")
+        .map((m) => m.name!.split(":")[0]!);
+      if (models.length > 0) {
+        found.push({
+          runtime: "ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          models,
+        });
+      }
+    }
+  } catch {
+    // Ollama not running
+  }
+
+  // Probe LM Studio at 127.0.0.1:1234
+  try {
+    const response = await fetch("http://127.0.0.1:1234/v1/models", {
+      signal: AbortSignal.timeout(1000),
+      redirect: "error",
+    });
+    if (response.ok) {
+      const data = (await response.json().catch(() => ({ data: [] }))) as { data?: Array<{ id?: string }> };
+      const models = (data.data || [])
+        .filter((m) => m.id && typeof m.id === "string")
+        .map((m) => m.id!);
+      if (models.length > 0) {
+        found.push({
+          runtime: "lm-studio",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          models,
+        });
+      }
+    }
+  } catch {
+    // LM Studio not running
+  }
+
+  return { local: found };
+}
+
 /** The preset that actually served a run: the last recorded selection or fallback, if any. */
 function modelUsed(app: Branch, runId: string) {
   const events = app.store.events(runId).filter((event) => ["model.selected", "model.fallback"].includes(event.kind));
@@ -249,6 +346,9 @@ async function api(
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
+  if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
+  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
+  if (request.method === "GET" && path === "/api/providers/local") return localProviders();
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
@@ -259,6 +359,10 @@ async function api(
     app.store.save("settings", app.runtime.owner, "preferences", value);
     return value;
   }
+  if (request.method === "GET" && path === "/api/voice/settings")
+    return voiceSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/voice/settings")
+    return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
@@ -331,6 +435,32 @@ async function api(
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
     return app.runtime.executeTool(action.tool, action.args);
+  }
+  // Usage and observability routes
+  if (request.method === "GET" && path === "/api/usage") {
+    const url = new URL(request.url ?? "/", "http://local");
+    const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
+    const by = (url.searchParams.get("by") ?? "day") as "day" | "model" | "conversation" | "source";
+    const data = app.store.usageStore().aggregateUsage(range, by);
+    const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
+    const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens);
+    return { data, stats };
+  }
+  if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
+    const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
+    if (!match) throw new HttpError(400, "Invalid run ID");
+    const run = app.store.run(match[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return { timeline: app.store.usageStore().getRunTimeline(run.id) };
+  }
+  if (request.method === "GET" && path === "/api/usage/budget") {
+    const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data;
+    return { budget: budget || null };
+  }
+  if (request.method === "POST" && path === "/api/usage/budget") {
+    const input = z.object({ maxMonthlyTokens: z.number().int().positive(), pauseAtBudget: z.boolean() }).strict().parse(await readBody(request));
+    app.store.save("settings", app.runtime.owner, "usage_budget", input);
+    return { budget: input };
   }
   throw new HttpError(404, "Endpoint not found");
 }
@@ -660,6 +790,71 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  if (request.method === "POST" && path === "/api/voice/transcribe") {
+    const contentType = request.headers["content-type"] ?? "";
+    if (!contentType.includes("audio/") && !contentType.includes("application/octet-stream")) {
+      throw new HttpError(415, "Use audio/* content-type");
+    }
+    const maxBytes = 25 * 1024 * 1024;
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of request) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > maxBytes) throw new HttpError(413, "Audio exceeds 25 MiB");
+      chunks.push(Buffer.from(chunk));
+    }
+    const audio = new Uint8Array(Buffer.concat(chunks));
+    try {
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      response.end(JSON.stringify({ text }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HttpError(400, msg);
+    }
+    return true;
+  }
+  if (request.method === "POST" && path === "/api/voice/speak") {
+    const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
+    try {
+      // Get the active provider's audio endpoints
+      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
+      const provider = plan.candidates[0]?.provider ?? null;
+      const audioEndpoint = provider?.audio?.() ?? null;
+      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
+      response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
+      response.end(Buffer.from(audio));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HttpError(400, msg);
+    }
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/usage/export.csv") {
+    const url = new URL(request.url ?? "/", "http://local");
+    const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
+    const data = app.store.usageStore().aggregateUsage(range, "day");
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCost,failures"]
+      .concat(
+        data.map((d) =>
+          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output, d.estimatedCost.toFixed(4), d.failures].join(
+            ","
+          )
+        )
+      )
+      .join("\n");
+    response.writeHead(200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="usage-${range}.csv"`,
+      "cache-control": "no-store",
+    });
+    response.end(csv);
     return true;
   }
   if (request.method === "POST" && path === "/v1/chat/completions") {

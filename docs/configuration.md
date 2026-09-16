@@ -45,6 +45,14 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.5`, `GPT-5.6` and `GPT-5.4` presets and makes ChatGPT the default when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
 
+### Provider catalog and testing
+
+`GET /api/providers/catalog` returns a list of built-in provider presets: Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, Ollama and LM Studio. Each preset includes the provider's base URL, well-known model identifiers and plain-language help text on where to obtain an API key or how to set up a local service. The desktop and web interface can use this catalog to guide model configuration.
+
+`POST /api/providers/test` validates a provider endpoint and credentials with a tiny request, returning success or a plain-language reason (bad key, model not found, network blocked). Supply either a preset name or a custom endpoint, model and API key.
+
+`GET /api/providers/local` probes for Ollama at `127.0.0.1:11434` and LM Studio at `127.0.0.1:1234`, lists available models for any local runtime that responds, and returns an empty list if neither is running. The probe uses a short timeout and does not go through the network policy (local detection must succeed even when private addresses are otherwise blocked).
+
 ### Updates
 
 The packaged Windows app checks `https://api.github.com/repos/stabrea/Branch-Agent/releases/latest`, downloads `Branch-Agent-windows-x64.zip`, verifies it against the published `.sha256`, unpacks it next to the install, then restarts through a small script that mirrors the new files into place. A checkout installed from Git updates with `node dist/cli.js update` (`git pull --ff-only`, `npm ci`, `npm run build`).
@@ -104,6 +112,17 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 ```
 
 `tokenEnv` names an environment variable instead of a secret. Each chat (direct or group) keeps its own conversation. A sender who is neither on the `allowlist` (Telegram user ids) nor approved receives a six-digit code; approve it in **Settings → Channels** or with `POST /api/channels/pairings/approve {code}`. With `pairing: false`, strangers are told the assistant is private. In groups, `activation: "mention"` answers only messages that mention the bot or reply to it; `"always"` answers everything. Channel tasks run with every tool permission except host command execution. `GET /api/channels` lists connected channels, pending and approved people.
+
+## Voice
+
+**Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:
+
+- **Read replies aloud automatically**: When enabled, assistant responses are read aloud when they arrive.
+- **Voice**: Choose which voice the browser uses for speech synthesis. Available voices depend on your operating system and browser.
+- **Speech speed**: Adjust how fast the browser reads aloud (range 0.5 to 2 times normal speed).
+- **Use higher-quality voice from my provider**: When enabled and you have an OpenAI-compatible API key configured, the assistant uses the provider's text-to-speech endpoint instead of the browser voice.
+
+Speech-to-text transcription requires an OpenAI-compatible provider with an API key. The ChatGPT plan sign-in does not provide an API key for audio endpoints; configure an API key in **Settings → Model connection** to use voice transcription. API routes: `POST /api/voice/transcribe` (binary audio input), `POST /api/voice/speak` (JSON text input, audio output), `GET|POST /api/voice/settings` (voice preferences).
 
 ## Projects and secrets
 
@@ -176,6 +195,20 @@ For an HTTP server:
 ```
 
 These are configuration examples, not supplied servers. Use the actual version and tool names advertised by your server. A mismatch prevents startup. Stdio programs are trusted executable code and are not sandboxed by the MCP connector. Only explicitly selected credential environment variables are passed in addition to SDK platform defaults. HTTP redirects are rejected.
+
+## Usage and observability
+
+Access **Usage** in the left navigation to see your assistant's token consumption, estimated costs, and run performance. The interface shows:
+
+- **Daily breakdown**: token usage (input/output), run count, failures, and estimated cost per day over the last 30 days
+- **By model**: token usage and cost aggregated by model preset used
+- **Budget settings** (optional): set a maximum monthly token budget and optionally pause new runs when the limit is reached; pass this as a `POST /api/usage/budget { maxMonthlyTokens: number, pauseAtBudget: boolean }` request
+- **Run timeline**: click Activity → run → timeline (visible in the detail pane) to see a timestamped sequence of tool calls, model invocations, retries, and stalls for that specific run
+- **CSV export**: download the current period's usage data as a CSV file for analysis in a spreadsheet
+
+Costs are estimated from reported or estimated tokens multiplied by per-preset pricing configured in your workspace. Only terminal runs (completed, failed, cancelled, budget_exceeded, interrupted) are included in aggregates; running tasks are not counted until they finish. Estimated tokens come from the runtime; reported tokens come from the provider's response, when available.
+
+Setting a token budget lets you control spending. When `pauseAtBudget` is enabled, the runtime refuses new runs with a plain-language message that tells the owner where to raise the limit. Budgets are per-month, calculated from the first run of each calendar month.
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 

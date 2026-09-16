@@ -1,4 +1,8 @@
-# Branch Agent checkpoint — 2026-09-15 (evening)
+# Branch Agent checkpoint — 2026-09-15 (late evening)
+
+## Batch 19 (wave 1) — usage and observability dashboard
+
+`src/usage.ts` (UsageStore class): aggregates runs and events by date to produce daily token consumption, estimated costs, and failure counts; tracks per-model and per-conversation usage; optional caching table for incremental refresh by event-id watermark (only terminal runs included). `GET /api/usage?range=7d|30d|90d|all&by=day|model|conversation|source` returns aggregated usage; `GET /api/runs/:id/timeline` returns a timestamped sequence of model calls, tool invocations, retries, and stalls from events, with durations (uses clipToolResult pattern for clipped output, future option for OTel-compatible trace export). Routes: `POST /api/usage/budget` to set optional monthly token budget and pause switch; `GET /api/usage/budget` to read it. Runtime budget enforcement at run-start in runtime.ts (not in Budget class — different concern). `GET /api/usage/export.csv` in rawApi() for download. `public/usage.js` builds the view with summary cards, daily cost canvas chart, table by model, budget form, export button. UI integrates into index.html nav and app.js titles; public/style.css variables reused. Tests: aggregation over fixture store with multiple runs/receipts across days and models, incremental refresh (adding a run updates only the new day), terminal-run filtering, reported-vs-estimated token selection, timeline event ordering and durations. Costs: derived at aggregate time from tokens × preset pricing (no cost column added to storage; no second source of truth). Items done: A0202 (usage tracked, display added), A0269 (display added), A0346, A0638 (cost estimation not implemented, left as future work following design constraint), A0929 (user-facing aggregation added), A0972 (timeline export added).
 
 ## Where things stand
 
@@ -42,6 +46,10 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Issue #18: the owner's direct requests (`owner-request` label).
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
+
+## Batch 19 (wave 1) — providers
+
+`src/providers/presets.ts` (built-in preset catalog with 12 cloud and local providers); `src/providers/gemini.ts` (native Google Gemini adapter with streaming, tool calling and system instructions); `GET /api/providers/catalog` (list all presets with display names, base URLs and help text), `POST /api/providers/test` (validate an endpoint with a test request, return plain-language reasons for failure), `GET /api/providers/local` (probe for Ollama at 11434 and LM Studio at 1234, list available models). The probe does not go through the network policy so it works even when private addresses are blocked. Presets for Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, Ollama and LM Studio; all conform to OpenAI-compatible Chat Completions protocol except Gemini. Closes audit items A0167 (local model serving), A2365 (local LLMs), and addresses A1139 (transformers local models), A0498 (OpenAI-compatible local models).
 
 ## Batches 7–9 ship as 0.5.0
 
@@ -264,6 +272,17 @@ Coverage after this session: 26 implemented, 52 partial, 90 missing, 1 external 
 - Anthropic thinking budgets and OpenAI `reasoning_effort` were verified at the request-body level
   only, not against live providers.
 - The `identity-ui` file failed once under parallel Chromium load and passed alone; watch for flakiness.
+
+## Batch 19 (wave 1) — voice
+
+Voice input and output: `POST /api/voice/transcribe` sends binary audio to the configured provider's
+OpenAI-compatible `/v1/audio/transcriptions` endpoint and returns transcribed text; client records
+with MediaRecorder (WebM) and displays transcription in the message box without auto-sending.
+`POST /api/voice/speak` sends text to the provider's `/v1/audio/speech` endpoint and streams the
+audio back (MP3); client plays it with the Web Audio API. Browser's speechSynthesis is always
+available and free (offline); higher-quality voice from provider is optional. Voice settings (auto
+read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
+read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
 ## Next work (local until a checkpoint worth publishing)
 

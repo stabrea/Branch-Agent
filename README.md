@@ -44,6 +44,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Desktop model setup with a protected saved key and recovery from invalid settings.
 - OpenAI-compatible and Anthropic provider adapters, plus ChatGPT plan sign-in through OpenAI's device-code route.
 - Named model presets with a workspace default, per-conversation choice, thinking-effort control and ordered fallback with cooldowns; every run records the model that actually answered.
+- Multi-provider support: built-in presets for Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, and local Ollama and LM Studio; native Gemini adapter with streaming and tool calls; provider test endpoint and automatic local runtime detection.
 - One-click updates from GitHub Releases with checksum verification, and `branch update` for source checkouts.
 - Bounded retries for temporary provider failures, preserving completed tool work and attempt accounting.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
@@ -59,6 +60,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.
 - Web search and page reading, guarded against local and private addresses; pin a skill to a conversation; archive or purge stale memory by age; a live list of the tools that exist right now.
+- Voice input and output: record audio messages to transcribe, read messages aloud with browser voice or OpenAI-compatible text-to-speech.
 - Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.
 - When the assistant needs your answer it stops and asks; a banner and a notification take you straight to that conversation.
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
@@ -76,6 +78,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - A delivery ledger for chat channels: replies and scheduled results wait while a chat app is unreachable, go out in order after reconnect, never duplicate, and dead letters can be retried from Settings.
 - Delegation to specialists with shared budgets, depth and concurrency limits, per-child timeouts, cancellation that reaches children, answers checked against a requested schema, and fan-out that runs independent tasks together and chains dependent ones.
 - Schedules: once, on an interval, or every day at a time in your timezone; tasks, reminders, or monitoring checks that remember the last result; results can be sent to a Telegram chat; each schedule keeps its run history; webhooks and `branch trigger` run one on demand.
+- Usage and observability: daily aggregated token and cost tracking, run timelines showing tool calls and model interactions, optional token/cost budgets with pause enforcement, and CSV export of usage reports.
 - Optional MCP tools and browser automation through explicit configuration.
 - Separate Python accounting and released neural-model experiments.
 
