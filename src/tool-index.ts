@@ -48,6 +48,13 @@ export const maxExternalDescriptionChars = 200;
 export interface ToolEmbedder {
   embed(texts: readonly string[]): Promise<number[][]>;
 }
+/**
+ * The same reader, told which task asked, so what the reading costs is charged to that task and
+ * shows up beside the model's own cost rather than being spent invisibly.
+ */
+export interface RunToolEmbedder {
+  embed(texts: readonly string[], runId?: string): Promise<number[][]>;
+}
 
 /** How alike two lists of numbers are, between -1 and 1. Empty on either side means nothing. */
 export function cosineOf(a: readonly number[], b: readonly number[]): number {

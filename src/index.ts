@@ -435,10 +435,12 @@ export async function createBranch(options: {
   // The switch is checked in the runtime at the moment of the search, so this seam being here
   // does not by itself send anything anywhere.
   runtime.toolMeaning = {
-    embed: async (texts) => {
+    embed: async (texts, runId) => {
       const reader = knowledgeBases.embeddings(runtime.owner);
       if (!reader) return [];
-      const vectors = await reader.embed([...texts], AbortSignal.timeout(20_000));
+      // Charged to the task that searched, the same way its model answers are, so the owner can
+      // see what finding tools by meaning actually costs instead of it being spent out of sight.
+      const vectors = await reader.embedFor(runId, [...texts], AbortSignal.timeout(20_000));
       return vectors.map((vector) => Array.from(vector));
     },
   };

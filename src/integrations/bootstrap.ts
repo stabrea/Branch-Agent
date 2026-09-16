@@ -2,7 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
-import { connectMcp, openMcp, registerCachedMcp, type McpToolCache } from './mcp.js';
+import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import type { RunArtifacts } from '../artifacts.js';
@@ -226,9 +226,12 @@ async function startMcp(
   // `connectMcp`: the same connection, without a second registration to collide with the first.
   host.connections.register(id, () => openMcp(server, env, guard, host.cache));
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
-    // Opened through the manager, so keep-warm, the cap and the retries all apply to it.
-    const opened = await host.connections.acquire(`mcp:${id}`, id) as unknown as { call: McpCallThrough };
-    return { call: opened.call };
+    // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
+    // says its tools are NOW, and the credentials it was opened with, travel back with it: the
+    // first call is checked against the live shape, and anything echoed back has them taken out.
+    const opened = await host.connections.acquire(`mcp:${id}`, id) as unknown as LiveMcp & { found?: LiveMcp['tools'] };
+    return { call: opened.call, ...(opened.secrets ? { secrets: opened.secrets } : {}),
+      ...(opened.found ? { tools: opened.found } : {}) };
   });
   if (!names.length) {
     const connection = await connect();
@@ -243,7 +246,6 @@ export interface McpHost {
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
 }
-type McpCallThrough = (tool: string, args: Record<string, unknown>, context: ToolContext) => Promise<unknown>;
 
 type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
 

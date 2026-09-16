@@ -35,10 +35,13 @@ const searchedBonus = 400, expandedBonus = 60, recentBonus = 90, preloadBonus = 
  * Finding tools by meaning as well as by words is off until the owner turns it on, because it
  * sends something out of this computer. This is the sentence they are shown before they decide.
  */
-export const meaningSearchExplanation =
-  "Off. Branch finds a tool by the words in your request. Turn this on and it will also compare "
+export const meaningSearchExplanation = (
+  /** Who receives it, named: the connection that compares writing, as the owner set it up. */
+  receiver = "the model you have connected for comparing writing",
+): string =>
+  "Branch finds a tool by the words in your request. Turn this on and it will also compare "
   + "what you asked for against what each tool says it does, which means sending your request, "
-  + "and one line about each tool, to whichever model you have connected for comparing writing. "
+  + `and one line about each tool, to ${receiver}. `
   + "Nothing else about the request, and nothing you have saved, goes with it.";
 /** Where the choice is kept. False, and nothing about a request is ever sent for this. */
 export const meaningSearchSetting = "tool-meaning-search";

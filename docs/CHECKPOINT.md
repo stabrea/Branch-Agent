@@ -1623,6 +1623,13 @@ about becomes a real pending approval — same bytes, same fingerprint, keyed to
 connection — and the JSON-RPC call is held open for `mcp.askWaitSeconds` (default 120) while the
 owner answers in the app. On the timeout the question is left waiting and the client is told to ask
 again; the answer is bound to those bytes, so the retry finds it and a different request does not.
+Waiting does not count against how many shared calls may run at once, so two numbers bound it
+instead: at most sixteen calls may be parked in all, and one per connection — the app holds a
+single question per conversation, and a second would replace the one the owner is reading. A call
+past either number is refused straight away, with no question and no task created for it. On
+demand, the first call after a connection is finally opened is checked against what the server says
+its tools need *now*, not the shape written down at the last connect, and anything the server
+echoes back has the credentials it was opened with taken out of it.
 **MCP apps got a surface**: a tool from outside answering with an HTML resource is kept as an
 `mcp.app` event and offered in the context pane as "Open in Branch", opening the sandboxed,
 one-time-address frame that was already built for it. **Idle MCP sessions** are dropped after

@@ -66,7 +66,7 @@ import {
 } from "./catalog.js";
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
-import type { ToolEmbedder } from "./tool-index.js";
+import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
@@ -185,7 +185,7 @@ export class Runtime {
    * Reading tool descriptions by meaning, set by the launcher when a connected model can compare
    * writing. It is only ever used when the owner has switched "meaning search for tools" on.
    */
-  toolMeaning: ToolEmbedder | null = null;
+  toolMeaning: RunToolEmbedder | null = null;
   /** Where screenshots are kept, so a model that can look at pictures can be shown one. */
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
@@ -997,7 +997,7 @@ export class Runtime {
       noteOf: (name) => notes.get(name) ?? "",
       // Only when the owner has said yes. With nothing here, searching is by words alone and
       // nothing about the request ever leaves this computer.
-      ...(this.toolMeaning && meaningSearchOn(this.store, this.owner) ? { embedder: this.toolMeaning } : {}),
+      ...this.meaningOption(run.id),
     });
     this.catalogs.set(run.id, catalog);
     this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
@@ -1017,9 +1017,19 @@ export class Runtime {
       noteOf: (name) => notes.get(name) ?? "",
       // Only when the owner has said yes. With nothing here, searching is by words alone and
       // nothing about the request ever leaves this computer.
-      ...(this.toolMeaning && meaningSearchOn(this.store, this.owner) ? { embedder: this.toolMeaning } : {}),
+      ...this.meaningOption(run.id),
     });
     this.store.event(run.id, "catalog.reindexed", { tools: catalog.stats().tools });
+  }
+  /**
+   * The reader that compares a request with what each tool says it does, for one task. Nothing
+   * comes back unless the owner has switched meaning search on; when it does, the task it belongs
+   * to travels with it, so what the reading costs is charged there and not spent out of sight.
+   */
+  private meaningOption(runId: string): { embedder?: ToolEmbedder } {
+    const reader = this.toolMeaning;
+    if (!reader || !meaningSearchOn(this.store, this.owner)) return {};
+    return { embedder: { embed: (texts) => reader.embed(texts, runId) } };
   }
   /** Remembers, for this task only, that a tool was called; the lesson is written when it finishes. */
   private rememberToolWork(runId: string, name: string, round: number): void {

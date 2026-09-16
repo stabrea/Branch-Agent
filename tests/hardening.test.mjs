@@ -15,7 +15,8 @@ import { z } from "zod";
 import { startServer } from "../dist/server.js";
 import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy, ToolLoader, readLifecycleSettings, saveLifecycleSettings } from "../dist/index.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
-import { mcpToolName } from "../dist/integrations/mcp.js";
+import { mcpToolName, registerCachedMcp } from "../dist/integrations/mcp.js";
+import { meaningSearchExplanation } from "../dist/tool-loading.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -567,4 +568,93 @@ test("2 — a call parked on a question does not use up the connection's busy li
 
   for (const { id, question } of questions) app.runtime.approve(`mcp:${id}`, "allow", "session", question.fingerprint);
   for (const answered of await Promise.all(parked)) assert.equal(answered.data.result.isError, false);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * Integration pass: the holes the reviewer asked to be closed before this branch lands.
+ * ------------------------------------------------------------------------------------------ */
+
+test("2 — a client cannot park question upon question, or wipe the one the owner is looking at", async (t) => {
+  const { app, call, rpc, sessionId } = await client(t);
+  app.registry.register({
+    name: "browser.click", description: "Click something on a web page", permission: "browser.interact",
+    parameters: z.object({ selector: z.string() }).strict(), execute: async () => ({ clicked: true }),
+  });
+  await call("/api/mcp/settings", { enabled: true, exposedTools: ["browser.click"], askWaitSeconds: 600 });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "browser.click", match: "*", decision: "ask" }] });
+
+  const parked = rpc({ jsonrpc: "2.0", id: 300, method: "tools/call",
+    params: { name: "browser.click", arguments: { selector: "#first" } } }, sessionId);
+  let question;
+  for (let at = 0; at < 400 && !question; at++) {
+    question = app.runtime.approvals.waiting(`mcp:${sessionId}`).at(-1);
+    if (!question) await delay(25);
+  }
+  assert.ok(question, "the first call is holding a question for the owner");
+
+  // A second one on the same connection is turned away at once, because the app holds one question
+  // per conversation: letting it through would replace the one the owner is reading.
+  const over = await rpc({ jsonrpc: "2.0", id: 301, method: "tools/call",
+    params: { name: "browser.click", arguments: { selector: "#second" } } }, sessionId);
+  assert.equal(over.data.result.isError, true);
+  assert.match(over.data.result.content[0].text, /as many questions for the owner as it allows/);
+  assert.match(over.data.result.content[0].text, /nothing was done/i);
+  const still = app.runtime.approvals.waiting(`mcp:${sessionId}`);
+  assert.equal(still.length, 1, "nothing was created for the one turned away");
+  assert.match(still[0].bytes, /#first/, "and the question the owner is looking at is untouched");
+
+  app.runtime.approve(`mcp:${sessionId}`, "allow", "session", question.fingerprint);
+  assert.equal((await parked).data.result.isError, false, "the first call still gets its answer");
+});
+
+test("1 — on demand, a tool whose shape the server has changed is not called with the old one", async (t) => {
+  const { app } = await fixture(t);
+  const config = { id: "shifty", transport: "stdio", command: process.execPath, args: ["-e", ""],
+    tools: ["echo"], expectedVersion: "1.0.0" };
+  const remembered = [{ name: "echo", description: "Say something back",
+    inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }];
+
+  let reached = null;
+  const names = registerCachedMcp(app.registry, config, remembered, async () => ({
+    call: async (tool, args) => { reached = { tool, args }; return { content: [{ type: "text", text: "ok" }] }; },
+    // What the server says NOW: it wants "message", not "text".
+    tools: [{ name: "echo", inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } }],
+  }));
+  t.after(() => { for (const name of names) app.registry.unregister(name); });
+  assert.equal(names.length, 1, "the remembered tool is in the list before anything is started");
+
+  const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "call it").id });
+  await assert.rejects(() => app.registry.execute(names[0], { text: "hello" },
+    { ...context, permissions: new Set(names) }), /MCP tool failed/);
+  assert.equal(reached, null, "the call never reached the server with the shape it has stopped using");
+});
+
+test("1 — on demand, a credential the server echoes back is taken out of the answer", async (t) => {
+  const { app } = await fixture(t);
+  const config = { id: "chatty", transport: "stdio", command: process.execPath, args: ["-e", ""],
+    tools: ["echo"], expectedVersion: "1.0.0" };
+  const shape = { type: "object", properties: { text: { type: "string" } }, required: ["text"] };
+  const names = registerCachedMcp(app.registry, config,
+    [{ name: "echo", description: "Say something back", inputSchema: shape }],
+    async () => ({
+      call: async () => ({ content: [{ type: "text", text: "your key is sk-do-not-print" }] }),
+      secrets: ["sk-do-not-print"],
+      tools: [{ name: "echo", inputSchema: shape }],
+    }));
+  t.after(() => { for (const name of names) app.registry.unregister(name); });
+
+  const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "call it").id });
+  const answer = await app.registry.execute(names[0], { text: "hello" }, { ...context, permissions: new Set(names) });
+  const said = JSON.stringify(answer);
+  assert.ok(!said.includes("sk-do-not-print"), "the credential does not come back through an on-demand server");
+  assert.match(said, /credential redacted/);
+});
+
+test("9 — the sentence the owner reads names who would receive the tool descriptions", async () => {
+  const named = meaningSearchExplanation("openai, the model service you have connected");
+  assert.match(named, /sending your request/, "it still says plainly what goes out");
+  assert.match(named, /openai/, "and names who receives it, rather than gesturing at a model");
+  assert.ok(!/embedding|vector|cosine/i.test(named), "in ordinary words");
+  assert.match(meaningSearchExplanation(), /connected for comparing writing/,
+    "with nothing connected it says what kind of connection would receive it");
 });

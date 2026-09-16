@@ -704,9 +704,10 @@ async function api(
       const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
       app.store.save("settings", app.runtime.owner, meaningSearchSetting, { enabled });
     }
+    const reader = app.knowledgeBases.embeddings(app.runtime.owner);
     return { enabled: meaningSearchOn(app.store, app.runtime.owner),
-      available: app.knowledgeBases.meaningSearchReady(app.runtime.owner),
-      explanation: meaningSearchExplanation };
+      available: reader !== null,
+      explanation: meaningSearchExplanation(meaningSearchReceiver(app, reader)) };
   }
   if (request.method === "POST" && path === "/api/tools/forget") {
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
@@ -2120,6 +2121,17 @@ function meteringDeps(app: Branch) {
     overrides: () => pricingSettings(app.store, app.runtime.owner).overrides,
   };
 }
+/**
+ * Who would actually receive the tool descriptions, named, so the sentence the owner reads before
+ * switching meaning search on says where their words go rather than gesturing at "a model".
+ */
+function meaningSearchReceiver(app: Branch, reader: { local: boolean } | null): string | undefined {
+  if (!reader) return undefined;
+  if (reader.local) return "the model running on this computer, so nothing leaves it";
+  const provider = app.runtime.models.plan(app.runtime.owner, "").candidates[0]?.provider.name;
+  return provider ? `${provider}, the model service you have connected` : undefined;
+}
+
 function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,

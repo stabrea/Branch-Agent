@@ -79,6 +79,15 @@ function definition(call: CallThrough, config: McpConfig, tool: Tool, secrets: s
 
 /** What a connected server said its tools are, kept so they can be listed without connecting. */
 export interface CachedMcpTool { name: string; description: string; inputSchema: unknown }
+/**
+ * A server that is actually open: a way to call it, the credentials it was opened with so they can
+ * be kept out of what comes back, and what it says its tools are right now.
+ */
+export interface LiveMcp {
+  call: CallThrough;
+  secrets?: readonly string[];
+  tools?: readonly { name: string; inputSchema?: unknown }[];
+}
 export interface McpToolCache {
   read(id: string): CachedMcpTool[];
   write(id: string, tools: CachedMcpTool[]): void;
@@ -96,15 +105,31 @@ const cacheable = (tools: Tool[]): CachedMcpTool[] =>
  */
 export function registerCachedMcp(
   registry: ToolRegistry, input: unknown, cached: readonly CachedMcpTool[],
-  open: () => Promise<{ call: CallThrough }>,
+  open: () => Promise<LiveMcp>,
 ): string[] {
   const config = McpConfigSchema.parse(input);
   const wanted = config.tools
     .map(name => cached.find(tool => tool.name === name))
     .filter((tool): tool is CachedMcpTool => tool !== undefined);
   if (wanted.length !== config.tools.length) return [];
-  let opened: Promise<{ call: CallThrough }> | undefined;
-  const call: CallThrough = async (name, args, context) => (await (opened ??= open())).call(name, args, context);
+  const remembered = new Map(wanted.map(tool => [tool.name, JSON.stringify(tool.inputSchema)]));
+  let opened: Promise<LiveMcp> | undefined;
+  const call: CallThrough = async (name, args, context) => {
+    const live = await (opened ??= open());
+    // The shape above came from an earlier connection. If the server has changed what this tool
+    // needs since then, the remembered shape is not to be trusted for a moment longer: the call is
+    // checked against what the server says now, and refused if it no longer fits.
+    const fresh = live.tools?.find(tool => tool.name === name);
+    if (fresh && JSON.stringify(fresh.inputSchema) !== remembered.get(name)) {
+      remembered.set(name, JSON.stringify(fresh.inputSchema));
+      const check = new AjvJsonSchemaValidator().getValidator(fresh.inputSchema as JsonSchemaType);
+      if (!check(args).valid) throw new Error('MCP server changed this tool since Branch last spoke to it');
+    }
+    const result = await live.call(name, args, context);
+    // Redacted here as well as in `definition`, because the credentials are only known once the
+    // connection has actually been made; without this an on-demand server could echo one back.
+    return live.secrets?.length ? redact(result, [...live.secrets]) : result;
+  };
   const names: string[] = [];
   for (const tool of wanted) {
     const made = definition(call, config, tool as unknown as Tool, []);

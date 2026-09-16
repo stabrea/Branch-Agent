@@ -158,6 +158,16 @@ export class McpSession {
 
 /** How many conversations are kept at once. At the cap the quietest one is dropped. */
 const SESSION_LIMIT = 100;
+/**
+ * How many calls may sit waiting for the owner's yes at once: in all, and from any one connection.
+ * Waiting deliberately does not count as work, so without these two numbers a client could park
+ * call after call and leave a question, a task and a timer behind for each one. Past either cap
+ * the call is turned away at once, with nothing created and nothing to answer.
+ *
+ * One per connection, not more, because the app holds one question per conversation: a second
+ * would quietly replace the first and the owner would never see what they were asked.
+ */
+const WAITING_LIMIT = 16, WAITING_PER_SESSION = 1;
 
 /** What the settings say about one call from outside, and the words for each way it can end. */
 interface McpVerdict {
@@ -172,6 +182,8 @@ interface McpVerdict {
   fingerprint: string;
   refusal: string;
   waiting: string;
+  /** Said when there is no free place to wait in, so nothing was asked and nothing was done. */
+  tooMany: string;
 }
 
 /** A resource only shows up when the owner's approval settings would allow the matching tool. */
@@ -194,6 +206,8 @@ export class McpServer {
    * has for two minutes and refuse even a read.
    */
   private waiting = 0;
+  /** How many of those belong to each connection, so one client cannot take every free place. */
+  private readonly waitingPerSession = new Map<string, number>();
   private readonly stopWatching: () => void;
   /** The document library, once the launcher has built it, so documents can be offered too. */
   documents?: { list(owner: string): unknown[] };
@@ -504,9 +518,8 @@ export class McpServer {
     const verdict = this.gate(name, args, session);
     if (verdict.decision === 'deny') return failure(verdict.refusal);
     if (verdict.decision === 'ask') {
-      this.waiting++;
-      let answered: 'allow' | 'deny' | 'waiting';
-      try { answered = await this.waitForOwner(verdict, session); } finally { this.waiting--; }
+      const answered = await this.park(verdict, session);
+      if (answered === 'full') return failure(verdict.tooMany);
       if (answered !== 'allow') return failure(answered === 'deny' ? verdict.refusal : verdict.waiting);
     }
     const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
@@ -552,7 +565,29 @@ export class McpServer {
       bytes: bytes.slice(0, 2000), fingerprint,
       refusal: `Your approval settings do not allow ${name}${where}.`,
       waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
+      tooMany: 'Branch is already holding as many questions for the owner as it allows. Nothing was asked and nothing was done. Answer the ones waiting in Branch, then try again.',
     };
+  }
+
+  /**
+   * Holding one call open while the owner is asked, but only if there is a place free. Waiting is
+   * not work, so it does not count against how many calls may run at once; these two counts are
+   * what stops that becoming a way to make Branch hold an unlimited number of them. A call turned
+   * away here has had nothing created for it — no question, no task, nothing to answer.
+   */
+  private async park(verdict: McpVerdict, session?: McpSession): Promise<'allow' | 'deny' | 'waiting' | 'full'> {
+    const key = verdict.approvalKey;
+    const mine = this.waitingPerSession.get(key) ?? 0;
+    if (this.waiting >= WAITING_LIMIT || mine >= WAITING_PER_SESSION) return 'full';
+    this.waiting++;
+    this.waitingPerSession.set(key, mine + 1);
+    try {
+      return await this.waitForOwner(verdict, session);
+    } finally {
+      this.waiting--;
+      const left = (this.waitingPerSession.get(key) ?? 1) - 1;
+      if (left > 0) this.waitingPerSession.set(key, left); else this.waitingPerSession.delete(key);
+    }
   }
 
   /**
