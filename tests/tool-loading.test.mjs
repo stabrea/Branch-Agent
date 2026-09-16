@@ -211,7 +211,7 @@ test("a tool nobody has used for a month stops being advertised, and the learnin
   loader.nextRound();
   const searcher = loader.descriptions().find((tool) => tool.name === toolSearchName);
   assert.ok(!searcher.description.includes("media.speak — "), "a stale tool is no longer listed");
-  assert.deepEqual(loader.search("read something aloud", 5).matches.filter((m) => m.name === "media.speak").length, 1,
+  assert.deepEqual((await loader.search("read something aloud", 5)).matches.filter((m) => m.name === "media.speak").length, 1,
     "but searching still finds it");
 
   const forgotten = learned.forget("local");
@@ -374,9 +374,9 @@ test("the toolbox opener still works, and is now a shortcut over the same index"
   const loader = new ToolLoader(tools, { groupOf: groupOf(app), signals: { prompt: "tidy the desk" } });
   loader.expand(["schedules"]);
   loader.nextRound();
-  const carried = loader.descriptions().filter((tool) => tool.name.startsWith("schedules.") || tool.name.startsWith("brief.") || tool.name.startsWith("monitor.") || tool.name.startsWith("workflows."));
+  const carried = loader.descriptions().filter((tool) => tool.name.startsWith("schedules.") || tool.name.startsWith("brief.") || tool.name.startsWith("monitor.") || tool.name.startsWith("workflows.") || tool.name.startsWith("flows."));
   assert.equal(carried.length, defaultMaxLoaded, `opening it carried ${carried.length} of ${box.length}`);
   const missed = box.find((tool) => !carried.some((seen) => seen.name === tool.name));
-  assert.ok(loader.search(missed.name, 3).matches.some((match) => match.name === missed.name),
+  assert.ok((await loader.search(missed.name, 3)).matches.some((match) => match.name === missed.name),
     `${missed.name} was left out of the message but is still findable`);
 });

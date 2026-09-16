@@ -47,6 +47,7 @@ import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
+import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -676,6 +677,16 @@ async function api(
   if (request.method === "GET" && path === "/api/tools/catalog") {
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
     return toolCatalogReport(app);
+  }
+  if (path === "/api/tools/meaning-search") {
+    app.store.profiles.requireOwner("How the assistant finds its tools");
+    if (request.method === "POST") {
+      const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
+      app.store.save("settings", app.runtime.owner, meaningSearchSetting, { enabled });
+    }
+    return { enabled: meaningSearchOn(app.store, app.runtime.owner),
+      available: app.knowledgeBases.meaningSearchReady(app.runtime.owner),
+      explanation: meaningSearchExplanation };
   }
   if (request.method === "POST" && path === "/api/tools/forget") {
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
@@ -1943,7 +1954,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

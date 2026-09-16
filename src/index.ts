@@ -371,6 +371,18 @@ export async function createBranch(options: {
         ?? documentContext.contextFor(owner, prompt, signal);
     },
   };
+  // Finding a tool by meaning, through the same reader and the same store of already-read
+  // passages as everything else: a tool description that has not changed is never read twice.
+  // The switch is checked in the runtime at the moment of the search, so this seam being here
+  // does not by itself send anything anywhere.
+  runtime.toolMeaning = {
+    embed: async (texts) => {
+      const reader = knowledgeBases.embeddings(runtime.owner);
+      if (!reader) return [];
+      const vectors = await reader.embed([...texts], AbortSignal.timeout(20_000));
+      return vectors.map((vector) => Array.from(vector));
+    },
+  };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);

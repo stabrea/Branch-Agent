@@ -13,7 +13,7 @@ import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { startServer } from "../dist/server.js";
-import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy } from "../dist/index.js";
+import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy, ToolLoader } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -329,4 +329,75 @@ test("2 — nobody answers in time: the client is told to ask again, and the ret
     params: { name: "browser.click", arguments: { selector: "#somewhere-else" } } }, sessionId);
   assert.equal(different.data.result.isError, true);
   assert.match(different.data.result.content[0].text, /waiting for your yes in Branch/);
+});
+
+/**
+ * A stand-in for a model that compares writing. It knows nothing about language: it places a
+ * passage on a circle by the ideas it recognises in it, so "make a graphic" and "draw a chart"
+ * land near each other while sharing no word at all — which is the whole point of the exercise.
+ */
+function fakeEmbedder() {
+  const ideas = {
+    picture: ["graphic", "chart", "draw", "plot", "visual", "diagram", "graph"],
+    writing: ["write", "file", "text", "document", "save", "note"],
+    talking: ["message", "send", "reply", "chat", "email"],
+  };
+  const calls = { texts: 0 };
+  const vector = (text) => {
+    const words = String(text).toLowerCase().match(/[a-z]+/g) ?? [];
+    const axes = Object.values(ideas).map((list) => words.filter((word) => list.includes(word)).length);
+    const length = Math.hypot(...axes) || 1;
+    return axes.map((value) => value / length);
+  };
+  return { calls, embed: async (texts) => { calls.texts += texts.length; return texts.map(vector); } };
+}
+
+test("9 — with meaning search on, a paraphrase finds the tool that plain words miss", async (t) => {
+  const { app } = await fixture(t);
+  const tools = [
+    { name: "data.chart", description: "Draw a graph of some numbers.", parameters: { type: "object", properties: {} } },
+    { name: "files.write", description: "Save text into a file.", parameters: { type: "object", properties: {} } },
+    { name: "channels.send", description: "Send a message to somebody.", parameters: { type: "object", properties: {} } },
+  ];
+  const embedder = fakeEmbedder();
+
+  // With words alone, "make a graphic" shares no word with any of them.
+  const plain = new ToolLoader(tools, { budgetTokens: 4000 });
+  const missed = await plain.search("make a graphic", 1);
+  assert.notEqual(missed.matches[0]?.name, "data.chart", "plain words do not get there");
+
+  const meaning = new ToolLoader(tools, { budgetTokens: 4000, embedder });
+  const found = await meaning.search("make a graphic", 1);
+  assert.equal(found.matches[0].name, "data.chart", "meaning does");
+  assert.ok(embedder.calls.texts >= 4, "the query and every description were read");
+});
+
+test("9 — meaning search is off until the owner turns it on, and says what it sends", async (t) => {
+  const { app, call } = await served(t);
+  const before = await call("/api/tools/meaning-search");
+  assert.equal(before.body.enabled, false, "off unless the owner says otherwise");
+  assert.match(before.body.explanation, /sending your request/, "and the sentence says plainly what goes out");
+  assert.ok(!/embedding|vector|cosine/i.test(before.body.explanation), "in ordinary words");
+
+  const on = await call("/api/tools/meaning-search", { enabled: true });
+  assert.equal(on.body.enabled, true);
+  assert.equal((await call("/api/tools/meaning-search")).body.enabled, true, "and it is remembered");
+  assert.equal((await call("/api/tools/meaning-search", { enabled: false })).body.enabled, false);
+
+  // Somebody else on this computer cannot read or change how the owner's assistant finds tools.
+  const made = await call("/api/profiles", { name: "Sam", pin: "4321" });
+  await call("/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
+  assert.match((await call("/api/tools/meaning-search")).body.error, /belongs to the owner/);
+  await call("/api/profiles/switch", { profileId: null });
+  void app;
+});
+
+test("9 — a tool search still works when reading by meaning fails", async (t) => {
+  const { app } = await fixture(t);
+  const tools = [{ name: "files.write", description: "Save text into a file.", parameters: { type: "object", properties: {} } }];
+  const broken = { embed: async () => { throw new Error("the service is not there"); } };
+  const loader = new ToolLoader(tools, { budgetTokens: 4000, embedder: broken });
+  const found = await loader.search("save a file", 3);
+  assert.equal(found.matches[0].name, "files.write", "the word search stands on its own");
+  void app;
 });

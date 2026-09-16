@@ -64,6 +64,33 @@ function listsOf(report) {
   box.append(notes);
 }
 
+/**
+ * Finding a tool by what it does rather than by the words you happened to use. It is off, and
+ * stays off until you say otherwise, because it sends your request somewhere: the sentence the
+ * engine gives is shown exactly as it is written there, so this screen cannot soften it.
+ */
+async function meaningSearch() {
+  const box = $("tool-catalog-meaning");
+  if (!box) return;
+  const state = await api("tools/meaning-search");
+  box.replaceChildren(el("h3", "Finding tools by meaning"));
+  box.append(el("p", state.explanation, "subtle"));
+  if (!state.available) {
+    box.append(el("p", "None of your connected models can compare writing yet, so this cannot be turned on.", "subtle"));
+    return;
+  }
+  const label = el("label");
+  const tick = document.createElement("input");
+  tick.type = "checkbox";
+  tick.checked = state.enabled === true;
+  tick.addEventListener("change", async () => {
+    await api("tools/meaning-search", "POST", { enabled: tick.checked });
+    await meaningSearch();
+  });
+  label.append(tick, document.createTextNode(" Also find tools by meaning"));
+  box.append(label);
+}
+
 export async function renderToolCatalog() {
   const status = $("tool-catalog-status");
   if (!status) return;
@@ -71,6 +98,7 @@ export async function renderToolCatalog() {
     const report = await api("tools/catalog");
     summaryOf(report);
     listsOf(report);
+    await meaningSearch();
     status.textContent = "";
   } catch (error) {
     status.textContent = String(error.message || error);

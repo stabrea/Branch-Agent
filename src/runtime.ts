@@ -65,7 +65,8 @@ import {
   rankGroups, type ContextBudget,
 } from "./catalog.js";
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
-import { ToolLoader, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import type { ToolEmbedder } from "./tool-index.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
@@ -179,6 +180,11 @@ export class Runtime {
   readonly reliability: ReliabilityOptions;
   /** The person's document library, when one is open: passages go in front of their own tasks. */
   documents: { contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> } | null = null;
+  /**
+   * Reading tool descriptions by meaning, set by the launcher when a connected model can compare
+   * writing. It is only ever used when the owner has switched "meaning search for tools" on.
+   */
+  toolMeaning: ToolEmbedder | null = null;
   /** Where screenshots are kept, so a model that can look at pictures can be shown one. */
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
@@ -971,6 +977,9 @@ export class Runtime {
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
       noteOf: (name) => notes.get(name) ?? "",
+      // Only when the owner has said yes. With nothing here, searching is by words alone and
+      // nothing about the request ever leaves this computer.
+      ...(this.toolMeaning && meaningSearchOn(this.store, this.owner) ? { embedder: this.toolMeaning } : {}),
     });
     this.catalogs.set(run.id, catalog);
     this.toolWork.set(run.id, { searched: [], called: [], failures: new Map(), rounds: 0 });
@@ -988,6 +997,9 @@ export class Runtime {
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
       noteOf: (name) => notes.get(name) ?? "",
+      // Only when the owner has said yes. With nothing here, searching is by words alone and
+      // nothing about the request ever leaves this computer.
+      ...(this.toolMeaning && meaningSearchOn(this.store, this.owner) ? { embedder: this.toolMeaning } : {}),
     });
     this.store.event(run.id, "catalog.reindexed", { tools: catalog.stats().tools });
   }
@@ -1464,13 +1476,13 @@ export class Runtime {
    * permissions, so a narrowed task cannot find one it may not use: such a name is simply not
    * there, worded exactly as a misspelling is, so refusal cannot be told apart from absence.
    */
-  private searchTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+  private async searchTools(call: ToolCall, context: ToolContext, args: unknown): Promise<{ ok: boolean; result?: unknown; error?: string }> {
     const catalog = this.catalogs.get(context.runId);
     if (!catalog) return { ok: false, error: "There are no tools to search in this task." };
     const asked = (args as { query?: unknown; limit?: unknown }) ?? {};
     const query = String(asked.query ?? "").trim();
     if (!query) return { ok: false, error: `Say what you want to do, for example {"query":"send a message"}.` };
-    const found = catalog.search(query, Number.isFinite(Number(asked.limit)) ? Number(asked.limit) : 8);
+    const found = await catalog.search(query, Number.isFinite(Number(asked.limit)) ? Number(asked.limit) : 8);
     const work = this.toolWork.get(context.runId);
     for (const match of found.matches) if (work && !work.searched.includes(match.name)) work.searched.push(match.name);
     this.store.event(context.runId, "tools.searched", { query: query.slice(0, 120), found: found.matches.map((m) => m.name) });
