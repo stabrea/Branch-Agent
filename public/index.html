@@ -228,6 +228,7 @@
             <h2>What it learns</h2>
             <label class="check-row"><input type="checkbox" id="learning-review" /> After each task, suggest what is worth remembering. You accept or reject each suggestion.</label>
             <label class="check-row"><input type="checkbox" id="learning-approval" /> Ask me before the assistant saves, changes or removes a memory on its own.</label>
+            <label class="check-row"><input type="checkbox" id="learning-consolidate" /> Once a day, look over what happened and suggest what is worth remembering. <button id="consolidate-now" type="button">Look now</button></label>
             <h3>Suggested changes</h3>
             <div id="memory-proposals" class="card-list" aria-live="polite"></div>
             <h3>Checkpoints</h3>
@@ -339,6 +340,11 @@
           <div class="card">
             <label for="skill-policy">If a skill looks risky (a pasted key, instructions to send your data somewhere, or attempts to override the assistant's rules)</label>
             <select id="skill-policy"><option value="block">Block it (recommended)</option><option value="review">Let me review it first</option></select>
+          </div>
+          <div class="card" id="set-aside-card">
+            <h3>Set aside after repeated failures</h3>
+            <p class="subtle">A skill that keeps failing the same way is kept out of new tasks for a while, then gets one trial. You can let it back in now.</p>
+            <div id="set-aside-list" class="card-list"></div>
           </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">

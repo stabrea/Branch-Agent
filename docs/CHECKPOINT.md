@@ -47,6 +47,14 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 17 (local, unreleased): skill governance, benchmarks, drafts from traces, daily consolidation
+
+`src/skill-governance.ts` (failure signatures, set-aside with recovery trial, demotion, benchmark, proposeFromRun)
+stored in the generic `governance` table; `skillInstructions` filters the catalog per run; `Runtime.execute`
+records outcomes for top-level runs; `MemoryReview.consolidate` with `dream-cursor` (children and consolidation
+runs excluded), `Scheduler.tick` runs it when due; routes under `/api/governance`, `/api/skills/:id/benchmark|draft`,
+`/api/memory/consolidate`. Learning settings gained `consolidateDaily`.
+
 ## Release 0.7.1 (batch 16 + Enter-to-send)
 
 Version 0.7.1. Packaged with the stock electron.exe; 8/8 native tests against the packaged build. This is the

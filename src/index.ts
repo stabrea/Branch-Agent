@@ -185,6 +185,7 @@ export * from "./network-policy.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
+export * from "./skill-governance.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";

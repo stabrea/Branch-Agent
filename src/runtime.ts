@@ -407,6 +407,7 @@ export class Runtime {
     }
     const settled = await this.settleRun(run, context, status, output);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
   }

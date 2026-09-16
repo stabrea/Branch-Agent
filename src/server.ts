@@ -210,6 +210,8 @@ function state(app: Branch): unknown {
     learning: app.store.review.settings(owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
+    setAside: app.store.governance.exclusions(),
+    consolidation: app.store.review.cursor(owner),
     network: app.web.policy.settings(),
     memoryProposals: app.store.review.proposals(owner),
     memoryCheckpoints: app.store.review.checkpoints(owner),
@@ -282,6 +284,11 @@ async function api(
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
+  if (request.method === "GET" && path === "/api/governance")
+    return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
+  if (request.method === "POST" && path === "/api/governance") return app.store.governance.configure(await readBody(request));
+  const restoreSkill = /^\/api\/governance\/set-aside\/([a-f0-9-]{36})\/restore$/.exec(path);
+  if (restoreSkill && request.method === "POST") { app.store.governance.restore(restoreSkill[1]!); return { restored: true }; }
   const hookEnable = /^\/api\/hooks\/([a-z][a-z0-9_-]{0,39})\/enable$/.exec(path);
   if (hookEnable && request.method === "POST") return app.hooks.enable(hookEnable[1]!);
   const template = /^\/api\/templates\/(specialist|procedure)\/([a-f0-9-]{36})$/.exec(path);
@@ -387,6 +394,7 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.forgetMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
@@ -533,7 +541,12 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
-  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read))?$/.exec(path);
+  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft))?$/.exec(path);
+  if (match && request.method === "POST" && match[2] === "benchmark") return app.store.governance.benchmark(app.runtime, { ...(await readBody(request) as Record<string, unknown>), skillId: match[1]! });
+  if (match && request.method === "POST" && match[2] === "draft") {
+    const { runId } = z.object({ runId: z.string().uuid() }).strict().parse(await readBody(request));
+    return app.store.governance.proposeFromRun(app.runtime, match[1]!, runId);
+  }
   if (match && request.method === "GET" && !match[2]) return skills.view(owner, match[1]!);
   if (match && request.method === "POST" && match[2]) {
     const input = await readBody(request, 128 * 1024), id = match[1]!;

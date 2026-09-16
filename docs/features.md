@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 90 implemented, 16 partial, 1 external and 62 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 95 implemented, 14 partial, 1 external and 59 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -108,17 +108,17 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
 | Context compaction preserving task handoff (`learning.compaction`) | implemented | Covered by the listed local fixtures. |
-| Scheduled consolidation from append-only history (`learning.dream`) | missing | Process only new archive entries during scheduled consolidation and advance the consumption cursor after success. |
+| Scheduled consolidation from append-only history (`learning.dream`) | implemented | Covered by the listed local fixtures. |
 | Versioned durable memory (`learning.versioning`) | implemented | Covered by the listed local fixtures. |
 | Post-task memory and skill review (`learning.review`) | implemented | Covered by the listed local fixtures. |
 | Pending memory write review (`learning.approval`) | implemented | Covered by the listed local fixtures. |
 | Inspect edit prune and archive learning (`learning.journey`) | implemented | Covered by the listed local fixtures. |
 | Bounded session-start memory snapshots (`learning.cache`) | implemented | Covered by the listed local fixtures. |
 | Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | implemented | Covered by the listed local fixtures. |
-| Evidence-governed skill lifecycle and rollback (`learning.governance`) | partial | Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics. |
-| Optimize skill candidates from recorded traces (`learning.trace-optimization`) | missing | Generate a skill candidate from trace data and retain both candidate and original for comparison. |
-| Compare skill versions on reproducible evaluation tasks (`learning.skill-benchmark`) | partial | Add a runner executing baseline/candidate skills against identical fixtures and seeds and persisting per-task outcomes/costs. |
-| Environment-specific skill failure avoidance (`learning.failure-aware`) | missing | Exclude a skill with an active matching failure pattern and record the reason and allowed recovery trial. |
+| Evidence-governed skill lifecycle and rollback (`learning.governance`) | implemented | Covered by the listed local fixtures. |
+| Optimize skill candidates from recorded traces (`learning.trace-optimization`) | implemented | Covered by the listed local fixtures. |
+| Compare skill versions on reproducible evaluation tasks (`learning.skill-benchmark`) | implemented | Covered by the listed local fixtures. |
+| Environment-specific skill failure avoidance (`learning.failure-aware`) | implemented | Covered by the listed local fixtures. |
 
 ## Delegation
 

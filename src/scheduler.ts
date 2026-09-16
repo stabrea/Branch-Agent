@@ -92,6 +92,7 @@ export class Scheduler {
   }
   async tick(now = new Date()): Promise<Run[]> {
     const results: Run[] = [];
+    if (this.store.review.dreamDue(this.runtime.owner, now)) await this.store.review.consolidate(this.runtime, this.runtime.owner).catch(() => undefined);
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
       if (!claimed) continue;
