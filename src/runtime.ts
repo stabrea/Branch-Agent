@@ -38,6 +38,8 @@ import {
   type RetryPolicy,
   type RetryPolicyInput,
 } from "./provider-retry.js";
+import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
+import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
@@ -375,15 +377,10 @@ export class Runtime {
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
-    // Check token budget enforcement before creating the run
+    // Check the monthly budget before creating the run
     if (!parent) {
-      const budgetSetting = this.store.get("settings", this.owner, "usage_budget")?.data as { maxMonthlyTokens?: number; pauseAtBudget?: boolean } | undefined;
-      if (budgetSetting?.maxMonthlyTokens && budgetSetting.pauseAtBudget) {
-        const monthlyUsage = this.monthlyTokenUsage();
-        if (monthlyUsage >= budgetSetting.maxMonthlyTokens) {
-          throw new Error(`Token budget exceeded. This month's usage (${monthlyUsage.toLocaleString()} tokens) has reached the limit of ${budgetSetting.maxMonthlyTokens.toLocaleString()}. Visit the Usage screen to raise the budget.`);
-        }
-      }
+      const refusal = this.monthlyBudgetRefusal();
+      if (refusal) throw new Error(refusal);
     }
     const budget = parent?.budget ?? new Budget(options.budget);
     const run = this.prepareRun(options);
@@ -453,19 +450,41 @@ export class Runtime {
     for (const s of skills) this.store.review.propose(context.owner, { kind: "skill-note", skillId: String(s.skillId).slice(0, 200), text: String(s.note).slice(0, 4000), runId: run.id });
     this.store.event(run.id, "learning.reviewed", { memories: memories.length, skills: skills.length });
   }
-  /** Calculates total tokens used this calendar month. */
-  private monthlyTokenUsage(): number {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const runs = this.store.runs(this.owner);
-    let total = 0;
-    for (const run of runs) {
-      if (run.createdAt >= monthStart) {
-        const usage = this.store.usage(run.id);
-        total += (usage.reportedInput || usage.estimatedInput || 0) + (usage.reportedOutput || usage.estimatedOutput || 0);
-      }
-    }
-    return total;
+  /** Says in money what this month's tokens came to, when the models used have prices on file. */
+  private monthlySpendNote(stats: { estimatedCost: number; unpricedRuns: number }): string {
+    if (stats.estimatedCost <= 0)
+      return stats.unpricedRuns > 0 ? " No price is on file for the models used, so the cost is unknown." : "";
+    const money = `$${stats.estimatedCost.toFixed(2)}`;
+    return stats.unpricedRuns > 0
+      ? ` That is about ${money}, not counting ${stats.unpricedRuns} task(s) whose model has no price on file.`
+      : ` That is about ${money}.`;
+  }
+  /**
+   * Why a new task cannot start, or null when it can. The monthly limit may be set in tokens, in
+   * dollars, or both; either being reached stops new tasks while "pause at budget" is on.
+   */
+  private monthlyBudgetRefusal(): string | null {
+    const setting = this.store.get("settings", this.owner, "usage_budget")?.data as
+      { maxMonthlyTokens?: number; maxMonthlyDollars?: number; pauseAtBudget?: boolean } | undefined;
+    if (!setting?.pauseAtBudget) return null;
+    const { overrides } = pricingSettings(this.store, this.owner);
+    const stats = this.store.usageStore().getMonthlyStats(setting.maxMonthlyTokens, overrides);
+    const raise = "Visit the Usage screen to raise the budget.";
+    if (setting.maxMonthlyDollars !== undefined && stats.estimatedCost >= setting.maxMonthlyDollars)
+      return `Monthly budget reached. This month's tasks have cost about $${stats.estimatedCost.toFixed(2)}, which is at the limit of $${setting.maxMonthlyDollars.toFixed(2)}. ${raise}`;
+    if (setting.maxMonthlyTokens !== undefined && stats.currentMonthlyTokens >= setting.maxMonthlyTokens)
+      return `Token budget exceeded. This month's usage (${stats.currentMonthlyTokens.toLocaleString()} tokens) has reached the limit of ${setting.maxMonthlyTokens.toLocaleString()}.${this.monthlySpendNote(stats)} ${raise}`;
+    return null;
+  }
+  /** What this task has cost so far, for a budget message. Empty when its model has no price. */
+  private spentOnRun(runId: string, model: string): string {
+    const usage = this.store.usage(runId);
+    const { overrides } = pricingSettings(this.store, this.owner);
+    const estimate = estimateCost(model, {
+      input: usage.reportedInput || usage.estimatedInput || 0,
+      output: usage.reportedOutput || usage.estimatedOutput || 0,
+    }, overrides);
+    return estimate.amount === null ? "" : ` So far this task has used about ${formatCost(estimate)}.`;
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
@@ -505,7 +524,24 @@ export class Runtime {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
     }
-    return this.finish(run, status, output);
+    const settled = this.finish(run, status, output);
+    this.saveTrace(run.id);
+    return settled;
+  }
+  /**
+   * Writes the task's trace file when the owner has turned that on. Nothing here may fail a task:
+   * tracing that is off, a runtime already shutting down, and a folder that cannot be written are
+   * all quietly skipped or recorded as an event.
+   */
+  private saveTrace(runId: string): void {
+    try {
+      if (!traceSettings(this.store, this.owner).enabled) return;
+      void this.track(() =>
+        writeRunTrace(this.store, this.owner, this.workspace, runId)
+          .then((path) => { if (path) this.store.event(runId, "trace.written", { path }); })
+          .catch((error) => this.store.event(runId, "trace.failed", { error: errorText(error) })),
+      );
+    } catch { /* a trace file is never worth failing a task for */ }
   }
   private finish(run: Run, status: Run["status"], output: string): Run {
     const finished = this.store.finish(run.id, status, output);
@@ -735,7 +771,7 @@ export class Runtime {
     if (input > contextLimit) throw new BudgetError(tooLong);
     context.budget.charge(input);
     const maxTokens = Math.min(2048, context.budget.remaining());
-    if (maxTokens < 1) throw new BudgetError("Token budget exhausted");
+    if (maxTokens < 1) throw new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, preset.model)}`);
     this.store.beginUsage(run.id, input);
     this.store.event(run.id, "model.started", {
       estimatedInput: input,
@@ -759,6 +795,10 @@ export class Runtime {
         estimatedInput: input,
         estimatedOutput: output,
         reported: reported ?? null,
+        // Which model answered, so the usage figures, the timeline and the trace can name it.
+        preset: preset.id,
+        provider: preset.provider.name,
+        model: preset.model,
       });
       return completion;
     } catch (e) {

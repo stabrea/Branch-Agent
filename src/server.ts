@@ -32,6 +32,9 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
+import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
+import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
+import { writeDiagnosticsBundle } from "./diagnostics.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -48,6 +51,17 @@ const actionSchema = z
     args: z.record(z.string(), z.unknown()),
   })
   .strict();
+/** A monthly limit in tokens, in dollars, or both. Older settings that only set tokens still parse. */
+const budgetSchema = z
+  .object({
+    maxMonthlyTokens: z.number().int().positive().optional(),
+    maxMonthlyDollars: z.number().positive().max(1_000_000).optional(),
+    pauseAtBudget: z.boolean(),
+  })
+  .strict()
+  .refine((b) => b.maxMonthlyTokens !== undefined || b.maxMonthlyDollars !== undefined, {
+    message: "Set a monthly limit in tokens, in dollars, or both",
+  });
 function send(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -119,6 +133,8 @@ async function staticFile(
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
+    "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -310,7 +326,7 @@ function state(app: Branch): unknown {
     workspace: app.runtime.workspace,
     runs: app.store
       .runs(owner)
-      .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
+      .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
@@ -393,6 +409,7 @@ async function api(
         events: app.store.events(run.id),
         messages: app.store.messages(run.sessionId),
         usage: app.store.usage(run.id),
+        cost: runCost(app, run.id),
       };
   }
   if (request.method === "GET" && path === "/api/activity")
@@ -455,10 +472,29 @@ async function api(
     const url = new URL(request.url ?? "/", "http://local");
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
     const by = (url.searchParams.get("by") ?? "day") as "day" | "model" | "conversation" | "source";
-    const data = app.store.usageStore().aggregateUsage(range, by);
+    const { overrides } = pricingSettings(app.store, app.runtime.owner);
+    const data = app.store.usageStore().aggregateUsage(range, by, overrides);
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
-    const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens);
-    return { data, stats };
+    const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens, overrides);
+    return { data, stats, pricing: pricingTableInUse(app.store, app.runtime.owner) };
+  }
+  if (request.method === "GET" && path === "/api/pricing")
+    return pricingTableInUse(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/pricing")
+    return savePricingSettings(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/trace/settings")
+    return traceSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/trace/settings")
+    return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
+  if (request.method === "POST" && path === "/api/diagnostics/bundle")
+    return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
+      health: await healthReport(app), version: app.version,
+    });
+  const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
+  if (request.method === "GET" && traceMatch) {
+    const run = app.store.run(traceMatch[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return buildTraceDocument(app.store, run.id, app.version);
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
@@ -472,7 +508,7 @@ async function api(
     return { budget: budget || null };
   }
   if (request.method === "POST" && path === "/api/usage/budget") {
-    const input = z.object({ maxMonthlyTokens: z.number().int().positive(), pauseAtBudget: z.boolean() }).strict().parse(await readBody(request));
+    const input = budgetSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "usage_budget", input);
     return { budget: input };
   }
@@ -784,6 +820,19 @@ function fileChanges(app: Branch, runId: string) {
   return app.store.events(runId).filter((e) => e.kind === "file.changed").slice(0, 10)
     .map((e) => ({ path: e.data.path, versionId: e.data.versionId, existed: e.data.existed, added: e.data.added, removed: e.data.removed, diff: e.data.diff }));
 }
+/** What one task probably cost: a dollar figure when the model it used has a price on file. */
+function runCost(app: Branch, runId: string) {
+  const usage = app.store.usage(runId);
+  const named = app.store.events(runId).filter((e) => e.kind.startsWith("model.") && e.data.model !== undefined);
+  const model = String(named.at(-1)?.data.model ?? "");
+  if (!model) return { amount: null, currency: "USD" as const, confidence: "unknown" as const, note: "no price on file", display: "no price on file", model: null };
+  const { overrides } = pricingSettings(app.store, app.runtime.owner);
+  const estimate = estimateCost(model, {
+    input: usage.reportedInput || usage.estimatedInput || 0,
+    output: usage.reportedOutput || usage.estimatedOutput || 0,
+  }, overrides);
+  return { ...estimate, display: formatCost(estimate), model };
+}
 /** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
 async function receiptsView(app: Branch, runId: string) {
   const events = app.store.events(runId).filter((e) => e.kind.startsWith("tool."));
@@ -794,7 +843,7 @@ async function receiptsView(app: Branch, runId: string) {
   }
   const counts: Record<string, number> = {};
   for (const item of items) counts[item.outcome] = (counts[item.outcome] ?? 0) + 1;
-  return { runId, counts, items };
+  return { runId, counts, items, usage: app.store.usage(runId), cost: runCost(app, runId) };
 }
 async function skillsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner, skills = app.store.skills;
@@ -1102,13 +1151,14 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   if (request.method === "GET" && path === "/api/usage/export.csv") {
     const url = new URL(request.url ?? "/", "http://local");
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
-    const data = app.store.usageStore().aggregateUsage(range, "day");
-    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCost,failures"]
+    const { overrides } = pricingSettings(app.store, app.runtime.owner);
+    const data = app.store.usageStore().aggregateUsage(range, "day", overrides);
+    // estimatedCostUsd covers only the tasks with a price; runsWithoutPrice says how many had none.
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,runsWithoutPrice,failures"]
       .concat(
         data.map((d) =>
-          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output, d.estimatedCost.toFixed(4), d.failures].join(
-            ","
-          )
+          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
+            d.pricedRuns ? d.estimatedCost.toFixed(4) : "", d.unpricedRuns, d.failures].join(",")
         )
       )
       .join("\n");

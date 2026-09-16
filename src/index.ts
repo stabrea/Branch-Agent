@@ -223,3 +223,6 @@ export * from "./scheduler.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";
+export * from "./pricing.js";
+export * from "./trace.js";
+export * from "./diagnostics.js";

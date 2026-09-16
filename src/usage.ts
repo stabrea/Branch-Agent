@@ -1,29 +1,44 @@
 import { DatabaseSync } from "node:sqlite";
 import type { Run, Event } from "./contracts.js";
-
-export interface PresetPricing {
-  id: string;
-  inputTokenPrice: number; // per 1000 tokens, in USD
-  outputTokenPrice: number; // per 1000 tokens, in USD
-}
+import { estimateCost, type ModelPrice } from "./pricing.js";
 
 export interface UsageAggregate {
   date: string;
   runs: number;
   toolCalls: number;
   tokens: { input: number; output: number };
+  /** US dollars for the tasks whose model has a price; tasks without one are counted separately. */
   estimatedCost: number;
+  /** Tasks whose model has a price on file, and tasks that have none. Never show 0 for the latter. */
+  pricedRuns: number;
+  unpricedRuns: number;
   failures: number;
   topFailures: Array<{ reason: string; count: number }>;
-  presets: Array<{ id: string; runs: number; tokens: { input: number; output: number }; cost: number }>;
-  byConversation: Array<{ sessionId: string; runs: number; tokens: { input: number; output: number } }>;
-  byChannel: Array<{ source: string; runs: number }>;
+  presets: Array<{ id: string; model: string; runs: number; tokens: { input: number; output: number }; cost: number | null }>;
+  byConversation: Array<{ sessionId: string; runs: number; tokens: { input: number; output: number }; cost: number | null }>;
+  byChannel: Array<{ source: string; runs: number; cost: number | null }>;
 }
 
 export interface UsageStats {
   currentMonthlyTokens: number;
   monthStart: string;
   budgetAlert80Percent: boolean;
+  /** US dollars for the tasks this month that have a price, and how many had none. */
+  estimatedCost: number;
+  unpricedRuns: number;
+}
+
+/** One finished task reduced to what the usage views need: who ran it, on what, for how many tokens. */
+interface RunCost {
+  date: string;
+  sessionId: string;
+  source: string;
+  presetId: string;
+  model: string;
+  tokens: { input: number; output: number };
+  toolCalls: number;
+  failures: number;
+  cost: number | null;
 }
 
 export interface TimelineEntry {
@@ -70,129 +85,137 @@ export class UsageStore {
     return timestamp.split("T")[0] || timestamp;
   }
 
-  aggregateUsage(
-    range: "7d" | "30d" | "90d" | "all" = "30d",
-    groupBy: "day" | "model" | "conversation" | "source" = "day",
-    presets: PresetPricing[] = []
-  ): UsageAggregate[] {
-    const daysBack = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 36500;
-    const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+  /** Tokens as the provider reported them, falling back to the runtime's own estimate. */
+  private runTokens(runId: string): { input: number; output: number } {
+    const usage = this.db
+      .prepare(`SELECT estimated_input, estimated_output, reported_input, reported_output FROM usage WHERE run_id = ?`)
+      .get(runId) as
+      | { estimated_input: number; estimated_output: number; reported_input: number; reported_output: number }
+      | undefined;
+    if (!usage) return { input: 0, output: 0 };
+    return {
+      input: usage.reported_input || usage.estimated_input || 0,
+      output: usage.reported_output || usage.estimated_output || 0,
+    };
+  }
 
+  /** Which model answered, how many tools ran, and how many of them failed, from the run's events. */
+  private runEvents(runId: string): { presetId: string; model: string; toolCalls: number; failures: number } {
+    const events = this.db
+      .prepare(`SELECT kind, data FROM events WHERE run_id = ? ORDER BY id`)
+      .all(runId) as Array<{ kind: string; data: string }>;
+    let presetId = "", model = "", toolCalls = 0, failures = 0;
+    for (const event of events) {
+      if (event.kind === "tool.completed" || event.kind === "tool.started") toolCalls += 1;
+      if (event.kind === "tool.failed") failures += 1;
+      // model.started also names the model, so tasks recorded before model.completed carried it
+      // are still attributed correctly.
+      if (event.kind !== "model.completed" && event.kind !== "model.started") continue;
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      // The last round wins: after a fallback the task finished on the model named here.
+      if (data.preset !== undefined) presetId = String(data.preset);
+      if (data.model !== undefined) model = String(data.model);
+    }
+    return { presetId, model, toolCalls, failures };
+  }
+
+  /**
+   * Every finished task in the range with its tokens and, when the model has a price, its cost.
+   * Cost is worked out once per task from its single usage row, never once per model round.
+   */
+  private runCosts(cutoff: string, overrides: Record<string, ModelPrice>): RunCost[] {
     const runs = this.db
       .prepare(
         `SELECT id, session_id, status, created_at, source FROM tasks
          WHERE created_at >= ? AND status NOT IN ('running', 'needs_input')
          ORDER BY created_at DESC`
       )
-      .all(cutoff) as Array<{
-      id: string;
-      session_id: string;
-      status: string;
-      created_at: string;
-      source: string;
-    }>;
+      .all(cutoff) as Array<{ id: string; session_id: string; status: string; created_at: string; source: string }>;
+    return runs.map((run) => {
+      const tokens = this.runTokens(run.id);
+      const { presetId, model, toolCalls, failures } = this.runEvents(run.id);
+      const estimate = model ? estimateCost(model, tokens, overrides) : null;
+      return {
+        date: this.getDate(run.created_at),
+        sessionId: run.session_id,
+        source: run.source,
+        presetId,
+        model,
+        tokens,
+        toolCalls,
+        failures: failures + (run.status === "failed" || run.status === "budget_exceeded" ? 1 : 0),
+        cost: estimate?.amount ?? null,
+      };
+    });
+  }
 
+  private static emptyAggregate(date: string): UsageAggregate {
+    return {
+      date, runs: 0, toolCalls: 0, tokens: { input: 0, output: 0 }, estimatedCost: 0,
+      pricedRuns: 0, unpricedRuns: 0, failures: 0, topFailures: [],
+      presets: [], byConversation: [], byChannel: [],
+    };
+  }
+
+  /** Adds one task's cost to a group, keeping "no price on file" (null) distinct from zero. */
+  private static addCost(group: { cost: number | null }, cost: number | null): void {
+    if (cost === null) return;
+    group.cost = (group.cost ?? 0) + cost;
+  }
+
+  private static foldTotals(agg: UsageAggregate, run: RunCost): void {
+    agg.runs += 1;
+    agg.toolCalls += run.toolCalls;
+    agg.failures += run.failures;
+    agg.tokens.input += run.tokens.input;
+    agg.tokens.output += run.tokens.output;
+    if (run.cost === null) agg.unpricedRuns += 1;
+    else { agg.pricedRuns += 1; agg.estimatedCost += run.cost; }
+  }
+
+  private static foldGroups(agg: UsageAggregate, run: RunCost): void {
+    const key = run.presetId || run.model;
+    if (key) {
+      let preset = agg.presets.find((p) => p.id === key);
+      if (!preset) { preset = { id: key, model: run.model, runs: 0, tokens: { input: 0, output: 0 }, cost: null }; agg.presets.push(preset); }
+      preset.runs += 1;
+      preset.tokens.input += run.tokens.input;
+      preset.tokens.output += run.tokens.output;
+      UsageStore.addCost(preset, run.cost);
+    }
+    let conversation = agg.byConversation.find((c) => c.sessionId === run.sessionId);
+    if (!conversation) { conversation = { sessionId: run.sessionId, runs: 0, tokens: { input: 0, output: 0 }, cost: null }; agg.byConversation.push(conversation); }
+    conversation.runs += 1;
+    conversation.tokens.input += run.tokens.input;
+    conversation.tokens.output += run.tokens.output;
+    UsageStore.addCost(conversation, run.cost);
+    let channel = agg.byChannel.find((s) => s.source === run.source);
+    if (!channel) { channel = { source: run.source, runs: 0, cost: null }; agg.byChannel.push(channel); }
+    channel.runs += 1;
+    UsageStore.addCost(channel, run.cost);
+  }
+
+  /**
+   * Finished tasks grouped by day, with tokens and estimated cost. `overrides` are the owner's own
+   * prices; a model with no price in them and none in the built-in table is counted as unpriced
+   * rather than as costing nothing, so the screens never show a made-up $0.00.
+   */
+  aggregateUsage(
+    range: "7d" | "30d" | "90d" | "all" = "30d",
+    groupBy: "day" | "model" | "conversation" | "source" = "day",
+    overrides: Record<string, ModelPrice> = {}
+  ): UsageAggregate[] {
+    void groupBy; // Each day's record carries every grouping, so the caller picks one to display.
+    const daysBack = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 36500;
+    const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
     const aggregates = new Map<string, UsageAggregate>();
-    const presetMap = new Map(presets.map((p) => [p.id, p]));
-
-    for (const run of runs) {
-      const date = this.getDate(run.created_at);
-      if (!aggregates.has(date)) {
-        aggregates.set(date, {
-          date,
-          runs: 0,
-          toolCalls: 0,
-          tokens: { input: 0, output: 0 },
-          estimatedCost: 0,
-          failures: 0,
-          topFailures: [],
-          presets: [],
-          byConversation: [],
-          byChannel: [],
-        });
-      }
-
-      const agg = aggregates.get(date)!;
-      agg.runs += 1;
-
-      const usage = this.db
-        .prepare(
-          `SELECT estimated_input, estimated_output, reported_input, reported_output
-           FROM usage WHERE run_id = ?`
-        )
-        .get(run.id) as {
-        estimated_input: number;
-        estimated_output: number;
-        reported_input: number;
-        reported_output: number;
-      } | undefined;
-
-      if (usage) {
-        const inputTokens = usage.reported_input || usage.estimated_input || 0;
-        const outputTokens = usage.reported_output || usage.estimated_output || 0;
-        agg.tokens.input += inputTokens;
-        agg.tokens.output += outputTokens;
-      }
-
-      const events = this.db
-        .prepare(`SELECT kind, data FROM events WHERE run_id = ? ORDER BY id`)
-        .all(run.id) as Array<{ kind: string; data: string }>;
-
-      for (const event of events) {
-        if (event.kind === "tool.completed" || event.kind === "tool.started") agg.toolCalls += 1;
-        if (event.kind === "model.completed") {
-          const data = JSON.parse(event.data) as Record<string, unknown>;
-          const presetId = String(data.preset ?? "");
-          if (presetId && !agg.presets.find((p) => p.id === presetId)) {
-            agg.presets.push({ id: presetId, runs: 0, tokens: { input: 0, output: 0 }, cost: 0 });
-          }
-        }
-        if (event.kind === "tool.failed") agg.failures += 1;
-      }
-
-      if (run.status === "failed" || run.status === "budget_exceeded") agg.failures += 1;
-
-      // Track by source
-      const sourceEntry = agg.byChannel.find((s) => s.source === run.source);
-      if (sourceEntry) {
-        sourceEntry.runs += 1;
-      } else {
-        agg.byChannel.push({ source: run.source, runs: 1 });
-      }
+    for (const run of this.runCosts(cutoff, overrides)) {
+      let agg = aggregates.get(run.date);
+      if (!agg) { agg = UsageStore.emptyAggregate(run.date); aggregates.set(run.date, agg); }
+      UsageStore.foldTotals(agg, run);
+      UsageStore.foldGroups(agg, run);
     }
-
-    // Calculate costs
-    for (const agg of aggregates.values()) {
-      let cost = 0;
-      for (const evt of this.db
-        .prepare(
-          `SELECT DISTINCT r.id, e.data FROM tasks r
-           JOIN events e ON r.id = e.run_id
-           WHERE r.created_at >= ? AND DATE(r.created_at) = ? AND e.kind = 'model.completed'`
-        )
-        .all(cutoff, agg.date) as Array<{ id: string; data: string }>) {
-        const data = JSON.parse(evt.data) as Record<string, unknown>;
-        const presetId = String(data.preset ?? "");
-        const pricing = presetMap.get(presetId);
-        if (pricing) {
-          const usage = this.db
-            .prepare(`SELECT estimated_input, estimated_output, reported_input, reported_output FROM usage WHERE run_id = ?`)
-            .get(evt.id) as {
-            estimated_input: number;
-            estimated_output: number;
-            reported_input: number;
-            reported_output: number;
-          } | undefined;
-          if (usage) {
-            const inp = usage.reported_input || usage.estimated_input || 0;
-            const out = usage.reported_output || usage.estimated_output || 0;
-            cost += (inp * pricing.inputTokenPrice + out * pricing.outputTokenPrice) / 1000;
-          }
-        }
-      }
-      agg.estimatedCost = Math.round(cost * 10000) / 10000;
-    }
-
+    for (const agg of aggregates.values()) agg.estimatedCost = Math.round(agg.estimatedCost * 1_000_000) / 1_000_000;
     return Array.from(aggregates.values()).sort((a, b) => b.date.localeCompare(a.date));
   }
 
@@ -294,28 +317,22 @@ export class UsageStore {
     return timeline;
   }
 
-  getMonthlyStats(maxMonthlyTokens?: number): UsageStats {
+  /** This calendar month's tokens and, for the tasks whose model has a price, the money they cost. */
+  getMonthlyStats(maxMonthlyTokens?: number, overrides: Record<string, ModelPrice> = {}): UsageStats {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const runs = this.db
       .prepare(`SELECT id FROM tasks WHERE status NOT IN ('running', 'needs_input') AND created_at >= ? ORDER BY created_at DESC`)
       .all(monthStart) as Array<{ id: string }>;
 
-    let total = 0;
+    let total = 0, cost = 0, unpricedRuns = 0;
     for (const run of runs) {
-      const usage = this.db
-        .prepare(`SELECT estimated_input, estimated_output, reported_input, reported_output FROM usage WHERE run_id = ?`)
-        .get(run.id) as {
-        estimated_input: number;
-        estimated_output: number;
-        reported_input: number;
-        reported_output: number;
-      } | undefined;
-      if (usage) {
-        const inp = usage.reported_input || usage.estimated_input || 0;
-        const out = usage.reported_output || usage.estimated_output || 0;
-        total += inp + out;
-      }
+      const tokens = this.runTokens(run.id);
+      total += tokens.input + tokens.output;
+      const { model } = this.runEvents(run.id);
+      const amount = model ? estimateCost(model, tokens, overrides).amount : null;
+      if (amount === null) unpricedRuns += 1;
+      else cost += amount;
     }
 
     const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;
@@ -323,6 +340,8 @@ export class UsageStore {
       currentMonthlyTokens: total,
       monthStart: monthStart.split("T")[0] || monthStart,
       budgetAlert80Percent: alert80,
+      estimatedCost: Math.round(cost * 1_000_000) / 1_000_000,
+      unpricedRuns,
     };
   }
 
@@ -355,37 +374,34 @@ export class UsageStore {
       );
   }
 
-  getCachedUsage(date?: string): UsageAggregate | UsageAggregate[] | null {
-    if (date) {
-      const row = this.db
-        .prepare(`SELECT * FROM usage_cache WHERE date = ?`)
-        .get(date) as Record<string, unknown> | undefined;
-      if (!row) return null;
-      return {
-        date: String(row.date),
-        runs: Number(row.runs),
-        toolCalls: Number(row.tool_calls),
-        tokens: { input: Number(row.tokens_input), output: Number(row.tokens_output) },
-        estimatedCost: Number(row.estimated_cost),
-        failures: Number(row.failures),
-        topFailures: JSON.parse(String(row.top_failures)),
-        presets: JSON.parse(String(row.by_preset)),
-        byConversation: JSON.parse(String(row.by_conversation)),
-        byChannel: JSON.parse(String(row.by_channel)),
-      };
-    }
-    const rows = this.db.prepare(`SELECT * FROM usage_cache ORDER BY date DESC`).all() as Record<string, unknown>[];
-    return rows.map((row) => ({
+  private static fromCacheRow(row: Record<string, unknown>): UsageAggregate {
+    const presets = JSON.parse(String(row.by_preset)) as UsageAggregate["presets"];
+    return {
       date: String(row.date),
       runs: Number(row.runs),
       toolCalls: Number(row.tool_calls),
       tokens: { input: Number(row.tokens_input), output: Number(row.tokens_output) },
       estimatedCost: Number(row.estimated_cost),
+      // The cache predates price tracking and records no price confidence, so its tasks count as
+      // unpriced. Claiming they were priced would let a cached day render a cost nobody worked out.
+      pricedRuns: 0,
+      unpricedRuns: Number(row.runs),
       failures: Number(row.failures),
       topFailures: JSON.parse(String(row.top_failures)),
-      presets: JSON.parse(String(row.by_preset)),
+      presets,
       byConversation: JSON.parse(String(row.by_conversation)),
       byChannel: JSON.parse(String(row.by_channel)),
-    }));
+    };
+  }
+
+  getCachedUsage(date?: string): UsageAggregate | UsageAggregate[] | null {
+    if (date) {
+      const row = this.db
+        .prepare(`SELECT * FROM usage_cache WHERE date = ?`)
+        .get(date) as Record<string, unknown> | undefined;
+      return row ? UsageStore.fromCacheRow(row) : null;
+    }
+    const rows = this.db.prepare(`SELECT * FROM usage_cache ORDER BY date DESC`).all() as Record<string, unknown>[];
+    return rows.map((row) => UsageStore.fromCacheRow(row));
   }
 }
