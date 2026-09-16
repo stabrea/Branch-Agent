@@ -39,7 +39,6 @@ export function describeToolCall(name: string, args: unknown): string {
     case "process.list": return "Listing what is still running";
     case "process.read": return "Reading what a running program has said";
     case "process.stop": return "Stopping a running program";
-    case "tools.search": return `Looking for a tool for “${short(a.query)}”`;
     case "files.edit": return `Changing some text in ${short(a.path)}`;
     case "files.validate": return `Checking ${short(a.path)} still reads correctly`;
     case "workspace.map": return "Mapping the workspace";

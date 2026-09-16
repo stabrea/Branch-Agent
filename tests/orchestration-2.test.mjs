@@ -174,6 +174,22 @@ test("code.patch refuses a part that does not fit and a file that is not text, a
     /not a text file|does not match/);
 });
 
+test("a change that fails part-way puts back every file it had already written", async (t) => {
+  const { app } = await fixture(t);
+  const { CodeEditor } = await import("../dist/code-edit.js");
+  const { WorkspaceFiles } = await import("../dist/files.js");
+  const workspace = app.runtime.workspace;
+  await writeFile(join(workspace, "first.txt"), "original\n");
+  const editor = new CodeEditor(new WorkspaceFiles(workspace));
+  const { context } = taskContext(app);
+  // The first file writes; the second is outside the workspace and is refused as the write is attempted.
+  await assert.rejects(() => editor.writeAll([
+    { path: "first.txt", before: "original\n", after: "changed\n" },
+    { path: "../escape.txt", before: null, after: "nope\n" },
+  ], context), /denied|traversal/i);
+  assert.equal(await readFile(join(workspace, "first.txt"), "utf8"), "original\n", "the file written first was put back");
+});
+
 test("a change set names its files for one approval, is all-or-nothing, and reports the project's check", async (t) => {
   const { app } = await fixture(t);
   const workspace = app.runtime.workspace;
@@ -272,7 +288,7 @@ test("only programs the owner allowed may be started, and only so many at once",
   await assert.rejects(() => app.registry.execute("process.start", { program: "node", args: ticker }, context), /already running/);
 });
 
-// --------------------------------- O4: deferred calls and finding a tool
+// ------------------------------------------------------------ O4: deferred calls
 
 test("a tool may hand its work over and finish later through the follow-up queue", async (t) => {
   let round = 0;
@@ -296,20 +312,6 @@ test("a tool may hand its work over and finish later through the follow-up queue
   for (let at = 0; at < 100 && follow.status === "running"; at++) await delay(20);
   assert.match(app.store.run(follow.id).output, /signed and posted/);
   assert.equal(app.runtime.deferrals.list({ waiting: true }).length, 0);
-});
-
-test("tools.search finds a tool inside a toolbox that is still closed", async (t) => {
-  let found;
-  const { app } = await fixture(t, ({ last }) => {
-    if (last.role === "tool") { found = JSON.parse(last.content); return say("found it"); }
-    return call("tools.search", { query: "save a version of the code" });
-  });
-  const run = await app.runtime.run({ prompt: "tell me about the weather" });
-  assert.equal(run.output, "found it");
-  const names = found.result.tools.map((tool) => tool.name);
-  assert.ok(names.includes("git.commit"), `expected git.commit among ${JSON.stringify(names)}`);
-  assert.equal(found.result.tools.find((tool) => tool.name === "git.commit").group, "git");
-  assert.equal(data(app, run.id, "catalog.searched")[0].query, "save a version of the code");
 });
 
 // ------------------------------------------------------------ O6: code.run
@@ -443,8 +445,10 @@ async function draftedRevision(app, reading) {
 
 test("a drafted skill is shown as changed lines, tried on recent tasks without doing anything, then kept or thrown away", async (t) => {
   const reading = { id: null, read: false };
-  const { app, api } = await served(t, ({ user, last }) => {
+  const { app, api } = await served(t, ({ system, user, last }) => {
     if (/Write the improved SKILL.md/.test(user)) return say(skillDocument("tidying", "Put things away, newest first."));
+    // Inside the trial the assistant tries to write a file; nothing may actually be written.
+    if (/The skill being tried/.test(system) && last.role !== "tool") return call("files.write", { path: "trial-proof.txt", content: "written" });
     if (reading.id && !reading.read && last.role !== "tool") { reading.read = true; return call("skills.read", { id: reading.id, version: 1 }); }
     return say("tidied");
   });
@@ -463,6 +467,13 @@ test("a drafted skill is shown as changed lines, tried on recent tasks without d
   assert.equal(trial.noWorse, true);
   const practice = app.store.run(trial.parentRunId);
   assert.ok(app.store.events(practice.id).some((e) => e.kind === "dryrun.report"), "the trial was a practice run");
+  // Each side of the trial runs as its own task; every one of them inherited the practice run’s dry run.
+  const inTrial = app.store.runs(app.runtime.owner).filter((run) => run.createdAt >= practice.createdAt);
+  const simulated = inTrial.map((run) => run.id)
+    .flatMap((id) => app.store.events(id)).filter((e) => e.kind === "tool.simulated");
+  assert.equal(simulated.length, trial.tasks * 2, "both sides of the trial only pretended to write");
+  assert.ok(simulated.every((e) => e.data.name === "files.write"));
+  await assert.rejects(() => readFile(join(app.runtime.workspace, "trial-proof.txt"), "utf8"), "and nothing was actually written");
   const kept = await api("skill-revisions/accept", { skillId: skill.id, version });
   assert.equal(kept.decision, "accepted");
   assert.equal(app.store.skills.view(app.runtime.owner, skill.id).activeVersion, version);

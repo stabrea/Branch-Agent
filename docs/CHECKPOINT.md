@@ -1141,9 +1141,7 @@ parent context (so the child inherits it), and refused for acceptance until that
 did no worse. `skills.sync` writes and reads skills as `.md` in a workspace folder. Plugins get a
 local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a folder or a zip
 (reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
-source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 23 tests; two counts in
-`tests/catalog-diet.test.mjs` moved by one because the catalog now offers `tools.search` beside
-`tools.expand`. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
+source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
 plugin-and-extension-system (#70) leftovers.
 ## Next work (local until a checkpoint worth publishing)
 

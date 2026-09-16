@@ -57,7 +57,7 @@ import {
 } from "./provider-retry.js";
 import {
   ToolCatalog, answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, expandToolName,
-  rankGroups, searchToolName, type ContextBudget,
+  rankGroups, type ContextBudget,
 } from "./catalog.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
@@ -1269,23 +1269,6 @@ export class Runtime {
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { opened, unknown, tools: tools.length } });
     return { ok: true, result: { opened, unknown, tools, note: "These are yours to use from your next step; their inputs are in the tool list." } };
   }
-  /**
-   * Finds a tool by words, closed toolboxes included, so the assistant can reach one tool without
-   * opening a whole box. What it finds is usable straight away: the catalog was built from this
-   * task's own permissions, and a tool it names stays visible for the next few rounds.
-   */
-  private findTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
-    const catalog = this.catalogs.get(context.runId);
-    if (!catalog) return { ok: false, error: "There are no tools to look through in this task." };
-    const query = String((args as { query?: unknown })?.query ?? "").trim();
-    if (!query) return { ok: false, error: `Say what you are looking for, for example {"query":"send a message"}.` };
-    const found = catalog.search(query);
-    for (const tool of found) catalog.noteUse(tool.name);
-    this.store.event(context.runId, "catalog.searched", { query: query.slice(0, 200), found: found.length });
-    this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { found: found.length } });
-    return { ok: true, result: { query, tools: found,
-      note: found.length ? "Use any of these from your next step; their inputs are in the tool list." : "Nothing matched. Try other words, or open a whole toolbox with tools.expand." } };
-  }
   /** A tool that answered "not yet": the job is written down and the task carries on without it. */
   private noteDeferred(call: ToolCall, context: ToolContext, result: unknown): unknown | null {
     const deferred = deferredCall(result);
@@ -1304,7 +1287,6 @@ export class Runtime {
     try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
-    if (call.name === searchToolName) return this.findTools(call, context, args);
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);

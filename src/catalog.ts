@@ -47,10 +47,6 @@ export function inferToolGroup(name: string): string {
 
 /** The tool that opens a collapsed toolbox. Handled by the runtime, not by the registry. */
 export const expandToolName = "tools.expand";
-/** The tool that finds one tool by words, closed toolboxes included. Also handled by the runtime. */
-export const searchToolName = "tools.search";
-/** How many tools a search names at once. */
-const searchResults = 8;
 /** Longest tool description sent to the model; the rest stays in the tool's own documentation. */
 export const maxToolDescriptionChars = 200;
 const maxSchemaDescriptionChars = 120;
@@ -211,20 +207,6 @@ export class ToolCatalog {
         .map((tool) => ({ name: tool.name, description: tool.description })),
     };
   }
-  /**
-   * Finds tools by the words in their name and description, whether their toolbox is open or not.
-   * Every tool here is one this task already has permission for: the catalog was built that way.
-   */
-  search(query: string, limit = searchResults): { name: string; description: string; group: string; open: boolean }[] {
-    const words = [...new Set(String(query).toLowerCase().match(/[a-z][a-z0-9_-]{1,}/g) ?? [])];
-    if (!words.length) return [];
-    return this.all.map((tool) => ({ tool, score: matchScore(tool, words) }))
-      .filter((entry) => entry.score > 0)
-      .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
-      .slice(0, Math.max(1, limit))
-      .map(({ tool }) => ({ name: tool.name, description: tool.description,
-        group: this.groupOf(tool.name), open: this.visible(tool.name) }));
-  }
   /** Remembers that a tool was called, so it stays visible for the next few rounds. */
   noteUse(name: string): void {
     this.usedAt.set(name, this.round);
@@ -243,7 +225,7 @@ export class ToolCatalog {
     if (!this.all.length) return [];
     const shown = this.all.filter((tool) => this.visible(tool.name));
     const closed = this.groups().filter((group) => !group.expanded && group.tools);
-    return closed.length ? [...shown, opener(closed), finder()] : shown;
+    return closed.length ? [...shown, opener(closed)] : shown;
   }
   stats(): CatalogStats {
     const shown = this.descriptions();
@@ -273,31 +255,6 @@ function opener(closed: CatalogGroup[]): ToolDescription {
   };
 }
 
-/** The description of `tools.search`, offered whenever something is still closed. */
-function finder(): ToolDescription {
-  return {
-    name: searchToolName,
-    description: "Find a tool by what you want to do, closed toolboxes included, and use what it names straight away. Cheaper than opening a whole toolbox when you need one thing.",
-    parameters: {
-      type: "object",
-      properties: { query: { type: "string", description: "A few words for what you want to do, such as \"send a message\"." } },
-      required: ["query"],
-    },
-  };
-}
-
-/** How well one tool answers a search: its name counts for more than its description. */
-function matchScore(tool: ToolDescription, words: readonly string[]): number {
-  const name = tool.name.toLowerCase(), parts = new Set(name.split(/[.\-_]/));
-  const described = new Set(String(tool.description ?? "").toLowerCase().match(/[a-z][a-z0-9_-]{1,}/g) ?? []);
-  let score = 0;
-  for (const word of words) {
-    if (parts.has(word)) score += 4;
-    else if (name.includes(word)) score += 2;
-    if (described.has(word)) score += 1;
-  }
-  return score;
-}
 
 /** Words that suggest a toolbox, used to open the likely ones before the first round. */
 const groupWords: Record<string, readonly string[]> = {

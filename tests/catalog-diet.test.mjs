@@ -40,7 +40,7 @@ test("tools live in groups; closed groups cost one line and the catalog per roun
   const stats = collapsed.stats();
   assert.equal(stats.tools, everything.length);
   const core = everything.filter((tool) => app.registry.groupOf(tool.name) === "core").length;
-  assert.equal(stats.shown, core + 2, "only the always-open tools, the opener and the finder are described");
+  assert.equal(stats.shown, core + 1, "only the always-open tools and the opener are described");
   assert.ok(stats.collapsed >= 6, `${stats.collapsed} groups closed`);
   const smaller = (JSON.stringify(fat).length - stats.characters) / JSON.stringify(fat).length;
   assert.ok(smaller >= 0.35, `catalog with every group closed is ${(smaller * 100).toFixed(1)}% smaller`);
@@ -176,7 +176,7 @@ test("a few tools with unfamiliar names stay in view; a pile of them does not", 
   assert.equal(few.stats().shown, 5, "nothing in the words of a request could point at these");
   assert.equal(few.stats().collapsed, 0);
   const many = new ToolCatalog([...Array(40)].map((_, n) => odd(n)));
-  assert.equal(many.stats().shown, 2, "once there are enough of them they are worth putting away, leaving the opener and the finder");
+  assert.equal(many.stats().shown, 1, "once there are enough of them they are worth putting away");
   assert.deepEqual(many.expand(["other"]).opened, ["other"]);
   assert.equal(many.stats().shown, 40, "opened again, and with nothing left closed the opener goes away");
 });

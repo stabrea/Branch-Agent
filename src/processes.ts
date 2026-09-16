@@ -68,6 +68,8 @@ class Running {
   endedAt: string | null = null;
   exitCode: number | null = null;
   private timer: NodeJS.Timeout;
+  /** Set the moment the owner asks for it to stop, so the kill's own exit code is not read as a failure. */
+  private asked = false;
   constructor(
     readonly name: string, readonly program: string, readonly sessionId: string, readonly runId: string,
     private readonly child: ChildProcess, private readonly job: Job | null,
@@ -90,7 +92,8 @@ class Running {
   }
   private settle(status: ProcessView["status"]): void {
     if (this.status !== "running") return;
-    this.status = status;
+    // A program the owner stopped counts as stopped, whatever exit code the kill itself produced.
+    this.status = this.asked ? "stopped" : status;
     this.endedAt = new Date().toISOString();
     clearTimeout(this.timer);
     void this.job?.close().catch(() => undefined);
@@ -109,6 +112,7 @@ class Running {
   /** Stops it and everything it started; letting the job go is what really clears the tree. */
   async stop(): Promise<ProcessView> {
     const pid = this.child.pid;
+    this.asked = true;
     if (this.status === "running" && pid) {
       try {
         if (process.platform === "win32") await killWindowsTree(pid);

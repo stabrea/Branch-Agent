@@ -1401,6 +1401,8 @@ the most recent part of what it printed, and `process.stop` stops it and everyth
 
 `GET`/`POST /api/background-programs` holds the list of programs you are willing to leave running,
 each under a short name you choose, with how many may run at once and how long one may stay up.
+The limit on how many is counted across the whole app, not per conversation, so one task cannot use
+them all up and leave another with none.
 Nothing else can be started. Each one is held in the same Windows job the one-off commands use, so
 the system enforces its memory and processor limits and kills whatever it left behind. Output is
 kept in a small rolling buffer, oldest dropped first. Everything started in a conversation stops
@@ -1421,13 +1423,9 @@ you to point at yours. Off out of the box, because a script is host execution li
 are limits on time, memory and output, not a sandbox. With the internet switch off the script is
 pointed at a dead address, the same best-effort measure host commands use.
 
-## Finding a tool, and work handed over to finish later (batch 20, wave 7)
+## Work handed over to finish later (batch 20, wave 7)
 
-`tools.search` finds a tool by a few words ("send a message") across every toolbox, open or closed,
-and what it names can be used straight away — no round spent opening a whole box. It is offered
-alongside `tools.expand` whenever something is still closed.
-
-A tool may also answer `{ deferred: true, id }` instead of a result: the work has been handed over
+A tool may answer `{ deferred: true, id }` instead of a result: the work has been handed over
 and is not finished. The task does not wait; it carries on and gives its answer. `user.task` is the
 plainest example — something for you to do by hand. `GET /api/deferred` lists what is waiting, and
 `POST /api/deferred/settle` with the id and what came of it brings the answer back into the
