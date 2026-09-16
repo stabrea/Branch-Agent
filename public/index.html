@@ -1010,6 +1010,19 @@
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
             </details>
+            <!-- Wave 7: help with code. Every program named here is one you already have. -->
+            <details id="code-ide">
+              <summary>Help with code</summary>
+              <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
+              <label class="check-row"><input type="checkbox" id="ls-enabled" /> Let Branch use my language servers</label>
+              <label for="ls-list">One per line: a short name, the full address of the program, and the kinds of file it handles</label>
+              <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Program Files\nodejs\node.exe | TypeScript, JavaScript"></textarea>
+              <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
+              <label for="dbg-list">One per line: a short name and the full address of the program</label>
+              <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe"></textarea>
+              <button id="code-ide-save" type="button">Save</button>
+              <p id="code-ide-status" class="subtle" aria-live="polite"></p>
+            </details>
           </section>
           <section id="diagnostics-card" class="card">
             <h2>Diagnostics</h2>
@@ -1198,5 +1211,6 @@
     <script src="/flows.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
+    <script src="/code-ide.js" type="module"></script>
   </body>
 </html>

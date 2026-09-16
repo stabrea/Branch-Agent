@@ -177,6 +177,7 @@ For example, a request to build a website could involve design, implementation, 
 - **Tools kept in labelled boxes.** Only the tools a task plausibly needs are described to the model each round; the rest cost one line until they are opened.
 - **Reliable upgrades.** Check compatibility before activating updated components, with a way to return to a working version.
 - **Proof it still works.** Ready-made sets of tasks you can run at any time to see how many the assistant gets right, how long it takes, what it costs, and whether anything that used to work has stopped.
+- **A coder's toolbox.** A map of the project that puts the files most likely to hold the answer first; the language server and the debugger you already have, spoken to directly; a risky plan tried on a parallel copy and its difference shown before it comes back; points to come back to, with undo and redo; and any service that describes itself in OpenAPI turned into tools one operation at a time.
 - **Traces you can read, rules you can read.** Every task keeps the shape of what it did, and you can send those to a tracing tool of your own — nothing is ever collected about you or sent to us. Permission rules can be about one folder, one website or one command, and are shown as plain sentences you can try out before saving.
 
 These describe the broader direction. Consult the feature inventory for each implementation's current scope.

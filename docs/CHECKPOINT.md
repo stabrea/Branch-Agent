@@ -1313,6 +1313,35 @@ local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a
 (reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
 source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
 plugin-and-extension-system (#70) leftovers.
+## Batch 26 (wave 7) — a coder's toolbox: maps, language servers, debuggers, plan branches
+Backend-first, one `<details>` of UI in Settings → Developer, and no new dependency. **The project
+map** (`src/code-map.ts`, `src/code-scanners.ts`) reuses `WorkspaceSearch.walk` so confinement and
+the ignore rules are the existing ones, and adds one small regular expression per language
+(TypeScript, JavaScript, Python, Go, Rust, Java, C#, Markdown) plus relative import resolution for
+TS/JS and Python. `code.map` keeps entries by `mtime:bytes`, so a second call reads nothing; with a
+`request` it ranks by word matches and then spreads a third of each match's score to its neighbours
+in the import graph, which is what makes "the answer is next door" work. The documentation says
+plainly that this is regex, not a parser. **One stdio layer** (`src/stdio-rpc.ts`) does the framing
+both LSP and DAP share, so `src/language-server.ts` and `src/debug-adapter.ts` are protocol logic
+only; both spawn under `jobWithin` with the same caps as every other child and stop in
+`createBranch().close()`. They are **not** under `BackgroundProcesses`, which spawns with
+`stdio: ["ignore","pipe","pipe"]` and so cannot speak to a server at all. `code.rename` turns the
+server's `WorkspaceEdit` into whole new files (ranges applied back to front) and hands them to a new
+public `CodeChanges.applyPlanned`, so approval, the file history and the project check are the
+existing ones rather than a second path. **Plan branches** extend `GitTools` with
+`planStart`/`planDiff`/`planMerge` over the confined `.branch-worktrees` folder — `.branch/worktrees`
+as the brief wrote it is not buildable, because `^\.branch$` is in the secret-name regex in
+`files.ts` and `checked()` tests every segment. **Checkpoints** live in `WorkspaceHistory` because
+they are snapshots of the rows it already keeps; undo/redo is a `workspace_undo` stack keyed by
+conversation, where undo consumes a `before write` version and redo releases it, so the two are
+exact inverses. **Catalog cost** was the real constraint: the new tools pushed
+`tests/catalog-diet.test.mjs` past its 2500-token guard, so `git.worktree` was replaced by the three
+split tools (convention: replace, do not deprecate), the plan tools were named `plans.*` where they
+belong, and listing and restoring a kept point became owner actions on the existing
+`/api/history/snapshots` routes instead of tools. `tests/code-ide.test.mjs` (28) drives the LSP and
+DAP clients against stand-in servers written as two small Node scripts, and the GitHub, GitLab and
+OpenAPI work against `node:http` fakes.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
