@@ -46,7 +46,8 @@ export async function writeUpdateBackup(
   const dir = join(dataDir, backupFolder);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const body = JSON.stringify(archive);
-  if (Buffer.byteLength(body) > maximumBackupBytes) throw new Error("This copy holds more saved work than a safety copy can hold (64 MiB).");
+  if (Buffer.byteLength(body) > maximumBackupBytes)
+    throw new Error(`This copy holds more saved work than a safety copy can hold (${Math.round(maximumBackupBytes / 1048576)} MiB).`);
   const path = join(dir, backupFileName(version, at));
   await writeFile(path, body, { mode: 0o600 });
   const pruned = backupsToPrune(await readdir(dir), keep);

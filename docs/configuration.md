@@ -1039,11 +1039,26 @@ invitation lasts five minutes, works once, and dies after five wrong numbers.
 
 **Safety copies and going back.** Before an update swaps any files, the updater calls its `backup`
 hook, which writes the whole of the person's saved work to `update-backups/before-<time>-v<version>.json`
-in the data folder and keeps the newest three. A failure there stops the update. When a version
-starts for the first time its health report is recorded in `first-start.json`; if it did not come up
-cleanly, the settings card offers *Put back the previous version's saved work*, which reads the
-newest safety copy and restores it with `replaceExisting`. `POST /api/restore` is unchanged and
-still refuses to write over a copy that already holds conversations.
+in the data folder and keeps the newest three. Both launches do this: a window running its own
+engine writes the copy itself, and a window that joined a background engine asks that engine for it
+with `POST /api/deployment/backup` and the session token, because the engine is the one that owns
+the saved work. A failure there stops the update either way, and the engine's own sentence is what
+the owner reads, followed by what to do about it — free some space on the drive, or move the data
+folder somewhere Branch can write, then try again. When the reason is size, the sentence says the
+limit (64 MiB). There is no way to skip the copy: an update with nothing to go back to is refused.
+When a version starts for the first time its health report is recorded in `first-start.json`; if it
+did not come up cleanly, the settings card offers *Put back the previous version's saved work*,
+which reads the newest safety copy and restores it with `replaceExisting`. `POST /api/restore` is
+unchanged and still refuses to write over a copy that already holds conversations.
+
+**Updating while an engine works in the background.** The background engine holds the same program
+files open as the window, so a hand-over would hit a locked file. Before the hand-over script is
+written, the window reads `running.json`, asks that process to close (`taskkill /PID <pid> /T`, then
+`/T /F` if it will not), waits a bounded time for it to go and removes the note. An engine that
+still refuses is not treated as a failure: the hand-over script waits for the engine's process id
+as well as the window's, and ends it itself before mirroring anything. Nothing new is started: the
+hand-over still runs through the same hidden Windows Script Host launcher, and every tool is run
+with no window.
 
 **Checking a computer is ready.** `branch doctor --fix`, and the *Check and repair what I can*
 button, look for Git, the private browser Branch uses to read pages, a free address on this
