@@ -22,6 +22,8 @@ interface GeminiOptions {
    * ever put in the address itself, where it would end up in logs.
    */
   bearer?: boolean;
+  /** The fetch every request goes through; the factory supplies a guarded, watched one. */
+  fetchImpl?: typeof globalThis.fetch | undefined;
 }
 
 function validateOptions(options: GeminiOptions): void {
@@ -50,7 +52,8 @@ async function post(
   consume?: (data: string) => void,
 ): Promise<unknown> {
   const url = new URL(options.endpoint.replace(/\/$/, "") + path);
-  const response = await fetch(url.toString(), {
+  const call = options.fetchImpl ?? globalThis.fetch;
+  const response = await call(url.toString(), {
     method: "POST",
     headers: {
       "content-type": "application/json",

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Provider } from "./contracts.js";
 import type { Store } from "./store.js";
+import { type Capability, catalogEntry } from "./provider-catalog.js";
+import { ProviderHealth, fallbackReason } from "./provider-health.js";
 import { fallbackEligible } from "./provider-retry.js";
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
@@ -11,6 +13,8 @@ export interface ModelPreset {
   provider: Provider;
   model: string;
   reasoning?: ReasoningEffort;
+  /** Which line of the provider catalog this connection came from, when it came from one. */
+  catalogId?: string;
 }
 export interface ModelChoice {
   presetId: string;
@@ -21,6 +25,8 @@ export interface ModelChoice {
   source: "session" | "project" | "owner" | "default" | "cooldown";
   /** True when this model runs on this computer, so nothing leaves it and nothing is charged. */
   local: boolean;
+  /** When another connection was asked first and passed over, the sentence saying why. */
+  fallbackReason?: string | null;
 }
 const onThisComputer = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 /**
@@ -53,9 +59,22 @@ export type ModelSettings = z.infer<typeof ModelSettingsSchema>;
 export interface RunModelOverride { preset?: string | null; reasoning?: ReasoningEffort | null }
 export type SessionModel = z.infer<typeof SessionModelSchema>;
 
+/** Which connection answers, and which others are tried after it if it fails. */
+export interface ModelPlan {
+  choice: ModelChoice;
+  candidates: ModelPreset[];
+}
+/** What a plan says when the chosen connection cannot do the kind of work that was asked for. */
+export interface CapabilityPlan extends ModelPlan {
+  /** Null when the choice can do the work; otherwise one sentence naming a connection that can. */
+  refusal: string | null;
+}
+
 export class ModelRouter {
   private readonly registry = new Map<string, ModelPreset>();
   private readonly cooldowns = new Map<string, number>();
+  /** What each connection has actually been doing: latency, last error, the service's allowance. */
+  readonly health = new ProviderHealth();
   constructor(
     private readonly store: Store,
     presets: ModelPreset[],
@@ -76,6 +95,13 @@ export class ModelRouter {
     presetId.parse(preset.id);
     if (this.registry.size >= 32 && !this.registry.has(preset.id)) throw new Error("At most 32 model presets");
     this.registry.set(preset.id, preset);
+  }
+  /** Removes exactly one preset by name. The last one cannot be removed: something must answer. */
+  remove(id: string): boolean {
+    if (!this.registry.has(id)) return false;
+    if (this.registry.size === 1) throw new Error("At least one model connection must remain");
+    this.cooldowns.delete(id);
+    return this.registry.delete(id);
   }
   /** Removes presets whose id starts with the prefix; the first remaining preset becomes the default. */
   unregister(prefix: string): string[] {
@@ -114,7 +140,7 @@ export class ModelRouter {
     return value;
   }
   /** Ordered candidates: the chosen preset first, then configured fallbacks that are not cooling down. */
-  plan(owner: string, sessionId: string, override: RunModelOverride = {}): { choice: ModelChoice; candidates: ModelPreset[] } {
+  plan(owner: string, sessionId: string, override: RunModelOverride = {}): ModelPlan {
     if (override.preset && !this.presets.has(override.preset)) throw new Error(`Unknown model preset ${override.preset}`);
     const owned = this.settings(owner), scoped = this.session(owner, sessionId);
     const chosen = override.preset ?? scoped.preset;
@@ -126,9 +152,47 @@ export class ModelRouter {
     const fallbacks = owned.fallbackOrder
       .filter(id => id !== first.id && !this.coolingDown(id))
       .map(id => this.presets.get(id)!);
-    if (this.coolingDown(first.id) && fallbacks.length)
-      return { choice: this.describe(fallbacks[0]!, effort, "cooldown"), candidates: fallbacks };
+    if (this.coolingDown(first.id) && fallbacks.length) {
+      const why = fallbackReason(this.health, [first.id], fallbacks[0]!.id);
+      return { choice: { ...this.describe(fallbacks[0]!, effort, "cooldown"), fallbackReason: why }, candidates: fallbacks };
+    }
     return { choice: this.describe(first, effort, source), candidates: [first, ...fallbacks] };
+  }
+  /**
+   * The same plan, but for work that needs something specific of the model — a picture, tools, a
+   * fixed reply format. A connection that cannot do it is not used silently: the plan says so and
+   * names one that can, so the person is told rather than left with a worse answer.
+   */
+  planFor(owner: string, sessionId: string, need: Capability, override: RunModelOverride = {}): CapabilityPlan {
+    const plan = this.plan(owner, sessionId, override);
+    const able = plan.candidates.filter((preset) => this.canDo(preset, need));
+    if (able.length && able[0]!.id === plan.candidates[0]!.id) return { ...plan, refusal: null };
+    const others = [...this.presets.values()].filter((preset) => this.canDo(preset, need) && preset.id !== plan.choice.presetId);
+    // Only a connection whose catalog line says so is offered as an answer. One Branch knows
+    // nothing about is mentioned as worth a try, never promised, because nothing has been checked.
+    const sure = others.filter((preset) => preset.catalogId);
+    const untested = others.filter((preset) => !preset.catalogId);
+    const first = plan.candidates[0]!;
+    const refusal = sure.length
+      ? `${first.name} cannot do that. ${sure.map((preset) => preset.name).join(" or ")} can, so pick one of those.`
+      : untested.length
+        ? `${first.name} cannot do that. Branch has nothing on file about ${untested.map((preset) => preset.name).join(" or ")}, so one of those may be worth trying.`
+        : `${first.name} cannot do that, and no other connection you have set up can either.`;
+    if (!able.length) return { ...plan, refusal };
+    return {
+      choice: {
+        ...this.describe(able[0]!, plan.choice.reasoning, plan.choice.source),
+        fallbackReason: `${first.name} cannot do that, so ${able[0]!.name} took it`,
+      },
+      candidates: able, refusal: null,
+    };
+  }
+  /** Whether one connection can do a kind of work, according to the catalog line it came from. */
+  canDo(preset: ModelPreset, need: Capability): boolean {
+    const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+    // A connection Branch did not set up from the catalog is not assumed to be worse than it is.
+    if (!entry) return true;
+    return entry.capabilities.includes(need);
   }
   describe(preset: ModelPreset, effort: ReasoningEffort | null, source: ModelChoice["source"]): ModelChoice {
     return { presetId: preset.id, presetName: preset.name, provider: preset.provider.name,
@@ -141,6 +205,12 @@ export class ModelRouter {
   }
   /** Records a cooldown for an eligible provider failure; returns the cooldown end or null when not eligible. */
   markFailure(owner: string, id: string, error: unknown): string | null {
+    // A connection built from the catalog writes down every refused request as it happens, so
+    // counting this one again would make a single bad call look like two. A failure with no status
+    // — a reply that would not parse, a stream that stopped — was never seen there, so it is
+    // recorded here or it is recorded nowhere.
+    const seenAlready = this.health.reportsForItself(id) && typeof (error as { status?: unknown }).status === "number";
+    if (!seenAlready) this.health.recordFailure(id, error);
     if (!fallbackEligible(error)) return null;
     const until = this.now() + this.settings(owner).cooldownMs;
     this.cooldowns.set(id, until);
@@ -163,6 +233,8 @@ export class ModelRouter {
         reasoning: preset.reasoning ?? null,
         local: presetRunsLocally(preset),
         coolingDownUntil: this.coolingDown(preset.id) ? new Date(this.cooldowns.get(preset.id)!).toISOString() : null,
+        // Batch 19 (wave 7): what this connection has actually been doing, from real calls.
+        health: this.health.get(preset.id),
       })),
     };
   }

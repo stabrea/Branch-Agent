@@ -1,6 +1,7 @@
 import type { Provider } from "./contracts.js";
-import type { ModelRouter } from "./models.js";
+import type { ModelPreset, ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
+import { type Capability, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
 
 /**
@@ -21,18 +22,70 @@ export interface ProviderProbe {
   supportsEmbeddings: boolean;
   onThisComputer: boolean;
   resting: boolean;
+  /** What this connection can do, one answer per capability, from the catalog where there is one. */
+  can: Record<Capability, boolean>;
+  /** The same answers in ordinary words, ready to show without the screen knowing the names. */
+  canSaid: string[];
   /** One line a person can act on. */
   summary: string;
   fix?: string;
+  /** True when this connection is using a Google sign-in rather than a key. */
+  signedInWithGoogle?: boolean;
 }
 
-/** The list-of-models address for a connection, or null when it does not offer one. */
+/** Exactly what the card says when Google will not take a signed-in person's token. */
+export const googleRefusedSignIn =
+  "Google would not accept your sign-in for this. Google only takes a signed-in person's token when the request goes to your own Google Cloud project with the Gemini API switched on, and it bills that project. Signing in is not enough on its own.";
+export const keepUsingAKey =
+  "Paste a Gemini API key under Settings → Models instead. That is the ordinary way and it still works.";
+
+/** True when this connection holds a sign-in token rather than an API key. */
+export function signedInWithGoogle(provider: Provider): boolean {
+  if (provider.name !== "gemini") return false;
+  const audio = provider.audio?.() as { bearer?: boolean } | null | undefined;
+  return audio?.bearer === true;
+}
+
+/**
+ * What a connection can do, capability by capability. A connection set up from the catalog is
+ * described by its catalog line; anything else is described by what the adapter says about itself,
+ * and anything neither can answer is reported as "no", never guessed at.
+ */
+export function capabilitiesOf(preset: ModelPreset): Record<Capability, boolean> {
+  const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+  const fromProvider: Partial<Record<Capability, boolean>> = {
+    chat: true,
+    vision: supportsImages(preset.provider),
+    audio: (preset.provider.audio?.() ?? null) !== null,
+    embeddings: providerEmbeddings(preset.provider) !== null,
+  };
+  const answers = {} as Record<Capability, boolean>;
+  for (const capability of capabilities)
+    answers[capability] = entry ? entry.capabilities.includes(capability) : fromProvider[capability] === true;
+  return answers;
+}
+
+/**
+ * The list-of-models address for a connection, or null when it does not offer one.
+ *
+ * Gemini takes either an API key or a signed-in person's token, and the two go in different
+ * headers: a key in `x-goog-api-key`, a token in the ordinary `Authorization` header. The provider
+ * says which it is holding through `bearer`; putting a sign-in token in the key header makes Google
+ * answer 401 and the check would wrongly report the sign-in as broken.
+ */
 export function modelsUrl(provider: Provider): { url: string; headers: Record<string, string> } | null {
-  const audio = provider.audio?.() ?? null;
+  // An adapter that knows its own list address says so; only the rest are worked out from their routes.
+  const declared = provider.modelsList?.();
+  if (declared !== undefined) return declared;
+  const audio = (provider.audio?.() ?? null) as ({ endpoint: string; apiKey: string; bearer?: boolean } | null);
   const shared = audio ?? providerEmbeddings(provider);
   if (!shared) return null;
+  const bearer = (shared as { bearer?: boolean }).bearer === true;
   if (provider.name === "gemini")
-    return { url: shared.endpoint.replace(/\/$/, "") + "/v1beta/models", headers: { "x-goog-api-key": shared.apiKey } };
+    return {
+      url: shared.endpoint.replace(/\/$/, "") + "/v1beta/models",
+      headers: bearer ? { authorization: `Bearer ${shared.apiKey}` } : { "x-goog-api-key": shared.apiKey },
+    };
   return { url: shared.endpoint.replace(/\/$/, "") + "/models", headers: { authorization: `Bearer ${shared.apiKey}` } };
 }
 
@@ -57,6 +110,8 @@ export async function probeProvider(
     supportsEmbeddings: providerEmbeddings(preset.provider) !== null,
     onThisComputer: models.runsLocally(id),
     resting: models.coolingDown(id),
+    can: capabilitiesOf(preset),
+    canSaid: capabilitySentences(capabilitiesOf(preset)),
     summary: "",
   };
   const target = modelsUrl(preset.provider);
@@ -66,11 +121,15 @@ export async function probeProvider(
   try {
     await policy.assertAllowed(new URL(target.url), "model connection check");
     const response = await fetchImpl(target.url, { headers: target.headers, redirect: "error", signal: AbortSignal.timeout(10_000) });
-    if (!response.ok)
+    if (!response.ok) {
+      const refused = response.status === 401 || response.status === 403;
+      if (refused && signedInWithGoogle(preset.provider))
+        return { ...base, signedInWithGoogle: true, summary: googleRefusedSignIn, fix: keepUsingAKey };
       return { ...base, summary: `${preset.name} answered ${response.status} when asked what models it has.`,
-        fix: response.status === 401 || response.status === 403
+        fix: refused
           ? "The key was refused. Put a fresh one in under Settings → Models."
           : "The service is there but would not answer. Try again in a moment." };
+    }
     const listed = countModels(await response.json().catch(() => null));
     return { ...base, signedIn: true, models: listed, summary: describe(preset.name, listed, base) };
   } catch (error) {

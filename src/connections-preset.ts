@@ -1,0 +1,223 @@
+import { z } from "zod";
+import type { Provider } from "./contracts.js";
+import type { Locker } from "./locker.js";
+import type { ModelRouter } from "./models.js";
+import type { NetworkPolicy } from "./network-policy.js";
+import type { Store } from "./store.js";
+import { catalogEntry, modelsAddress } from "./provider-catalog.js";
+import { buildConnection } from "./provider-factory.js";
+import { countModels } from "./provider-probe.js";
+
+/**
+ * Adding a model connection in plain language: pick a service, paste the key, answer whatever else
+ * that service asks for. Branch checks the key by using it before anything is saved, puts the key
+ * in the locker rather than in a settings file, and reports what it found. The key itself is never
+ * written to a log, returned in an answer, or put in an error message.
+ */
+export const FromPresetSchema = z.object({
+  provider: z.string().min(1).max(64),
+  key: z.string().max(4096).default(""),
+  extras: z.record(z.string().min(1).max(40), z.string().max(500)).default({}),
+  model: z.string().max(256).optional(),
+  /** What to call it on screen; defaults to the service's name. */
+  name: z.string().trim().max(80).optional(),
+}).strict();
+export type FromPresetInput = z.infer<typeof FromPresetSchema>;
+
+export interface FromPresetResult {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  /** Models the service listed, capped so one reply cannot flood the screen. */
+  models: string[];
+  /** Null when the service offers no list; then the key was checked by asking for one small reply. */
+  modelsFound: number | null;
+  can: string[];
+  /** Where the key was put, so a person can find it again. Never the key itself. */
+  secret: { project: string; name: string };
+  message: string;
+}
+
+/** The locker project every model-service key lives in, so they are easy to find and to clear out. */
+export const connectionProject = "model-connections";
+/** `lm-studio` becomes `LM_STUDIO_KEY`, which is the shape the locker insists on. */
+export function secretNameFor(providerId: string): string {
+  return providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^([^A-Z])/, "P$1").slice(0, 60) + "_KEY";
+}
+
+const listed = z.object({
+  data: z.array(z.object({ id: z.string().max(256) }).loose()).optional(),
+  models: z.array(z.object({ id: z.string().max(256).optional(), name: z.string().max(256).optional() }).loose()).optional(),
+}).loose();
+
+/** The names in whichever shape the service answered with; an unfamiliar shape gives an empty list. */
+export function modelNames(body: unknown): string[] {
+  const parsed = listed.safeParse(body);
+  if (!parsed.success) return [];
+  const rows: { id?: string | undefined; name?: string | undefined }[] = parsed.data.data ?? parsed.data.models ?? [];
+  return rows.map((row) => row.id ?? row.name ?? "").filter((name) => name.length > 0).slice(0, 50);
+}
+
+export interface FromPresetDeps {
+  models: ModelRouter;
+  locker: Locker;
+  owner: string;
+  policy: NetworkPolicy;
+  /** Where the connection itself is written down, so it is still here after a restart. */
+  store?: Store;
+  fetchImpl?: typeof globalThis.fetch;
+}
+
+/**
+ * What is written down about a connection: everything except the key, which stays in the locker.
+ * This is enough to build the same connection again when Branch starts, and it is readable by the
+ * person whose computer it is.
+ */
+const ConnectionRecordSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(80),
+  catalogId: z.string().min(1).max(64),
+  model: z.string().min(1).max(256),
+  extras: z.record(z.string().min(1).max(40), z.string().max(500)).default({}),
+}).strict();
+export type ConnectionRecord = z.infer<typeof ConnectionRecordSchema>;
+const ConnectionsSchema = z.object({ connections: z.array(ConnectionRecordSchema).max(32).default([]) }).strict();
+/** The settings row the saved connections live in, beside every other setting. */
+export const connectionsSetting = "model-connections";
+
+/** The connections written down for this person, or none when the record is missing or damaged. */
+export function savedConnections(store: Store, owner: string): ConnectionRecord[] {
+  const saved = ConnectionsSchema.safeParse(store.get("settings", owner, connectionsSetting)?.data ?? {});
+  return saved.success ? saved.data.connections : [];
+}
+
+/** Writes one connection down, replacing any earlier one with the same name. */
+function rememberConnection(deps: FromPresetDeps, record: ConnectionRecord): void {
+  if (!deps.store) return;
+  const kept = savedConnections(deps.store, deps.owner).filter((saved) => saved.id !== record.id);
+  kept.push(ConnectionRecordSchema.parse(record));
+  deps.store.save("settings", deps.owner, connectionsSetting, { connections: kept.slice(-32) });
+}
+
+/**
+ * Takes a connection away for good: out of the model list, out of the written-down record, and its
+ * key out of the locker. Without this, a service added from a preset would come back every time
+ * Branch started and there would be no plain way to be rid of a key that has been revoked.
+ */
+export async function forgetConnection(deps: FromPresetDeps, id: string): Promise<{ id: string; removed: boolean }> {
+  z.string().min(1).max(64).parse(id);
+  const store = deps.store;
+  if (!store) throw new Error("Branch cannot write down connections in this launch, so there is nothing to remove");
+  const kept = savedConnections(store, deps.owner).filter((saved) => saved.id !== id);
+  const known = kept.length !== savedConnections(store, deps.owner).length;
+  if (!known && !deps.models.presets.has(id))
+    throw new Error(`There is no connection called "${id}"`);
+  store.save("settings", deps.owner, connectionsSetting, { connections: kept });
+  deps.locker.remove(deps.owner, connectionProject, secretNameFor(id));
+  // Exactly this one, never everything whose name begins the same way.
+  deps.models.remove(id);
+  return { id, removed: true };
+}
+
+/**
+ * Builds every written-down connection again, taking each key out of the locker. One connection
+ * that cannot be rebuilt — a key removed by hand, a service dropped from the catalog — is skipped
+ * rather than being allowed to stop Branch from starting. Returns the ones that came back.
+ */
+export async function restoreConnections(deps: FromPresetDeps): Promise<string[]> {
+  if (!deps.store) return [];
+  const back: string[] = [];
+  for (const record of savedConnections(deps.store, deps.owner)) {
+    try {
+      const secret = secretNameFor(record.id);
+      const held = deps.locker.exists(deps.owner, connectionProject, secret)
+        ? (await deps.locker.resolve(deps.owner, connectionProject, [secret]))[secret] ?? ""
+        : "";
+      const built = buildConnection({
+        provider: record.catalogId, key: held, extras: record.extras, model: record.model,
+        policy: deps.policy, fetchImpl: deps.models.health.watch(record.id, deps.fetchImpl ?? globalThis.fetch),
+      });
+      deps.models.register({
+        id: record.id, name: record.name, provider: built.provider, model: built.model, catalogId: record.catalogId,
+      });
+      back.push(record.id);
+    } catch { /* one connection that cannot be rebuilt never stops the others, or the program */ }
+  }
+  return back;
+}
+
+/**
+ * Checks a service is really reachable with this key, then remembers it. The order matters: a key
+ * that does not work is never stored, so nothing accumulates that a person would later have to
+ * clean up.
+ */
+export async function connectFromPreset(deps: FromPresetDeps, input: unknown): Promise<FromPresetResult> {
+  const asked = FromPresetSchema.parse(input);
+  const entry = catalogEntry(asked.provider);
+  if (!entry) throw new Error(`Branch does not know a model service called "${asked.provider}"`);
+  if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
+    throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
+  const call = deps.fetchImpl ?? globalThis.fetch;
+  // Named after the connection, not the service, so a second key for the same service does not
+  // quietly replace the first one. Worked out before anything is built, because the health record
+  // is kept under this name and a second connection must not write onto the first one's card.
+  const id = uniqueId(deps.models, asked.provider);
+  const built = buildConnection({
+    provider: asked.provider, key: asked.key, extras: asked.extras,
+    ...(asked.model ? { model: asked.model } : {}),
+    policy: deps.policy, fetchImpl: deps.models.health.watch(id, call),
+  });
+  const list = modelsAddress(entry, built.baseUrl);
+  const found = list ? await probeList(deps, list, asked.key, entry.auth, call) : null;
+  if (!list) await probeChat(built.provider);
+  const name = asked.name || entry.name;
+  if (asked.key) await deps.locker.set(deps.owner, connectionProject, secretNameFor(id), asked.key);
+  deps.models.register({ id, name, provider: built.provider, model: built.model, catalogId: entry.id });
+  // The connection itself (never the key) is written down, so it is still here after a restart.
+  rememberConnection(deps, { id, name, catalogId: entry.id, model: built.model, extras: asked.extras });
+  return {
+    id, name, provider: entry.id, model: built.model,
+    models: found ?? [], modelsFound: found ? found.length : null,
+    can: entry.capabilities,
+    secret: { project: connectionProject, name: secretNameFor(id) },
+    message: found
+      ? `${entry.name} answered and listed ${found.length} model(s). It is set up as "${id}".`
+      : `${entry.name} answered a small test request. It is set up as "${id}", and it does not publish a list of models.`,
+  };
+}
+
+async function probeList(
+  deps: FromPresetDeps, url: string, key: string, auth: string, call: typeof globalThis.fetch,
+): Promise<string[]> {
+  await deps.policy.assertAllowed(new URL(url), "model connection check");
+  const headers: Record<string, string> =
+    auth === "x-api-key" ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
+    : auth === "api-key" ? { "api-key": key }
+    : auth === "google-key" ? { "x-goog-api-key": key }
+    : auth === "none" ? {}
+    : { authorization: `Bearer ${key}` };
+  const response = await call(url, { headers, redirect: "error", signal: AbortSignal.timeout(15_000) });
+  if (!response.ok)
+    throw new Error(response.status === 401 || response.status === 403
+      ? "That key was refused. Check you copied all of it, and that it is for this service."
+      : `The service answered ${response.status} when asked what models it has. Try again in a moment.`);
+  return modelNames(await response.json().catch(() => null));
+}
+
+/** For a service with no list of models: one very small request, which is the only other check. */
+async function probeChat(provider: Provider): Promise<void> {
+  await provider.complete({
+    messages: [{ role: "user", content: "Reply with the single word OK." }],
+    tools: [], maxTokens: 16, signal: AbortSignal.timeout(30_000),
+  });
+}
+
+function uniqueId(models: ModelRouter, base: string): string {
+  if (!models.presets.has(base)) return base;
+  for (let at = 2; at < 100; at++) if (!models.presets.has(`${base}-${at}`)) return `${base}-${at}`;
+  throw new Error("There are already too many connections to this service");
+}
+
+/** How many models a service listed, for the places that only want the count. */
+export const countFromBody = countModels;

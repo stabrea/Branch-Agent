@@ -53,6 +53,111 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `GET /api/providers/local` probes for Ollama at `127.0.0.1:11434` and LM Studio at `127.0.0.1:1234`, lists available models for any local runtime that responds, and returns an empty list if neither is running. The probe uses a short timeout and does not go through the network policy (local detection must succeed even when private addresses are otherwise blocked).
 
+### Which model services work (wave 7)
+
+Every model service Branch knows about is written down in `data/providers.json`, not in code. Each
+line says which wire shape the service speaks, where it lives, how it wants to be shown a key, what
+it can do, and where it publishes its prices. Correct that file and the Settings list, this table
+and the setup route all change together; adding a service that speaks a shape Branch already knows
+needs no code at all.
+
+Routes:
+
+- `GET /api/connections/catalog` — the whole catalog, with the date the prices were checked.
+- `POST /api/connections/from-preset` — `{ provider, key, extras, model?, name? }`. Branch checks
+  the key by using it *before* anything is saved, puts the key in the secrets locker under the
+  project `model-connections`, registers the connection, and answers with the models it found. The
+  key never appears in the answer, in an error message or in the log. The connection itself — its
+  name, the service, the model and the boxes you filled in, never the key — is written down under
+  the setting `model-connections`, so it is still there the next time Branch starts. A connection
+  whose key has since been taken out of the locker by hand is quietly left out rather than half
+  built.
+- `POST /api/connections/forget` — `{ id }`. Takes one connection away for good: out of the model
+  list, out of the written-down record, and its key out of the locker. Exactly the one named, never
+  everything whose name begins the same way, and never the last connection you have.
+
+The table below is generated from `data/providers.json` by `npm run docs:providers`. Do not edit it
+by hand; edit the data file and run that command.
+
+<!-- providers:start -->
+
+Branch knows 38 model services. Every one of them has been tested against a fake of the
+service, not against the real one, so treat this as "Branch speaks the right language", not as
+"this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
+
+| Service | Where it runs | Speaks | What it can do | What you have to fill in |
+| --- | --- | --- | --- | --- |
+| AWS Bedrock | in the cloud | Bedrock | conversation, pictures in, tools, as it types | The AWS region your models are enabled in; Your AWS access key id |
+| Anthropic | in the cloud | Anthropic | conversation, pictures in, tools, as it types | just a key |
+| Azure OpenAI | in the cloud | Azure | conversation, pictures in, tools, fixed format, as it types, compare passages | Your Azure resource name; The name you gave the deployment |
+| Baidu Qianfan | in the cloud | OpenAI | conversation, tools, as it types, compare passages | just a key |
+| Cerebras | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
+| Cloudflare Workers AI | in the cloud | OpenAI | conversation, tools, as it types, compare passages, pictures out | Your Cloudflare account id |
+| Cohere | in the cloud | Cohere v2 | conversation, tools, fixed format, as it types, compare passages | just a key |
+| DeepSeek | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
+| Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key |
+| Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
+| GitHub Models | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses |
+| Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key |
+| Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Jan | on this computer | OpenAI | conversation, tools, as it types | just a key |
+| LM Studio | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| LiteLLM proxy | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| LocalAI | on this computer | OpenAI | conversation, tools, as it types, compare passages, speech, pictures out | just a key |
+| MiniMax | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Mistral | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key |
+| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out | just a key |
+| OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key |
+| OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Perplexity | in the cloud | OpenAI | conversation, as it types | just a key |
+| Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key |
+| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you |
+| Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
+| Voyage AI | in the cloud | OpenAI | compare passages | just a key |
+| Zhipu GLM | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| llama.cpp | on this computer | OpenAI | conversation, tools, fixed format, as it types, compare passages | just a key |
+| vLLM | on this computer | OpenAI | conversation, tools, as it types | just a key |
+| xAI (Grok) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, pictures out | just a key |
+
+Services that need something more than a key, or that do not publish a list of their models:
+
+- **AWS Bedrock** — Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above.
+- **Azure OpenAI** — Needs your resource name and the name you gave the deployment; the model is chosen by the deployment, not by the model name.
+- **Baidu Qianfan** — Baidu's Qianfan in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
+- **Cloudflare Workers AI** — Needs your Cloudflare account id as well as a token. Model names start with @cf/.
+- **Cohere** — Cohere speaks its own shape rather than OpenAI's. Nothing extra to fill in.
+- **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
+- **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
+- **MiniMax** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+- **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.
+- **Perplexity** — Answers questions with sources of its own. It does not publish a list of models, so Branch cannot check the key without using it.
+- **Portkey** — A gateway that sits in front of other services and speaks OpenAI's shape. Which model answers depends on the configuration you set up there.
+- **Qwen (Alibaba DashScope)** — Alibaba's DashScope in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
+- **Something else that speaks OpenAI's shape** — For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer.
+- **Voyage AI** — Compares passages only; it does not hold conversations, so it cannot be a connection that answers you. Use it for searching your own documents.
+- **Zhipu GLM** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+
+<!-- providers:end -->
+
+### Two things Branch deliberately does not do
+
+**One runtime, not several.** Branch runs a single assistant runtime. A second one inside the same
+app would double the surface that has to be inspected, approved and audited, and would give you
+nothing you cannot already have: when a task genuinely belongs to a different agent, Branch hands it
+over across A2A or ACP (see the interoperability section) and reads the result back. So "pick which
+agent engine runs this" is not a setting, and there is no plan for one.
+
+**No Google PaLM.** Google retired the PaLM API in favour of Gemini, so an adapter for it would be
+dead on the day it was written. Use the `gemini` entry for a Google AI Studio key, or `vertex-ai`
+for a Google Cloud project.
+
 ### Models on this computer
 
 **Settings → Models on this computer** manages Ollama and LM Studio directly, so a model can answer without anything leaving this machine and without any charge.
@@ -586,17 +691,62 @@ Branch is itself a Model Context Protocol (MCP) server, so another AI tool on th
 
 **What is shared, and when.** Nothing until you switch it on. Switching it on offers the tools that only read (their permission ends in `.read`) and leaves everything else unticked and marked *can change things*; you tick those yourself. `branch.ask` — asking Branch a question in plain words — is always available, because it goes through Branch's own permissions and budget like any other task. The saved choice lives in `settings/mcp-sharing` as `{ enabled, exposedTools }` and is read fresh on every call, so a change takes effect at once.
 
-**Two ways to connect.** Over HTTP, at `/mcp` on the same port as the web interface: JSON-RPC 2.0 by `POST`, with your session key as `Authorization: Bearer …`, an optional `Mcp-Session-Id` header to keep one conversation across requests, `DELETE` to end that session (204) and `GET` refused (405). Responses carry `MCP-Protocol-Version`; `2025-06-18` is preferred and `2024-11-05` accepted. Or as a child program: `branch mcp-serve` speaks newline-delimited JSON-RPC on standard input and output, writes every message for a person to standard error, and stops cleanly when the other tool closes the connection.
+**Two ways to connect.** Over HTTP, at `/mcp` on the same port as the web interface: JSON-RPC 2.0 by `POST`, with your session key as `Authorization: Bearer …`. If you send no `Mcp-Session-Id`, the reply to your first message names one in an `Mcp-Session-Id` header; send it back on everything afterwards and your work is kept together. `DELETE` ends that conversation (204). A plain `GET` is refused (405), but a `GET` that asks for `text/event-stream` opens a stream Branch writes down when something changes on this side — see **Streaming** below. Responses carry `MCP-Protocol-Version`. Branch speaks `2025-06-18`, `2025-03-26` and `2024-11-05`; ask for anything else and you get a plain error saying which ones work. Or as a child program: `branch mcp-serve` speaks newline-delimited JSON-RPC on standard input and output, writes every message for a person to standard error, and stops cleanly when the other tool closes the connection.
+
+**What Branch says it can do.** `initialize` answers with `tools: { listChanged: true }`, `resources: { subscribe: true, listChanged: true }`, `prompts: { listChanged: true }` and `logging: {}`. `logging/setLevel` is accepted and remembered for that connection.
+
+**Streaming.** A `GET /mcp` with `Accept: text/event-stream` stays open and carries messages that expect no reply, each as `event: message` with the JSON-RPC notification as its data. Two things travel down it. `notifications/tools/list_changed` goes to every open stream whenever the set of tools changes — a skill loaded, a plugin added or removed, another server's tools arriving — so a connected tool never goes on calling something that is no longer there. `notifications/resources/updated` goes only to a connection that asked for it with `resources/subscribe`, naming the resource: subscribe to `runs://recent` to be told whenever a task finishes, or to `run://<id>` for one in particular. `resources/unsubscribe` stops it, and one connection may watch fifty things at most.
 
 Use HTTP when Branch is already open — that is what the Claude Code and Cursor snippets do. `mcp-serve` starts a second copy of Branch against the same records, so close the app first; the snippet sets `BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` for the child, because it inherits the other tool's working directory rather than Branch's.
 
-**Resources.** `memory://facts` (what Branch remembers) and `workspace://files` (the workspace listing) as JSON, plus the twenty most recent saved conversations as `conversation://<id>`, named after their first message and dated. Reading one returns the transcript as plain `role: text` lines in the order they were said, read-only: the most recent messages are kept and older ones dropped once the text passes 64 KiB. Temporary conversations are never listed, and a conversation belonging to someone else is not found.
+**Resources.** `memory://facts` (what Branch remembers), `workspace://files` (the workspace listing) and `documents://library` (documents Branch has read) as JSON; `runs://recent` (the twenty most recent tasks) and `run://<id>` for one of them; the twenty most recent saved conversations as `conversation://<id>`, named after their first message and dated; and `policy://hidden-tools`, the note described under **What is offered** below. Reading a conversation returns the transcript as plain `role: text` lines in the order they were said, read-only: the most recent messages are kept and older ones dropped once the text passes 64 KiB. Temporary conversations are never listed, and a conversation belonging to someone else is not found.
 
-**Prompts.** Your saved procedures, listed as `procedure:<id>` with the procedure's name.
+Every resource is read-only, and each one is scoped by your approval settings. A resource is shown only when your settings would allow the tool that reads the same thing: `memory://facts` follows `memory.search`, `workspace://files` follows `files.list`, `documents://library` follows `documents.search`, and everything to do with tasks and conversations follows `history.search`. If your settings refuse one of those, the resource is not listed and reading it by name answers "unknown resource" — a connected tool cannot tell the difference between something you have hidden and something that was never there.
+
+**What is offered, and what is held back.** When a tool connects, every tool you share is checked against your approval settings before any of them is offered. A tool your settings flatly refuse is not offered at all. A tool your settings want you asked about *is* still offered, because with an approval setting chosen almost everything that changes something becomes a question, and hiding all of those would leave the other tool looking at an empty toolbox — instead the call is stopped at the moment it is made, with a message saying it needs your yes here in Branch. The `policy://hidden-tools` resource says which tools are in which group and why, in plain sentences, and **Settings → Sharing with other AI tools → What another tool is offered** shows the same thing.
+
+**Saying what a call would do, without doing it.** Send `tools/call` with `_meta: { dryRun: true }`, or call the `mcp.dry_run` tool with `{ name, arguments }`. Either way nothing is run, nothing is written and no web address is opened; what comes back says which tool, what it would touch, which files and which hosts the arguments name, whether it changes anything, what your settings would decide, what it would cost and one sentence on what would happen. Branch's own tools run on this computer and cost nothing; only `branch.ask` goes to a model, and then at whatever your chosen model charges.
+
+**Writing down what you were shown.** Call the `mcp.snapshot` tool with `{ action: "record" }` and Branch keeps the exact tool list and every schema in it, with a sha-256 fingerprint, against that connection. `{ action: "compare" }` checks a saved record against what is on offer now and says what was added, what has gone and what has changed; `{ action: "list" }` shows the records. The fingerprint changes the moment a single word of a description or a schema does, so a later disagreement about what was on offer can be settled. `GET /api/mcp/snapshots` shows the same records; the last fifty are kept.
+
+`mcp.dry_run` and `mcp.snapshot` appear in the tool list only while sharing is switched on.
+
+**Prompts.** Your saved procedures and recipes, listed as `procedure:<id>` with the procedure's name and the blanks it takes — each named input becomes an argument, marked as needed or not. `prompts/get` fills them in; leaving out a needed one is refused by name rather than quietly running with a gap.
 
 **What is recorded.** Every `tools/call` becomes a task of its own, named "Another AI tool used …", with `run.started`, `tool.started` and `tool.completed`/`tool.failed` events carrying `source: "mcp"` and the same signed receipt as local work. They appear in Activity and under `GET /api/runs/:id/receipts`. At most four shared calls run at once and one connection may make 100 in total.
 
-**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, a2a, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools, a2a }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets.
+**Signing in.** Branch accepts the session key the app already shows you, as `Authorization: Bearer …` — the same key the web interface uses. **Branch is not an authorization server.** It does not issue keys of its own, it has no sign-in page for other programs, and it does not let a program register itself at Branch's door. If a tool asks you for a client id and secret for Branch, there is none; paste the session key from **Settings → Sharing with other AI tools** instead. That key is private: anyone holding it can use Branch as you.
+
+**What is shared over MCP, and what is not.**
+
+| On offer | Not on offer |
+| --- | --- |
+| `branch.ask` — asking Branch for something in plain words | Any tool you have not ticked in the shared list |
+| Every tool you tick, minus the ones your approval settings flatly refuse | Anything your approval settings refuse |
+| `mcp.dry_run` and `mcp.snapshot`, while sharing is on | Your saved passwords and keys, in any form |
+| Reading memory, the workspace listing, documents, tasks and conversations | Writing to any of those through a resource — resources are read-only |
+| Your saved procedures as prompts, with their blanks | The owner-only parts of the app: projects, profiles, settings |
+| A plain note saying what was held back and why | Sampling: Branch never asks a connected tool to run a model for it |
+
+**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, a2a, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools, a2a }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets. `GET /api/mcp/preflight` returns `{ allowed, hidden, explanation, tools }` — what a connection would be offered, what is held back, and the note in plain sentences. `GET /api/mcp/snapshots` lists the records of tool lists other tools were shown.
+
+## Connecting MCP servers
+
+Branch can also be the one asking: somebody else's MCP server becomes tools Branch may use. There are two ways in.
+
+**Servers you set up once.** Put them in the connections file named by `BRANCH_INTEGRATIONS`, under `mcp`, exactly as described in **MCP tools** above: the server's address or the command that starts it, the version you expect, and the names of the tools you want. Nothing is guessed, and a tool the server starts advertising later is never granted.
+
+**Trying one first.** **Settings → Sharing with other AI tools → Try a server** takes a web address (`https://…`, or `http://` on this computer) or the command that starts a server, asks it what it offers, and draws a form from the shape each tool describes. Fill it in, run the tool once, and see exactly what came back. Nothing is registered and nothing is kept: the connection is opened for the try and closed again. Every try is written into the record of what the assistant was allowed to do, as **You tried out another AI tool's server**, with the server, the tool and how it ended. `POST /api/mcp/try` takes `{ server: { transport: "http", url } | { transport: "stdio", command, args }, call?: { name, arguments } }`.
+
+**When connections open and close.** Be clear about what is true today: **a server named in the connections file is still opened when Branch starts**, because that is when Branch asks it what tools it offers, and the tools have to exist before a task can use one. The settings below govern connections opened on demand instead — opened the first time a task needs one and closed when that task ends — and nothing in Branch opens one that way yet, so **Other people's servers** is empty on a normal install. What that machinery does when it is used: an unused connection can be kept open for a few minutes in case the next task wants it; there is a cap on how many servers may be connected at once, and at the cap Branch closes the oldest one nobody is using and refuses the new one only when every open server is busy; a server that will not answer is tried again with a growing wait before Branch gives up with a plain reason. `GET /api/mcp/connections` returns `{ settings, servers, known }`; `POST` it `{ keepWarmMinutes, maxConcurrentServers, reconnectAttempts }` to change the settings, and anything you leave out keeps its value. Where several people share this computer, each profile keeps its own settings.
+
+**Servers that need a sign-in.** Some servers do not hand out keys by hand. Branch reads what the server publishes at `/.well-known/oauth-authorization-server` (or `/.well-known/openid-configuration`), asks it for an identity of its own if it allows that (dynamic client registration), and then runs the ordinary sign-in in your own browser with a proof key (PKCE, `S256`). The key that comes back goes straight into the locker and the identity is remembered, so signing in again does not register a second time. Every address is checked by the network policy first, and the key never appears in a log, an event, the audit record or a message. A server that publishes no sign-in details, or one that needs a sign-in but will not let a program register itself, is refused with a sentence saying so.
+
+One detail to know about: Branch registers its callback as `http://127.0.0.1/oauth/callback`, without a port, because the sign-in picks a free port on this computer at the moment you sign in and that port is different every time. This relies on the usual allowance for a program running on your own computer, where any port on the loopback address counts as the same callback. A server that insists on the exact port instead will refuse the sign-in; there is nothing you can set to work around that, and such a server has to be given a key by hand through `bearerEnv` in the connections file.
+
+**Pages a server sends.** A server may answer with a small page meant for you to look at — a form, a picker, a chart. Branch will show one, in a frame that can do almost nothing: it is served from Branch's own address with `Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'`. `sandbox` with nothing after it gives the page an origin of its own and stops scripts running at all; `default-src 'none'` refuses every fetch, picture, font and frame it might still ask for. Branch also takes out the tags the frame would refuse anyway — scripts, frames, forms, `javascript:` addresses and `on…` handlers — so what you see is the page that was meant rather than a broken half of one. The page's address is a one-time unguessable name that stops working after five minutes, because a frame cannot carry your session key. `POST /api/mcp/app` with `{ server, uri, html }` returns `{ url }`.
+
+**What Branch will not do as a client.** It will not send your saved passwords or keys to a server they were not configured for; a configured key that comes back inside a server's own answer means that answer is not shown at all. It will not follow a redirect. It will not accept an answer over 1 MiB or a tool schema over 64 KiB. And it never grants a tool that appeared later: what is granted is what you named.
 
 ## Talking to assistants other people built
 
@@ -827,6 +977,59 @@ allowed: a box can only ever contain tools this task was already permitted to us
 You do not configure any of this. It shows up in the task's timeline as **catalog.preselected**
 (which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
 **catalog.size** (how many tools were described this round and what they weighed).
+
+## How the assistant finds its tools
+
+Toolboxes were the first answer to a growing tool list. They are still there, but the assistant no
+longer relies on them, because a computer with a few connected servers on it can easily have a
+thousand tools and no toolbox is small enough to carry that.
+
+Each time the assistant works, every tool it is allowed to use is put in one of three places:
+
+* **Carried** — about a dozen tools, with their full instructions, ready to use straight away.
+* **Named** — a short list, one line each: the tool's name and eight words saying what it does.
+* **Looked up** — everything else. Not in the message at all, and found by searching for it.
+
+When the assistant needs something it is not carrying, it searches for it in its own words — "send
+a message on Discord", "make a picture" — and what it finds becomes available for the rest of that
+conversation. That is what it means when it says it is looking for a tool. It can only ever find
+tools this task was already allowed to use: a tool your settings put out of reach is not in the
+list at all, and reads exactly like a name that does not exist, so nothing is revealed by asking.
+
+**It remembers what worked.** When a task finishes, the computer keeps one line about it: the shape
+of what you asked (as scrambled word pairs, never the words themselves), which tools were looked
+for, which were used, and whether it went well. From that it learns three habits — it carries the
+tools that requests like yours have needed before, it carries tools that are nearly always used
+together, and it stops naming tools nobody has touched for a month (those are still findable by
+searching). It also keeps short notes: if a call fails because something was missing and the next
+one works, or if the assistant is told outright that a tool needs the full path, that line is kept
+and shown with the tool from then on. A note travels with its tool in every later message, so one
+that reads like instructions to the assistant is refused rather than kept.
+
+None of this leaves the computer. It is in the same private database as everything else and travels
+with your backup. **Settings → Developer → How the assistant finds its tools** shows what was
+carried, named and looked up last time, what that weighed, what was made ready before you asked and
+why, and every note — with one button that forgets all of it. Your tools are untouched by that; only
+what was learned about them is deleted. Forgetting one conversation forgets what it taught as well:
+when you clear a conversation's facts, or throw away a temporary one, its line goes with it.
+
+Once a night the assistant works out a short line about how this is going — how many different
+tools you use, what the tool list weighs in each message, and how often a search found something
+worth using. That line is in the Developer card and in the diagnostics folder (`tools.json`).
+
+Settings and routes:
+
+* `toolBudgetTokens` (reliability settings, default 2,500) — the most the whole tool list may weigh
+  in one message. Tools over the ceiling become a line in the list, then a search away.
+* `GET /api/tools/catalog` — what the card shows. Read-only.
+* `POST /api/tools/forget` `{"what":"history"|"notes"|"all"}` — deletes what was learned.
+* `DELETE /api/tools/notes/<id>` — deletes one note.
+
+The timeline adds **tools.searched** (what was looked for and what came back), **tools.described**
+(tools loaded by exact name), **tools.noted** (a note kept) and **catalog.reindexed** (a server
+connected while the task was working, and its tools went into the index). **catalog.size** now also
+says how many tools were carried, named and looked up, and **catalog.preselected** lists anything
+made ready from past tasks under `preloadedFromHistory`.
 
 Alongside it, each round records a **context.budget** line: the size limit, what the instructions
 cost, what the tool list cost, what the conversation costs, and the room held back for the answer.
@@ -1676,3 +1879,246 @@ would only let a single guesser pretend to be a thousand different places. On th
 listener that makes every local program one place, which is the honest answer; the phone's listener
 sees each device separately. The socket a running task streams over is not counted, so a wrong key
 there is refused without being held against anyone.
+
+## What is allowed, trajectories, the live feed, the month view and metering (batch 19, wave 7)
+
+### What is allowed right now
+The details pane beside a conversation lists what that conversation is allowed to do without asking
+again: every yes it has remembered, with the plain words of what it covers and when it runs out,
+and beneath them the standing rules that say "go ahead". Each remembered yes has a "Take this back"
+beside it; taking one back makes the assistant ask again the next time. Before you press any of the
+answers on an approval card, a quiet line under each says what that answer leaves behind — nothing,
+a yes for this conversation that runs out in an hour, or a standing rule you can remove later.
+
+- `GET /api/rules/allowed?session=<id>` — `{ session, grants, standing }`. `grants` are this
+  conversation's remembered answers (`tool`, `target`, `decision`, `label`, `grantedAt`,
+  `expiresAt`, `fingerprint`); `standing` are the rules whose decision is "allow", each with the
+  sentence the settings screen shows.
+- `POST /api/rules/allowed/revoke` — `{ session, tool, target }`. Removes one remembered answer and
+  hands back what is left. A yes that is not there any more answers 404.
+
+### Answering an approval from a chat app
+When a task started from Telegram or Discord stops to ask whether it may go ahead, the question is
+put in that chat with buttons: Yes, Yes always (only for a task you started yourself, the same rule
+the app's own card follows) and No. Telegram uses an inline keyboard, Discord an action row of
+message components. Each button carries its answer and the fingerprint of the exact request, so a
+yes cannot be replayed against a different one, and the conversation it belongs to is worked out
+from the chat rather than carried in the button — Telegram allows only 64 bytes there.
+
+A channel with no buttons — WhatsApp, email — gets the same question with "Reply y for yes, a for
+yes always, or n for no." A bare `y`, `a` or `n` from a chat whose conversation has a question
+waiting answers it; anything longer is an ordinary message, whatever it happens to say. The answer
+goes through the same approval path as the app's own card, and the record of what the assistant was
+allowed to do says which chat app it was answered on.
+
+### A task's trajectory
+A trajectory is one JSON file holding everything a task actually did, in a shape that is written
+down here and does not move, so an evaluation tool can read a file saved months ago. "Save
+trajectory" in the Look inside panel writes one; `runs.export` hands the same thing to the
+assistant itself.
+
+- `GET /api/runs/<id>/trajectory` — one task.
+- `GET /api/runs/trajectories.jsonl?limit=<1-500>` — many tasks, newest first, one trajectory per
+  line, for feeding an evaluation run. This one is the owner's own: a second person's profile is
+  refused, because every task at once is the whole history rather than one task of theirs.
+- Tool: `runs.export` (`{ runId? }`, defaults to the task it is called in; read-only).
+
+The shape: `format` is always `"branch-agent-trajectory"` and `formatVersion` is `1`. Beside them,
+`exportedAt`, `version` (the Branch that ran the task), `run` (`id`, `sessionId`, `prompt`,
+`status`, `output`, times), `seconds`, `rounds` (each model round with its provider, model, preset,
+duration, prompt size, tokens, whether the provider counted them, and its cost), `calls` (each tool
+call with what went in and what came back, both clipped to 600 characters, its status and its
+receipt), `plan`, `verdicts`, `steering`, `questions`, `timeline`, `receiptCounts`, `usage`, `cost`,
+`messages` (the conversation as the model saw it) and `spans` (up to 500 steps recorded while it
+ran). Saved passwords and keys are taken out before anything leaves.
+
+### The live event stream
+`GET /api/events/stream` is Server-Sent Events carrying every event of this workspace, not just one
+task's. It is behind the same local key as every other route, so a browser reads it with `fetch`
+and a stream reader rather than `EventSource`, which cannot carry a key. The Activity screen uses
+it for the "Happening now" feed, and it starts and stops with that screen.
+
+- `kind=tool.completed,tool.failed` — only these kinds. Leave it out for every kind. At most 20.
+- `after=<id>` — everything after that event id, so a client that reconnects carries on rather than
+  repeating itself. `after=0` replays from the beginning. Leaving `after` out means "only what
+  happens from now on", which is what a fresh screen wants.
+- `maxMs=<milliseconds>` — how long the connection is held open. The default is 150 000, and that
+  is also the ceiling: a larger number is brought back down to it.
+
+One connection is closed after 2 000 events, whichever comes first. An event's body can hold what a
+tool was asked to do, so every one of them has any saved password or key taken back out of it before
+it is sent, the same way the rest of the app does. A second person's profile sees only its own
+events, never the owner's.
+
+Each message is `id: <n>`, `event: <kind>`, `data: {"id","runId","kind","data","createdAt"}`. The
+stream opens with an `event: ready` naming where it started and closes with an `event: end` naming
+the last id it sent, which is the id to pass as `after` next time.
+
+### What a month cost
+The Usage screen opens on this month: what it has cost so far across the tasks whose model has a
+price on file, one plain sentence saying what it is heading for at that pace ("At this pace, about
+$X this month"), and the same money broken three ways — by model, by conversation, and by where the
+task came from. A month in which no model had a price says so rather than showing $0.00. A task is
+not filed under a project anywhere in the ledger, so there is no cost-per-project breakdown.
+
+Beside it, "How it has been going" counts the middle round's size (the middle, not the average, so
+one enormous task does not colour it), how many rounds were counted, how often a tool worked, and
+how many conversations had to be shortened to make room. All of it comes from `GET /api/usage`,
+which now returns a `statistics` record alongside `data` and `stats`.
+
+The spreadsheet at `GET /api/usage/export.csv` carries `estimatedCostUsd`, `costPerRunUsd`,
+`dearestModel`, `dearestModelCostUsd`, `runsWithPrice` and `runsWithoutPrice`. A day whose models
+had no price leaves the money cells empty rather than writing a zero.
+
+### Keeping a usage spreadsheet on a schedule (metering)
+Branch can keep a spreadsheet of this month's usage in a folder of your own workspace and write it
+again at an interval you choose. It is off until you ask for it, and it is written on this computer
+only — nothing is sent anywhere.
+
+- `GET /api/usage/metering` / `POST /api/usage/metering` — `{ enabled, folder, every }`, where
+  `every` is `hourly`, `daily` or `weekly` and `folder` is a plain name inside the workspace. A
+  folder that would climb out of the workspace is refused when you save it, not later.
+- `POST /api/usage/metering/now` — writes it straight away and says where it went.
+
+The file is named after the month (`usage-2026-09.csv`) and holds the same money columns as the
+export above. The scheduler's existing beat writes it; a folder it cannot write to is passed over
+quietly rather than stopping the rest of the scheduled work.
+
+## Specialists that work in different ways (batch 20, wave 7)
+
+A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a
+specialist, under "How this one works"; the choice is written into the definition as `style`.
+
+- **the ordinary way** — no change from before.
+- **react** — it writes one line starting "Thought:" before each step, saying what it is about to
+  do and why. That line never appears in the answer: it is kept against the task, and you can read
+  the whole trail under "Look inside" → "What it was thinking, step by step".
+- **plan then execute** — it writes a short plan for its own piece of work and then does one step
+  at a time, exactly as a planned task does.
+- **critic** — it reads and comments and cannot change anything, whatever permissions it was given.
+  The permissions are narrowed when it runs, so this is not a matter of it behaving well.
+- **researcher** — it starts with the web, research, document and memory tools to hand, and it is
+  told to say where every claim came from.
+- **coder** — it starts with the code, version-control and file tools to hand, and is told to make
+  its changes with `code.patch` or `code.change_set` so each one can be put back.
+
+`GET /api/specialist-styles` lists them with what each one does. The style a task ran under is shown
+on its "Look inside" screen.
+
+## Changing several files at once (batch 20, wave 7)
+
+Two tools sit beside the older `files.patch`, which is unchanged:
+
+- `code.patch` takes a unified diff. With `dryRun` it works the whole change out and shows you what
+  it would do without writing a thing. Applied, it is all-or-nothing: if one part of the diff does
+  not fit the file exactly, nothing at all is written. Every file it changes is kept in the file
+  history first, so `files.history` and `files.restore` can put one file back on its own. A file
+  that is not text is refused, and anything outside the workspace was never reachable.
+- `code.change_set` changes several files in one go, each by replacing an exact piece of text. You
+  are asked once, for the whole set, and the question names the files ("2 files: a.txt, b.txt").
+  All of them change or none of them do.
+
+**The project's check.** `GET`/`POST /api/code-check` holds one program to run after a change —
+your tests, or your linter. Give the program in full, with its arguments and a timeout; a `.cmd` or
+`.bat` wrapper is refused, as it is for host commands. It runs in the workspace under the same
+memory and processor ceilings a host command gets, and what it said comes straight back to the
+assistant in the same step, so it sees what its own change broke before it does anything else.
+`code.check` runs it on its own, and needs the `code.execute` permission, because running your
+tests is running a program on this computer whatever else it does. Off by default.
+
+## Programs left running (batch 20, wave 7)
+
+Some programs are meant to keep going: a preview server, a watcher. `process.start` starts one and
+lets it outlive the step that started it; `process.list` says what is running, `process.read` gives
+the most recent part of what it printed, and `process.stop` stops it and everything it started.
+
+`GET`/`POST /api/background-programs` holds the list of programs you are willing to leave running,
+each under a short name you choose, with how many may run at once and how long one may stay up.
+The limit on how many is counted across the whole app, not per conversation, so one task cannot use
+them all up and leave another with none.
+Nothing else can be started. Each one is held in the same Windows job the one-off commands use, so
+the system enforces its memory and processor limits and kills whatever it left behind. Output is
+kept in a small rolling buffer, oldest dropped first. Everything started in a conversation stops
+when that conversation is thrown away, and everything stops when the app closes — nothing is left
+running for the next launch to find. `GET /api/processes` lists them and `POST /api/processes` with
+an id stops one. Starting or stopping one needs the `process.manage` permission and is approved the
+way a host command is; listing and reading need only `process.read`, which changes nothing. Running
+a small script needs `code.execute`. These are separate from `shell.execute`, so allowing one does
+not quietly allow the others.
+
+## Running a small script (batch 20, wave 7)
+
+`code.run` runs a short script the assistant just wrote — a calculation, a quick check — in a fresh
+program of its own, started in the workspace. `GET`/`POST /api/code-run` is the switch: whether it
+is allowed at all, where your Python is if you have one, whether a script may reach the internet,
+and the time, memory, processor and output limits. JavaScript uses the app's own Node; Python needs
+you to point at yours. Off out of the box, because a script is host execution like any other: these
+are limits on time, memory and output, not a sandbox. With the internet switch off the script is
+pointed at a dead address, the same best-effort measure host commands use.
+
+## Work handed over to finish later (batch 20, wave 7)
+
+A tool may answer `{ deferred: true, id }` instead of a result: the work has been handed over
+and is not finished. The task does not wait; it carries on and gives its answer. `user.task` is the
+plainest example — something for you to do by hand. `GET /api/deferred` lists what is waiting, and
+`POST /api/deferred/settle` with the id and what came of it brings the answer back into the
+conversation as an ordinary follow-up message.
+
+All the routes in this batch — flows, the handed-over jobs, the programs left running, and the
+three switches above — belong to the owner. With somebody else's profile switched on they answer
+"belongs to the owner", exactly as saved workflows and the waiting line do, and so does the
+`flows.list` tool, because the assistant always works as the owner.
+
+## Flows: workflows as boxes and arrows (batch 20, wave 7)
+
+A flow is a saved workflow seen as a picture. Every step is a box; an arrow says what follows what,
+and a step that can go two ways gets one arrow labelled "as expected" and one labelled "otherwise".
+
+- `GET /api/flows` — every flow with its picture and where each box has got to.
+- `POST /api/flows` — save one, either as `{name, description, steps}` or as
+  `{name, description, nodes}`, where the nodes are the steps in the order they happen.
+- `GET`/`PUT`/`DELETE /api/flows/:id` — read, change, remove.
+- `POST /api/flows/:id/run` — start it. `…/resume` carries a stopped one on, or says yes to the step
+  it is waiting for; `…/pause` stops it between steps.
+
+Each box that finishes, fails, or stops to wait is announced to anything listening for the
+`flow.node` event through the webhooks you already have, carrying the flow, the box, its name and
+what it said. Procedures shows the same picture, read-only.
+
+## Skills that improve themselves, safely (batch 20, wave 7)
+
+After a task that went well, the app writes a better version of the skill that task used. Nothing
+switches over on its own. Under Skills → "Suggested better versions" you see:
+
+- the lines that changed, exactly as a file change is shown;
+- a button to try the new version against your last three real tasks. That trial is a practice run:
+  every tool that would change something only reports what it would have done. The version in use
+  and the new one are run on the same tasks and compared;
+- "Keep it" and "Throw it away". Keeping is refused until the trial has happened and the new version
+  did at least as well; the API takes a force flag if you mean to override that.
+
+`GET /api/skill-revisions`, and `POST /api/skill-revisions/try`, `…/accept`, `…/reject` with the
+skill and the version.
+
+**Skills as files.** `skills.sync` keeps your installed skills as `.md` files in a folder inside the
+workspace — your own version-controlled folder, if you keep one. Direction "out" writes them out,
+"in" reads them back (installing what is new, adding a version where the text changed), and "both"
+does both. A sync never deletes anything. Commit the folder with the version-control tools you
+already have.
+
+## Where plugins come from (batch 20, wave 7)
+
+There is no shop to browse and nothing is downloaded. A plugin arrives as a folder or as one file
+somebody handed you, holding `branch-plugin.json` and the plugin's own `.mjs` beside it.
+
+- `POST /api/plugin-catalog/inspect` with the address of that folder or file shows the manifest —
+  what it is called, what it says it does, what it asks to be allowed to do — and the fingerprint of
+  its code. Nothing is copied and no code is run.
+- `POST /api/plugin-catalog/install` copies it in. Pass the fingerprint you were shown and it
+  refuses if the code has changed since. If the manifest carries its own fingerprint and the code
+  does not match it, it is refused outright.
+- `GET /api/plugin-catalog` lists what came from where, with the fingerprint each one had when you
+  accepted it and whether the file on disk still matches.
+
+Installing switches nothing on: turning a plugin on is still a separate, deliberate step, and that
+is the step that runs its code.

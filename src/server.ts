@@ -24,11 +24,15 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { connectFromPreset, forgetConnection } from "./connections-preset.js";
+import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
-import { streamRunEvents } from "./streams.js";
+import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
+import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -37,7 +41,15 @@ import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
-import { McpSharingSchema, shareableTools } from "./mcp-server.js";
+import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
+// Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
+// shown, connection lifecycle, the "try a server" bench, and small pages an outside server sends.
+import { hiddenToolsText } from "./mcp-policy.js";
+import { listSnapshots } from "./mcp-snapshots.js";
+import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
+import { tryServer } from "./mcp-workbench.js";
+import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
+import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -53,6 +65,7 @@ import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, 
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { toolCatalogReport } from "./tool-report.js";
 // Wave 5 (deployment): installing, background running and reaching Branch from a phone.
 import { RemoteAccess } from "./remote/remote-access.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
@@ -63,7 +76,8 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
-import { audit } from "./audit.js";
+import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
+import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
@@ -197,6 +211,7 @@ async function staticFile(
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
@@ -211,6 +226,11 @@ async function staticFile(
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
     "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
+    // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
+    // better versions of a skill under Skills.
+    "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
+    "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -218,6 +238,11 @@ async function staticFile(
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
+    // Wave 7: what a conversation is allowed to do right now, and the observability screens.
+    "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
+    "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
+    "/compare.js": ["compare.js", "text/javascript; charset=utf-8"],
+    "/activity-feed.js": ["activity-feed.js", "text/javascript; charset=utf-8"],
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
     "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
@@ -226,6 +251,7 @@ async function staticFile(
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
+    "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
     "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
     "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
@@ -484,6 +510,12 @@ async function api(
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
+  // running, and the switches for the project's check, those programs, and small scripts.
+  if (handlesOrchestrationPath(path))
+    return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -559,7 +591,8 @@ async function api(
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
-      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe"
+      || path === "/api/models/gemini-signin")
     return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
@@ -646,6 +679,23 @@ async function api(
     const { skillId } = z.object({ skillId: z.string().uuid() }).strict().parse(await readBody(request));
     return path.endsWith("update") ? app.skillRegistry.update(skillId) : app.skillRegistry.rollback(skillId);
   }
+  // Wave 7: what the assistant is carrying, what it has learned, and a way to delete the learning.
+  // What the assistant has learned is the owner's, exactly like their projects and their locker:
+  // somebody else on a shared computer must not read it away or throw it away.
+  if (request.method === "GET" && path === "/api/tools/catalog") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    return toolCatalogReport(app);
+  }
+  if (request.method === "POST" && path === "/api/tools/forget") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    const { what } = z.object({ what: z.enum(["history", "notes", "all"]).default("all") }).strict().parse(await readBody(request));
+    return app.store.toolUsage.forget(app.runtime.owner, what);
+  }
+  const toolNote = /^\/api\/tools\/notes\/([a-f0-9-]{36})$/.exec(path);
+  if (toolNote && request.method === "DELETE") {
+    app.store.profiles.requireOwner("What the assistant has learned about its tools");
+    return app.store.toolUsage.removeNote(app.runtime.owner, toolNote[1]!);
+  }
   if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
   const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
   if (plugin && request.method === "POST")
@@ -724,7 +774,9 @@ async function api(
     const data = app.store.usageStore().aggregateUsage(range, by, overrides);
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
     const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens, overrides);
-    return { data, stats, pricing: pricingTableInUse(app.store, app.runtime.owner) };
+    // Wave 7: the few numbers that say how it is behaving, beside what it cost.
+    const statistics = app.store.usageStore().statistics(app.runtime.owner, range === "7d" ? 7 : range === "90d" ? 90 : 30);
+    return { data, stats, statistics, pricing: pricingTableInUse(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/pricing")
     return pricingTableInUse(app.store, app.runtime.owner);
@@ -749,19 +801,17 @@ async function api(
   if (request.method === "GET" && inspectMatch) {
     const run = app.store.run(inspectMatch[1]!);
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
-    const receipts = await receiptsView(app, run.id);
-    const { overrides } = pricingSettings(app.store, app.runtime.owner);
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
-    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
-      receipts, version: app.version, cost: receipts.cost,
-      timeline: app.store.usageStore().getRunTimeline(run.id),
-      /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
-      price: (model, tokens) => {
-        const estimate = estimateCost(model, tokens, overrides);
-        return { amount: estimate.amount, display: formatCost(estimate) };
-      },
-    }));
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Wave 7: the same task as a trajectory — "Look inside" plus the conversation's messages and the
+  // spans — in the documented shape, for keeping or for feeding an evaluation run.
+  const trajectory = /^\/api\/runs\/([a-f0-9-]{36})\/trajectory$/.exec(path);
+  if (request.method === "GET" && trajectory) {
+    const run = app.store.run(trajectory[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return app.runtime.hideSecrets(buildTrajectory(app.store, run.id, await trajectoryOptions(app, run.id)));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
@@ -769,6 +819,21 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return { timeline: app.store.usageStore().getRunTimeline(run.id) };
+  }
+  // Wave 7: writing the month's usage out as a spreadsheet, on a schedule, into your workspace.
+  if (path === "/api/usage/metering") {
+    const deps = meteringDeps(app);
+    if (request.method === "GET") return { metering: meteringSettings(app.store, app.runtime.owner) };
+    if (request.method === "POST") {
+      const settings = saveMeteringSettings(app.store, app.runtime.owner, await readBody(request));
+      /* A folder that would climb out of the workspace is refused now, not at the next beat. */
+      meteringFolder(deps.workspace, settings.folder);
+      return { metering: settings };
+    }
+  }
+  if (request.method === "POST" && path === "/api/usage/metering/now") {
+    const written = await writeMeteringFile(meteringDeps(app));
+    return { ...written, metering: meteringSettings(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/usage/budget") {
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data;
@@ -996,6 +1061,22 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
     await app.oauth.cancel(cancel[1]!);
     return { cancelled: cancel[1] };
   }
+  // Batch 19 (wave 7): adding a model service from the catalog, checked before anything is saved.
+  if (request.method === "POST" && path === "/api/connections/from-preset")
+    return connectFromPreset(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      await readBody(request, 16 * 1024),
+    );
+  // Taking one back out again: the model list, the written-down record and the key, all at once.
+  if (request.method === "POST" && path === "/api/connections/forget") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request, 4 * 1024));
+    return forgetConnection(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      id,
+    );
+  }
+  if (request.method === "GET" && path === "/api/connections/catalog")
+    return { pricedAt: providerCatalog().pricedAt, services: catalogEntries() };
   const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);
   if (status && request.method === "GET") {
     const tokens = await app.oauth.saved(status[1]!);
@@ -1303,6 +1384,8 @@ async function researchApi(app: Branch, request: IncomingMessage, path: string):
   throw new HttpError(404, "Endpoint not found");
 }
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const extra = await mcpModeApi(app, request, path);
+  if (extra !== undefined) return extra;
   if (path === "/api/mcp/settings") {
     const mcp = app.mcpServer;
     if (!mcp) throw new HttpError(500, "Sharing is not available");
@@ -1321,6 +1404,77 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     }
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/**
+ * Wave 7. What this connection is being offered and what is held back, the records of tool lists
+ * other tools were shown, how the connections to outside servers are set up and faring, and the
+ * "try a server" bench. `undefined` means this path is not one of these.
+ */
+async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const mcp = app.mcpServer;
+  if (path === "/api/mcp/preflight" && request.method === "GET" && mcp) {
+    const result = mcp.preflight();
+    return { ...result, explanation: hiddenToolsText(result), tools: mcp.listTools().map((tool) => tool.name) };
+  }
+  if (path === "/api/mcp/snapshots" && request.method === "GET")
+    return { snapshots: listSnapshots(app.store, app.runtime.owner).map((s) => ({ ...s, tools: s.tools.length })) };
+  if (path === "/api/mcp/connections") {
+    const scope = app.store.profiles.scope();
+    if (request.method === "GET")
+      return { settings: readLifecycleSettings(app.store, scope), servers: app.mcpConnections.health(), known: app.mcpConnections.known() };
+    if (request.method === "POST")
+      return { settings: saveLifecycleSettings(app.store, scope, await readBody(request)), servers: app.mcpConnections.health() };
+  }
+  if (path === "/api/mcp/signin" && request.method === "POST") {
+    app.store.profiles.requireOwner("Signing in to another AI tool's server");
+    // The address to open in the owner's own browser; the key lands in the locker, never here.
+    const started = await mcpSignIn(await readBody(request), {
+      store: app.store, owner: app.runtime.owner, connections: app.oauth, policy: app.web.policy,
+    });
+    return { url: started.url, redirectUri: started.redirectUri, expiresInMs: started.expiresInMs };
+  }
+  if (path === "/api/mcp/try" && request.method === "POST") {
+    // Trying a server starts a program on this computer, or reaches out to a web address, so it
+    // stays with the owner even where several people share the app.
+    app.store.profiles.requireOwner("Trying another AI tool's server");
+    return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+  }
+  if (path === "/api/mcp/app" && request.method === "POST") {
+    const resource = AppResourceSchema.parse(await readBody(request, 512_000));
+    return { url: `/mcp-app/${holdApp(resource)}` };
+  }
+  return undefined;
+}
+/**
+ * A small page an outside server sent, shown in its own frame. It is served without the session
+ * key because a frame cannot carry one; instead the address is a one-time unguessable name that
+ * stops working after five minutes, and the page is locked down so hard by its content rules that
+ * it can neither run a script nor reach anything at all.
+ */
+const heldApps = new Map<string, { resource: AppResource; until: number }>();
+function holdApp(resource: AppResource): string {
+  for (const [id, held] of heldApps) if (held.until < Date.now()) heldApps.delete(id);
+  // At the limit the oldest waiting page goes, rather than every page anyone is still looking at.
+  while (heldApps.size > 20) heldApps.delete(heldApps.keys().next().value!);
+  const id = randomBytes(24).toString("base64url");
+  heldApps.set(id, { resource, until: Date.now() + 300_000 });
+  return id;
+}
+export function mcpAppPage(request: IncomingMessage, response: ServerResponse, path: string): boolean {
+  const match = /^\/mcp-app\/([A-Za-z0-9_-]{32,48})$/.exec(path);
+  if (!match || request.method !== "GET") return false;
+  const held = heldApps.get(match[1]!);
+  // The name is good for one fetch. It is handed over without the session key, so it stops working
+  // the moment it has been used, as well as after five minutes.
+  heldApps.delete(match[1]!);
+  if (!held || held.until < Date.now()) {
+    send(response, 404, { error: "That page has expired. Open it again from Settings." });
+    return true;
+  }
+  const page = appPage(held.resource);
+  response.writeHead(200, { ...appHeaders(), "x-mcp-app-removed": String(page.removed) });
+  response.end(page.body);
+  return true;
 }
 async function handleMcpRequest(
   app: Branch,
@@ -1347,8 +1501,20 @@ async function handleMcpRequest(
       return true;
     }
 
+    // A name Branch never handed out is not a conversation. Only the very first message may bring
+    // one of its own; after that a made-up name is refused, rather than quietly opening a second
+    // conversation or letting anything read a stream it was never given.
+    const unknownSession = sessionId !== undefined && !mcp.hasSession(sessionId);
+
     if (request.method === "GET") {
-      throw new HttpError(405, "Use POST for JSON-RPC requests");
+      // The spec's streaming half: a client that says it wants an event stream gets one, and
+      // messages Branch starts itself — "the tools have changed", "that task has finished" — come
+      // down it. A plain GET is still refused, because a plain GET cannot carry them.
+      if (!/text\/event-stream/i.test(String(request.headers.accept ?? "")))
+        throw new HttpError(405, "Use POST for JSON-RPC requests, or ask for text/event-stream to open a stream");
+      if (unknownSession) throw new HttpError(404, "That conversation is not open. Send initialize first.");
+      openEventStream(mcp, request, response, sessionId);
+      return true;
     }
 
     const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
@@ -1363,11 +1529,17 @@ async function handleMcpRequest(
         })
         .strict();
       const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
-      const result = await mcp.handle(jsonRpcRequest, sessionId);
-      const session = mcp.getSession(sessionId);
+      if (unknownSession && jsonRpcRequest.method !== "initialize")
+        throw new HttpError(404, "That conversation is not open. Send initialize first.");
+      // A client that did not bring a conversation of its own is given one, named in the reply to
+      // its first message, so everything it does afterwards is kept together.
+      const opened = !sessionId && jsonRpcRequest.method === "initialize" ? mcp.getSession().id : undefined;
+      const session = mcp.getSession(sessionId ?? opened);
+      const result = await mcp.handle(jsonRpcRequest, session.id);
       response.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "mcp-protocol-version": session.protocolVersion,
+        ...(opened ? { "mcp-session-id": opened } : {}),
       });
       response.end(JSON.stringify(result));
       return true;
@@ -1383,6 +1555,32 @@ async function handleMcpRequest(
     }
     return true;
   }
+}
+/**
+ * The stream half of the modern MCP transport. The connection stays open and Branch writes down it
+ * whenever something changes on this side; a colon line every half minute keeps it from being
+ * closed by something in the middle for going quiet.
+ */
+function openEventStream(
+  mcp: McpServer, request: IncomingMessage, response: ServerResponse, sessionId?: string,
+): void {
+  const session = mcp.getSession(sessionId);
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "mcp-session-id": session.id,
+    "mcp-protocol-version": session.protocolVersion,
+  });
+  response.write(": connected\n\n");
+  const stop = mcp.openStream(session.id, (notification) => {
+    response.write(`event: message\ndata: ${JSON.stringify(notification)}\n\n`);
+  });
+  const beat = setInterval(() => response.write(": keep-alive\n\n"), 30000);
+  beat.unref?.();
+  const end = () => { clearInterval(beat); stop(); response.end(); };
+  request.on("close", end);
+  request.on("error", end);
 }
 /**
  * How another AI tool starts Branch as a child program on this machine. The child is given this
@@ -1474,6 +1672,9 @@ export async function startServer(
       if (await whatsAppWebhook(app, request, response, path)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
+      // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
+      // A frame cannot carry the session key, so the address itself is the one-time secret.
+      if (mcpAppPage(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1570,6 +1771,23 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
+  // Wave 7: everything happening on this computer, filtered by kind, as one live stream.
+  if (request.method === "GET" && path === "/api/events/stream") {
+    const query = new URL(request.url ?? "/", "http://local").searchParams;
+    const kinds = (query.get("kind") ?? "").split(",").map((kind) => kind.trim()).filter(Boolean).slice(0, 20);
+    // "after=0" means "everything you have"; leaving it out means "only what happens from now on",
+    // so zero has to be told apart from absent rather than treated as nothing.
+    const asked = query.get("after");
+    const after = asked === null || !/^\d+$/.test(asked) ? undefined : Number(asked);
+    await streamOwnerEvents(app.store, app.store.profiles.scope(), response, {
+      ...(after === undefined ? {} : { after }), kinds,
+      // The stream carries tool arguments and results, so nothing goes out of it carrying a saved
+      // password or key; how long it may run and how much it may send are both capped inside.
+      scrub: app.runtime.hideSecrets,
+      ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
+    });
+    return true;
+  }
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
@@ -1696,12 +1914,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
     const data = app.store.usageStore().aggregateUsage(range, "day", overrides);
     // estimatedCostUsd covers only the tasks with a price; runsWithoutPrice says how many had none.
-    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,runsWithoutPrice,failures"]
+    // Wave 7: the money columns a spreadsheet needs — what the day cost, what one task cost on
+    // average, and the model that cost the most — with an empty cell wherever nobody knows.
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,costPerRunUsd,dearestModel,dearestModelCostUsd,runsWithPrice,runsWithoutPrice,failures"]
       .concat(
-        data.map((d) =>
-          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
-            d.pricedRuns ? d.estimatedCost.toFixed(4) : "", d.unpricedRuns, d.failures].join(",")
-        )
+        data.map((d) => {
+          const dearest = [...d.presets].filter((p) => p.cost !== null).sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))[0];
+          return [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
+            d.pricedRuns ? d.estimatedCost.toFixed(4) : "",
+            d.pricedRuns ? (d.estimatedCost / d.pricedRuns).toFixed(6) : "",
+            csvCell(dearest?.id ?? ""), dearest ? (dearest.cost ?? 0).toFixed(4) : "",
+            d.pricedRuns, d.unpricedRuns, d.failures].join(",");
+        })
       )
       .join("\n");
     response.writeHead(200, {
@@ -1714,6 +1938,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   }
   if (request.method === "GET" && path === "/api/audit/export.csv") {
     auditCsvResponse(app, request, response);
+    return true;
+  }
+  // Wave 7: many tasks as JSON Lines, one trajectory per line, for feeding an evaluation run.
+  if (request.method === "GET" && path === "/api/runs/trajectories.jsonl") {
+    await trajectoriesResponse(app, request, response);
     return true;
   }
   if (request.method === "POST" && path === "/v1/chat/completions") {
@@ -1769,15 +1998,63 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   return true;
 }
 /** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+/**
+ * Every task in the range as JSON Lines, written one line at a time so a thousand of them never
+ * become one enormous string first. Only this person's own tasks are in it.
+ */
+async function trajectoriesResponse(app: Branch, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  // Every task at once, messages and tool arguments included, is the owner's own record: a second
+  // person's profile may not have it, not even the part of it that belongs to them.
+  app.store.profiles.requireOwner("Saved records of your tasks");
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const limit = Math.min(Math.max(Number(query.get("limit") ?? 50) || 50, 1), 500);
+  const runs = app.store.runs(app.runtime.owner).slice(0, limit);
+  const options = new Map<string, Awaited<ReturnType<typeof trajectoryOptions>>>();
+  for (const run of runs) options.set(run.id, await trajectoryOptions(app, run.id));
+  response.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "content-disposition": `attachment; filename="branch-trajectories.jsonl"`,
+    "cache-control": "no-store",
+  });
+  for (const line of trajectoryLines(app.store, runs.map((run) => run.id), (id) => options.get(id)!,
+    app.runtime.hideSecrets))
+    response.write(line + "\n");
+  response.end();
+}
+/**
+ * Everything "Look inside" and a trajectory both need about one task: its receipts, its timeline,
+ * and the workspace's own price table so each model round is costed the way the Usage screen does.
+ */
+export async function trajectoryOptions(app: Branch, runId: string) {
+  const receipts = await receiptsView(app, runId);
+  const { overrides } = pricingSettings(app.store, app.runtime.owner);
+  return {
+    receipts, version: app.version, cost: receipts.cost,
+    timeline: app.store.usageStore().getRunTimeline(runId),
+    price: (model: string, tokens: { input: number; output: number }) => {
+      const estimate = estimateCost(model, tokens, overrides);
+      return { amount: estimate.amount, display: formatCost(estimate) };
+    },
+  };
+}
+/** What the metering export needs: the ledger, the workspace it may write into, and the prices. */
+function meteringDeps(app: Branch) {
+  return {
+    store: app.store, owner: app.runtime.owner, workspace: app.files.root,
+    overrides: () => pricingSettings(app.store, app.runtime.owner).overrides,
+  };
+}
 function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,
     voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+    // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
+    oauth: app.oauth,
   };
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

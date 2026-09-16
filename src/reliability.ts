@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute } from "node:path";
 import { z } from "zod";
 import type { Message } from "./contracts.js";
 import { checkResult, ResultSchemaSchema } from "./delegation.js";
+import { defaultToolBudgetTokens } from "./tool-loading.js";
 
 /**
  * Reliability helpers for ordinary runs: declared completion checks with bounded retries, a stall
@@ -113,6 +114,11 @@ export const ReliabilityOptionsSchema = z.object({
   toolResultChars: z.number().int().min(1000).max(60000).default(12000),
   /** How long the per-conversation pace window is; normally a minute. */
   rateWindowMs: z.number().int().min(100).max(600000).default(60000),
+  /**
+   * The whole tool section of one request, in estimated tokens. Tools above this ceiling are
+   * described by one line each instead of in full, or left out and found by searching.
+   */
+  toolBudgetTokens: z.number().int().min(400).max(20000).default(defaultToolBudgetTokens),
 }).strict();
 export type ReliabilityOptions = z.infer<typeof ReliabilityOptionsSchema>;
 export type ReliabilityInput = z.input<typeof ReliabilityOptionsSchema>;

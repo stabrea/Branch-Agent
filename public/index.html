@@ -63,6 +63,8 @@
         </section>
         <section class="rail-group" data-group="recents">
           <h2><button class="group-head" type="button" data-toggle="recents" aria-expanded="true"><span data-t="rail.recents">Recents</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" /></svg></button></h2>
+          <!-- Wave 7: labels as chips, filtering through the conversation search (public/labels-ui.js). -->
+          <div id="rail-labels" class="label-chips-host" hidden></div>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
       </div>
@@ -90,6 +92,10 @@
           <h1 id="page-title">Conversation</h1>
           <span id="thread-name" class="thread-name"></span>
         </div>
+        <!-- Wave 7: put a label on the conversation you are reading (public/labels-ui.js). -->
+        <button id="thread-labels" class="head-icon" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Labels for this conversation" title="Labels for this conversation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h8l8 8-8 8-8-8z" /><circle cx="8.5" cy="8.5" r="1.2" /></svg>
+        </button>
         <span class="status-pill" id="connection">Locked</span>
         <button id="aside-toggle" class="head-icon" type="button" aria-pressed="true" aria-label="Details" data-t-label="rail.details">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
@@ -262,6 +268,12 @@
             Every run has a trace. Inspect tool results, failures, and usage
             estimates.
           </p>
+          <!-- Wave 7: two tasks side by side, and the live feed (public/compare.js, activity-feed.js). -->
+          <article id="compare-panel" class="card" hidden></article>
+          <article id="activity-feed-card" class="card" hidden>
+            <h2 data-t="activity.feed">Happening now</h2>
+            <div id="activity-feed" class="card-list" aria-live="polite"></div>
+          </article>
           <div id="runs-list" class="card-list"></div>
           <article id="run-detail" class="card" hidden></article>
         </section>
@@ -362,6 +374,11 @@
           <details class="card">
             <summary>Propose a specialist</summary>
             <form id="specialist-form">
+              <label for="specialist-style">How this one works</label
+              ><select id="specialist-style"></select
+              ><p class="subtle" id="specialist-style-note">
+                Pick a way of working and it is written into the definition below.
+              </p>
               <label for="specialist-json">Definition (JSON)</label
               ><textarea
                 id="specialist-json"
@@ -393,6 +410,13 @@
             </form>
           </details>
           <div id="procedures-list" class="card-list"></div>
+          <h3>Flows</h3>
+          <p class="section-intro">
+            A flow is a list of steps the app works through on its own. Here is
+            what each saved flow does, step by step, and where it has got to.
+          </p>
+          <button id="flows-refresh" class="secondary">Show the flows</button>
+          <div id="flows-list" class="card-list"></div>
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro">
@@ -464,6 +488,16 @@
             <h3>Set aside after repeated failures</h3>
             <p class="subtle">A skill that keeps failing the same way is kept out of new tasks for a while, then gets one trial. You can let it back in now.</p>
             <div id="set-aside-list" class="card-list"></div>
+          </div>
+          <div class="card" id="skill-revisions-card">
+            <h3>Suggested better versions</h3>
+            <p class="subtle">
+              After a task goes well, the app writes a better version of the
+              skill it used. Try it against your last few tasks first — nothing
+              is really done during the try — then keep it or throw it away.
+            </p>
+            <button id="skill-revisions-refresh" type="button">Show suggestions</button>
+            <div id="skill-revisions-list" class="card-list"></div>
           </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">
@@ -630,35 +664,36 @@
             <p id="identity-status" role="status"></p>
           </form>
           <!-- Appearance (public/appearance.js). Changes show at once; Save keeps them. -->
+          <!-- Wave 7: every word on this card is a key, so a language file covers it too. -->
           <form id="settings-form" class="card">
-            <h2>Appearance</h2>
-            <p>Change how Branch Agent looks. Everything you pick shows straight away.</p>
+            <h2 data-t="appearance.title">Appearance</h2>
+            <p data-t="appearance.intro">Change how Branch Agent looks. Everything you pick shows straight away.</p>
             <div class="appearance-grid">
               <div class="appearance-field">
-                <label for="appearance">Appearance</label>
+                <label for="appearance" data-t="appearance.theme">Appearance</label>
                 <select id="appearance">
-                  <option value="forest">Forest</option>
-                  <option value="daylight">Daylight</option>
+                  <option value="forest" data-t="appearance.forest">Forest</option>
+                  <option value="daylight" data-t="appearance.daylight">Daylight</option>
                 </select>
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-follow" /> Follow the light or dark setting on this
-                  computer</label
+                  ><input type="checkbox" id="appearance-follow" />
+                  <span data-t="appearance.followSystem">Follow the light or dark setting on this computer</span></label
                 >
               </div>
               <div class="appearance-field">
-                <span id="accent-label">Highlight colour</span>
+                <span id="accent-label" data-t="appearance.accent">Highlight colour</span>
                 <div class="choice-row" id="accent-choices" role="group" aria-labelledby="accent-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="text-size-label">Text size</span>
+                <span id="text-size-label" data-t="appearance.textSize">Text size</span>
                 <div class="choice-row" id="text-size-choices" role="group" aria-labelledby="text-size-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="density-label">Spacing</span>
+                <span id="density-label" data-t="appearance.density">Spacing</span>
                 <div class="choice-row" id="density-choices" role="group" aria-labelledby="density-label"></div>
               </div>
               <div class="appearance-field">
-                <span id="font-label">Lettering</span>
+                <span id="font-label" data-t="appearance.font">Lettering</span>
                 <div class="choice-row" id="font-choices" role="group" aria-labelledby="font-label"></div>
               </div>
               <!-- Wave 6: which language the app speaks (public/i18n.js). -->
@@ -668,18 +703,19 @@
                 <span class="meta" data-t="appearance.languageNote">English is the original. Other languages are machine drafts and may read oddly.</span>
               </div>
               <div class="appearance-field">
-                <span id="extras-label">Movement and artwork</span>
+                <span id="extras-label" data-t="appearance.extras">Movement and artwork</span>
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-motion" /> Keep things still (no sliding or
-                  spinning)</label
+                  ><input type="checkbox" id="appearance-motion" />
+                  <span data-t="appearance.reduceMotion">Keep things still (no sliding or spinning)</span></label
                 >
                 <label class="check-row"
-                  ><input type="checkbox" id="appearance-acorn" /> Show the acorn</label
+                  ><input type="checkbox" id="appearance-acorn" />
+                  <span data-t="appearance.showAcorn">Show the acorn</span></label
                 >
               </div>
             </div>
-            <p class="appearance-note">Saved with this workspace, so it looks the same the next time you open it.</p>
-            <button>Save appearance</button>
+            <p class="appearance-note" data-t="appearance.note">Saved with this workspace, so it looks the same the next time you open it.</p>
+            <button data-t="appearance.save">Save appearance</button>
           </form>
           <form id="voice-settings-form" class="card">
             <h2>Voice</h2>
@@ -747,6 +783,17 @@
             <p>Asks each connection what it can do right now: whether the key still works, how many models it lists, and whether it can handle speech, pictures and comparing passages.</p>
             <button type="button" id="model-probe-run">Check every connection</button>
             <div id="model-probe-list"></div>
+          </section>
+          <!-- Wave 7: signing in with Google for Gemini, beside the ordinary key flow. -->
+          <section id="gemini-signin-card" class="card">
+            <h2>Gemini</h2>
+            <p id="gemini-signin-note" class="subtle"></p>
+            <label for="gemini-client-id">Your Google sign-in client id</label>
+            <input id="gemini-client-id" maxlength="300" placeholder="From your own Google Cloud project" />
+            <label for="gemini-signin-model">Gemini model</label>
+            <input id="gemini-signin-model" maxlength="200" placeholder="gemini-2.5-flash" />
+            <button type="button" id="gemini-signin">Sign in with Google</button>
+            <p id="gemini-signin-status" class="subtle" role="status"></p>
           </section>
           <form id="media-form" class="card">
             <h2>Pictures and sound</h2>
@@ -961,6 +1008,38 @@
             <h3>How to connect</h3>
             <p class="subtle">Copy one of these into the other tool's settings, then restart it.</p>
             <div id="mcp-connection" class="card-list"></div>
+            <!-- Wave 7: what is held back and why, connections to other people's servers, and a
+                 bench for trying one out. Everything here lives in public/mcp-workbench.js. -->
+            <details id="mcp-offered">
+              <summary>What another tool is offered, and what is held back</summary>
+              <p class="subtle">Your approval settings are checked before anything is offered. A tool you have said no to is never offered at all. A tool you want to be asked about is still offered, but the call waits for your yes here in Branch.</p>
+              <div id="mcp-preflight" class="card-list"></div>
+            </details>
+            <h3>Other people's servers</h3>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <div class="field-row">
+              <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
+              <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
+              <label for="mcp-max-servers">Most servers connected at once</label>
+              <input id="mcp-max-servers" type="number" min="1" max="20" step="1" />
+              <button id="mcp-connections-save" type="button">Save</button>
+            </div>
+            <div id="mcp-health" class="card-list"></div>
+            <details id="mcp-try">
+              <summary>Try a server</summary>
+              <p class="subtle">Paste a web address, or the command that starts the server. Branch asks it what it offers, you fill in the boxes for one of its tools, and you see exactly what came back. Every try is written down in Activity.</p>
+              <label for="mcp-try-url">Address or command</label>
+              <input id="mcp-try-url" type="text" maxlength="300" placeholder="https://example.com/mcp" />
+              <button id="mcp-try-go" type="button">See what it offers</button>
+              <div id="mcp-try-run-row" hidden>
+                <label for="mcp-try-tool">Which tool</label>
+                <select id="mcp-try-tool"></select>
+                <div id="mcp-try-form"></div>
+                <button id="mcp-try-call" type="button">Run it once</button>
+              </div>
+              <p id="mcp-try-status" class="subtle" role="status"></p>
+              <pre id="mcp-try-result" hidden></pre>
+            </details>
           </section>
           <section id="health-card" class="card">
             <h2>Health check</h2>
@@ -987,6 +1066,16 @@
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
+            </details>
+            <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
+                 apart from the button that deletes what it has learned. -->
+            <details id="tool-catalog">
+              <summary>How the assistant finds its tools</summary>
+              <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
+              <div id="tool-catalog-summary" aria-live="polite"></div>
+              <div id="tool-catalog-lists"></div>
+              <button id="tool-catalog-forget" type="button">Forget what it has learned about tools</button>
+              <p id="tool-catalog-status" class="subtle" role="status"></p>
             </details>
           </section>
           <section id="diagnostics-card" class="card">
@@ -1104,6 +1193,11 @@
         <h2 class="context-head">Running now</h2>
         <div id="context-tasks" class="context-rows"></div>
       </div>
+      <!-- Wave 7: the yeses this conversation is carrying (public/allowed.js). -->
+      <div class="context-block">
+        <h2 class="context-head" data-t="allowed.title">What is allowed right now</h2>
+        <div id="context-allowed" class="context-rows"></div>
+      </div>
       <div class="context-block">
         <h2 class="context-head">Receipts</h2>
         <div id="context-receipts" class="context-rows"></div>
@@ -1141,6 +1235,8 @@
         <div class="inspect-head">
           <h2 id="inspect-title" data-t="inspector.title">Inside this task</h2>
           <button id="inspect-export" type="button" class="text-button" data-t="inspector.export">Save this as a file</button>
+          <!-- Wave 7: the whole record, messages and spans included, in the documented shape. -->
+          <button id="inspect-trajectory" type="button" class="text-button" data-t="inspector.trajectory">Save trajectory</button>
           <button id="inspect-close" type="button" class="text-button" data-t="inspector.close">Close</button>
         </div>
         <div id="inspect-body" class="inspect-body"></div>
@@ -1161,6 +1257,7 @@
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/mcp-workbench.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
@@ -1173,5 +1270,8 @@
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
+    <script src="/flows.js" type="module"></script>
+    <script src="/skill-revisions.js" type="module"></script>
+    <script src="/specialist-styles.js" type="module"></script>
   </body>
 </html>

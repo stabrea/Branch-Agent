@@ -98,6 +98,11 @@ export interface Provider {
   audio?(): { endpoint: string; apiKey: string } | null;
   /** Whether this connection can be shown a picture; absent means it cannot. */
   supportsImages?(): boolean;
+  /**
+   * Where this connection lists its models, when it offers a list. Adapters whose address does not
+   * follow the OpenAI pattern say so here rather than having it guessed from their other routes.
+   */
+  modelsList?(): { url: string; headers: Record<string, string> } | null;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
@@ -201,6 +206,8 @@ export interface ToolDefinition<T = unknown> {
   inputSchema?: Record<string, unknown>;
   /** The toolbox this tool belongs to; worked out from its name when it does not say. */
   group?: string;
+  /** From a connected server, a plugin or a skill package: its description is somebody else's text. */
+  external?: boolean;
   permission: string;
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */

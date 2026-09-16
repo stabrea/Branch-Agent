@@ -81,13 +81,20 @@ function draw(view) {
   const head = el("div", undefined, "inspect-head-lines");
   head.append(
     el("p", view.run?.prompt?.slice(0, 200) || "Task", "inspect-prompt"),
-    el("p", [view.run?.status, seconds(view.seconds), view.cost?.display, formatDate(view.run?.createdAt ?? Date.now())]
-      .filter(Boolean).join(" · "), "meta"),
+    el("p", [view.run?.status, view.style ? `working style: ${view.style}` : "", seconds(view.seconds), view.cost?.display,
+      formatDate(view.run?.createdAt ?? Date.now())].filter(Boolean).join(" · "), "meta"),
   );
+  /* Wave 7: the reply itself, rendered by the shared markdown renderer like everywhere else. */
+  const answer = view.run?.output
+    ? [fillMarkdown(el("div", undefined, "markdown"), view.run.output)]
+    : [];
   body.replaceChildren(
     head,
+    section("inspector.answer", answer),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
+    // A think-then-act specialist's line of reasoning for each round; never part of the answer.
+    section("inspector.thinking", (view.thinking ?? []).map((line) => lineRow(line.text, formatDate(line.at, { timeStyle: "medium" })))),
     section("inspector.plan", view.plan.map((step) => lineRow(step.title, step.detail))),
     section("inspector.verdicts", view.verdicts.map((v) => lineRow(v.verdict, v.reason))),
     section("inspector.steering", view.steering.map((s) => lineRow(s.text, formatDate(s.at)))),
@@ -124,6 +131,28 @@ function save() {
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 4000);
 }
+/** Writes one JSON file to disk with the name given. */
+function download(value, name) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const link = el("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+}
+/**
+ * Wave 7: the whole record of this task — everything on the screen plus the conversation's
+ * messages and the steps recorded while it ran — in the shape written down in the documentation.
+ */
+async function saveTrajectory() {
+  const runId = current?.run?.id;
+  if (!runId) return;
+  try {
+    download(await api(`runs/${runId}/trajectory`), `branch-trajectory-${runId}.json`);
+  } catch (error) {
+    globalThis.toast?.(error.message);
+  }
+}
 /** A "Look inside" button for any row that knows its run id. */
 export function inspectButton(runId) {
   const node = el("button", t("inspector.open"), "text-button inspect-open");
@@ -134,5 +163,6 @@ export function inspectButton(runId) {
 }
 $("inspect-close").addEventListener("click", close);
 $("inspect-export").addEventListener("click", save);
+$("inspect-trajectory").addEventListener("click", () => void saveTrajectory());
 $("inspect-panel").addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
 globalThis.branchInspector = { open: openInspector, button: inspectButton };

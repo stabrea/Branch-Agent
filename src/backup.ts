@@ -15,6 +15,8 @@ export const backupTables = [
   "file_versions", "workspace_snapshots",
   // Wave 6 (collaboration and workflows): labels, project notes, workflows and their per-step state.
   "labels", "project_notes", "workflows", "workflow_state",
+  // Wave 7 (tool loading): what this computer has learned about which tools a request needs.
+  "tool_usage", "tool_notes",
   // Wave 7: the knowledge bases themselves — their names, the folders they point at and whether they
   // are in use. Their passages, vectors and cached readings are left out on purpose: those are worked
   // out again from the person's own files by pressing "Read it again", and they would multiply the
