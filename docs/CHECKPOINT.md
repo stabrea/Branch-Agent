@@ -1814,3 +1814,34 @@ the owner and their own app; `channels.broadcast` and `channels.digest` are refu
 `needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
 are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
 against a fake of its documented shape, not against the real service.
+
+## Batch 26 (wave 8) — realtime voice: talking, and being cut off, over a connection that stays open
+
+The thing wave 7 wrote down as *not built*. The blocker was real and is fixed first: the network
+policy checked HTTP addresses per request and had no hook for a socket, so `NetworkPolicy.connect`
+now exists (`src/network-policy.ts`). It does not widen `assertAllowed` — it builds the `https:`/
+`http:` twin of a `wss:`/`ws:` address and hands *that* to the untouched check, so the allowed list,
+the blocked list, the refusal of addresses carrying a password and the private-address lookup all
+apply by construction rather than being written twice. The check is awaited *before* the socket is
+constructed, so a refused address never has a byte sent to it. Sockets are counted (eight at once),
+closed together on Lock, on the end of a task and on shutdown, and each one leaves a span and a line
+in the record of what the assistant was allowed to do — host and path only, never the whole address,
+because Gemini takes its key in the query string.
+
+On top of that: one `RealtimeSession` interface (`src/realtime.ts`) with two adapters —
+OpenAI Realtime (`src/realtime-openai.ts`: `session.update`, `input_audio_buffer.append`/`commit`,
+`response.create`, `response.cancel`) and Gemini Live (`src/realtime-gemini.ts`: `setup`,
+`realtimeInput`, `clientContent`, `toolResponse`). Which connections may is read from the provider
+catalog, where `realtime` is a new capability on the OpenAI and Gemini lines only; anything else gets
+a plain sentence and hold-to-talk. `src/realtime-voice.ts` holds one conversation: transcripts become
+ordinary messages, sound goes straight out to the screen and is written down nowhere unless the owner
+switches recordings on, usage becomes cost, and minutes and dollars caps close it with a spoken
+sentence rather than silence. A tool the model asks for mid-conversation goes through
+`runtime.checkPolicy` and the same `ApprovalGate`: allowed runs, refused refuses, and one that needs
+a yes is not run at all — the usual card appears and the model is told, in as many words, that it is
+waiting. The run WebSocket (`src/ws.ts`) grew binary frames and a client-frame hook, which is the
+spine for both the microphone going up and a line typed while it is talking (A1193); `public/voice-live.js`
+is the composer's live variant, and it only appears when the connection in use can hold one.
+
+Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 19
+tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.

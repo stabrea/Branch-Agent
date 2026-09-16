@@ -42,8 +42,57 @@ export function pathRuleMatches(host: string, pathname: string, rule: string): b
   return hostMatches(host, ruleHost) && pathname.startsWith(prefix);
 }
 
+/**
+ * A live connection is checked as the ordinary web address it stands for: `wss://` is `https://`
+ * and `ws://` is `http://`, same host, same path, same query. Nothing about the allowed list, the
+ * blocked list, the refusal of addresses carrying a password or the refusal of private addresses is
+ * written twice, so a rule the owner set for the web holds for a socket by construction.
+ */
+export function httpTwin(target: URL): URL {
+  const twin = new URL(target.href);
+  twin.protocol = target.protocol === "wss:" ? "https:" : "http:";
+  return twin;
+}
+
+/**
+ * What is written down about one live connection. Only the host and the path are kept: a key can
+ * travel in the query string — Gemini asks for it there — so the whole address never is.
+ */
+export interface SocketRecord {
+  host: string;
+  pathname: string;
+  /** Plain words for the record: "a live voice conversation". */
+  what: string;
+  runId: string | null;
+}
+export type SocketOutcome = "opened" | "refused" | "closed";
+/** Told about every live connection, so the app can write a span and a line in the record. */
+export type SocketWatcher = (record: SocketRecord, outcome: SocketOutcome, reason: string) => void;
+
+export interface ConnectOptions {
+  /** Sent on the opening request; never written down anywhere. */
+  headers?: Record<string, string>;
+  what?: string;
+  runId?: string | null;
+}
+
+/**
+ * Node's own WebSocket takes request headers, which the browser's cannot; the browser type
+ * definition Branch is compiled against does not say so, so it is named once here rather than
+ * cast at the call site. Checked against a local server before it was relied on.
+ */
+const NodeWebSocket = WebSocket as unknown as new (
+  url: URL | string,
+  init: { headers: Record<string, string> },
+) => WebSocket;
+
 export class NetworkPolicy {
   private config: NetworkPolicyConfig;
+  /** How many live connections may be open at once, so nothing can quietly open hundreds. */
+  maxSockets = 8;
+  /** Replaced by the app so every connection leaves a span and a line in the record. */
+  watchSockets: SocketWatcher = () => undefined;
+  private readonly sockets = new Set<{ socket: WebSocket; runId: string | null }>();
   constructor(input: unknown = {}, private readonly resolve: (host: string) => Promise<string[]> = defaultResolve) {
     this.config = NetworkPolicySchema.parse(input);
   }
@@ -73,6 +122,54 @@ export class NetworkPolicy {
       await policy.assertAllowed(url);
       return base(input, { ...init, redirect: init?.redirect ?? "error" });
     } as typeof fetch;
+  }
+  /**
+   * Opens a connection that stays open, under the same rules as every other address. The check
+   * happens first and it waits for an answer, so a refused address never has a single byte sent to
+   * it. What comes back is Node's own WebSocket, already counted and closed by the app's own Lock,
+   * end of task and shutdown.
+   */
+  async connect(target: string | URL, options: ConnectOptions = {}): Promise<WebSocket> {
+    const url = new URL(typeof target === "string" ? target : target.href);
+    const record: SocketRecord = {
+      host: url.hostname.replace(/^\[|\]$/g, "").toLowerCase(), pathname: url.pathname || "/",
+      what: options.what ?? "a live connection", runId: options.runId ?? null,
+    };
+    try {
+      if (!["ws:", "wss:"].includes(url.protocol)) throw new Error("Only ws and wss addresses can be connected to");
+      await this.assertAllowed(httpTwin(url));
+      if (this.sockets.size >= this.maxSockets)
+        throw new Error(`Branch already has ${this.maxSockets} live connections open, which is as many as it will hold at once`);
+    } catch (e) {
+      this.watchSockets(record, "refused", e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+    const socket = new NodeWebSocket(url, { headers: options.headers ?? {} });
+    socket.binaryType = "arraybuffer";
+    const entry = { socket, runId: record.runId };
+    this.sockets.add(entry);
+    socket.addEventListener("close", () => {
+      this.sockets.delete(entry);
+      this.watchSockets(record, "closed", "");
+    });
+    this.watchSockets(record, "opened", "");
+    return socket;
+  }
+  /** How many live connections are open right now. */
+  openSockets(): number { return this.sockets.size; }
+  /**
+   * Closes live connections: all of them when Branch locks or closes, or just one task's when that
+   * task ends. Returns how many were closed, for the record.
+   */
+  closeSockets(filter: { runId?: string } = {}): number {
+    let closed = 0;
+    for (const entry of [...this.sockets]) {
+      if (filter.runId !== undefined && entry.runId !== filter.runId) continue;
+      this.sockets.delete(entry);
+      closed += 1;
+      try { entry.socket.close(1000, "Branch closed this connection"); } catch { /* already gone */ }
+    }
+    return closed;
   }
 }
 async function defaultResolve(host: string): Promise<string[]> {

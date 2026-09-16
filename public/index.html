@@ -239,6 +239,9 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><!-- Wave 7: hold to talk, then hear the answer. Everything it does lives in public/voice-talk.js. -->
               <button id="voice-talk" type="button" class="text-button" title="Hold the button and speak; let go and Branch answers out loud. Press again to stop it talking.">Talk</button
+              ><!-- Wave 8: the same button, live. It only appears when the connection you are using
+                   can hold a live conversation; everything it does lives in public/voice-live.js. -->
+              <button id="voice-live" type="button" class="text-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
@@ -260,6 +263,7 @@
             <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
           </div>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
+          <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
           </div>
         </section>
@@ -779,6 +783,17 @@
               <option value="openai">Your model provider</option>
               <option value="gemini">Gemini</option>
             </select>
+            <!-- Wave 8: the limits a live conversation runs under. Wired in public/voice-talk.js. -->
+            <label for="voice-live-minutes">A live conversation stops itself after this many minutes</label>
+            <input id="voice-live-minutes" type="number" min="1" max="120" step="1" value="10" />
+            <label for="voice-live-dollars">…or once it has cost this much (US dollars)</label>
+            <input id="voice-live-dollars" type="number" min="0.1" max="100" step="0.1" value="1" />
+            <label class="check-row">
+              <input id="voice-live-vad" type="checkbox" checked /> Let the service work out when you have stopped speaking
+            </label>
+            <label class="check-row">
+              <input id="voice-live-record" type="checkbox" /> Keep the sound of live conversations (off, and none of it is written down)
+            </label>
             <label for="voice-language">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe">Speech program on this computer (whisper.cpp or faster-whisper)</label>
@@ -1310,6 +1325,7 @@
     <script src="/deployment.js" type="module"></script>
     <script src="/voice.js"></script>
     <script src="/voice-talk.js" type="module"></script>
+    <script src="/voice-live.js" type="module"></script>
     <script src="/model-profiles.js" type="module"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
