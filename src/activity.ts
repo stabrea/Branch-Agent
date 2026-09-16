@@ -6,7 +6,13 @@ import type { Store } from "./store.js";
  * each earlier step ended, built from the durable event log so any client can show it.
  */
 export interface ActivityStep { id: string; label: string; status: "working" | "done" | "failed" | "stopped"; at: string }
-export interface RunActivity { runId: string; sessionId: string; prompt: string; status: Run["status"]; startedAt: string; current: string | null; steps: ActivityStep[] }
+/** The plan a task is working through, where it has got to, and what a reviewer said. */
+export interface ActivityPlan { steps: string[]; step: number; awaitingApproval: boolean; finished: boolean }
+export interface RunActivity {
+  runId: string; sessionId: string; prompt: string; status: Run["status"]; startedAt: string;
+  current: string | null; steps: ActivityStep[]; working?: string;
+  plan?: ActivityPlan; milestone?: string; verdict?: string;
+}
 
 const short = (value: unknown, max = 60): string => {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -69,10 +75,39 @@ export function runActivity(run: Run, events: Event[]): RunActivity {
   const working = list.filter((s) => s.status === "working").at(-1);
   const thinking = events.at(-1)?.kind === "model.started";
   const current = run.status !== "running" ? null : working ? working.label : thinking || !list.length ? "Thinking" : "Thinking about the results";
-  return { runId: run.id, sessionId: run.sessionId, prompt: run.prompt, status: run.status, startedAt: run.createdAt, current, steps: list.slice(-30) };
+  return {
+    runId: run.id, sessionId: run.sessionId, prompt: run.prompt, status: run.status,
+    startedAt: run.createdAt, current, steps: list.slice(-30), ...orchestrationState(events),
+  };
 }
 
-/** Activity for every task of the owner that is still running. */
+/** The plan, the latest "where we are" note and the reviewer's verdict, from the same event log. */
+function orchestrationState(events: Event[]): Partial<RunActivity> {
+  const last = (kind: string): Event | undefined => events.filter((e) => e.kind === kind).at(-1);
+  const created = last("plan.created") ?? last("plan.awaiting_approval");
+  const titles = (created?.data.steps as unknown[] | undefined)?.map((s) => String(s)) ?? [];
+  const started = last("plan.step.started");
+  const plan: ActivityPlan | undefined = titles.length
+    ? {
+        steps: titles,
+        step: Number(started?.data.step ?? 0),
+        awaitingApproval: !!last("plan.awaiting_approval") && !last("plan.approved") && !started,
+        finished: !!last("plan.completed"),
+      }
+    : undefined;
+  const milestone = last("run.milestone")?.data.text;
+  const verdict = last("verify.verdict")?.data.verdict;
+  return {
+    ...(plan ? { plan } : {}),
+    ...(milestone ? { milestone: String(milestone) } : {}),
+    ...(verdict ? { verdict: String(verdict) } : {}),
+  };
+}
+
+/** Activity for every task of the owner that is still running, with what the conversation is doing. */
 export function liveActivity(store: Store, owner: string): RunActivity[] {
-  return store.runs(owner).filter((run) => run.status === "running").map((run) => runActivity(run, store.events(run.id)));
+  return store.runs(owner).filter((run) => run.status === "running").map((run) => {
+    const working = store.working.describe(run.sessionId);
+    return { ...runActivity(run, store.events(run.id)), ...(working ? { working } : {}) };
+  });
 }

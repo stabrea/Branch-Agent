@@ -13,6 +13,7 @@ import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
+import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { healthReport } from "./health.js";
@@ -24,6 +25,7 @@ import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
+import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
@@ -31,6 +33,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
+import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
@@ -132,8 +135,10 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
@@ -303,6 +308,7 @@ function toolInventory(app: Branch) {
     "git.remote": "ready (sending to a server switched on)",
     "github.manage": "ready (GitHub token saved)",
     "browser.read": "ready (configured origins)", "browser.act": "ready (configured origins)",
+    "browser.interact": "ready (configured origins)",
   };
   const channels = app.channels.summary().channels.map((c) => c.id);
   return {
@@ -339,6 +345,7 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    orchestration: orchestrationSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
     setAside: app.store.governance.exclusions(),
@@ -382,6 +389,7 @@ async function api(
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
+  if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -404,7 +412,7 @@ async function api(
     return voiceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/voice/settings")
     return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.runtime.owner)
@@ -413,6 +421,17 @@ async function api(
       return { cancelled: app.runtime.cancel(run.id) };
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
+    // Steering a task that is working, and editing or approving the plan it is waiting on.
+    if (request.method === "POST" && match[2] === "steer") {
+      const { text } = z.object({ text: z.string().trim().min(1).max(2000) }).strict().parse(await readBody(request));
+      return app.runtime.steer(run.id, text);
+    }
+    if (request.method === "GET" && match[2] === "plan")
+      return { plan: app.runtime.orchestration.plan(run.sessionId) ?? null };
+    if (request.method === "POST" && match[2] === "plan") {
+      const body = z.object({ steps: z.array(PlanStepSchema).min(1).max(8).optional() }).strict().parse(await readBody(request));
+      return app.runtime.orchestration.editPlan(run.id, body.steps);
+    }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
     if (request.method === "GET" && !match[2])
       return {
@@ -425,6 +444,10 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/activity")
     return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/orchestration")
+    return orchestrationSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/orchestration")
+    return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
@@ -482,6 +505,9 @@ async function api(
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
+      ...(input.images?.length ? { images: input.images } : {}),
+      ...(input.plan !== undefined ? { plan: input.plan } : {}),
+      ...(input.verify !== undefined ? { verify: input.verify } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {
@@ -541,7 +567,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins))?$/.exec(path);
+  if (match && match[2] === "summary" && request.method === "GET") return app.store.sessionSummary(owner, match[1]!);
+  if (match && match[2] === "pins") {
+    if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
+    if (request.method === "POST") {
+      const value = z.object({ messageId: z.number().int().positive(), pinned: z.boolean().default(true) }).strict().parse(await readBody(request));
+      return app.store.pinMessage(owner, match[1]!, value.messageId, value.pinned);
+    }
+  }
   if (match && match[2] === "memory-policy") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     if (request.method === "GET") return { remember: !app.store.memorySuppressed(owner, match[1]!) };
@@ -604,8 +638,12 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
-  if (request.method === "POST" && path === "/api/memory/import")
-    return app.store.importMemory(owner, await readBody(request, maximumMemoryArchiveBytes));
+  if (request.method === "POST" && path === "/api/memory/import") {
+    const body = await readBody(request, maximumMemoryArchiveBytes);
+    // Facts arrive either as the whole-archive file or as JSON Lines; the second kind is deduplicated.
+    const lines = z.object({ jsonl: z.string().max(maximumImportBytes) }).strict().safeParse(body);
+    return lines.success ? app.memory.transfer.import(owner, lines.data.jsonl) : app.store.importMemory(owner, body);
+  }
   if (request.method === "POST" && path === "/api/memory/capacity")
     return app.store.configureMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/forget/preview") {
@@ -614,6 +652,25 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/memory/forget")
     return app.store.forgetMemory(owner, await readBody(request));
+  if (path === "/api/memory/retrieval") {
+    if (request.method === "GET") return app.memory.retrieval.view(owner);
+    if (request.method === "POST") return app.memory.retrieval.configure(owner, await readBody(request));
+  }
+  if (request.method === "POST" && path === "/api/memory/index") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.memory.retrieval.index(owner);
+  }
+  if (request.method === "POST" && path === "/api/memory/search") {
+    const { query, limit } = z.object({ query: z.string().trim().min(1).max(500), limit: z.number().int().min(1).max(50).default(20) })
+      .strict().parse(await readBody(request));
+    return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
+  }
+  if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy") {
+    z.object({}).strict().parse(await readBody(request));
+    const { staged, review } = app.memory.hygiene.suggest(owner);
+    return { suggested: staged.length, proposals: staged, review };
+  }
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
   if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
@@ -702,6 +759,34 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
   const payload = await readBody(request, 16 * 1024).catch(() => ({}));
   const run = await app.scheduler.trigger(app.runtime.owner, record.id, payload, "webhook");
   return { runId: run.id, status: run.status };
+}
+/**
+ * WhatsApp sends messages to this address instead of holding a connection open, so the route has
+ * to work without the app's session token. WhatsApp checks the address once with a challenge it
+ * expects echoed back as plain text, and signs every later request with the app secret.
+ */
+async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  if (!match) return false;
+  const adapter = app.channels.adapter(match[1]!);
+  if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  if (request.method === "GET") {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const challenge = tryOr(() => adapter.verify(query), 403);
+    response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    response.end(challenge);
+    return true;
+  }
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const signature = request.headers["x-hub-signature-256"];
+  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
+    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  send(response, 200, result);
+  return true;
+}
+function tryOr<T>(work: () => T, status: number): T {
+  try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
 }
 const triggerBodyLimit = 256 * 1024;
 async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
@@ -1058,6 +1143,7 @@ export async function startServer(
         send(response, 200, await hook(app, request, path));
         return;
       }
+      if (await whatsAppWebhook(app, request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1169,6 +1255,33 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     }
     return true;
   }
+  if (request.method === "GET" && path === "/api/memory/export"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "jsonl") {
+    const jsonl = app.memory.transfer.export(app.runtime.owner);
+    response.writeHead(200, {
+      "content-type": "application/jsonl; charset=utf-8",
+      "content-disposition": 'attachment; filename="memory.jsonl"',
+      "cache-control": "no-store",
+    });
+    response.end(jsonl);
+    return true;
+  }
+  const sessionExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
+  if (sessionExport && request.method === "GET"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "markdown") {
+    const sessionId = sessionExport[1]!;
+    if (!app.store.ownsSession(app.runtime.owner, sessionId)) throw new HttpError(404, "Conversation not found");
+    const view = app.store.sessionView(app.runtime.owner, sessionId) as { createdAt?: string; title?: string };
+    const markdown = conversationMarkdown({ sessionId, ...(view.createdAt ? { createdAt: view.createdAt } : {}), ...(view.title ? { title: view.title } : {}) },
+      app.store.messages(sessionId));
+    response.writeHead(200, {
+      "content-type": "text/markdown; charset=utf-8",
+      "content-disposition": `attachment; filename="conversation-${sessionId.slice(0, 8)}.md"`,
+      "cache-control": "no-store",
+    });
+    response.end(markdown);
+    return true;
+  }
   if (request.method === "GET" && path === "/api/usage/export.csv") {
     const url = new URL(request.url ?? "/", "http://local");
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
@@ -1197,9 +1310,29 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   }
   return false;
 }
+/**
+ * Saved browser sign-ins. "Sign in once" opens a real browser window the person can see and use;
+ * only the cookies that keep them signed in are kept, and the assistant is not part of any of it.
+ */
+async function browserApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/browser/profiles")
+    return { profiles: await app.browserProfiles.list(owner), canSignIn: !!app.browser };
+  const body = (await readBody(request)) as { name?: unknown; url?: unknown };
+  const name = String(body.name ?? "");
+  if (request.method === "POST" && path === "/api/browser/profiles")
+    return { profile: await app.browserProfiles.create(owner, name) };
+  if (request.method === "POST" && path === "/api/browser/profiles/remove")
+    return { removed: await app.browserProfiles.remove(owner, name) };
+  if (request.method === "POST" && path === "/api/browser/signin") {
+    if (!app.browser) throw new HttpError(400, "The browser is not switched on in this launch's integration settings");
+    return { signedIn: await app.browser.signIn(owner, name, String(body.url ?? ""), 240000) };
+  }
+  throw new HttpError(404, "Not found");
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

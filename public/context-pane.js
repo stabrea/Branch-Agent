@@ -2,6 +2,7 @@
    Model in use, tasks running now, the receipts this conversation produced, and
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
+import { setActivityCount } from "/shell.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -35,8 +36,7 @@ function row(title, meta) {
 const session = () => $("conversation").dataset.sessionId || null;
 
 /** Tasks the assistant is working on right now, with the step it has reached. */
-async function drawTasks() {
-  const running = await api("activity").catch(() => []);
+function drawTasks(running) {
   const here = session();
   rows(
     "context-tasks",
@@ -78,13 +78,33 @@ function drawFacts(state) {
   );
 }
 
+/* What this conversation is working on, and what was kept when it grew long. */
+async function drawWorking() {
+  const here = session();
+  if (!here) {
+    rows("context-working", [], "Open a conversation to see what it is working on.");
+    return;
+  }
+  const view = await api(`sessions/${here}/summary`).catch(() => null);
+  const items = [];
+  if (view?.working?.goal) items.push(row(view.working.goal, [view.working.file, view.working.tool].filter(Boolean).join(" · ")));
+  for (const question of view?.summary?.openQuestions?.slice(0, 2) ?? []) items.push(row(question, "still open"));
+  for (const pin of view?.pins?.slice(0, 2) ?? []) items.push(row(pin.content.slice(0, 80), "kept whatever happens"));
+  rows("context-working", items, "Nothing recorded for this conversation yet.");
+}
+
 let busy = false;
 async function draw() {
-  if (busy || $("workspace").hidden || document.body.classList.contains("no-aside")) return;
+  if (busy || $("workspace").hidden) return;
   busy = true;
   try {
+    /* The count beside Activity is kept up to date even when the pane is folded away. */
+    const running = await api("activity").catch(() => []);
+    setActivityCount(running.length);
+    if (document.body.classList.contains("no-aside")) return;
     const state = await api("state");
-    await drawTasks();
+    await drawWorking();
+    drawTasks(running);
     await drawReceipts(state);
     drawFacts(state);
   } catch {

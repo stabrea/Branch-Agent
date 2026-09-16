@@ -38,6 +38,10 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
     await page.locator("#demo-notice").innerText(),
     /offline demonstration/,
   );
+  /* The welcome card is the greeting on a new workspace; the suggestion chips
+     take its place once the owner has chosen how the assistant should think. */
+  await page.getByRole("button", { name: /Just look around/ }).click();
+  await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
   await page.getByRole("button", { name: "Try the file workflow" }).click();
   await page.getByRole("button", { name: "Send" }).click();
   await page.locator(".message.assistant").waitFor();

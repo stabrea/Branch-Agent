@@ -22,10 +22,10 @@ export function frame(text: string): Buffer {
     : Buffer.concat([Buffer.from([0x81, 127]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64BE(BigInt(payload.length)); return b; })()]);
   return Buffer.concat([head, payload]);
 }
-/** Decodes one client frame (masked) if complete; returns its opcode and payload, or null when more bytes are needed. */
-export function readFrame(buffer: Buffer): { opcode: number; payload: Buffer; consumed: number } | null {
+/** Decodes one frame if complete; returns whether it is final, its opcode and payload, or null when more bytes are needed. */
+export function readFrame(buffer: Buffer): { fin: boolean; opcode: number; payload: Buffer; consumed: number } | null {
   if (buffer.length < 2) return null;
-  const opcode = buffer[0]! & 0x0f, masked = (buffer[1]! & 0x80) !== 0;
+  const fin = (buffer[0]! & 0x80) !== 0, opcode = buffer[0]! & 0x0f, masked = (buffer[1]! & 0x80) !== 0;
   let length = buffer[1]! & 0x7f, offset = 2;
   if (length === 126) { if (buffer.length < 4) return null; length = buffer.readUInt16BE(2); offset = 4; }
   else if (length === 127) { if (buffer.length < 10) return null; length = Number(buffer.readBigUInt64BE(2)); offset = 10; }
@@ -34,7 +34,7 @@ export function readFrame(buffer: Buffer): { opcode: number; payload: Buffer; co
   const mask = masked ? buffer.subarray(offset, offset + 4) : null;
   const payload = Buffer.from(buffer.subarray(offset + maskLength, offset + maskLength + length));
   if (mask) for (let i = 0; i < payload.length; i++) payload[i] = payload[i]! ^ mask[i % 4]!;
-  return { opcode, payload, consumed: offset + maskLength + length };
+  return { fin, opcode, payload, consumed: offset + maskLength + length };
 }
 
 export function tokenFromProtocol(request: IncomingMessage, token: string): boolean {

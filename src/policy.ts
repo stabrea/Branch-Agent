@@ -77,6 +77,8 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       { tool: "shell.execute", decision: "ask", remember: "session" },
       { tool: "browser.click", decision: "ask", remember: "session" },
       { tool: "browser.fill", decision: "ask", remember: "session" },
+      // Sending one of your own files to a website is always worth a question, whatever site it is.
+      { tool: "browser.upload", decision: "ask", remember: "session" },
       { tool: "browser.navigate", decision: "ask", remember: "always" },
       { tool: "web.*", decision: "ask", remember: "always" },
     ],
@@ -110,6 +112,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
+  // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
+  "scratch.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

@@ -9,7 +9,11 @@ import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
+import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
+import { MemoryRetrieval } from "./memory-retrieval.js";
+import { MemoryHygiene } from "./memory-hygiene.js";
+import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
@@ -21,6 +25,8 @@ import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import { RunArtifacts } from "./artifacts.js";
+import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
@@ -73,7 +79,12 @@ export async function createBranch(options: {
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
   const store = new Store(join(dataDir, "branch.sqlite"));
-  store.openLocker(options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key")));
+  const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
+  store.openLocker(lockerKey);
+  // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
+  // private database, never in the person's workspace.
+  const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
+  const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
@@ -107,8 +118,17 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
+  runtime.artifacts = artifacts;
   const knowledge = new Knowledge(store, registry, runtime);
-  registerMemory(registry, store);
+  // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
+  const memory = {
+    retrieval: new MemoryRetrieval(store, runtime.models),
+    hygiene: undefined as unknown as MemoryHygiene,
+    transfer: new MemoryTransfer(store),
+  };
+  memory.hygiene = new MemoryHygiene(store, memory.retrieval);
+  store.review.orderFacts = (factOwner, agent) => memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record);
+  registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
@@ -122,6 +142,8 @@ export async function createBranch(options: {
     execute: async ({ question }) => { throw new NeedsInputError(question); },
   });
   registerKnowledge(registry, knowledge);
+  // Working with several specialists at once, handing work over, and the shared scratch area.
+  registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
@@ -153,12 +175,21 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    /** Finding, tidying and moving saved facts. */
+    memory,
     git,
     scheduler,
     chatgpt,
     version,
     userAgent,
     mcpServer,
+    artifacts,
+    browserProfiles,
+    /**
+     * The live browser, once the launcher has loaded the integration settings, so Settings can
+     * offer the sign-in-once window. It stays null when no browser is configured.
+     */
+    browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
@@ -180,6 +211,9 @@ export async function createBranch(options: {
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
       hooks,
+      files,
+      artifacts,
+      browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
     close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
@@ -213,10 +247,19 @@ export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
 export * from "./projects.js";
 export * from "./locker.js";
+export * from "./artifacts.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";
+export * from "./channels/discord.js";
+export * from "./channels/slack.js";
+export * from "./channels/whatsapp.js";
+export * from "./channels/email.js";
+export * from "./channels/mail-client.js";
+export * from "./channels/ws-client.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
+export * from "./orchestration.js";
+export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";
 export * from "./receipts.js";
@@ -258,3 +301,8 @@ export * from "./integrations/github.js";
 export * from "./pricing.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
+export * from "./memory-retrieval.js";
+export * from "./memory-hygiene.js";
+export * from "./memory-export.js";
+export * from "./session-summary.js";
+export * from "./working-session.js";

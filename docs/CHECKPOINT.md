@@ -373,6 +373,41 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 22 (wave 3) — browser automation a non-technical owner can trust
+
+The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
+profile. This batch gives it the rest of what an ordinary errand needs, without loosening any of
+the isolation. **Saved sign-ins** (`src/integrations/browser-profiles.ts`): the owner presses "Sign
+in once" in Settings, a headed Chromium window opens at an allowed origin, they sign in by hand,
+and the resulting Playwright storage state is written to `<dataDir>/browser-profiles/<owner
+hash>/<name>.bin` as `iv‖tag‖ciphertext` (AES-256-GCM) under a key derived from the locker key with
+`HMAC(root, "branch-browser-profiles-v1")` — the same derivation trick `Receipts` uses, because the
+locker table caps values at 8 KiB and storage state is far bigger. `browser.profile
+{list|create|remove|use}` picks one; `use` must come before the window opens, and a run that used
+one writes the state back on `closeRun`. **Pictures**: `RunArtifacts` (`src/artifacts.ts`) keeps
+screenshots and PDFs beside the private database, so they sidestep workspace confinement and
+`.branchignore` entirely; the tool result carries `{path, bytes, sha256, mediaType}` and the
+ordinary tool receipt signs that. `Message.images` and `Provider.acceptsImages` (`src/contracts.ts`)
+carry a picture to the model — OpenAI as an `image_url` data URL, Anthropic as a base64 `image`
+block; `Runtime.showPicture` appends the picture as a *user* message after the tool result, which
+is valid in both wire shapes (Anthropic merges the consecutive user turns). Pictures are
+deliberately **not** persisted through `store.message`, or they would be replayed on every later
+load, and `fitContext` measures `messages.map(textOnly)` so one screenshot cannot trip compaction.
+`acceptDownloads` was flipped on: files land in `downloads/` inside the workspace through the same
+`WorkspaceFiles.checked` path `files.*` uses, bounded by `maxDownloadBytes` and `downloadTypes`,
+with the site-supplied filename sanitised (`safeDownloadName`). `BrowserSession` grew tabs (up to
+five, website-opened pop-ups still closed), dialog capture (always dismissed, text surfaced in the
+triggering action's result) and a short grace window after a click so a download that starts a beat
+later is still named in that result. Password redaction is a stylesheet injected immediately before
+the shutter and removed after, not a value mutation; the test proves it by pixel equality — a box
+holding `hunter2-super-secret` screenshots byte-identically to an empty one. Caps live on the
+per-run entry: `maxActionsPerRun` (80) and `maxOriginsPerRun` (5), both stopping with a plain
+sentence that tells the assistant to report back rather than carry on. `browser.upload` was added
+to the "workspace" approval preset, and every new changing tool reports the page's host as its
+approval target. New UI: `public/browser.js` and one additive Settings card; new routes
+`/api/browser/profiles`, `/api/browser/profiles/remove`, `/api/browser/signin`. Tests:
+`tests/browser-more.test.mjs` (13 cases). No new dependency — the same Playwright.
+
 ## Batch 21 (wave 2) — the shell, second pass
 
 The first shell pass kept the old page around the new rail. This pass rebuilds the shape itself:
@@ -475,6 +510,127 @@ theme is not finished. A1441 (cache-aware cost accounting) is explicitly *not* c
 price can be recorded but nothing populates cached token counts. The `usage_cache` table is still
 unused by any caller and records no price confidence, so a cached row reports its tasks as
 unpriced rather than inventing a figure.
+
+## Batch 22 (wave 3) — more messaging channels
+
+Four more channel adapters behind the same `ChannelAdapter` interface, so pairing, allowlists,
+activation modes, the delivery ledger and `POST /api/channels/link` work on all of them unchanged.
+`src/channels/ws-client.ts` is a minimal RFC 6455 **client** (masked writes, ping/pong, fragment
+reassembly, handshake verification) — `src/ws.ts` is the server side and frames the wrong way round
+for this — and serves both socket channels; `readFrame` there now also returns the FIN bit.
+**Discord** (`src/channels/discord.ts`) identifies on the gateway with GUILDS/GUILD_MESSAGES/
+DIRECT_MESSAGES/MESSAGE_CONTENT, heartbeats, resumes with op 6 against `resume_gateway_url`,
+re-identifies on op 9, and reconnects with a widening wait; replies over REST honour the
+`X-RateLimit-*` headers and 429 `retry_after`. **Slack** (`src/channels/slack.ts`) uses Socket Mode,
+acknowledges every envelope before doing anything else, drops repeated `event_id`s, subtypes, bot
+posts and its own user, threads on `thread_ts ?? ts`, and converts markdown to mrkdwn (italics
+before bold, or the new bold gets eaten). **WhatsApp** (`src/channels/whatsapp.ts`) is driven by a
+new unauthenticated route `/webhooks/whatsapp/:id` next to the trigger routes: `GET` echoes Meta's
+`hub.challenge` as **plain text** (not JSON) after a constant-time verify-token check, `POST` is
+refused unless `X-Hub-Signature-256` matches an HMAC over the exact bytes. **Email**
+(`src/channels/mail-client.ts`, `src/channels/email.ts`) is a hand-written IMAP4rev1 reader and SMTP
+sender over Node's TLS, plain text only, threading on `In-Reply-To`/`References`.
+Two decisions worth remembering. Chunking lives in the ledger, not the adapter, so Discord's
+2000-character limit is threaded through as an optional `ChannelAdapter.maxTextLength` into
+`Deliveries.enqueue` rather than split inside `send()`, which would have broken retry semantics.
+And the WhatsApp 24-hour window adds **no** fourth ledger status: `send()` throws a plain-language
+error, so the existing pending/dead-letter machinery holds and shows the message. The router diff is
+only the optional `health()`/`maxTextLength` members, an `adapter(id)` accessor and `health` in
+`summary()`. `ChannelConfigSchema` became a discriminated union of the five kinds with one
+`superRefine` for Telegram's either/or token rule (a `.refine`d object cannot be a union member in
+zod v4). No new dependency. Left out: Discord and Slack attachments, WhatsApp images (the router
+carries text only), and all MIME handling in email — HTML and multipart mail is not read or sent.
+
+## Batch 22 (wave 3) — memory that stays tidy, context that stays useful
+`src/memory-hygiene.ts` looks for three things that go wrong in a fact store on their own: the same
+thing saved twice (token-overlap ≥ 0.8, or cosine ≥ 0.92 where both facts have vectors), a newer
+fact that disagrees with an older one about the same subject (entity+attribute where present, else
+the label before the colon — which must be two or more words and must not head a list, so two
+`Note:` facts and two `Address:` facts are left alone; which one is newer comes from `validFrom`,
+not insert order), and — only
+above nine tenths of the configured capacity — the facts that have earned their place least. Every
+finding becomes a proposal in the **existing** `memory_proposals` queue under three new kinds
+(`merge`, `archive`, `forget`); accepting one calls the new `MemoryFacts.setAside`, which moves the
+fact into `memory_archive` **with a note** and keeps its versions, so the Memory view's set-aside
+list brings it straight back. Nothing on this path removes a fact before the owner accepts.
+`src/memory-retrieval.ts` gives facts the same treatment documents already had: an FTS5 index
+(`memory_search` keyed through `memory_terms`, probed the way `documents.ts` probes, with a plain
+`LIKE`-style fallback), per-fact vectors in `memory_vectors` through the existing `EmbeddingClient`
+and `providerEmbeddings` accessor, and the two orders combined with `fuseRanks`. The fused rank is
+multiplied by an importance score — recency (30-day decay) × `1 + ln(1+uses)` × 1.5 when the owner
+saved or corrected it — and `memory_uses` counts a fact every time retrieval returns it. The same
+ordering now drives `MemoryReview.sessionSnapshot` through a new `orderFacts` hook. A per-owner
+`useEmbeddings` switch turns meaning off; without a key nothing changes hands. An answer is bounded
+at 48 KiB of UTF-8, the ceiling the old literal search kept to. Two of the three retrieval states
+are tested (BM25+cosine+RRF, and words alone with meaning off or no key); the third — a build of
+SQLite without FTS5, which falls back to `plainMatches` — is implemented but **untested**, exactly
+as the same fallback in `documents.ts` is.
+Compaction now asks for JSON and keeps a **structured** summary (`goals`, `decisions`,
+`openQuestions`, `filesTouched`) in `session_summaries`, rendering it back into the handoff message;
+a model that replies in prose still gets today's behaviour, which is why
+`compaction-attention.test.mjs` is untouched. `session_pins` keeps chosen messages in front of the
+model for good: pins are keyed on `messages.source_id`, not `id`, because `reconcileMessages()`
+rewrites a session's rows, and `workingMessages()` plus the fold both honour them. Only a plain user
+or assistant turn can be pinned, so a tool exchange is never split.
+`src/memory-export.ts` moves facts as JSON Lines (`GET /api/memory/export?format=jsonl`, and
+`POST /api/memory/import {jsonl}`) with a normalised text+entity+attribute fingerprint so a fact
+already saved under another identifier is counted rather than copied; the whole-archive JSON routes
+are untouched. The same file writes a conversation out as Markdown
+(`GET /api/sessions/:id/export?format=markdown`). `src/working-session.ts` keeps one line per
+conversation (last goal, last file, last step), shown in the context pane's new **What we are
+doing** block and attached to `GET /api/activity`.
+Pictures: `Message.images` plus `supportsImages()` on the provider interface, with the OpenAI shape
+sending `image_url` parts and Anthropic sending base64 image blocks. `POST /api/run` accepts up to
+four pictures of 5 MB each; **the bytes never reach `store.message`** — the transcript keeps
+`[attached picture: name]` — so nothing is replayed on later turns or counted against the context.
+A text-only model fails the task with "…cannot look at pictures" rather than dropping it silently.
+The browser branch landed its own image plumbing upstream while this branch was open
+(`MessageImage`, `maxImageBytes` 4 MB, a `readonly acceptsImages` flag and a `textOnly()` strip
+helper). On merge **keep theirs**: `supportsImages(provider)` here already reads either an
+`acceptsImages` flag or a `supportsImages()` method, and `ImagePart` is `MessageImage` plus an
+optional `name`, so the only real conflicts are the duplicate adapter bodies in `providers.ts` and
+the duplicate declarations in `contracts.ts`.
+Covers A1795, A1892, A2230, A2245, A2187, A2186, A2035 (partly), A0074, A2023, A2269, A2110, A1640,
+A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deliberately **not**
+retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`
+when approval is off, `forget`, and the delete-then-restore inside `restoreCheckpoint`) still remove
+without a suggestion — R1 holds for the paths added here, not for those.
+## Batch 22 (wave 3) — plans, several specialists at once, steering, reviewers and shared notes
+`src/orchestration.ts` and `src/orchestration-tools.ts` add six things to how a task is run, each
+behind a flag that is off by default, so an unchanged install behaves exactly as before.
+A task may be asked to **plan first** (`plan: true` on a run, or the `autoPlan` setting with a cheap
+heuristic for long or multi-part prompts): the model returns two to six numbered steps, they are
+stored for the conversation and carried out one at a time with a per-step check and one retry, and
+`plan.step.started/finished` say where it is. With `planApproval` the task stops through the
+existing needs-input pause with the plan as its question, and `POST /api/runs/:id/plan` edits and
+approves it; a plan being carried out by a task that stops early is dropped, so the next message is
+never silently answered by an abandoned plan. **`delegate.parallel`** runs up to six specialist
+branches (four in flight, the runtime's existing child limit), splitting what is left of the task's
+tokens evenly and charging each branch back at no more than its share; one branch failing leaves the
+others running unless `failFast`, and the answers go back to the parent to combine.
+**`delegate.handoff`** gives the rest of a piece of work to a named specialist.
+**`POST /api/runs/:id/steer`** puts a note in front of the working task's next round (a follow-up,
+by contrast, waits for the task to finish). An optional **reviewer pass** (`verify`) checks a
+finished answer against the task's checks and the owner's memory snapshot and either accepts or
+returns a short fix list, at most twice. **Long-task hygiene**: `run.milestone` notes built from the
+task's own events, with no extra model call, and a `stuckAction` that asks the owner or changes
+model after the stall watchdog has fired twice instead of retrying the same thing. A **shared
+scratch area** (`scratch.set` / `scratch.read`, capped at 32 notes and 64 KB) is keyed by the top
+task of a delegation tree through a new `ToolContext.scratchRoot` and emptied when that task ends.
+New state reaches clients through the existing events and `GET /api/activity` (`plan`, `milestone`,
+`verdict`); there is no new screen.
+One change outside the theme was needed and is worth knowing about: `registry.descriptions()` now
+drops the `$schema` dialect line from generated tool schemas (Gemini's adapter already stripped it
+and no provider reads it). The tool catalog is sent every round, and at 58 tools that line alone
+cost about 800 estimated tokens — enough that, before the change, adding five tools pushed
+`tests/compaction-attention.test.mjs` over its 11,000-token compaction threshold and made a settled
+conversation summarise itself twice. Measured: catalog 8,554 → 7,551 tokens, and the third run of
+that test went from 11,008 (over) to 10,183. The threshold is close enough to the catalog size that
+the next few tools will run into it again; raising `compactionThreshold` is the real fix and was
+left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks in one wave while
+`delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
+today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
+and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

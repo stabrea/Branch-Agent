@@ -82,6 +82,8 @@ export class MemoryFacts {
       created_at TEXT NOT NULL, PRIMARY KEY(owner,session_id))`);
     db.exec(`CREATE TABLE IF NOT EXISTS memory_archive(id TEXT NOT NULL, owner TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL, revision INTEGER NOT NULL, archived_at TEXT NOT NULL, PRIMARY KEY(id,owner))`);
+    if (!db.prepare("PRAGMA table_info(memory_archive)").all().some(row => row.name === "note"))
+      db.exec("ALTER TABLE memory_archive ADD COLUMN note TEXT NOT NULL DEFAULT ''");
     db.exec(`CREATE TABLE IF NOT EXISTS memory_versions(id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, memory_id TEXT NOT NULL,
       revision INTEGER NOT NULL, data TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL)`);
   }
@@ -157,7 +159,20 @@ export class MemoryFacts {
   }
   archived(owner: string) {
     return this.db.prepare("SELECT * FROM memory_archive WHERE owner=? ORDER BY archived_at DESC LIMIT 500").all(owner)
-      .map((row) => ({ ...this.record(row), archivedAt: String(row.archived_at) }));
+      .map((row) => ({ ...this.record(row), archivedAt: String(row.archived_at), note: String(row.note ?? "") }));
+  }
+  /**
+   * Moves one fact out of the working set and into the archive with a note saying why. Nothing is
+   * destroyed: the fact keeps its versions and can be put back from the Memory view.
+   */
+  setAside(owner: string, id: string, note: string): { id: string; note: string } {
+    const record = this.get(owner, id);
+    if (!record) throw new Error("That fact is no longer saved");
+    this.keepVersion(owner, record, note.slice(0, 200) || "set aside");
+    this.db.prepare("INSERT OR REPLACE INTO memory_archive(id,owner,data,created_at,updated_at,revision,archived_at,note) VALUES(?,?,?,?,?,?,?,?)")
+      .run(id, owner, JSON.stringify(record.data), record.createdAt, record.updatedAt, record.revision, new Date().toISOString(), note.slice(0, 500));
+    this.db.prepare("DELETE FROM memory WHERE owner=? AND id=?").run(owner, id);
+    return { id, note };
   }
   restore(owner: string, id: string) {
     const row = this.db.prepare("SELECT * FROM memory_archive WHERE owner=? AND id=?").get(owner, id);
@@ -305,7 +320,12 @@ function staged(store: Store, context: { owner: string; runId: string }, proposa
   const saved = store.review.propose(context.owner, { ...proposal, runId: context.runId });
   return { staged: true, proposalId: saved.id, message: "Saved as a suggestion. The owner can accept it in the Memory view." };
 }
-export function registerMemory(registry: ToolRegistry, store: Store): void {
+/** Hybrid retrieval, when it is wired: the same shape src/memory-retrieval.ts provides. */
+export interface FactSearch {
+  search(owner: string, query: string, agent?: string, limit?: number, signal?: AbortSignal):
+    Promise<{ record: MemoryRecord; score: number; importance: number; matched: string }[]>;
+}
+export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch): void {
   registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp. Give entity and attribute when the fact is about someone or something and may change later (a newer fact ends the earlier one). Scope shared makes it visible to specialists.",
     permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
@@ -327,9 +347,13 @@ export function registerMemory(registry: ToolRegistry, store: Store): void {
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
       ?? store.updateMemory(context.owner, value, context.runId) });
-  registry.register({ name: "memory.search", description: "Search this owner's facts by literal text, returning bounded matches and their edit revisions.",
+  registry.register({ name: "memory.search", description: "Search this owner's facts. Matches by words and, where the provider allows it, by meaning; the most useful facts come first.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
-    execute: async (value, context) => store.searchMemory(context.owner, value.query, context.agent) });
+    execute: async (value, context) => {
+      if (!retrieval) return store.searchMemory(context.owner, value.query, context.agent);
+      const hits = await retrieval.search(context.owner, value.query, context.agent, 20, context.signal);
+      return hits.map((hit) => ({ ...hit.record, score: hit.score, importance: hit.importance, matched: hit.matched }));
+    } });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", context.owner, value.id) });

@@ -120,7 +120,7 @@
           <section id="first-run" class="card first-run" hidden>
             <span class="eyebrow">// FIRST THINGS FIRST</span>
             <h2>Choose how your assistant thinks.</h2>
-            <p>Pick one to start. You can change it any time in Settings.</p>
+            <p class="first-run-lead">Pick one to start. You can change it any time in Settings.</p>
             <div class="doors">
               <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste.</span></button>
               <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
@@ -128,7 +128,7 @@
             </div>
             <p id="first-run-status" role="status"></p>
             <div class="identity-actions">
-              <button id="first-run-test" type="button">Test the connection</button>
+              <button id="first-run-test" type="button" class="quiet-button">Test the connection</button>
               <button id="first-run-done" type="button" hidden>Done, start chatting</button>
             </div>
           </section>
@@ -166,7 +166,7 @@
               <button class="chip" type="button" data-prompt="Make a short plan for ">Plan a piece of work</button>
             </div>
           </div>
-          <div id="conversation" aria-live="polite"></div>
+          <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
           <div id="model-controls" class="model-controls" hidden>
             <label for="session-model">Model for this conversation</label>
             <select id="session-model"></select>
@@ -181,6 +181,7 @@
             <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
+          <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
             <label class="sr-only" for="prompt">Your message</label
             ><textarea
@@ -197,14 +198,14 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
-              ><span id="session-label"
-                >New conversation · tools leave a record</span
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
               ><button id="send">Send ↗</button
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
             </div>
           </form>
+          <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
+          </div>
         </section>
         <section id="runs" class="view" hidden>
           <p class="section-intro">
@@ -257,6 +258,25 @@
             <div id="tidy-list" class="card-list" aria-live="polite"></div>
             <h3>Set aside</h3>
             <div id="archived-list" class="card-list"></div>
+          </div>
+          <div class="card" id="memory-tidy-card">
+            <h2>Repeats, disagreements and facts you never use</h2>
+            <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
+            <div class="input-row">
+              <button id="memory-tidy-look" type="button">Look for problems</button>
+              <button id="memory-tidy-suggest" type="button">Turn them into suggestions</button>
+            </div>
+            <label class="check-row"><input type="checkbox" id="memory-meaning" /> Also match facts by meaning, not only by their words</label>
+            <p id="memory-meaning-note" class="subtle"></p>
+            <div class="input-row"><button id="memory-index" type="button">Prepare facts for matching by meaning</button></div>
+            <h3>Take facts elsewhere</h3>
+            <p>One fact per line, the format other assistants read and write. Bringing facts back in never makes a second copy of something already saved.</p>
+            <div class="input-row">
+              <button id="memory-jsonl-export" type="button">Save facts to a file</button>
+              <button id="memory-jsonl-import" type="button">Bring facts in from a file</button>
+              <input id="memory-jsonl-file" type="file" accept=".jsonl,application/jsonl,text/plain" hidden />
+            </div>
+            <p id="memory-tidy-status" role="status"></p>
           </div>
           <div class="card">
             <p id="memory-count" role="status"></p>
@@ -613,7 +633,28 @@
             <h3>Messages still to send</h3>
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
-            <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+            <h3>Add a way to reach your assistant</h3>
+            <p class="subtle">Pick one below. Each needs two things: the sign-in details saved under <strong>Secrets</strong> in the default project, and one line added to the connections file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards and it appears in the list above. Whichever you choose, messages from a chat app can never run commands on this computer.</p>
+            <details class="card-list">
+              <summary>Telegram</summary>
+              <p class="subtle">Create a bot by writing to @BotFather in Telegram. Save the token it gives you as the secret <code>TELEGRAM_BOT_TOKEN</code>, then add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code>.</p>
+            </details>
+            <details class="card-list">
+              <summary>Discord</summary>
+              <p class="subtle">Make an application at discord.com/developers, add a bot to it, and turn on <strong>Message Content Intent</strong> on the bot's page — without it the assistant receives empty messages. Save the bot token as the secret <code>DISCORD_BOT_TOKEN</code>, invite the bot to your server, then add <code>{"channels":[{"type":"discord"}]}</code>. In a server channel it answers when you mention it or reply to it; in a direct message it always answers.</p>
+            </details>
+            <details class="card-list">
+              <summary>Slack</summary>
+              <p class="subtle">Create an app at api.slack.com/apps, turn on <strong>Socket Mode</strong>, and subscribe to the <code>message.im</code> and <code>app_mention</code> events. Save the bot token (it starts with <code>xoxb-</code>) as <code>SLACK_BOT_TOKEN</code> and the app-level token (<code>xapp-</code>) as <code>SLACK_APP_TOKEN</code>, then add <code>{"channels":[{"type":"slack"}]}</code>. To limit it to certain Slack channels, list their ids in <code>"slackChannels"</code>.</p>
+            </details>
+            <details class="card-list">
+              <summary>WhatsApp</summary>
+              <p class="subtle">You need a WhatsApp Business account on Meta's developer site. Save the access token as <code>WHATSAPP_TOKEN</code>, the app secret as <code>WHATSAPP_APP_SECRET</code>, and a word of your own choosing as <code>WHATSAPP_VERIFY_TOKEN</code>, then add <code>{"channels":[{"type":"whatsapp","phoneNumberId":"your number id"}]}</code>. In Meta's settings, point the webhook at <code>&lt;this computer's address&gt;/webhooks/whatsapp/whatsapp</code> and give it the same verify word. WhatsApp only lets the assistant answer within a day of your message; later replies wait in the list below.</p>
+            </details>
+            <details class="card-list">
+              <summary>Email</summary>
+              <p class="subtle">Save the mailbox password as the secret <code>EMAIL_PASSWORD</code>, then add <code>{"channels":[{"type":"email","address":"you@example.com","imap":{"host":"imap.example.com","port":993,"user":"you@example.com"},"smtp":{"host":"smtp.example.com","port":465,"user":"you@example.com"}}]}</code>. The assistant looks for unread mail every minute, answers it, marks it read, and keeps the answer in the same email conversation. It reads and writes plain text only.</p>
+            </details>
           </section>
           <section id="hooks-card" class="card">
             <h2>Hooks</h2>
@@ -642,6 +683,17 @@
             <h2>Waiting for your yes</h2>
             <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
             <div id="policy-waiting" class="card-list"></div>
+          </section>
+          <section id="browser-card" class="card">
+            <h2>Websites you stay signed in to</h2>
+            <p>Some websites only show your own information once you are signed in. Sign in here once, in a real browser window, and Branch can use that website later without asking you again. <strong>You type your password into that window yourself — Branch never sees it, and only the small file the website uses to remember you is kept, scrambled, on this computer.</strong></p>
+            <label for="browser-name">Short name for this website</label>
+            <input id="browser-name" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. my-bank" />
+            <label for="browser-url">Address of its sign-in page</label>
+            <input id="browser-url" type="url" maxlength="300" placeholder="https://example.com/login" />
+            <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
+            <p id="browser-status" class="subtle" role="status"></p>
+            <div id="browser-profiles" class="card-list"></div>
           </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
@@ -743,11 +795,16 @@
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
-    <aside class="context-panel" id="context-panel" aria-label="This conversation">
+    <aside class="context-panel" id="context-panel" aria-label="This conversation" data-connected="false">
       <div class="context-block">
         <h2 class="context-head">Model</h2>
         <div class="context-provider" id="context-provider">Connect to begin</div>
+        <button id="context-connect" class="context-primary" type="button">Connect a model</button>
         <button id="context-change-model" class="context-link" type="button">Change the model</button>
+      </div>
+      <div class="context-block">
+        <h2 class="context-head">What we are doing</h2>
+        <div id="context-working" class="context-rows"></div>
       </div>
       <div class="context-block">
         <h2 class="context-head">Running now</h2>
@@ -791,8 +848,10 @@
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
+    <script src="/memory-tidy.js" type="module"></script>
   </body>
 </html>

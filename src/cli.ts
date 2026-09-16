@@ -26,6 +26,7 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
       app.secretsFor,
       app.channelHost,
     );
+    app.browser = integrations.hosted.browser ?? null;
     return {
       app,
       close: async () => {

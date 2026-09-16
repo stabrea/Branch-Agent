@@ -8,11 +8,44 @@ export const ToolCallSchema = z
   })
   .strict();
 export type ToolCall = z.infer<typeof ToolCallSchema>;
+/** A picture shown to the model, such as a screenshot of a web page. Base64, under the size cap. */
+export interface MessageImage {
+  mediaType: string;
+  /** A short label such as the file name, when there is one. */
+  name?: string | undefined;
+  /** Base64 bytes; never written to the conversation store, so it is not replayed later. */
+  data: string;
+}
+/** The most a single picture may weigh once encoded, so one screenshot cannot fill a request. */
+export const maxImageBytes = 4 * 1024 * 1024;
+/** Pictures a model can be asked to look at. Kept for one request only and never written down. */
+export const maximumImageBytes = 5 * 1024 * 1024;
+export const maximumImagesPerTurn = 4;
+export const ImagePartSchema = z.object({
+  mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+  /** The picture's bytes, base64 encoded; a data: prefix is accepted and stripped. */
+  data: z.string().min(1).max(Math.ceil(maximumImageBytes / 3) * 4 + 1024),
+  name: z.string().trim().max(200).optional(),
+}).strict();
+export type ImagePart = z.infer<typeof ImagePartSchema>;
+/** Checks the pictures attached to a turn: how many there are, and how big each one really is. */
+export function parseImages(input: unknown): ImagePart[] {
+  const parts = z.array(ImagePartSchema).max(maximumImagesPerTurn).parse(input);
+  return parts.map((part) => {
+    const data = part.data.replace(/^data:[^,]*,/, "");
+    const bytes = Buffer.from(data, "base64");
+    if (!bytes.length) throw new Error("That picture came through empty");
+    if (bytes.length > maximumImageBytes) throw new Error(`Pictures up to ${maximumImageBytes / 1048576} MB can be attached`);
+    return { ...part, data };
+  });
+}
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /** Pictures that travel with this message; only user messages carry them. */
+  images?: MessageImage[];
 }
 export interface Usage {
   input: number;
@@ -55,9 +88,13 @@ export class ProviderStreamError extends Error {
 }
 export interface Provider {
   readonly name: string;
+  /** True when this model can be shown a picture; otherwise the text snapshot is used instead. */
+  readonly acceptsImages?: boolean;
   complete(request: CompletionRequest): Promise<Completion>;
   /** Optional audio endpoints (OpenAI-compatible transcription and speech); null if unavailable. */
   audio?(): { endpoint: string; apiKey: string } | null;
+  /** Whether this connection can be shown a picture; absent means it cannot. */
+  supportsImages?(): boolean;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
@@ -141,6 +178,8 @@ export interface ToolContext {
   depth: number;
   /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
   agent?: string;
+  /** The task whose shared scratch area this run and all of its sub-tasks read and write. */
+  scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
@@ -166,8 +205,20 @@ export const RunInputSchema = z
     checks: z.record(z.string(), z.unknown()).optional(),
     /** Practice run: nothing is really changed, and the report lists what would have happened. */
     dryRun: z.boolean().optional(),
+    /** Pictures to show the model with this message; text-only models say so plainly. */
+    images: z.array(ImagePartSchema).max(maximumImagesPerTurn).optional(),
+    /** Ask for a short plan first and work through it step by step. */
+    plan: z.boolean().optional(),
+    /** Have a reviewer check the finished answer before it is given. */
+    verify: z.boolean().optional(),
   })
   .strict();
+/** The same message without its pictures, for storing and for measuring how full the context is. */
+export function textOnly(message: Message): Message {
+  if (!message.images?.length) return message;
+  const { images: _images, ...rest } = message;
+  return rest;
+}
 export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 export const estimateTokens = (value: unknown): number =>

@@ -21,8 +21,11 @@ export const LearningSettingsSchema = z.object({
 export interface ConsolidationReport { runs: number; through: string | null; proposals: number; skipped: boolean; reason?: string }
 export type LearningSettings = z.infer<typeof LearningSettingsSchema>;
 export const ProposalSchema = z.object({
-  kind: z.enum(["put", "update", "delete", "skill-note"]),
+  /** merge keeps one fact and sets the rest aside; archive and forget set facts aside with a note. */
+  kind: z.enum(["put", "update", "delete", "skill-note", "merge", "archive", "forget"]),
   memoryId: z.string().max(200).nullable().default(null),
+  /** The other facts a tidying suggestion touches; every one of them is set aside, never deleted. */
+  memoryIds: z.array(z.string().max(200)).max(50).default([]),
   skillId: z.string().max(200).nullable().default(null),
   text: z.string().trim().max(4000).default(""),
   source: z.string().trim().max(500).default("Suggested after a task"),
@@ -34,8 +37,12 @@ export interface MemoryVersion { memoryId: string; revision: number; data: Recor
 export interface Checkpoint { id: string; label: string; memories: number; skills: number; createdAt: string }
 const reviewPrompt = "You review a batch of finished tasks. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"which task showed it\"}]}. Include only things worth keeping for future tasks; an empty list is the normal answer.";
 export const memorySnapshotLimits = { facts: 20, chars: 2000 };
+/** Suggestions that tidy the store: they set facts aside in the archive and never delete anything. */
+export const tidyingKinds: Proposal["kind"][] = ["merge", "archive", "forget"];
 
 export class MemoryReview {
+  /** Set when hybrid retrieval is available: the snapshot then takes the most useful facts first. */
+  orderFacts?: (owner: string, agent?: string) => MemoryRecord[];
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
     db.exec(`CREATE TABLE IF NOT EXISTS memory_proposals(id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT);
       CREATE TABLE IF NOT EXISTS memory_checkpoints(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, memories TEXT NOT NULL, skills TEXT NOT NULL, created_at TEXT NOT NULL);`);
@@ -55,7 +62,8 @@ export class MemoryReview {
   /** Stages a change for the owner to accept or reject. */
   propose(owner: string, input: unknown): Proposal {
     const data = ProposalSchema.parse(input);
-    if (data.kind !== "delete" && data.kind !== "skill-note" && !data.text) throw new Error("A memory suggestion needs text");
+    if ((data.kind === "put" || data.kind === "update") && !data.text) throw new Error("A memory suggestion needs text");
+    if (tidyingKinds.includes(data.kind) && !data.memoryIds.length) throw new Error("A tidying suggestion needs the facts it applies to");
     const proposal: Proposal = { ...data, id: randomUUID(), status: "pending", createdAt: new Date().toISOString(), decidedAt: null };
     this.db.prepare("INSERT INTO memory_proposals VALUES(?,?,?,?,?,NULL)").run(proposal.id, owner, JSON.stringify(data), "pending", proposal.createdAt);
     return proposal;
@@ -85,7 +93,29 @@ export class MemoryReview {
       return this.memories.save(owner, current.id, { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
     }
     if (proposal.kind === "delete") return { removed: proposal.memoryId ? this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) : false };
+    if (tidyingKinds.includes(proposal.kind)) return this.tidy(owner, proposal);
     return { noted: true };
+  }
+  /**
+   * A tidying suggestion the owner accepted. Every fact it names is moved to the archive with the
+   * reason attached, so it stays in the Memory view and can be brought back; a merge first writes
+   * the agreed wording onto the fact that is kept.
+   */
+  private tidy(owner: string, proposal: Proposal): { kept: string | null; setAside: string[]; note: string } {
+    const note = (proposal.note || `Accepted suggestion ${proposal.id}`).slice(0, 500);
+    if (proposal.kind === "merge" && proposal.memoryId && proposal.text) {
+      const current = this.memories.get(owner, proposal.memoryId);
+      if (!current) throw new Error("The fact this suggestion would keep no longer exists");
+      this.memories.save(owner, current.id, { ...current.data, text: proposal.text, source: proposal.source || String(current.data.source) });
+    }
+    const setAside: string[] = [];
+    for (const id of proposal.memoryIds) {
+      if (id === proposal.memoryId) continue;
+      if (!this.memories.get(owner, id)) continue;
+      this.memories.setAside(owner, id, note);
+      setAside.push(id);
+    }
+    return { kept: proposal.kind === "merge" ? proposal.memoryId : null, setAside, note };
   }
   versions(owner: string, memoryId: string): MemoryVersion[] {
     return this.memories.versions(owner, memoryId);
@@ -177,7 +207,8 @@ export class MemoryReview {
     const saved = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(owner, key);
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;
-    for (const record of this.memories.list(owner).filter((r) => visibleTo(r, agent)).slice(0, memorySnapshotLimits.facts)) {
+    const ordered = this.orderFacts?.(owner, agent) ?? this.memories.list(owner).filter((r) => visibleTo(r, agent));
+    for (const record of ordered.slice(0, memorySnapshotLimits.facts)) {
       const line = `- ${String(record.data.text).replace(/\s+/g, " ").trim()}`;
       if (chars + line.length > memorySnapshotLimits.chars) break;
       lines.push(line); chars += line.length + 1;

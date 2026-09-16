@@ -455,6 +455,8 @@ async function refresh() {
     applyAppearance(state.preferences);
   }
   $("context-provider").textContent = demo ? "Not connected" : active.presetName;
+  /* The context pane offers "Connect a model" while nothing real is connected. */
+  $("context-panel").dataset.connected = String(!demo);
   $("context-runs").textContent = state.runs.filter(
     (run) => run.status === "running",
   ).length;
@@ -533,6 +535,12 @@ $("snapshot-save").addEventListener("click", async () => {
   const label = $("snapshot-label").value.trim();
   try { await api("history/snapshots", label ? { label } : {}); $("snapshot-label").value = ""; toast("Snapshot taken."); await refresh(); } catch (e) { toast(e.message); }
 });
+/** How a channel is doing, in words rather than a status code. */
+function channelState(health) {
+  if (!health) return "Connected";
+  const words = { connected: "Connected", reconnecting: "Trying to reconnect", "needs attention": "Needs your attention" };
+  return `${words[health.state] ?? health.state}${health.reason ? " · " + health.reason : ""}`;
+}
 async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
@@ -547,7 +555,13 @@ async function renderChannels() {
   list("channels-list", summary.channels, (channel) => {
     const node = el("div", undefined, "record");
     node.append(el("strong", `${channel.kind}${channel.botName ? " · @" + channel.botName : ""}`),
+      el("p", channelState(channel.health), "meta"),
       el("p", `${channel.activation === "always" ? "Answers every group message" : "Answers when mentioned or replied to"} · ${channel.pairing ? "new people pair with a code" : "only listed people"}`, "meta"));
+    node.append(button("Check the connection", async () => {
+      await renderChannels();
+      const now = (await api("channels")).channels.find((c) => c.id === channel.id);
+      toast(now ? channelState(now.health) : "That connection is no longer set up.");
+    }));
     for (const chat of summary.chats.filter((c) => c.channel === channel.id))
       node.append(button(`Send a test message to ${chat.title}`, async () => {
         try { const r = await api("channels/test", { channel: chat.channel, chatId: chat.chatId }); toast(r.messageId ? "Test message sent." : "Test message queued; it goes out when the channel is reachable."); }

@@ -47,10 +47,13 @@ function protectWindow(
   session.webRequest.onBeforeRequest((details, callback) => {
     callback({ cancel: new URL(details.url).origin !== origin });
   });
+  // Remembered once: a request can still arrive after the window is gone, and a destroyed
+  // window throws on any property access ("Object has been destroyed").
+  const contentsId = win.webContents.id;
   session.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders };
     if (
-      details.webContentsId === win.webContents.id &&
+      details.webContentsId === contentsId &&
       new URL(details.url).origin === origin &&
       new URL(details.url).pathname.startsWith("/api/")
     )
@@ -158,6 +161,7 @@ async function start(): Promise<void> {
       branch.channelHost,
     );
     integrationClose = integrations.close;
+    branch.browser = integrations.hosted.browser ?? null;
     const server = await startServer(branch, { dataDir, port: 0 });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings);

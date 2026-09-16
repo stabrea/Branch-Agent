@@ -37,21 +37,51 @@ for (const node of document.querySelectorAll(".nav")) {
   node.replaceChildren(icon(node.dataset.view), label);
   node.title = titles[node.dataset.view] ?? label.textContent;
 }
+/* Activity carries a small count while the assistant has work in hand. */
+const activityBadge = document.createElement("span");
+activityBadge.className = "rail-badge";
+activityBadge.id = "activity-count";
+activityBadge.hidden = true;
+document.querySelector('.nav[data-view="runs"]').append(activityBadge);
+/** Shows how many tasks are running beside Activity; hidden when there are none. */
+export function setActivityCount(count) {
+  activityBadge.hidden = !count;
+  activityBadge.textContent = String(count);
+  activityBadge.title = count === 1 ? "1 task running" : `${count} tasks running`;
+}
 
-/* ---------- groups that fold, and remember ---------- */
+/* ---------- groups that fold, and remember, for this owner ---------- */
+/* The rail belongs to whoever is signed in here, so each owner keeps their own
+   folding. Before the workspace answers we use the last owner seen on this device. */
+let owner = localStorage.getItem("branch-owner") || "";
+const groupKey = (name) => `branch-group-${name}` + (owner ? "::" + owner : "");
+const groups = [];
 for (const head of document.querySelectorAll(".group-head")) {
-  const key = "branch-group-" + head.dataset.toggle;
   const group = head.closest(".rail-group");
+  const name = head.dataset.toggle;
   const apply = (open) => {
     head.setAttribute("aria-expanded", String(open));
     group.dataset.open = String(open);
   };
-  apply(localStorage.getItem(key) !== "closed");
+  /* A folding choice made before this workspace had a name still counts. */
+  const restore = () => {
+    const kept = localStorage.getItem(groupKey(name)) ?? localStorage.getItem("branch-group-" + name);
+    apply(kept !== "closed");
+  };
+  groups.push(restore);
+  restore();
   head.addEventListener("click", () => {
     const open = head.getAttribute("aria-expanded") !== "true";
     apply(open);
-    localStorage.setItem(key, open ? "open" : "closed");
+    localStorage.setItem(groupKey(name), open ? "open" : "closed");
   });
+}
+/** Once we know who this workspace belongs to, their own folding comes back. */
+function rememberOwner(id) {
+  if (!id || id === owner) return;
+  owner = id;
+  localStorage.setItem("branch-owner", id);
+  for (const restore of groups) restore();
 }
 
 /* ---------- the two panes that fold away ---------- */
@@ -135,6 +165,7 @@ $("menu-about").addEventListener("click", () => {
 });
 $("composer-attach").addEventListener("click", () => displayView("documents"));
 $("context-change-model").addEventListener("click", () => displayView("settings"));
+$("context-connect").addEventListener("click", () => displayView("settings"));
 for (const chip of document.querySelectorAll(".chip[data-prompt]"))
   chip.addEventListener("click", () => {
     $("prompt").value = chip.dataset.prompt;
@@ -304,9 +335,10 @@ export async function loadRail() {
     activeProject = state.project?.active?.id ?? null;
     drawProjects();
     suggestRecipes(state.procedures ?? []);
-    const owner = state.identity?.name || "Branch Agent";
+    const name = state.identity?.name || "Branch Agent";
     $("owner-name").textContent = state.project?.active?.name || "Your workspace";
-    $("owner-initial").textContent = owner.slice(0, 1).toUpperCase();
+    $("owner-initial").textContent = name.slice(0, 1).toUpperCase();
+    rememberOwner(state.identity?.id || state.project?.active?.id || name);
   } catch {
     /* the owner row keeps its resting labels */
   }
@@ -420,6 +452,13 @@ function closePalette() {
 /* ---------- keyboard ---------- */
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
+  /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "k") {
+    if ($("aside-toggle").offsetParent === null) return;
+    event.preventDefault();
+    $("aside-toggle").click();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && key === "k") {
     event.preventDefault();
     if (palette?.hidden === false) closePalette();
@@ -446,13 +485,31 @@ document.addEventListener("keydown", (event) => {
   if (key === "escape" && document.body.classList.contains("rail-open")) closeRailOverlay();
 });
 
+/* Escape steps out of the message box without touching what has been typed. */
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  $("prompt").blur();
+});
+
+/* ---------- the composer floats, so the column keeps room for it ---------- */
+const dock = $("composer-dock");
+const measureDock = () =>
+  document.documentElement.style.setProperty("--composer-h", `${Math.ceil(dock.offsetHeight)}px`);
+new ResizeObserver(measureDock).observe(dock);
+measureDock();
+
 /* ---------- the greeting shows only while the conversation is empty ---------- */
+/* On the very first run the welcome card is the greeting, so the two never stack. */
 const conversation = $("conversation"), welcome = document.querySelector(".welcome");
+const firstRun = $("first-run");
 const showWelcome = () => {
-  welcome.hidden = conversation.childElementCount > 0;
+  welcome.hidden = conversation.childElementCount > 0 || !firstRun.hidden;
 };
 showWelcome();
 new MutationObserver(showWelcome).observe(conversation, { childList: true });
+new MutationObserver(showWelcome).observe(firstRun, { attributes: true, attributeFilter: ["hidden"] });
 
 /* ---------- fill the rail once the workspace opens ---------- */
 const workspace = $("workspace");

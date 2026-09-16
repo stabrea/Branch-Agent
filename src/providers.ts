@@ -93,6 +93,15 @@ function validateOptions(options: ProviderOptions): void {
   if (!options.model || !options.apiKey)
     throw new Error("Provider model and API key are required");
 }
+/**
+ * Whether a connection can be shown a picture. Providers say so themselves; anything that does
+ * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
+ */
+export function supportsImages(provider: Provider): boolean {
+  const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
+  if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
+  return said.acceptsImages === true;
+}
 /** Address and key for a provider's other OpenAI-shaped routes, such as `/embeddings`. */
 export interface EmbeddingEndpoint { endpoint: string; apiKey: string }
 /** The embeddings route of a provider that offers one; every other provider gives nothing. */
@@ -137,6 +146,17 @@ async function post(
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
+/** OpenAI-shaped picture parts: a data URL alongside the text of the same message. */
+function openaiContent(message: Message): unknown {
+  if (!message.images?.length) return message.content;
+  return [
+    ...(message.content ? [{ type: "text", text: message.content }] : []),
+    ...message.images.map((image) => ({
+      type: "image_url",
+      image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+    })),
+  ];
+}
 function openaiMessage(message: Message): Record<string, unknown> {
   if (message.role === "tool")
     return {
@@ -146,7 +166,7 @@ function openaiMessage(message: Message): Record<string, unknown> {
     };
   return {
     role: message.role,
-    content: message.content,
+    content: openaiContent(message),
     ...(message.toolCalls
       ? {
           tool_calls: message.toolCalls.map((c) => ({
@@ -158,8 +178,17 @@ function openaiMessage(message: Message): Record<string, unknown> {
       : {}),
   };
 }
+/** A turn with pictures becomes a list of parts: the words first, then each picture as a data URL. */
+function openaiParts(message: Message): Record<string, unknown>[] {
+  return [
+    ...(message.content ? [{ type: "text", text: message.content }] : []),
+    ...(message.images ?? []).map((image) => ({ type: "image_url", image_url: { url: `data:${image.mediaType};base64,${image.data}` } })),
+  ];
+}
 export class OpenAIProvider implements Provider {
   readonly name = "openai-compatible";
+  /** OpenAI-shaped endpoints take a picture as a data URL in the message. */
+  readonly acceptsImages = true;
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
   }
@@ -169,6 +198,10 @@ export class OpenAIProvider implements Provider {
   /** This provider speaks the OpenAI shape, so the same address and key also serve `/embeddings`. */
   embeddings(): EmbeddingEndpoint | null {
     return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
+  }
+  /** The OpenAI shape carries pictures as message parts, so this connection can be shown one. */
+  supportsImages(): boolean {
+    return true;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);
@@ -241,6 +274,10 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
             ...(message.content
               ? [{ type: "text", text: message.content }]
               : []),
+            ...(message.images ?? []).map((image) => ({
+              type: "image",
+              source: { type: "base64", media_type: image.mediaType, data: image.data },
+            })),
             ...(message.toolCalls ?? []).map((c: ToolCall) => ({
               type: "tool_use",
               id: c.id,
@@ -256,11 +293,17 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
 }
 export class AnthropicProvider implements Provider {
   readonly name = "anthropic";
+  /** Claude models take a picture as a base64 image block. */
+  readonly acceptsImages = true;
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
   }
   audio(): null {
     return null;
+  }
+  /** Anthropic messages carry pictures as base64 image blocks, so this connection can be shown one. */
+  supportsImages(): boolean {
+    return true;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);

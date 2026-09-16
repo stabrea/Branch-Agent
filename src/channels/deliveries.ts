@@ -31,7 +31,10 @@ export const chunkLimit = 3500;
 export const maxAttempts = 5;
 const keepSentDays = 7;
 
-/** Splits long text at line or space boundaries so every chunk fits a channel message. */
+/**
+ * Splits long text at line or space boundaries so every chunk fits a channel message. Channels with
+ * a shorter message limit than the default (Discord allows 2000 characters) pass their own limit.
+ */
 export function chunkText(text: string, limit = chunkLimit): string[] {
   const chunks: string[] = [];
   let rest = text.trim();
@@ -60,8 +63,8 @@ export class Deliveries {
     return this.next++;
   }
   /** Records the chunks of one message; a key seen before is not queued again. */
-  enqueue(channel: string, chatId: string, text: string, key: string, replyTo?: string): Delivery[] {
-    const chunks = chunkText(text);
+  enqueue(channel: string, chatId: string, text: string, key: string, replyTo?: string, limit?: number): Delivery[] {
+    const chunks = chunkText(text, Math.min(limit ?? chunkLimit, chunkLimit));
     const rows: Delivery[] = [];
     for (const [seq, chunk] of chunks.entries()) {
       const id = `${key}#${seq}`;

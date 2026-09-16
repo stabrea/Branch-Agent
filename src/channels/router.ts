@@ -21,10 +21,19 @@ export interface InboundMessage {
   addressed: boolean;
   messageId: string;
 }
+/** What a channel says about itself, in words the owner can act on. */
+export interface ChannelHealth {
+  state: "connected" | "reconnecting" | "needs attention";
+  reason?: string;
+}
 export interface ChannelAdapter {
   readonly id: string;
   readonly kind: string;
+  /** Longest single message this channel accepts; the ledger splits replies to fit. */
+  readonly maxTextLength?: number;
   botName(): string | null;
+  /** Connection state in plain language, shown in Settings -> Channels. */
+  health?(): ChannelHealth;
   start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void>;
   send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
   stop(): Promise<void>;
@@ -57,6 +66,8 @@ export class ChannelRouter {
     if (!this.pump) { this.pump = setInterval(() => void this.flush(), this.pumpMs); this.pump.unref(); }
     await this.flush();
   }
+  /** The connected channel with this id, for routes that must hand a request to one. */
+  adapter(id: string): ChannelAdapter | undefined { return this.adapters.get(id)?.adapter; }
   async detachAll(): Promise<void> {
     if (this.pump) clearInterval(this.pump);
     this.pump = undefined;
@@ -84,7 +95,8 @@ export class ChannelRouter {
   summary() {
     const owner = this.runtime.owner;
     return {
-      channels: [...this.adapters.values()].map(({ adapter, policy }) => ({ id: adapter.id, kind: adapter.kind, botName: adapter.botName(), ...policy })),
+      channels: [...this.adapters.values()].map(({ adapter, policy }) => ({ id: adapter.id, kind: adapter.kind, botName: adapter.botName(),
+        health: adapter.health?.() ?? { state: "connected" as const }, ...policy })),
       pending: this.pairs(owner).filter((p) => p.status === "pending"),
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
       chats: this.chats(owner),
@@ -95,8 +107,9 @@ export class ChannelRouter {
    * so a task finished while the channel was down is delivered once, in order, after reconnect.
    */
   async deliver(channel: string, chatId: string, text: string, key = `delivery:${Date.now()}:${randomInt(1e9)}`, replyTo?: string): Promise<{ messageId?: string | undefined; queued: number }> {
-    if (!this.adapters.has(channel)) throw new Error(`Channel ${channel} is not connected`);
-    this.deliveries.enqueue(channel, chatId, text, key, replyTo);
+    const target = this.adapters.get(channel);
+    if (!target) throw new Error(`Channel ${channel} is not connected`);
+    this.deliveries.enqueue(channel, chatId, text, key, replyTo, target.adapter.maxTextLength);
     await this.flush();
     const now = this.deliveries.list().filter((d) => d.key === key);
     const first = now.find((d) => d.seq === 0);
