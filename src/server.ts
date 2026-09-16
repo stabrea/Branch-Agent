@@ -203,6 +203,7 @@ async function staticFile(
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -531,6 +532,10 @@ async function api(
       base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
       token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
     });
+  // A phone-sized list of conversations. It goes through the same door and needs the same key as
+  // everything else, so a paired phone can pick up what was started at the computer.
+  if (request.method === "GET" && path === "/api/sessions")
+    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);

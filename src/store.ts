@@ -155,6 +155,10 @@ export class Store {
   searchSessions(owner: string, input: unknown) {
     return this.library.search(owner, input);
   }
+  /** The recent conversations with what was last said in each, for picking one up on a phone. */
+  recentSessions(owner: string, limit?: number) {
+    return this.library.recent(owner, limit);
+  }
   exportSession(owner: string, sessionId: string) {
     return this.library.export(owner, sessionId);
   }

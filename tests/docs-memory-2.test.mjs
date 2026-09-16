@@ -511,6 +511,26 @@ test("the memory evaluation reports a hit rate before and after the nightly pass
   assert.deepEqual(app.store.list("memory", "local"), [], "nothing the owner saved is touched");
 });
 
+test("the recent conversations come back as a list a phone can pick one up from", async (t) => {
+  const { app } = await fixture(t);
+  const first = app.store.createSession("local");
+  app.store.message(first, { role: "user", content: "what time does the tip shut" });
+  app.store.message(first, { role: "assistant", content: "Four o'clock on Saturdays." });
+  const second = app.store.createSession("local");
+  app.store.message(second, { role: "user", content: "remind me about the boiler service" });
+
+  const { sessions } = app.store.recentSessions("local");
+  assert.equal(sessions.length, 2);
+  const one = sessions.find((entry) => entry.sessionId === first);
+  assert.equal(one.opening, "what time does the tip shut");
+  assert.equal(one.lastMessage, "Four o'clock on Saturdays.");
+  assert.equal(one.lastSpeaker, "assistant");
+  assert.equal(one.messageCount, 2);
+  // The same conversation's messages are already reachable one call further on.
+  assert.equal(app.store.sessionView("local", first).messages.length, 2);
+  assert.deepEqual(app.store.recentSessions("other").sessions, [], "another person's conversations are not listed");
+});
+
 // ---------------------------------------------------------------- backend and transfer
 
 test("the shipped backend answers every part of the contract it promises", async (t) => {
