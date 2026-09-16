@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import { CompletionCheckSchema } from "./reliability.js";
+import { ScorerSchema } from "./evaluation-scorers.js";
 
 /**
  * Evaluation suites kept as plain data, so a person can read one, copy it, and write their own
@@ -22,6 +23,11 @@ export const EvaluationTaskSchema = z.object({
     mentions: z.array(z.string().min(1).max(200)).max(20).default([]),
     files: z.array(z.string().min(1).max(500)).max(20).default([]),
   }).strict().optional(),
+  /**
+   * Wave 7: scorers, the small repeatable judgements in `evaluation-scorers.ts`. Every one must
+   * pass. They run alongside `checks` and never replace them; see "Measuring the assistant".
+   */
+  scorers: z.array(ScorerSchema).max(8).optional(),
   /** Have the model in use grade a free-text answer from 0 to 1 and say why. */
   judge: z.object({
     rubric: z.string().trim().min(1).max(2000),

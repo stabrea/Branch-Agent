@@ -58,6 +58,7 @@ import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
+import { StudyRunner } from "./study.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
@@ -363,6 +364,9 @@ export async function createBranch(options: {
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
+  // Wave 7: written-down experiments — a benchmark or suite across several model choices, run
+  // several at a time, checkpointed so a stopped study carries on rather than starting again.
+  const studies = new StudyRunner(store, runtime);
   // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
@@ -556,6 +560,8 @@ export async function createBranch(options: {
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
+    /** Wave 7: written-down experiments over suites and benchmarks, with checkpoints and resume. */
+    studies,
     triggers,
     webhooks,
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
@@ -734,6 +740,16 @@ export * from "./evaluation.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
 export * from "./evaluation-runner.js";
+// Wave 7 (benchmarks and experiments): scorers, gates, benchmark adapters, studies, and the
+// deterministic test doubles a plugin author writes their own tests with.
+export * from "./evaluation-scorers.js";
+export * from "./evaluation-run.js";
+export * from "./benchmarks.js";
+export * from "./benchmark-adapters.js";
+export * from "./benchmark-shell.js";
+export * from "./study.js";
+export * from "./tool-evaluations.js";
+export * from "./testing.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
