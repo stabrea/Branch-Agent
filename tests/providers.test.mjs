@@ -178,11 +178,12 @@ test("both real adapters say they can be shown a picture and send it in their ow
   assert.equal(anthropicProvider.supportsImages(), true);
   await anthropicProvider.complete(withPicture);
   const anthropicTurn = anthropic.requests[0].body.messages.at(-1);
-  assert.deepEqual(anthropicTurn.content[0], {
+  // The caption travels first, then the picture (the order the browser tests also check).
+  assert.deepEqual(anthropicTurn.content[0], { type: "text", text: "what is this?" });
+  assert.deepEqual(anthropicTurn.content[1], {
     type: "image",
     source: { type: "base64", media_type: "image/png", data: picture.data },
   });
-  assert.deepEqual(anthropicTurn.content[1], { type: "text", text: "what is this?" });
 });
 
 test("real provider configuration is explicit and has no credential fallback", () => {
