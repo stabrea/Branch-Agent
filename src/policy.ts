@@ -114,6 +114,8 @@ const readOnlyPermissions = new Set([
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
   // Looking at a picture or a sound file the person already has changes nothing.
   "media.read",
+  // Figures held only for this task, reports already written, watches, and the brief: all look-only.
+  "data.read", "research.read", "monitors.read", "brief.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
 ]);

@@ -454,6 +454,47 @@ task prompts against skills the owner has switched off and registry listings the
 this computer, with no model call. CLI: `branch skill pack|install` and
 `branch plugin list|enable|disable`. UI: `public/skills-extra.js` adds the sharing, updates,
 suggestions and plugins cards to the Skills screen. Tests: `tests/skills-plugins.test.mjs`.
+## Batch 23 (wave 5) — figures, looking things up properly, watches and the morning brief
+
+Four things a person actually asks an assistant for, all built on what was already here. **Tables**
+(`src/data-table.ts`, `src/data-chart.ts`, `src/data-tools.ts`): `data.load` opens a comma, tab,
+JSON or spreadsheet file — from the workspace, an address under the network policy, or pasted text —
+into a bounded in-memory table (5000 rows, 64 columns, 500 characters a cell) that lives only for
+that task and is dropped through `registry.onRunFinished`. `data.describe` gives per-column counts
+and spreads, `data.query` runs one read-only `SELECT`/`WITH` against a private `node:sqlite`
+in-memory copy, and both hand back a `markdown` field the message column already renders. `data.chart`
+writes a bar, line or pie as SVG through `RunArtifacts`, and `data.export` writes `.csv` or `.xlsx`
+using Node's own `zlib` — the spreadsheet it writes is read back by the existing `xlsxText`, which is
+what the round-trip test asserts. **Research** (`src/research.ts`, `src/research-claims.ts`):
+`research.run` plans sub-questions, searches, reads up to twelve pages, keeps the sentences that speak
+to the question with their address and title, and from `standard` upwards groups sentences from
+different pages by their shared words — two sources stating the same figures become an agreement, a
+third stating different figures becomes a reported disagreement rather than a silent choice. The
+report goes to `research/<slug>.md` with a numbered Sources list; state is saved after every page, so
+a run that hits its budget stops cleanly, writes the partial report and says why, and asking the same
+question again carries on. **Watches** (`src/monitors.ts`): `monitor.create` snapshots a page or a
+search, later checks diff the lines and describe the change in plain words, and the news goes to a
+channel chat or into the conversation list; they run on a new additive `Scheduler.onTick` hook, and one
+that fails is retried in an hour without stopping the rest. **Morning brief** (`src/brief.ts`):
+schedules due, unfinished tasks, new documents, watches that changed and reminders, assembled through
+the existing recipe `substitute()` into an editable template and sent at a chosen local time.
+**Citations** (`src/citations.ts`) are shared: research reports and the passages the runtime puts in
+front of a task from the document library now carry the same `[1]` numbering and Sources list.
+Three silent-failure paths were closed on the way: a watch sends its news *before* it keeps the new
+copy, so a delivery that fails leaves the change to be noticed again instead of losing it; a brief
+template is checked against the names it can actually fill in when it is saved, because otherwise one
+typo would throw on every scheduler beat where nobody could see it; and reports and exports go through
+the same write observer the ordinary file tools use, so both keep their previous bytes and have an
+Undo. The spreadsheet writer is verified against this app's own reader only — opening one in Excel is
+untested. New routes: `GET /api/research`, `GET|POST /api/monitors`, `POST /api/monitors/{id}/check`,
+`DELETE /api/monitors/{id}`, `GET|POST /api/brief`, `POST /api/brief/send`. Tests:
+`tests/data-research.test.mjs`. One shared change was unavoidable: with fourteen more tools the tool
+catalog is about 9.5k estimated tokens, so the old `compactionThreshold` of 11000 left barely 1.5k for
+the conversation and a compacted context could never get back under it — it is now 14000 and exported,
+and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a literal.
+Not done: no Firecrawl or Scrapling integration (A0742, A0743) — both need dependencies. Covers A0931
+and the research-pipeline and data families listed for those themes.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
