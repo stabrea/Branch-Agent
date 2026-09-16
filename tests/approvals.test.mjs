@@ -153,6 +153,19 @@ test("an ask pauses the task, a yes for this conversation is not asked again, an
   assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "other.txt", readOnly: false }).decision, "ask");
 });
 
+test("a saved password inside a tool call never reaches the question the person is shown", async (t) => {
+  const secret = "sk-live-do-not-print-me";
+  const { app, api } = await served(t, [calls(write("c1", `notes-${secret}.txt`, "one")), say("done")]);
+  app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
+  assert.equal(paused.status, "needs_input");
+  const waiting = (await api("GET", "/api/policy")).body.waiting;
+  const shown = JSON.stringify([paused.output, waiting, app.store.events(paused.id)]);
+  assert.ok(!shown.includes(secret), "the question, the waiting list and the event log are all scrubbed");
+  assert.match(paused.output, /SERVICE_TOKEN/, "the name of the secret stands in for its value");
+});
+
 test("read only refuses a change in plain words without stopping the task", async (t) => {
   const { app, api, workspace } = await served(t, [calls(write("c1", "blocked.txt", "no")), say("I could not change that file")]);
   await api("POST", "/api/policy", { preset: "read-only" });

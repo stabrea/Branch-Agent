@@ -1125,7 +1125,10 @@ export class Runtime {
   }
   /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
   private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember }): never {
-    const { label, target, source, remember } = about;
+    const { source, remember } = about;
+    // A saved password or key can end up inside a command the assistant wants to run. The question
+    // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
+    const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
     const question = `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
     const sessionId = this.sessionOf(context);
     this.approvals.ask({ runId: context.runId, sessionId, tool: call.name, target,

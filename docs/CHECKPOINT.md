@@ -840,6 +840,49 @@ the scrubber rather than skill scanning), A2119, A0836, A1856, A1897, A0875, A08
 A2131/A2160 partly (a resource sandbox, not a container) and A2277. Left alone deliberately:
 external vault backends (A1519, A1841), multi-user accounts (A1652, A1896, A2002, A2216), WebAuthn
 (A2074) and Docker isolation (A2152) — none of them fit a single-owner local desktop app.
+
+## Batch 23 (wave 4) — a terminal worth using, and a command line scripts can rely on
+
+`branch chat` now opens a real terminal view built from Node's own readline and escape sequences
+(`src/terminal-tui.ts`, `src/terminal-input.ts`, `src/terminal-style.ts`, `src/terminal-commands.ts`):
+a status line that stays above the line being typed (model, tokens and money this conversation has
+used, which approval preset is in force), answers wrapped to the window as they stream, one short
+row per step with Ctrl+E to expand them, Enter to send and Alt+Enter to add a line, the up arrow to
+bring a message back, Ctrl+C to stop the task without closing the terminal and Ctrl+D to leave. The
+slash commands are `/help`, `/model`, `/think`, `/preset`, `/memory`, `/skills`, `/plan`, `/verify`,
+`/dry-run`, `/attach`, `/history`, `/export`, `/new` and `/exit`. When a task pauses for a yes the
+question is shown with the tool and the exact target and takes y / n / a / s, answered through
+`Runtime.approve` — the same route the settings screen uses — after which the task carries on in the
+same conversation. `src/terminal.ts` is untouched apart from exporting `progressLine`, and stays the
+fallback: the full view is entered only when stdout is a terminal (or `FORCE_TTY=1`) and `--plain`
+was not passed. One capability switch (`resolveStyle`) governs colour, cursor movement, the window
+title and the Windows Terminal progress indicator, so `NO_COLOR` or `TERM=dumb` produces output with
+no escape sequence in it at all.
+
+The command line grew the parts a script needs (`src/cli-run.ts`, `src/cli-completion.ts`):
+`branch run` takes `--json` (JSON Lines on stdout, human wording on stderr), `--attach`, `--plan`,
+`--verify`, `--dry-run`, `--preset`, `--save-preset`, `--budget` and `--timeout`, and exits 0
+finished / 2 stopped to ask / 3 failed / 4 out of budget; `branch status` shows the running tasks,
+the questions waiting and the health summary; `branch logs <id>` prints the timeline; `branch
+approve <id> yes|no` answers a paused task by writing the answer into the approval policy as a
+standing rule, because the program run that stopped has already ended — the `ApprovalGate` lives in
+memory, so there is no one-time answer to give from another process, and the command says in as many
+words that it saved a rule that applies to future tasks too; `branch completion bash|powershell`
+prints a completion script and needs no database, so it short-circuits before the workspace is
+opened. `--preset` holds only for that one task and puts the owner's saved setting back afterwards
+(`--save-preset` is the one that keeps the change, and says so): a flag in a script should not
+quietly rewrite a setting the owner chose. One list, `cliCommands`, now drives the command check,
+`branch help` and both completion scripts, so a command added anywhere shows up in all three. `tests/cli-tui.test.mjs` drives the whole view
+through a child process with `FORCE_TTY=1` and asserts on ANSI-stripped output.
+
+Deliberately left alone: multi-client attach to a running server, a setup wizard, and per-project
+custom slash commands — all named in this theme but each is its own piece of work. Covers A0007,
+A0136, A0205, A0249, A0620 and A1211 outright, plus two with a named gap: A0012 is the `--json`
+event stream, not its "only the final answer on stdout by default" half (`branch run` without
+`--json` still prints the existing `{run, usage, events}` report, which other branches merge
+alongside), and A0183 is the subcommands and the terminal view without the setup wizard. The rest
+of the theme's 23 entries are other projects' CLIs and are not ours to tick.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
