@@ -66,57 +66,9 @@ a {
   color: inherit;
   text-decoration: none;
 }
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--display);
-  font-stretch: 75%;
-  font-size: 23px;
-  font-weight: 650;
-  letter-spacing: -0.5px;
-}
-.oak-mark { width: 27px; height: 27px; object-fit: contain; }
 .oak-normal { display: none; }
 [data-theme="daylight"] .oak-reversed { display: none; }
 [data-theme="daylight"] .oak-normal { display: block; }
-.brand-icon img { width: 34px; height: 34px; object-fit: contain; }
-.topbar-caption {
-  color: var(--muted);
-  font-size: 13px;
-}
-.topbar .text-button {
-  margin-left: auto;
-}
-.brand-icon {
-  display: inline-grid;
-  place-items: center;
-  background: var(--paper);
-  color: var(--paper-text);
-  border-radius: 12px;
-  width: 42px;
-  height: 46px;
-  font-family: var(--body);
-  font-size: 30px;
-  font-weight: 500;
-}
-.dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  background: var(--good);
-  border-radius: 50%;
-  margin-right: 6px;
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 -32px 25px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--line);
-}
 .eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -135,9 +87,9 @@ h2 {
   letter-spacing: -0.5px;
 }
 h1 {
-  font-size: 29px;
-  margin: 3px 0 0;
-  line-height: 1.1;
+  font-size: 23px;
+  margin: 0;
+  line-height: 1.2;
 }
 h2 {
   font-size: 36px;
@@ -156,11 +108,23 @@ p {
   line-height: 1.6;
 }
 .card {
-  padding: 24px;
+  padding: var(--s4) 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  margin: 0 0 var(--s4);
+}
+.card:last-child {
+  border-bottom: 0;
+}
+/* the sign-in panel is the one place that still reads as a panel */
+.card.login,
+.card.first-run {
+  padding: var(--s5);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--r3);
   background: var(--well);
-  margin: 0 0 18px;
 }
 #model-settings-fields {
   border: 0;
@@ -264,19 +228,6 @@ form > button {
 .notice span {
   line-height: 1.6;
 }
-.welcome {
-  padding: 42px 0 45px;
-}
-.welcome h2 {
-  font-size: clamp(40px, 4vw, 59px);
-  margin: 22px 0 18px;
-  font-weight: 420;
-  line-height: 0.99;
-}
-.welcome p {
-  color: var(--muted);
-  font-size: 16px;
-}
 .secondary {
   border-color: var(--line);
   background: transparent;
@@ -287,30 +238,6 @@ form > button {
 }
 .secondary:hover {
   background: var(--hover);
-}
-.composer {
-  background: var(--well);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 17px;
-}
-.composer textarea {
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  min-height: 95px;
-  padding: 4px;
-}
-.composer > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.composer span {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--faint);
-  margin-right: auto;
 }
 .text-button {
   color: var(--muted);
@@ -389,24 +316,6 @@ form > button {
   color: var(--muted);
   margin-top: 13px;
 }
-.message {
-  padding: 20px 22px;
-  margin: 18px 0;
-  border-radius: 12px;
-  background: var(--selected);
-  line-height: 1.7;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.message.assistant,
-.message.assistant-step {
-  background: var(--well);
-  border: 1px solid var(--line);
-}
-.message-controls {
-  margin-top: 12px;
-  white-space: normal;
-}
 .message-controls button,
 .session-context button {
   margin: 0;
@@ -440,15 +349,6 @@ form > button {
 }
 .saved-actions button {
   margin: 0;
-}
-.message small {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--copper-hi);
-  letter-spacing: 1px;
-  margin-bottom: 8px;
 }
 .form-grid {
   display: grid;
@@ -490,57 +390,9 @@ summary {
   border-radius: 13px;
   font-size: 13px;
 }
-.context-panel h2 {
-  font-size: 42px;
-  margin: 20px 0 12px;
-}
-.context-panel > p {
-  font-size: 14px;
-  color: var(--muted);
-  margin: 0 0 22px;
-}
-.context-provider {
-  background: var(--paper);
-  color: var(--paper-text);
-  border-radius: 7px;
-  font-size: 12px;
-  padding: 10px 12px;
-  overflow-wrap: anywhere;
-}
-.context-stats {
-  margin: 22px 0 0;
-  border-bottom: 1px solid var(--line);
-}
-.context-stats div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid var(--line);
-  padding: 12px 0;
-}
-.context-stats dt {
-  font-size: 12px;
-  color: var(--muted);
-}
-.context-stats dd {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  margin: 0;
-  color: var(--text);
-}
-.acorn-art {
-  flex: 1;
-  min-height: 160px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
 #keepoak-acorn {
-  width: 100%;
-  height: 220px;
-  min-height: 120px;
+  width: 120px;
+  height: 104px;
   image-rendering: pixelated;
   cursor: grab;
   touch-action: none;
@@ -555,13 +407,6 @@ summary {
   font-size: 11px;
   padding: 6px 8px;
   margin: 0 0 8px;
-}
-.context-panel .context-footer {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: var(--faint);
-  margin: 18px 0 0;
 }
 #toast {
   position: fixed;
@@ -689,7 +534,7 @@ summary {
 .attention-row strong { color: var(--copper-hi); }
 
 /* Live activity while a task runs */
-.activity { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--well); font-size: 0.92rem; }
+.activity { margin: var(--s3) 0; padding: var(--s2) var(--s3); border: 0; border-radius: var(--r2); background: var(--step-bg); color: var(--muted); font-size: 12.5px; }
 .activity strong { font-weight: 600; }
 .activity .meta { margin: 4px 0 0; }
 .check-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 0.92rem; }
@@ -711,7 +556,7 @@ summary {
 #documents-drop { border-style: dashed; transition: border-color 120ms ease, background 120ms ease; }
 #documents-drop.dropping { border-color: var(--good); background: var(--well); }
 #documents-drop input[type="file"] { margin-top: 10px; font-size: 12px; }
-#documents-results mark { background: #86d6a02e; color: inherit; border-radius: 3px; padding: 0 2px; }
+#documents-results mark { background: var(--good-tint); color: inherit; border-radius: 3px; padding: 0 2px; }
 
 /* Automations: triggers and webhooks */
 .automations-panel { display: grid; gap: 1.5rem; margin-top: 0.5rem; }

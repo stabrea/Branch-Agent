@@ -2,27 +2,34 @@
 
 The desktop and browser share one interface. It follows the approved KeepOak redesign
 (`keepoak-redesign-public/public`): calm forest and paper surfaces, a copper action colour,
-quiet borders, generous spacing, and one clear primary action per screen. The layout follows
-a desktop assistant — a thin icon column, a rail of conversations, one main pane, and a
-context pane that folds away.
+quiet borders, generous spacing, and one clear primary action per screen. The layout follows the
+ChatGPT desktop application crossed with the Hermes desktop application: one rail, one column of
+messages, one context pane. There is no top bar, and no panel is drawn as a card floating on a
+page — the three columns are flush, as the KeepOak portal is.
 
 ## The shell
 
 | Part | What it holds |
 | --- | --- |
-| Top bar | Product name, the two pane switches, "Search everything", Appearance |
-| Icon column (`public/shell.css`, `.sidebar`) | Every section as an icon with its name. Settings sits at the foot. No drop-down. |
-| Conversation rail (`.rail`) | New conversation, Find anything, and saved conversations grouped by Today / Yesterday / Earlier |
-| Main pane (`main`) | The section you opened, with a sticky title bar |
-| Context pane (`.context-panel`) | Assistant overview, counts, the dithered acorn |
+| Rail head (`public/shell.css`, `.rail-head`) | The mark and the assistant's name with a chevron that switches project, a search icon, an appearance icon |
+| Rail body (`.rail-scroll`) | "New conversation", "Find anything", then three groups that fold and are remembered: **Sections** (every screen as a row with an icon), **Projects** (the workspace folders, the active one marked), **Recents** (conversations grouped by Today / Yesterday / Earlier) |
+| Conversation row (`.rail-line`) | One line. Hovering reveals rename, pin and "take off this list"; those are this browser's own labels and never change the saved conversation |
+| Rail foot (`.rail-foot`) | The owner row — initial, project, the connection dot — opening a menu with Settings and connections, Change the appearance, Lock session, Check for updates, About. Underneath, the quiet "Branch Agent by KeepOak" line |
+| Main pane (`main`) | A title bar with the rail switch, the section name, the open conversation's name, the connection pill and the context switch; below it one 760 px column |
+| Messages (`.message`) | Left-aligned prose with a small role marker. The owner's own messages sit in a soft tinted bubble on the right. Tool work is one quiet row, "Worked with 2 tools · files list, files read", that opens in place |
+| Composer (`.composer`) | A rounded box pinned to the foot of the column with attach, microphone, Temporary and Send inside it |
+| Context pane (`.context-panel`) | The model with a link to change it, what is running now, the receipts for this conversation in plain language, recently saved memory, three counts, and the dithered acorn small at the bottom |
 
-Each pane can be folded away from the top bar, and the choice is remembered on the device.
-Under 1000 px the rail slides over the page instead of taking a column; under 720 px the icon
-column becomes a bottom bar that scrolls sideways, and the page itself never scrolls sideways.
+The rail and the context pane each fold away from the title bar, and the choice is remembered on
+the device. Under 1180 px the context pane steps aside; under 860 px the rail slides over the
+page instead of taking a column. The page itself never scrolls sideways, down to 400 px.
 
-Keyboard: **Ctrl+K** opens the command palette (sections, conversations, recipes, skills, and
-the top actions), **Ctrl+N** starts a conversation, **Ctrl+,** opens Appearance, **Esc** closes
-the palette or the rail. Arrow keys and Enter move through the palette.
+Keyboard: **Ctrl+K** opens the command palette (sections, conversations, projects, recipes,
+skills, and the top actions), **Ctrl+N** starts a conversation, **Ctrl+,** opens Appearance,
+**Esc** closes the palette, a menu, or the rail. Arrow keys and Enter move through the palette.
+
+The empty conversation is a short greeting and four suggestion chips. The chips use the owner's
+own recipes when there are any, and fall back to stock prompts otherwise.
 
 ## Tokens
 
@@ -35,6 +42,10 @@ scales for text, spacing and radius live there.
 | Ground | `#03140B` | `#DDE7DA` | `site.css` `:root` / `:root[data-theme="light"]` `--ground` |
 | Panel | `rgba(5,24,15,.94)` | `rgba(255,253,248,.96)` | `site.css` `--glass`, `app/portal.css` `--card` |
 | Solid surface | `#051810` | `#FFFDF8` | `app/portal.css` `--card` |
+| Rail ground | `#041710` | `#EEECE1` | variant of `--ground` / `--paper`, matching the portal rail |
+| Reading ground | `#071D14` | `#FFFDF8` | variant of `--surface` |
+| Owner's message | `rgba(237,241,234,.08)` | `rgba(23,40,30,.07)` | variant of `site.css` `--hover` |
+| Tool step / context row | `rgba(237,241,234,.05)` | `rgba(23,40,30,.04)` | variant of `site.css` `--hover` |
 | Text | `#EDF1EA` | `#17231D` | `site.css` `--text`, `app/portal.css` `--ink` |
 | Muted text | `rgba(237,241,234,.78)` | `#59675F` | `site.css` `--text-2`, `app/portal.css` `--muted` |
 | Line | `rgba(236,241,233,.12)` | `rgba(23,40,30,.14)` | `site.css` `--line` |
