@@ -12,6 +12,7 @@ import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
+import { startMcpServer } from "./mcp-server.js";
 import { createRequire } from "node:module";
 import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
@@ -108,6 +109,9 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
+  const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files, {
+    exposedTools: new Set(['files.read']),
+  });
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -119,6 +123,7 @@ export async function createBranch(options: {
     chatgpt,
     version,
     userAgent,
+    mcpServer,
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),

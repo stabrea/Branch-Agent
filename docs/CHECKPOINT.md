@@ -33,6 +33,12 @@ from **Settings → Updates**. Do not merge or release every batch.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
 - Copy rule: plain language for non-technical people, no developer jargon in the interface.
 
+## Batch 19 (wave 1) — MCP server mode
+
+Five parallel agents build independent feature areas of wave 1:
+- **MCP server mode** (`wave1/mcp-server`): JSON-RPC 2.0 over HTTP/stdio exposes tools, resources, and prompts to other AI tools (Claude Desktop, Claude Code, Cursor) with session state, permission gates, and rate limits. Handler at `/mcp`, connection helper at `/api/mcp/connection`, settings at `/api/mcp/settings`. Tested: protocol negotiation, session tracking, auth, tool/resource/prompt listing, and exposure policy.
+- **Documentation, Providers, Voice, Webhooks**: Four more agents building in parallel.
+
 ## Tracking on GitHub
 
 Nothing lives only in chat. Open work is tracked as checklists:

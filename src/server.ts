@@ -20,6 +20,7 @@ import { chatCompletion, modelsList } from "./openai-compat.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { startMcpServer, type McpServer } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -232,6 +233,8 @@ async function api(
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
+  if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app);
+  if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -547,6 +550,96 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (path === "/api/mcp/settings") {
+    const owner = app.runtime.owner;
+    if (request.method === "GET") {
+      const saved = app.store.get("settings", owner, "mcp-sharing") as { exposedTools?: string[] } | undefined;
+      return { exposedTools: saved?.exposedTools ?? ["files.read"] };
+    }
+    if (request.method === "POST") {
+      const { exposedTools } = z
+        .object({ exposedTools: z.array(z.string()).default(["files.read"]) })
+        .strict()
+        .parse(await readBody(request));
+      app.store.save("settings", owner, "mcp-sharing", { exposedTools });
+      return { exposedTools };
+    }
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+async function handleMcpRequest(
+  app: Branch,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<boolean> {
+  const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  if (path !== "/mcp") return false;
+  if (!["POST", "GET", "DELETE"].includes(request.method ?? "")) return false;
+
+  try {
+    const owner = app.runtime.owner;
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "MCP server not initialized");
+
+    const sessionId = request.headers["x-mcp-session"] as string | undefined;
+    const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
+
+    if (request.method === "POST" && body) {
+      const JsonRpcSchema = z
+        .object({
+          jsonrpc: z.literal("2.0"),
+          id: z.union([z.string(), z.number()]),
+          method: z.string(),
+          params: z.record(z.string(), z.unknown()).optional().default({}),
+        })
+        .strict();
+      const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
+      const result = await mcp.handle(jsonRpcRequest, sessionId);
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify(result));
+      return true;
+    }
+
+    throw new HttpError(405, "Only POST is supported for MCP");
+  } catch (e) {
+    if (!response.headersSent) {
+      const status = e instanceof HttpError ? e.status : 400;
+      send(response, status, { error: errorText(e) });
+    } else {
+      response.end();
+    }
+    return true;
+  }
+}
+function mcpConnectionSnippets(app: Branch): unknown {
+  const url = "http://127.0.0.1:3210";
+  const token = "YOUR_SESSION_TOKEN";
+  return {
+    claudeDesktop: {
+      configExample: `{
+  "mcpServers": {
+    "branch": {
+      "command": "curl",
+      "args": ["-N", "-H", "Authorization: Bearer \${BRANCH_TOKEN}", "${url}/mcp"],
+      "env": { "BRANCH_TOKEN": "${token}" }
+    }
+  }
+}`,
+      note: "Add to ~/.config/Claude/claude_desktop_config.json (Linux/macOS) or %APPDATA%/Claude/claude_desktop_config.json (Windows)",
+    },
+    claudeCode: {
+      configExample: `.claude/launch.json can reference MCP servers running at ${url}`,
+      note: "Use bearer token authentication with your session token",
+    },
+    cursor: {
+      configExample: `Similar HTTP transport configuration with the session token as Bearer authentication`,
+      note: "Configure MCP settings in Cursor to use the HTTP endpoint",
+    },
+    httpEndpoint: `${url}/mcp`,
+    bearerToken: token,
+  };
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -567,6 +660,7 @@ export async function startServer(
         return;
       }
       authorize(request, url, token);
+      if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
         throw new HttpError(429, "Too many active executions");

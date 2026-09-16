@@ -241,6 +241,22 @@ Every `files.write` keeps the file's previous bytes and records a `file.changed`
 
 Every message sent through a channel (a reply, a scheduled result) is recorded before it is sent, split into ordered chunks with a stable key. If the channel is unreachable the chunks wait and go out in order when it is back (on reconnect and every 10 seconds). Failed chunks back off from 5 seconds, doubling to 10 minutes; the fifth failure parks the chunk as a dead letter. `GET /api/channels` lists `outstanding` chunks; `POST /api/channels/deliveries/:id/retry` re-queues one. Settings → Channels shows the same list with **Try again**.
 
+## Using Branch from other AI tools
+
+Branch exposes a Model Context Protocol (MCP) server that lets other assistants use Branch's tools and knowledge. The server runs over HTTP on the same port as the web interface and requires your session token for authentication.
+
+**HTTP endpoint:** The server listens at `/mcp` with JSON-RPC 2.0 requests. Include the session token as a Bearer authorization header and optionally pass `x-mcp-session` to maintain conversation state across requests.
+
+**Tools:** By default, no tools are exposed through MCP; the owner controls which tools other assistants can use in **Settings → Sharing with other AI tools**. Exposed tools respect the same permission gates and rate limits as local usage, and all calls are recorded.
+
+**Resources:** Memory facts and workspace files are available as read-only resources named `memory://facts` and `workspace://files`.
+
+**Prompts:** Pre-built prompts for analyzing memory and planning tasks are available under names like `analyze-memory` and `plan-task`.
+
+**Session tracking:** Pass `x-mcp-session` with each request to maintain the initialization state and reuse a session across multiple requests, so the server remembers who you are within a sequence.
+
+**Configuration examples:** `GET /api/mcp/connection` returns ready-to-paste configuration snippets for Claude Desktop, Claude Code, and Cursor, with placeholders for the token and endpoint.
+
 ## Delegation
 
 `specialists.delegate` runs an evaluated specialist as a child task with the parent's budget and a subset of its permissions. Optional `resultSchema` (a small JSON-Schema subset: type, required, properties, items, enum, minimum/maximum, minLength, minItems) makes the child's JSON answer be checked; a mismatch comes back as `unresolved` with a reason and a `delegation.unresolved` event on the parent. Children stop after `timeoutMs` (1 to 120 seconds, default 120). At most four children run at once per parent and delegation depth is limited to three; cancelling the parent cancels its children.
