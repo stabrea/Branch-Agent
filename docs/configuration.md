@@ -2936,3 +2936,68 @@ These rows of the audit are done, by a feature that exists under another name.
   (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
+
+## What Branch is not (batch 22, wave 8)
+
+Some rows of the audit describe a *demonstration written for one Python or Rust toolkit*, not a
+capability. Branch is a local Windows desktop assistant with one web app of its own, so these are
+recorded here as deliberately out of scope rather than left open for ever.
+
+- **A1131 Gradio UI**, **A1536 Gradio web application** — Gradio is a Python notebook-style web
+  toolkit. Branch's own web app is the interface; adding Gradio would mean running Python beside the
+  app to draw a second, worse one.
+- **A1676 Streamlit demo UI**, **A2198 Streamlit web UI** — the same, for Streamlit.
+- **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
+- **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
+  this one. The web app here is plain modules served by the app itself, with no build step.
+- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
+  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
+  in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
+  and update for no new behaviour.
+- **A2200 Desktop pet UI** — a floating animated character on the desktop. Branch's desktop presence
+  is a window and a tray icon; a pet is charm, not capability, and it would need the always-on-top
+  overlay the screen-control rules deliberately forbid.
+- **A1984 Multi-user web chat** — Branch is single-owner by design: one person, one workspace, one
+  set of keys on their own computer. Sharing is a read-only page (`src/conversation-share.ts`) and a
+  paired remote listener, never a second account.
+
+### Already covered, under another name (batch 22, wave 8)
+
+- **A0527 chat web UI**, **A0704 local web UI**, **A0956 web UI example**, **A1192 development web UI
+  and API**, **A1774 web control UI and WebChat**, **A2033 web console**, **A2157 web management
+  panel** — all one thing: the app shell in `public/index.html` with the rail, the conversation
+  column and the ten sections (see docs/design.md), served by `src/server.ts` on this computer and
+  covered by `tests/shell-ui.test.mjs` and `tests/web-ui.test.mjs`.
+- **A2015 Web dashboard and webchat** — the audit's "no file upload UI" is out of date: the Documents
+  section takes a file from disk and accepts one dropped on the page (`public/documents.js`).
+- **A0401 Dashboard and desktop** — the desktop app is `src/desktop/main.ts` with its own settings,
+  updater and conversation export; see "The desktop app" above.
+- **A1585 Cross-platform GUI control** — screen and keyboard control is
+  `src/integrations/desktop.ts`, behind its own switch and the Stop banner. It is Windows-only on
+  purpose: this is a Windows desktop assistant, and a cross-platform layer would mean three
+  untestable back ends.
+- **A1452 Web crawling** — `src/integrations/web.ts` fetches and reads a page through the network
+  policy, and `src/integrations/browser.ts` drives a real browser when a page needs one. There is no
+  Crawl4AI: it is a Python library, and a whole-site crawler is not something a personal assistant
+  should be able to start on its own.
+- **A2197 Terminal UIs** — the terminal interface is `src/terminal-tui.ts`: the conversation, the
+  live task, approvals and the token figures for each round, drawn with the app's own style helpers.
+  It is Node, not Rust, and that is the whole of the difference the audit found.
+- **A1522 Browser recording artifacts** — `src/integrations/browser-trace.ts` keeps everything the
+  browser did during one task as a single Playwright trace file, off unless the owner asks.
+- **A1637 Live WebSocket run channel** — `src/ws.ts` carries the run lifecycle and is authenticated:
+  the session token travels in `Sec-WebSocket-Protocol` as `bearer, <token>` and is compared in
+  constant time.
+- **A0500 Tracing and debugging**, **A1677 pipeline logging and usage accounting**, **A0798 run and
+  vertex monitoring** — `src/tracing.ts` opens a span for the run and for every model round, tool
+  call, retrieval, delivery and sub-task inside it, with the usage figures on the model spans; the
+  inspector draws them.
+- **A0400 Usage analytics**, **A0367 usage analytics and reports** — the Usage section's month view
+  (`src/usage.ts`, `src/pricing.ts`) plus "Save as report" below, which writes the same figures out
+  as Markdown, a page, or print.
+- **A0605 Approval-gated plans** — the approval gate (`src/approvals.ts`) holds a task at a step and
+  keeps the answer; the to-do list below is where a plan's steps are now written down and ticked.
+- **app-building (App-builder SDK MCP server)** — Branch is itself an MCP server (`branch mcp-serve`,
+  `src/mcp-server.ts`), so another tool can drive it; and the artifact frame below is the same
+  sandbox that shows a small page an MCP server sends back.
