@@ -233,6 +233,35 @@ Built on Node's own TLS with no mail library: a small IMAP4rev1 reader (`LOGIN`,
 
 Speech-to-text transcription requires an OpenAI-compatible provider with an API key. The ChatGPT plan sign-in does not provide an API key for audio endpoints; configure an API key in **Settings → Model connection** to use voice transcription. API routes: `POST /api/voice/transcribe` (binary audio input), `POST /api/voice/speak` (JSON text input, audio output), `GET|POST /api/voice/settings` (voice preferences).
 
+### Talking to it, and where the sound goes (wave 7)
+
+**Talk** next to the message box is hold-to-talk: hold it, speak, let go. What you said is written out, put in the message box so you can see it, sent as an ordinary message, and the answer is read back to you. Press Talk again while it is talking and it stops. The four states it moves through (waiting, listening, working, reading aloud) live in `src/voice-talk.ts` and are tested on their own.
+
+Three services can write out what you say, and Branch picks whichever one your settings point at: an OpenAI-shaped `/audio/transcriptions` (the Whisper shape, which most providers speak), Gemini's own route (the sound goes inline with the request), or **a speech program already installed on this computer** — whisper.cpp or faster-whisper. Branch never downloads a speech model for you: you point it at the program and its model file, and it checks the program is there before it tries. The transcript is read from what the program prints, using the flags whisper.cpp's and faster-whisper's own command lines document; this has not been run against a real installation, so a build that names its flags differently will refuse in plain words rather than silently return nothing. Three can read text aloud: the OpenAI-shaped `/audio/speech`, Gemini's speech route, and **the voices that come with Windows**, which need no key, no account and no internet. The Windows voice is driven by a short PowerShell script written to a temporary file and run with `-File` and no console window; the words are put in as a quoted string, so nothing in a reply can be run as a command.
+
+- **Keep audio on this computer**: nothing containing sound may leave. Both cloud routes then refuse in plain words instead of sending anyway, and the refusal lives in the service itself, so the `voice.say` tool cannot go around it. The two sound tools in the media toolbox (`media.transcribe` and `media.speak`) read the same setting straight from your settings and refuse the same way, so a workspace sound file is not a way round it either. It also wins over "answer a voice note with a voice note": a spoken reply would be uploaded to the chat app, so with this on the words are sent instead.
+- **Who writes out what you say** / **Who reads replies aloud**: pick a service, or leave it on "whatever suits".
+- **Language**: a code such as `en` forces one; empty lets the service work it out.
+- **Answer a voice note on a chat app with a voice note back**: off until you turn it on. Telegram is the one channel that can send sound back today, and the only one whose voice-note handling is covered by a test; the Discord and WhatsApp download paths are plumbing built to their documented shapes but not exercised here.
+
+A voice note that arrives on **Telegram, Discord or WhatsApp** is written out and handled exactly like a typed message, and the reply quotes the transcript back ("You said (from your voice note): …") so you can see what was heard. The bytes are only fetched once the message has earned an answer, so a stranger cannot make Branch download anything, and a note over 20 MB is refused.
+
+Costs are estimated the same honest way as everything else: published per-minute prices for writing out speech and per-thousand-character prices for reading aloud, with the date they were read, and **no figure at all** when there is no price on file or the length is unknown. A voice on this computer genuinely costs nothing, and reports zero. Where a task exists to record it against, the figure is written into that task's own record as a `voice.spoken` or `voice.transcribed` event; the message-box microphone and a voice note arriving on a chat app happen before any task starts, so their cost is reported in the answer and shown on screen rather than filed.
+
+Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
+
+**Not built: live two-way voice calls** (the OpenAI Realtime WebSocket, audit A1212 and A2293). Branch checks every outbound address against its network policy before each request, and that policy has no hook for a WebSocket; a realtime session would either skip the check or need a new dependency, and this build refuses both. Hold-to-talk does the same job over the ordinary routes. There is no wake word and nothing listens unless you are holding the button.
+
+### Which model does what (wave 7)
+
+Type `/model` in the message box to see your connections, and `/model <name>` to change the one answering **this conversation only** — no restart, nothing else affected, and the next reply is charged at the new model's prices. `/model default` puts it back. The assistant can do the same for itself with the `models.switch` tool. The rail above the message box always names the model that will answer next.
+
+**Settings → Which model does what** holds *routing profiles*. A profile is just data — a name and an order of connections — saved in `settings/model-profiles`, so you can read it, change it and hand it to someone else. Branch fills in four from the connections you actually have: **Cheap and fast** (whatever runs on this computer first, then the least expensive with a published price), **Best quality** (most expensive first, which is the only ranking that can be justified from published prices), **Private** (only connections on this computer; honestly empty until you set one up) and **Long context** (your own order — Branch cannot read how much a cloud model holds, so it does not pretend to). None is switched on until you pick one. When a profile does pick, the run records a `model.routed` event whose reason says which rule fired, for example *The "Cheap and fast" profile asked for alpha first, but it was not available, so beta took it* — that is the "why this model" line in the run inspector.
+
+**Settings → Check your connections** asks each connection what it can do right now: whether its key still works, how many models it lists, and whether it offers speech, pictures and comparing passages. `branch doctor --probe` prints the same thing under `connections`. It costs nothing beyond one list-of-models request per connection.
+
+**Signing in with Google for Gemini** (`src/gemini-signin.ts`) is built as far as it can honestly go: the standard code flow with PKCE through the existing sign-in machinery, and the resulting token sent to Gemini in the ordinary `Authorization: Bearer` header — never in the address. **But**: Google's Generative Language API accepts a signed-in person's token only for a Google Cloud project that has the API switched on, and it bills that project. Branch cannot check that from here without sending a real request, so the API key remains the ordinary way and nothing has been changed about it. To be plain about what exists today: the sign-in is written down in code and nothing else — there is no button for it on any screen and no route that turns it on, so a Gemini connection is still made with a key. Nothing else in Branch uses Google sign-in. One thing did change for everybody: a Gemini API key now travels in the `x-goog-api-key` header instead of a `?key=` query parameter on the chat and audio routes, so it cannot end up in a log there. The picture route still passes it as a query parameter; that belongs to another part of the app and was not touched here.
+
 ## Projects and secrets
 
 **Settings → Projects** keeps named projects, each with its own instructions (added to every task while it is active), a preferred model preset and its own secrets. The `default` project always exists. Switching the active project changes all three for new tasks; a conversation's own model choice still wins. API: `GET /api/projects`, `POST /api/projects`, `POST /api/projects/active`, `POST /api/projects/:id/remove`.
@@ -1493,3 +1522,202 @@ The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.j
 `/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
 `/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
 as the rest of the interface.
+
+## Knowledge bases (batch 24, wave 7)
+
+A **knowledge base** is a name you give to whole folders or single files of your own work. It sits in
+the **Knowledge** card at the bottom of **Documents**. Name one, point it at a folder inside your
+workspace, and press **Create**; **Read it again** re-reads it after the files change. Each one shows
+how many files and passages it holds, how many are matched by meaning, which model read it and when.
+
+Reading a knowledge base cuts every file into passages. A Markdown file is cut at its headings, so a
+passage never straddles two sections and each one carries the headings above it; everything else is
+cut into overlapping windows of whole paragraphs (about 1500 characters with 200 of overlap). Word,
+spreadsheet, web, table and plain-text files are read with the readers Branch already has — no new
+file formats are added here, and a PDF is skipped rather than half-read. Passage names are worked out
+from the file and the wording, so the same folder always produces the same passages with the same
+names. Up to 20 folders or files per knowledge base, 400 files in total, 5 MB a file.
+
+**What is sent where.** Passages are compared by meaning only if a model you have already connected
+can do it. An OpenAI-shaped connection is asked at its `/embeddings` route; a Gemini connection at
+`batchEmbedContents`; a model running on this computer through Ollama's own `/api/embeddings`, in
+which case **nothing leaves this computer**. LM Studio speaks the OpenAI shape and is reached the same
+way, also without leaving the machine. **Your question goes to the same place as your files:** matching
+by meaning means the wording of each search — and the first 500 characters of a task when a knowledge
+base is ticked **Use this when answering** — is sent to that same connection, unless the model is on
+this computer, in which case nothing leaves it. The card says which of those is happening. If none of your
+connections can do it, Branch says so in one sentence and the knowledge base still works by its words
+alone. Every reading is kept here under a fingerprint of the passage and the model, so reading the
+same folder twice costs nothing, and the cost of a first reading is charged to the task that asked for
+it, exactly like a model answer. Background reading has no task to charge, so it is recorded as a
+`knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
+reading it has been charged for, shown on its card.
+
+**What is never read.** A knowledge base can only point at folders and files inside your workspace,
+and the same guard that protects every other file tool applies: anything that looks like a secret —
+`.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,
+`id_ed25519`, and `.pem`, `.key`, `.p12` and `.pfx` files — is refused, as is any path that leaves
+the workspace or goes through a symbolic link or junction. Such a file is counted in the knowledge
+base's note as one that could not be read, so nothing is dropped in silence, and its words are never
+cut into passages or sent anywhere. Anything hidden by `.branchignore` is left out too.
+
+**What a reading may cost.** `POST /api/knowledge/settings` holds two numbers. `maxIndexTokens`
+(400,000 by default, which is roughly 1.5 MB of writing) is the most new reading one press of **Read
+it again** may do. A larger one is refused in a sentence on the card instead of running up a bill you
+did not ask for — or, with a model on this computer, an hour of work you did not ask for — and you
+either point the knowledge base at fewer files or raise the number; **0** means no limit. Passages
+already read never count towards it, so re-reading a folder nothing changed in is always allowed.
+`compareAtMost` (50,000 by default) is the most stored passages one search will compare, so a search
+always has a ceiling.
+
+**How a search works.** The passages are narrowed with SQLite's full-text search where this build has
+it, then ranked by BM25 worked out in Branch itself — so a rare word counts for far more than a common
+one, and the ranking is the same on every build. That order and the order by meaning are combined with
+reciprocal rank fusion, and the second pass from the reranking settings puts the best first. Every
+result names its file, its heading path and its page where one was known. A knowledge base you tick
+**Use this when answering** is put in front of every task with numbered sources, the way your own
+documents already can be; an attached knowledge base is offered before the document library, and the
+documents fall in behind it when it has nothing to say. Turning **Use my documents when answering**
+off at the top of the panel turns knowledge bases off as well, so that one switch always means "put
+none of my own writing in front of my tasks". A file that is too large or that no reader could turn
+into text is counted in the knowledge base's note rather than passed over in silence.
+
+**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
+the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
+knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
+interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
+similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
+`fingerprints` against the service's own REST API — `search` sending the query vector and the
+collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
+chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
+be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
+written today.
+
+**In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
+each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
+`kb_search`), their vectors (`vectors`) and the store of readings (`embedding_cache`) are **not**: all
+three are worked out again from your own files, so after a restore each knowledge base is there but
+empty until you press **Read it again**. Leaving them out keeps a backup small; putting them in would
+make it many times larger for something a button rebuilds.
+
+**Saved facts.** Facts are compared by meaning as well as by their words through the same store of
+readings, so nothing is ever read twice. A quiet pass runs at most once a day on the scheduler's beat:
+it gives newly written facts their comparison by meaning and writes near-duplicates into the review
+queue as suggested merges. It never deletes or changes a fact — you accept or ignore each suggestion
+in **Memory**, the same as every other tidying suggestion. Settings live under `memory-consolidation`
+(`enabled`, `everyHours`, `lastRunAt`).
+
+Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
+now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
+`{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/source` with `{ collection, source }` or
+`{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
+`knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
+`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. All seven sit in
+the **documents** toolbox, not the memory one, because a knowledge base is a set of your own files.
+The listing tool
+is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
+stored recipes and specialists.
+## Traces, the counters page and the permission rules (batch 19, wave 7)
+### There is no telemetry, and there never will be
+Branch Agent collects nothing about you and sends nothing to the people who made it. There is no
+"help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
+collected in the first place. Everything on this page is about *you* choosing to send *your own*
+traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
+type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+button, it now carries the last 200 steps with their names, timings and outcomes, and every value
+in it has been through the same scrub as the rest of the folder.
+### Spans: the shape of a task while it runs
+Every task gets a trace of its own, and a step — a *span* — for the task itself, each round with
+the model, each tool call and each sub-task. Each span points at the one above it, so the trace is
+a tree rather than a list. The ids follow the W3C trace context standard, so a viewer you already
+have understands them. They are written to a `spans` table beside the events, and every attribute
+goes through the same scrubber as everything else, so a saved password or key cannot be in one.
+`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's. The newest
+20 000 are kept and older ones are let go once per launch, so the table cannot grow without end.
+When Branch hands work to another assistant, or sends a webhook, it puts the standard
+`traceparent` header on the call, and when another assistant sends work here with that header the
+task joins their trace instead of starting a new one. One piece of work across two assistants is
+therefore one trace.
+### Sending traces somewhere you run
+`GET`/`POST /api/tracing/settings` holds `enabled` (false until you change it), `destination`
+(`otlp`, `langfuse` or `langsmith`), `endpoint`, `headers`, `batchSize`, `retries` and
+`serviceName`. Once it is on, each task sends its own steps as soon as it finishes, and
+`POST /api/tracing/test` sends the last five so you can check the address before relying on it.
+Turning sending on without an address is refused rather than half-done.
+`includeErrors` adds the crashes Branch recorded — an uncaught failure in the engine, with the
+stack scrubbed — to what goes out, which is the whole of "send crash reports to my own endpoint":
+they go to *your* address and nowhere else, and there is no third-party crash service involved.
+A header value may be `secret://<project>/<NAME>` instead of the key itself. The real value is
+looked up from the locker at the moment of the call and is never in the settings, never in a log
+and never in an error message. Every send — successful or not — is written into the record of what
+the assistant was allowed to do, with the host it went to and how many steps went with it.
+All three destinations speak plain JSON over HTTP; no library is installed for any of them. OTLP
+posts to `/v1/traces` (and `/v1/metrics` for the counters), Langfuse to `/api/public/ingestion`,
+LangSmith to `/runs/batch`, unless the address you typed already has a path of its own. A failed
+send is tried again a couple of times with a growing pause, and the address rules are checked
+before every single try.
+**A collector on this computer needs one extra step.** Branch refuses private and local addresses
+by default, so sending to `http://localhost:4318` is blocked until you allow private addresses —
+`allowPrivateAddresses` in the `web` section of the integrations file, the same switch Web reading
+uses. The refusal says so itself rather than leaving you to guess, and an address that is not
+allowed is refused once rather than tried again and again. That default is deliberate: it is the
+same rule that stops a web page reaching things on your own network.
+These screens are the owner's own. While somebody else's profile is switched on, the steps, the
+rules and the sending settings are all refused, exactly like the owner's secrets and saved
+workflows.
+### The counters page
+`GET /api/metrics` answers in the plain text a monitoring tool scrapes, behind the same local key
+as everything else: how many tasks there are and what state they are in, tokens in and out, the
+estimated cost this month, tool calls and failures, how many conversations have been shortened, how
+many steps have been recorded, and a histogram of how long tool calls take. Usage → **Health**
+shows the same numbers in plain words. Queue depth is not reported: there is no single queue to
+count, so a made-up number is left out rather than invented.
+### Permission rules about one particular thing
+A rule can now name what it is about as well as which tool it covers: a folder or file (`path`), a
+website (`host`), a messaging account (`channel`) or a command (`command`). A rule with one of
+these is looked at before the broader rules, so "never write anything under finance" beats "writing
+files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
+rule written before this behaves — nothing you already had changes.
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
+about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+Which kind a call counts as is worked out from what the call says it would touch, not from its
+arguments: a bare website name is a website, and anything else is a folder or file. That means a
+tool that reports what it touches through its own `target()` — as a tool with no plain `path`
+argument is meant to — is covered by a folder rule like any other.
+Browser clicking, typing and uploading go through these same rules with the website as the thing
+they are about; they do not get a second set of their own.
+Settings → When to check with me shows every rule as a sentence — "Ask before writing files under
+finance", "Never allow browsing example.com" — with a button to take one away, a short form to add
+one, and a **Try a decision out** box that says what would happen and which rule decided, without
+saving or running anything.
+`GET /api/rules` lists the rules with their sentences. `POST /api/rules/add` takes one rule,
+`POST /api/rules/remove {"index": 0}` takes one away, and `POST /api/rules/test {"tool": "...",
+"target": "..."}` answers with the decision and the sentence behind it.
+### Yes for this conversation, and what it is tied to
+"Yes, for this conversation" is a grant with an end: it lasts an hour, ends when the conversation
+ends, and ends the moment you lock Branch. `GET /api/rules/allowed?session=<id>` lists what a
+conversation is allowed to do right now and when each one runs out.
+A yes is tied to the exact request it was given for. The approval card shows those exact words,
+with any saved password or key already taken out, and the answer carries a fingerprint of them. If
+the assistant changes so much as one character — the same file with different contents counts — the
+old yes does not cover it and it has to ask again. `POST /api/policy/approve` accepts an optional
+`fingerprint`; an answer whose fingerprint does not match what the task is waiting on is refused
+with a plain message.
+The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
+carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
+the socket sees what the app sees and can answer under the same binding.
+### Wrong keys are counted
+Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
+message saying so and a line in the record of what the assistant was allowed to do, filed under
+"Somewhere kept getting the key wrong and was made to wait". The right key is checked first and
+clears the count at once, so a stale tab in your own browser can never shut you out of your own app.
+"The same place" means the address the connection itself came from. A header a caller writes for
+itself, such as `x-forwarded-for`, is ignored: Branch has no proxy in front of it, so trusting one
+would only let a single guesser pretend to be a thousand different places. On this computer's own
+listener that makes every local program one place, which is the honest answer; the phone's listener
+sees each device separately. The socket a running task streams over is not counted, so a wrong key
+there is refused without being held against anyone.

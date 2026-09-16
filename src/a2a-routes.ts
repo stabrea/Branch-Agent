@@ -59,7 +59,9 @@ export async function handleA2a(
       await a2a.sendSubscribe(SendParamsSchema.parse(message.params), agent, message.id, response);
       return true;
     }
-    json(response, 200, { jsonrpc: "2.0", id, result: await answer(a2a, message.method, message.params, agent) });
+    // The trace the calling assistant already had open, so the work joins it rather than starting anew.
+    const traceparent = String(request.headers["traceparent"] ?? "") || null;
+    json(response, 200, { jsonrpc: "2.0", id, result: await answer(a2a, message.method, message.params, agent, traceparent) });
   } catch (error) {
     if (response.headersSent) response.end();
     else json(response, error instanceof A2aError && error.code === -32003 ? 429 : 200, a2aError(id, error));
@@ -67,8 +69,10 @@ export async function handleA2a(
   return true;
 }
 
-async function answer(a2a: A2aServer, method: string, params: Record<string, unknown>, agent: string): Promise<unknown> {
-  if (method === "tasks/send") return a2a.send(SendParamsSchema.parse(params), agent);
+async function answer(
+  a2a: A2aServer, method: string, params: Record<string, unknown>, agent: string, traceparent: string | null,
+): Promise<unknown> {
+  if (method === "tasks/send") return a2a.send(SendParamsSchema.parse(params), agent, traceparent);
   if (method === "tasks/get") return a2a.get(params);
   if (method === "tasks/cancel") return a2a.cancel(params);
   throw new A2aError(-32601, `Branch does not know the method "${method}"`);

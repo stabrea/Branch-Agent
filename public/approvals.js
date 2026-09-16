@@ -59,24 +59,29 @@ function renderWaiting() {
   for (const question of state.waiting) {
     const item = el("div", undefined, "item");
     item.append(el("h3", question.label), el("p", question.question, "subtle"));
+    // Exactly what it wants to do, word for word, with any saved password or key already taken out.
+    // Your answer is tied to these exact words: if it changes them, it has to ask again.
+    if (question.bytes) item.append(el("pre", question.bytes, "subtle"));
+    if (question.remember === "session")
+      item.append(el("p", "A yes for this conversation lasts until you close it, or until you lock Branch.", "subtle"));
     for (const [label, remember] of [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]]) {
       if (remember === "always" && question.source !== "owner") continue;
       const button = el("button", label);
       button.type = "button";
-      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember));
+      button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint));
       item.append(button);
     }
     const no = el("button", "No", "danger");
     no.type = "button";
-    no.addEventListener("click", () => void answer(question.sessionId, "deny", "session"));
+    no.addEventListener("click", () => void answer(question.sessionId, "deny", "session", question.fingerprint));
     item.append(no);
     box.append(item);
   }
 }
 
-async function answer(sessionId, decision, remember) {
+async function answer(sessionId, decision, remember, fingerprint) {
   try {
-    await api("policy/approve", { sessionId, decision, remember });
+    await api("policy/approve", { sessionId, decision, remember, ...(fingerprint ? { fingerprint } : {}) });
     status(decision === "allow" ? "Noted. Send your next message in that conversation to carry on." : "Noted. It will not do that.");
     await render();
   } catch (e) {

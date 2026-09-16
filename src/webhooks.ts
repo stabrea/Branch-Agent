@@ -139,6 +139,12 @@ export class Webhooks {
   }
 
   /**
+   * The `traceparent` of the task behind a delivery, so the service on the other end can join the
+   * same trace. `createBranch` connects this; on its own no such header is sent.
+   */
+  traceparentFor: (runId: string) => string | null = () => null;
+
+  /**
    * Send one request. Never throws: a refused address or a dead endpoint is a failed result.
    */
   private async send(webhook: WebhookState, payload: Record<string, unknown>): Promise<{ ok: boolean; message: string }> {
@@ -148,6 +154,9 @@ export class Webhooks {
       await this.policy.assertAllowed(new URL(webhook.url), "webhook address");
       const body = JSON.stringify(payload);
       const headers: Record<string, string> = { "content-type": "application/json" };
+      // When the task that caused this has a trace open, the receiving service joins that trace.
+      const traceparent = this.traceparentFor(String(payload.runId ?? ""));
+      if (traceparent) headers["traceparent"] = traceparent;
       if (webhook.secret)
         headers["x-branch-signature"] = `sha256=${createHmac("sha256", webhook.secret).update(body).digest("hex")}`;
       const response = await fetch(webhook.url, { method: "POST", headers, body, signal: controller.signal, redirect: "error" });
