@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
+import type { ExecutionLimit } from "./execution-limit.js";
 import { errorText } from "./contracts.js";
 
 /**
@@ -30,7 +31,12 @@ export interface QueueEntry {
 }
 
 export class RunQueue {
-  constructor(private readonly store: Store, private readonly runtime: Runtime) {
+  constructor(
+    private readonly store: Store,
+    private readonly runtime: Runtime,
+    /** The whole app's count of what is working at once; the line never starts past it. */
+    private readonly executions?: ExecutionLimit,
+  ) {
     store.sqlite.exec(`CREATE TABLE IF NOT EXISTS run_queue(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
       prompt TEXT NOT NULL, session_id TEXT, source TEXT NOT NULL, priority INTEGER NOT NULL,
       status TEXT NOT NULL, run_id TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
@@ -96,7 +102,11 @@ export class RunQueue {
     return this.store.sqlite.prepare("SELECT * FROM run_queue WHERE owner=? AND status='running'")
       .all(owner).map((row) => this.toEntry(row));
   }
-  /** Starts as many waiting tasks as there is room for, in order, one per conversation. */
+  /**
+   * Starts as many waiting tasks as there is room for, in order, one per conversation. Room means
+   * both this line's own setting and the whole app's count of what is working: a task started from
+   * the app's own screen takes up one of the same places.
+   */
   drain(owner: string): number {
     const atOnce = this.settings(owner).atOnce;
     let running = this.running(owner);
@@ -104,14 +114,18 @@ export class RunQueue {
     for (const next of this.waiting(owner)) {
       if (running.length >= atOnce) break;
       if (next.sessionId && running.some((item) => item.sessionId === next.sessionId)) continue;
+      const place = this.executions ? this.executions.take() : () => undefined;
+      // The whole app is as busy as it may get: the rest of the line waits, and is looked at again
+      // as soon as something finishes.
+      if (!place) break;
       this.mark(owner, next.id, "running", {});
-      this.start(owner, next);
+      this.start(owner, next, place);
       running = this.running(owner);
       started++;
     }
     return started;
   }
-  private start(owner: string, entry: QueueEntry): void {
+  private start(owner: string, entry: QueueEntry, place: () => void): void {
     void this.runtime.run({
       prompt: entry.prompt, source: entry.source,
       ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), onTextDelta: () => undefined,
@@ -120,7 +134,11 @@ export class RunQueue {
       (run) => this.mark(owner, entry.id, run.status === "completed" ? "done" : "failed",
         { runId: run.id, ...(run.status === "completed" ? {} : { error: `The task ended as ${run.status}` }) }),
       (error: unknown) => this.mark(owner, entry.id, "failed", { error: errorText(error) }),
-    ).finally(() => { try { this.drain(owner); } catch { /* the line must never break a finished task */ } });
+    ).finally(() => {
+      // The place goes back first, so whatever is waiting can take it straight away.
+      place();
+      try { this.drain(owner); } catch { /* the line must never break a finished task */ }
+    });
   }
   private mark(owner: string, id: string, status: QueueEntry["status"], patch: { runId?: string; error?: string }): void {
     this.store.sqlite.prepare(`UPDATE run_queue SET status=?, run_id=COALESCE(?,run_id), error=COALESCE(?,error),

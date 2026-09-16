@@ -1353,11 +1353,15 @@ workflow that was working is marked "stopped when the app closed" and carries on
 step. Resuming a workflow that is waiting on an approval is you saying yes, and only from your own
 screen: the assistant's `workflows.resume` tool refuses a workflow that is waiting for you, so it
 can never say yes on your behalf. The same five things are tools (`workflows.create`, `.list`,
-`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. Be
-aware that a `tool` step uses its tool the way pressing a button in the app does — with the whole
-run of the app and without stopping to ask — so treat a saved workflow as something you have
-already approved. Workflows are the owner's: they are refused while somebody else's profile is
-switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
+`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. A
+`tool` step, and every step inside a `recipe` step, goes through your approval settings exactly as
+the assistant does mid-conversation: a step your settings allow simply runs, one they refuse fails
+with the same plain refusal, and one they say to ask about stops the workflow where it is and waits
+for you — `POST /api/workflows/:id/resume` is you saying yes, and it may carry
+`{"remember":"always"}` to keep that yes as a standing rule. A yes that is not standing counts for
+that workflow only. A workflow another app or a schedule set going is held to the same limits that
+task would have been, so starting one is no way around them. Workflows are the owner's: they are
+refused while somebody else's profile is switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
 it in memory, and send it on.
 
 **The waiting line.** `POST /api/queue` puts a task in line instead of turning it away when as many
@@ -1368,7 +1372,9 @@ stops one that is working, and `POST /api/queue/settings` sets how many run at o
 three by default). A conversation only ever has one task working, so its others wait their turn. A
 task from the line runs as the owner, so the line is the owner's: it is refused while somebody
 else's profile is switched on, and they start tasks the ordinary way instead. The line's "how many
-at once" is separate from the eight requests the web server itself will carry out at a time.
+at once" sits under the same ceiling as everything else: the whole app runs at most eight things at
+a time, counted once across the line and the requests the app's own screen makes, so the two
+together can never go past it.
 
 **Days off and quiet hours.** `GET`/`POST /api/calendar` holds the country whose holidays to use,
 your own days off, which weekdays you work, and quiet hours. A schedule created with
@@ -1471,3 +1477,101 @@ The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.j
 `/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
 `/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
 as the rest of the interface.
+
+## Knowledge bases (batch 24, wave 7)
+
+A **knowledge base** is a name you give to whole folders or single files of your own work. It sits in
+the **Knowledge** card at the bottom of **Documents**. Name one, point it at a folder inside your
+workspace, and press **Create**; **Read it again** re-reads it after the files change. Each one shows
+how many files and passages it holds, how many are matched by meaning, which model read it and when.
+
+Reading a knowledge base cuts every file into passages. A Markdown file is cut at its headings, so a
+passage never straddles two sections and each one carries the headings above it; everything else is
+cut into overlapping windows of whole paragraphs (about 1500 characters with 200 of overlap). Word,
+spreadsheet, web, table and plain-text files are read with the readers Branch already has — no new
+file formats are added here, and a PDF is skipped rather than half-read. Passage names are worked out
+from the file and the wording, so the same folder always produces the same passages with the same
+names. Up to 20 folders or files per knowledge base, 400 files in total, 5 MB a file.
+
+**What is sent where.** Passages are compared by meaning only if a model you have already connected
+can do it. An OpenAI-shaped connection is asked at its `/embeddings` route; a Gemini connection at
+`batchEmbedContents`; a model running on this computer through Ollama's own `/api/embeddings`, in
+which case **nothing leaves this computer**. LM Studio speaks the OpenAI shape and is reached the same
+way, also without leaving the machine. **Your question goes to the same place as your files:** matching
+by meaning means the wording of each search — and the first 500 characters of a task when a knowledge
+base is ticked **Use this when answering** — is sent to that same connection, unless the model is on
+this computer, in which case nothing leaves it. The card says which of those is happening. If none of your
+connections can do it, Branch says so in one sentence and the knowledge base still works by its words
+alone. Every reading is kept here under a fingerprint of the passage and the model, so reading the
+same folder twice costs nothing, and the cost of a first reading is charged to the task that asked for
+it, exactly like a model answer. Background reading has no task to charge, so it is recorded as a
+`knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
+reading it has been charged for, shown on its card.
+
+**What is never read.** A knowledge base can only point at folders and files inside your workspace,
+and the same guard that protects every other file tool applies: anything that looks like a secret —
+`.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,
+`id_ed25519`, and `.pem`, `.key`, `.p12` and `.pfx` files — is refused, as is any path that leaves
+the workspace or goes through a symbolic link or junction. Such a file is counted in the knowledge
+base's note as one that could not be read, so nothing is dropped in silence, and its words are never
+cut into passages or sent anywhere. Anything hidden by `.branchignore` is left out too.
+
+**What a reading may cost.** `POST /api/knowledge/settings` holds two numbers. `maxIndexTokens`
+(400,000 by default, which is roughly 1.5 MB of writing) is the most new reading one press of **Read
+it again** may do. A larger one is refused in a sentence on the card instead of running up a bill you
+did not ask for — or, with a model on this computer, an hour of work you did not ask for — and you
+either point the knowledge base at fewer files or raise the number; **0** means no limit. Passages
+already read never count towards it, so re-reading a folder nothing changed in is always allowed.
+`compareAtMost` (50,000 by default) is the most stored passages one search will compare, so a search
+always has a ceiling.
+
+**How a search works.** The passages are narrowed with SQLite's full-text search where this build has
+it, then ranked by BM25 worked out in Branch itself — so a rare word counts for far more than a common
+one, and the ranking is the same on every build. That order and the order by meaning are combined with
+reciprocal rank fusion, and the second pass from the reranking settings puts the best first. Every
+result names its file, its heading path and its page where one was known. A knowledge base you tick
+**Use this when answering** is put in front of every task with numbered sources, the way your own
+documents already can be; an attached knowledge base is offered before the document library, and the
+documents fall in behind it when it has nothing to say. Turning **Use my documents when answering**
+off at the top of the panel turns knowledge bases off as well, so that one switch always means "put
+none of my own writing in front of my tasks". A file that is too large or that no reader could turn
+into text is counted in the knowledge base's note rather than passed over in silence.
+
+**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
+the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
+knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
+interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
+similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
+`fingerprints` against the service's own REST API — `search` sending the query vector and the
+collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
+chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
+be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
+written today.
+
+**In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
+each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
+`kb_search`), their vectors (`vectors`) and the store of readings (`embedding_cache`) are **not**: all
+three are worked out again from your own files, so after a restore each knowledge base is there but
+empty until you press **Read it again**. Leaving them out keeps a backup small; putting them in would
+make it many times larger for something a button rebuilds.
+
+**Saved facts.** Facts are compared by meaning as well as by their words through the same store of
+readings, so nothing is ever read twice. A quiet pass runs at most once a day on the scheduler's beat:
+it gives newly written facts their comparison by meaning and writes near-duplicates into the review
+queue as suggested merges. It never deletes or changes a fact — you accept or ignore each suggestion
+in **Memory**, the same as every other tidying suggestion. Settings live under `memory-consolidation`
+(`enabled`, `everyHours`, `lastRunAt`).
+
+Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
+now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
+`{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/source` with `{ collection, source }` or
+`{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
+`knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
+`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. All seven sit in
+the **documents** toolbox, not the memory one, because a knowledge base is a set of your own files.
+The listing tool
+is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
+stored recipes and specialists.

@@ -15,6 +15,11 @@ export const backupTables = [
   "file_versions", "workspace_snapshots",
   // Wave 6 (collaboration and workflows): labels, project notes, workflows and their per-step state.
   "labels", "project_notes", "workflows", "workflow_state",
+  // Wave 7: the knowledge bases themselves — their names, the folders they point at and whether they
+  // are in use. Their passages, vectors and cached readings are left out on purpose: those are worked
+  // out again from the person's own files by pressing "Read it again", and they would multiply the
+  // size of a backup for nothing.
+  "kb_collections",
 ] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 export const BackupArchiveSchema = z.object({

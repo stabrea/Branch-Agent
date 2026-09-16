@@ -393,6 +393,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.12.0 (2026-09-16)
+
+Secrets vault and session lock, models on this computer, pictures and sound, shareable skills and plugins, A2A/ACP interop, evaluation suites with history. Published from `release/0.12.0` (PR #98); the in-app update from 0.11.0 was rehearsed on a staged copy with no console window and the previous copy kept.
+
 ## Batch 23 (wave 4) — talking to assistants other people built
 
 Branch could be used by other AI tools over MCP; now it can also be one agent among several.
@@ -1162,6 +1166,54 @@ nothing in `tests/compaction-attention.test.mjs` needed touching — it imports 
 which now means the 11,000 floor, and the conversation share alone is well past that when it
 compacts. Covers the
 context-management theme (#82) and the reliability inventory item (#16).
+## Batch 24 (wave 7) — knowledge bases that actually retrieve
+
+Documents could already be searched by their words and, with an OpenAI-shaped key, by meaning. What
+was missing was everything above that: whole folders as a named thing, passages that remember where
+they came from, a ranking that does not depend on which SQLite you happen to have, and a reader that
+works for more than one provider shape. `src/embeddings.ts` puts one `Embeddings` interface over
+three shapes — OpenAI-compatible `/embeddings`, Gemini `batchEmbedContents`, and Ollama's own route
+for a model on this computer — chosen from the owner's existing model plan, with the provider retry
+policy behind it, a cost charged to the asking task through the usage ledger, and a plain refusal
+when nothing connected can read passages. Every reading is kept in `embedding_cache` under
+sha256(passage + model), so re-reading a library is free and a knowledge base and a saved fact that
+say the same words are read once between them. `src/vector-store.ts` defines `VectorBackend` and
+ships one implementation: a `vectors` table with cosine worked out in TypeScript, comfortable to
+about 50k passages in a collection; the HTTP adapter contract for a real vector database is written
+in docs/configuration.md and deliberately not in code. `src/chunking.ts` cuts Markdown at its
+headings and everything else into overlapping paragraph windows, with deterministic passage names and
+per-passage title, heading path and page. `src/bm25.ts` is a pure-TypeScript BM25 that ranks the
+candidates FTS5 narrows down — and ranks them the same way on a build with no FTS5 at all.
+`src/knowledge-bases.ts` and `src/knowledge-tools.ts` are the collections themselves: create, add,
+remove, reindex with progress events, and a hybrid search that fuses the word order and the meaning
+order with reciprocal rank fusion and then hands them to the wave-6 reranker, every result carrying
+its file, heading and page. `knowledge.ask` has the model read the best passages and answer with
+numbered sources. A collection ticked "use this when answering" goes in front of the task ahead of
+the document library, and a `KnowledgeRetriever` joins documents and saved facts behind the wave-6
+`Retriever` interface. For memory, `src/memory-consolidate.ts` adds the nightly pass on the existing
+scheduler beat: newly written facts get their comparison by meaning (through the same cache), and
+near-duplicates are written into the review queue as suggested merges — it never deletes anything.
+The Knowledge card lives at the foot of the existing Documents section in `public/knowledge.js`.
+
+The listing tool is `knowledge.collections`, not the brief's `knowledge.list`, because
+`knowledge.list` was already taken by the stored recipes and specialists. No dependency was added.
+
+Changed while integrating. Background reading used to leave no trace of what it cost, so
+`kb_collections` gained an `index_tokens` column that adds up every reading and the card says how
+much has been sent; a new `knowledge` settings record holds `maxIndexTokens` (400,000, zero for no
+limit) and `compareAtMost` (50,000). A reading that would go past the token limit is refused in one
+sentence on the card and word search carries on — only passages that were never read count towards
+it, worked out without touching the network by `CachedEmbeddings.missing`, so re-reading costs
+nothing and is never refused. `VectorBackend.search` gained a `scanAtMost` argument so the cosine
+loop's ceiling is the owner's setting rather than a constant. `/api/knowledge` answers now go through
+`hideSecrets` like every other route that can quote a person's files. `kb_collections` joined the
+backup tables, while `kb_chunks`, `vectors` and `embedding_cache` are documented as rebuilt by
+pressing "Read it again". The two deletions that dropped a collection's vectors were awaited rather
+than left floating. Four tests were added: a `.env`, `credentials.json`, `id_rsa` and `.pem` in an
+indexed folder reach neither the passage table nor the provider; the token limit refuses and then
+allows a re-read; the second nightly pass makes no network call at all; and a backup carries the
+knowledge bases but not their passages.
+
 ## Batch 25 (wave 7) — a voice you can talk to, and models you can switch on the fly
 Voice stopped being one provider's feature. `src/voice-stt.ts` is one `Transcription` service with
 three adapters — the Whisper-shaped `/audio/transcriptions` every OpenAI-compatible service speaks,
