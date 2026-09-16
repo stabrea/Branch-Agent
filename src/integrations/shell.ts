@@ -7,6 +7,9 @@ import { ShellProcess, type ProcessResult } from './shell-process.js';
 import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
 
+/** Longest a command waits for its Windows job object before running with sampled limits. */
+const jobStartupMs = 1500;
+
 export type SecretResolver = (context: ToolContext, names: string[]) => Promise<Record<string, string>>;
 export interface ShellTarget {
   alias: string; executable: string; cwd: string; secrets: string[];
@@ -60,7 +63,12 @@ export class BranchShell {
   /** A Windows job to hold this command, where the computer offers one; null means sampled limits. */
   private async job(): Promise<Job | null> {
     if (!this.config.useJobObject) return null;
-    return this.jobs.create({ maxMemoryMb: this.config.maxMemoryMb, maxCpuSeconds: this.config.maxCpuSeconds }).catch(() => null);
+    const pending = this.jobs.create({ maxMemoryMb: this.config.maxMemoryMb, maxCpuSeconds: this.config.maxCpuSeconds }).catch(() => null);
+    // The supervisor compiles a little C# on start; on a cold computer that can take many seconds.
+    // A command never waits longer than this for it: the limits fall back to sampling instead.
+    const job = await Promise.race([pending, new Promise<null>((resolve) => setTimeout(() => resolve(null), jobStartupMs).unref())]);
+    if (job === null) void pending.then((late) => late?.close().catch(() => undefined));
+    return job;
   }
   private async spawn(run: { executable: { path: string; args: string[] }; args: string[]; cwd: string;
     injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal }): Promise<ProcessResult> {
