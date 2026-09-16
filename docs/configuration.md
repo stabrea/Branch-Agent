@@ -908,6 +908,13 @@ Branch is: it must be inside your workspace, or inside the one benchmarks folder
 study pointing anywhere else is refused in one sentence when it is saved and again if it is run, so
 an older study cannot become a way to read a folder you never allowed.
 
+**Grading costs money too.** A task graded by a model (`rubric`) sends a second model call, and what
+that call costs is now charged to the cell that asked for it, so a study's tokens and its dollars
+are what it really spent rather than what the tasks alone spent. The `budget` scorer is answered
+last, whatever order the task listed its scorers in, so "did it stay inside its budget" is asked
+once the grader has spent rather than before — a task that only fits its limit by not counting the
+grader is not a task that fitted its limit.
+
 `bestOfN` runs each task that
 many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
 stops the study when it has spent that much, and says so.

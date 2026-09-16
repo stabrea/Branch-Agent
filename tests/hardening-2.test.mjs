@@ -313,6 +313,27 @@ test("every study cell takes a place from the shared count, and several studies 
   assert.ok(Date.now() - began >= 40);
 });
 
+test("what the grader spends is counted against the study cell and against its budget", async (t) => {
+  // Every reply is a grader's verdict as well as an answer, so the one scripted reply serves both.
+  const { app } = await fixture(t, () => say('{"score": 1, "reason": "fine"}'));
+  const { saveSuite } = await import("../dist/evaluation-suites.js");
+  // The budget is listed first and the grader second: the order that used to hide the grader's cost.
+  saveSuite(app.store, app.runtime.owner, {
+    id: "graded", name: "Graded", tasks: [{ id: "one", prompt: "say something", scorers: [
+      { kind: "budget", maxTokens: 1 }, { kind: "rubric", rubric: "Is it fine?", pass: 0.5 }] }],
+  });
+  app.studies.save({ id: "graded", name: "Graded", source: { kind: "suite", suite: "graded" }, presets: ["default"] });
+  const result = await app.studies.run("graded");
+  const [cell] = result.cells;
+  // The task's own run used this much; the cell is charged for more than that, because grading is
+  // a model call too and the study paid for it.
+  const own = app.store.usage(cell.runId);
+  const taskTokens = (own.estimatedInput ?? 0) + (own.estimatedOutput ?? 0);
+  assert.ok(cell.tokens > taskTokens, `the grader's own tokens land on the cell (${cell.tokens} vs ${taskTokens})`);
+  assert.equal(cell.passed, false, "a budget of one token cannot be met once the grader has spent");
+  assert.ok(cell.reasons.some((reason) => /was the limit/.test(reason)), cell.reasons.join(" | "));
+});
+
 test("a study's own place is what stops it starving when the computer is full", async (t) => {
   const { app } = await fixture(t);
   const { ExecutionLimit } = await import("../dist/execution-limit.js");

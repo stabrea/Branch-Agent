@@ -275,17 +275,27 @@ export class StudyRunner {
     const dollars = estimateCost(preset, tokens, pricingSettings(this.store, this.owner).overrides).amount;
     const ms = Date.now() - began, total = tokens.input + tokens.output;
     const trajectory = readTrajectory(this.store, run.id, { ms, tokens: total, dollars });
-    const verdict = await this.decide(task, run.output, trajectory, run.status);
-    return { passed: verdict.pass, score: verdict.score, ms, tokens: total, dollars, runId: run.id, reasons: verdict.reasons };
+    // Grading with a model is a model call like any other, so what the grader spends is added to
+    // this cell — as it happens, so that "did it stay inside its budget" sees it too.
+    const judged = { tokens: 0, dollars: 0 };
+    const verdict = await this.decide(task, run.output, trajectory, run.status, (cost) => {
+      judged.tokens += cost.tokens;
+      judged.dollars += cost.dollars ?? 0;
+      trajectory.tokens += cost.tokens;
+      if (trajectory.dollars !== null) trajectory.dollars += cost.dollars ?? 0;
+    });
+    return { passed: verdict.pass, score: verdict.score, ms, tokens: total + judged.tokens,
+      dollars: dollars === null ? null : dollars + judged.dollars, runId: run.id, reasons: verdict.reasons };
   }
 
   /** How a task is decided: its own judge when it came from a benchmark, else its scorers. */
   private async decide(
     task: StudyTask, answer: string, trajectory: ScoredTrajectory, status: string,
+    spent: (cost: { tokens: number; dollars: number | null }) => void = () => undefined,
   ): Promise<{ pass: boolean; score: number; reasons: string[] }> {
     if (status !== "completed") return { pass: false, score: 0, reasons: [`The task did not finish (${status})`] };
     if (task.judge) { const judged = await task.judge(answer); return { ...judged, score: judged.pass ? 1 : 0 }; }
-    const scored = await scoreTrajectory(task.scorers, { workspace: this.runtime.workspace, judge: runtimeJudge(this.runtime), judgeCache: this.judgeCache },
+    const scored = await scoreTrajectory(task.scorers, { workspace: this.runtime.workspace, judge: runtimeJudge(this.runtime, spent), judgeCache: this.judgeCache },
       { id: task.id, prompt: task.prompt, expected: task.expected }, trajectory, answer);
     return scored ? { pass: scored.pass, score: scored.score, reasons: scored.reasons } : { pass: true, score: 1, reasons: [] };
   }
