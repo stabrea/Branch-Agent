@@ -574,7 +574,7 @@ test("2 — a call parked on a question does not use up the connection's busy li
  * Integration pass: the holes the reviewer asked to be closed before this branch lands.
  * ------------------------------------------------------------------------------------------ */
 
-test("2 — a client cannot park question upon question, or wipe the one the owner is looking at", async (t) => {
+test("2 — a client may park a second question, and neither wipes the one the owner is looking at", async (t) => {
   const { app, call, rpc, sessionId } = await client(t);
   app.registry.register({
     name: "browser.click", description: "Click something on a web page", permission: "browser.interact",
@@ -583,28 +583,36 @@ test("2 — a client cannot park question upon question, or wipe the one the own
   await call("/api/mcp/settings", { enabled: true, exposedTools: ["browser.click"], askWaitSeconds: 600 });
   savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "browser.click", match: "*", decision: "ask" }] });
 
-  const parked = rpc({ jsonrpc: "2.0", id: 300, method: "tools/call",
+  const waitFor = async (count) => {
+    for (let at = 0; at < 400; at++) {
+      const waiting = app.runtime.approvals.waiting(`mcp:${sessionId}`);
+      if (waiting.length >= count) return waiting;
+      await delay(25);
+    }
+    throw new Error(`only ${app.runtime.approvals.waiting(`mcp:${sessionId}`).length} questions arrived, wanted ${count}`);
+  };
+  const first = rpc({ jsonrpc: "2.0", id: 300, method: "tools/call",
     params: { name: "browser.click", arguments: { selector: "#first" } } }, sessionId);
-  let question;
-  for (let at = 0; at < 400 && !question; at++) {
-    question = app.runtime.approvals.waiting(`mcp:${sessionId}`).at(-1);
-    if (!question) await delay(25);
-  }
+  const [question] = await waitFor(1);
   assert.ok(question, "the first call is holding a question for the owner");
 
-  // A second one on the same connection is turned away at once, because the app holds one question
-  // per conversation: letting it through would replace the one the owner is reading.
-  const over = await rpc({ jsonrpc: "2.0", id: 301, method: "tools/call",
+  // Wave 8: the app keeps a list of questions per conversation, so a second call down the same
+  // connection puts its own question rather than quietly taking the place of the first — which used
+  // to leave the first client holding a call nobody could ever answer.
+  const second = rpc({ jsonrpc: "2.0", id: 301, method: "tools/call",
     params: { name: "browser.click", arguments: { selector: "#second" } } }, sessionId);
-  assert.equal(over.data.result.isError, true);
-  assert.match(over.data.result.content[0].text, /as many questions for the owner as it allows/);
-  assert.match(over.data.result.content[0].text, /nothing was done/i);
-  const still = app.runtime.approvals.waiting(`mcp:${sessionId}`);
-  assert.equal(still.length, 1, "nothing was created for the one turned away");
-  assert.match(still[0].bytes, /#first/, "and the question the owner is looking at is untouched");
+  const both = await waitFor(2);
+  assert.equal(both.length, 2, "both calls left a question the owner can answer");
+  assert.match(both[0].bytes, /#first/, "the question the owner is looking at is untouched");
+  assert.match(both[1].bytes, /#second/);
+  assert.notEqual(both[0].fingerprint, both[1].fingerprint, "each is known by its own exact request");
 
+  // Each answer lands on the request it was given for, and each client gets its own.
+  app.runtime.approve(`mcp:${sessionId}`, "allow", "session", both[1].fingerprint);
+  assert.equal((await second).data.result.isError, false);
+  assert.equal(app.runtime.approvals.waiting(`mcp:${sessionId}`).length, 1, "the other one is still waiting");
   app.runtime.approve(`mcp:${sessionId}`, "allow", "session", question.fingerprint);
-  assert.equal((await parked).data.result.isError, false, "the first call still gets its answer");
+  assert.equal((await first).data.result.isError, false, "the first call still gets its answer");
 });
 
 test("1 — on demand, a tool whose shape the server has changed is not called with the old one", async (t) => {
