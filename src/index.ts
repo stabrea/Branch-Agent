@@ -74,7 +74,7 @@ export async function createBranch(options: {
     after: async (path, context, token) => {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
-      try { await documents?.refreshPath(context.owner, path); } catch { /* indexing never fails a file change */ }
+      try { await documents?.refreshPath(context.owner, path, context.signal); } catch { /* indexing never fails a file change */ }
     },
   });
   registerWorkspaceHistory(registry, history);

@@ -63,8 +63,11 @@ injected in `Runtime.loop` right after `openingMessages`, before the stored turn
 (`depth === 0`, no `agent`), capped at 900 characters per passage; it is evented, never fatal. A document made from a
 workspace file is rebuilt through the existing `registerFiles` `after` hook. Uploads arrive base64-encoded in JSON
 (`readBody` cap 28 MB for the 20 MB file limit) rather than through `rawApi`, which is for handlers that write their
-own response. The earlier `wave1/documents` attempt's chunk table is dropped and rebuilt on first open; it never
-shipped in a release.
+own response. A file the assistant rewrites is re-indexed for words straight away but is *not* re-embedded on every
+write (the hook would otherwise put a provider round trip inside `files.write`); the document says so and the next
+deliberate **Read the file again** restores meaning matching. The earlier `wave1/documents` attempt's chunk table is
+dropped on first open and its documents are marked failed with a note to add them again; that shape never shipped in a
+release.
 
 ## Batch 18 (local, unreleased): teams, linked chats, reconciliation gate, skill registry, evaluation suite, hand-over via Task Scheduler
 

@@ -89,7 +89,12 @@ export class DocumentLibrary {
       if (!this.db.prepare("PRAGMA table_info(documents)").all().some((row) => row.name === column))
         this.db.exec(`ALTER TABLE documents ADD COLUMN ${column} ${definition}`);
     const chunkColumns = this.db.prepare("PRAGMA table_info(document_chunks)").all().map((row) => String(row.name));
-    if (chunkColumns.length && !chunkColumns.includes("chunk_id")) this.db.exec("DROP TABLE document_chunks");
+    if (chunkColumns.length && !chunkColumns.includes("chunk_id")) {
+      // Passages from an earlier shape cannot be searched; the documents stay listed so they can be added again.
+      this.db.exec("DROP TABLE document_chunks");
+      this.db.prepare("UPDATE documents SET status='failed', note=?")
+        .run("An earlier version indexed this document. Add it again to search it.");
+    }
     this.db.exec(`CREATE TABLE IF NOT EXISTS document_chunks(chunk_id INTEGER PRIMARY KEY, document_id TEXT NOT NULL,
       owner TEXT NOT NULL, chunk_index INTEGER NOT NULL, chunk_text TEXT NOT NULL, embedding BLOB);
       CREATE INDEX IF NOT EXISTS document_chunks_document ON document_chunks(document_id);
@@ -187,7 +192,7 @@ export class DocumentLibrary {
     } finally { await handle.close(); }
   }
   /** Splits the text into passages, indexes them for word search, then adds meaning where possible. */
-  private async index(owner: string, id: string, text: string | null, signal: AbortSignal): Promise<void> {
+  private async index(owner: string, id: string, text: string | null, signal: AbortSignal, embed = true): Promise<void> {
     this.clearChunks(id);
     if (text === null) return this.mark(id, "needs_helper", "PDF files need a helper this assistant does not have yet. Save it as text or Word first.");
     const chunks = chunkText(text);
@@ -198,7 +203,9 @@ export class DocumentLibrary {
       if (this.ranked) this.db.prepare("INSERT INTO document_search(rowid,chunk_text) VALUES(?,?)").run(Number(row?.chunk_id), chunk);
     }
     this.mark(id, "indexed", "");
-    await this.embedChunks(owner, id, chunks, signal);
+    if (embed) await this.embedChunks(owner, id, chunks, signal);
+    else if (this.client(owner)) this.db.prepare("UPDATE documents SET note=? WHERE id=?")
+      .run("Updated after the file changed. Matched by its words for now; choose Read the file again to also match by meaning.", id);
   }
   private async embedChunks(owner: string, id: string, chunks: string[], signal: AbortSignal): Promise<void> {
     const client = this.client(owner);
@@ -230,24 +237,29 @@ export class DocumentLibrary {
   }
 
   /** Reads the workspace file again and rebuilds its passages, for example after the file changed. */
-  async reindex(owner: string, id: string, signal = AbortSignal.timeout(120000)): Promise<DocumentMetadata> {
+  async reindex(owner: string, id: string, signal = AbortSignal.timeout(120000), embed = true): Promise<DocumentMetadata> {
     const row = this.db.prepare("SELECT file_path, file_type FROM documents WHERE id=? AND owner=?").get(id, owner);
     if (!row) throw new Error("That document is not in your library");
     if (row.file_path === null) throw new Error("This document was pasted or uploaded, so there is no file to read again");
     try {
       const bytes = await this.readWorkspace(String(row.file_path));
       this.db.prepare("UPDATE documents SET file_size=? WHERE id=?").run(bytes.length, id);
-      await this.index(owner, id, extractText(bytes, documentType(String(row.file_path))), signal);
+      await this.index(owner, id, extractText(bytes, documentType(String(row.file_path))), signal, embed);
     } catch (error) {
       this.clearChunks(id);
       this.mark(id, "failed", `That file could not be read again: ${errorText(error).slice(0, 200)}`);
     }
     return this.one(owner, id);
   }
-  /** Called when the assistant changes a workspace file: any document made from it is rebuilt. */
-  async refreshPath(owner: string, path: string): Promise<void> {
+  /**
+   * Called when the assistant changes a workspace file: any document made from it is indexed again
+   * right away. Comparing by meaning is left for the next deliberate re-read, so a file the
+   * assistant writes in a loop never waits on the provider.
+   */
+  async refreshPath(owner: string, path: string, signal?: AbortSignal): Promise<void> {
     const rows = this.db.prepare("SELECT id FROM documents WHERE owner=? AND file_path=?").all(owner, path);
-    for (const row of rows) await this.reindex(owner, String(row.id)).catch(() => undefined);
+    for (const row of rows)
+      await this.reindex(owner, String(row.id), signal ?? AbortSignal.timeout(30000), false).catch(() => undefined);
   }
   remove(owner: string, id: string): { removed: string } {
     if (!this.db.prepare("SELECT id FROM documents WHERE id=? AND owner=?").get(id, owner))

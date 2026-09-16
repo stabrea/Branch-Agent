@@ -150,6 +150,16 @@ test("with an embeddings key meaning and wording are combined, in batches, and a
   assert.equal(service.calls.every((call) => call.length <= 64), true, "no request carries more than 64 passages");
   assert.equal(service.calls.length, Math.ceil(big.chunks / 64));
 
+  service.calls.length = 0;
+  await app.runtime.executeTool("files.write", { path: "notes.md", content: "Staff may take holiday after one month." });
+  const fromFile = await app.runtime.executeTool("documents.add", { path: "notes.md" });
+  assert.equal(fromFile.embedded, 1);
+  await app.runtime.executeTool("files.write", { path: "notes.md", content: "Staff may take holiday after two months." });
+  const after = app.documents.list("local").find((document) => document.id === fromFile.id);
+  assert.equal(after.embedded, 0, "a file the assistant rewrites is not re-sent to the provider on every write");
+  assert.match(after.note, /Read the file again/);
+  assert.match((await app.documents.search("local", { query: "two months" }))[0].text, /two months/, "words are indexed straight away");
+
   const failing = await embeddingService(t, { fail: true });
   const { app: second } = await fixture(t, withEmbeddings(failing.endpoint));
   const document = await second.documents.add("local", { name: "Handbook", text: "Staff may take holiday after three months." });
@@ -260,6 +270,13 @@ test("the documents routes list, add, search, re-read, remove and hold the answe
   assert.equal((await call(`/api/documents/${added.body.id}`, { method: "DELETE" })).body.removed, added.body.id);
   assert.deepEqual((await call("/api/documents")).body.documents, []);
   assert.equal((await call("/api/documents/nope", { method: "DELETE" })).status, 404);
+
+  const oversized = await call("/api/documents", {
+    body: { name: "Huge.txt", content: "data:text/plain;base64," + Buffer.alloc(documentBytesLimit + 1, 97).toString("base64") },
+  });
+  assert.equal(oversized.status, 400);
+  assert.match(oversized.body.error, /up to 20 MB/, "the person is told the actual limit, in MB");
+  assert.deepEqual((await call("/api/documents")).body.documents, [], "nothing is recorded for a refused upload");
 
   const panel = await fetch(server.url + "/documents.js");
   assert.equal(panel.status, 200, "the Documents panel is served");
