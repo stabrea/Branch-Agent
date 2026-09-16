@@ -5,17 +5,7 @@ import type {
   ToolDescription,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
-
-/**
- * Drops the JSON Schema dialect line from a generated tool schema. Every model provider ignores it
- * (Gemini's adapter already strips it), and with dozens of tools it is a tenth of the catalog the
- * model is sent every round.
- */
-function withoutDialect(schema: Record<string, unknown>): Record<string, unknown> {
-  if (!("$schema" in schema)) return schema;
-  const { $schema: _dialect, ...rest } = schema;
-  return rest;
-}
+import { inferToolGroup, slimTool } from "./catalog.js";
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -37,16 +27,25 @@ export class ToolRegistry {
       throw new Error("Invalid or duplicate tool name");
     this.tools.set(tool.name, tool as ToolDefinition);
   }
-  descriptions(permissions: ReadonlySet<string>): ToolDescription[] {
+  /**
+   * The catalog as the model sees it: only the tools this run may use, each put on the schema diet
+   * so the one part of the context that is charged every round stays small.
+   */
+  descriptions(permissions: ReadonlySet<string>, options: { diet?: boolean } = {}): ToolDescription[] {
     return [...this.tools.values()]
       .filter((t) => permissions.has(t.permission))
-      .map((t) => ({
-        name: t.name,
-        description: t.description,
-        parameters:
-          t.inputSchema ??
-          withoutDialect(z.toJSONSchema(t.parameters) as Record<string, unknown>),
-      }));
+      .map((t) => {
+        const described: ToolDescription = {
+          name: t.name,
+          description: t.description,
+          parameters: t.inputSchema ?? (z.toJSONSchema(t.parameters) as Record<string, unknown>),
+        };
+        return options.diet === false ? described : slimTool(described);
+      });
+  }
+  /** The toolbox a tool belongs to: its own answer, or one worked out from its name. */
+  groupOf(name: string): string {
+    return this.tools.get(name)?.group ?? inferToolGroup(name);
   }
   unregister(name: string): boolean {
     return this.tools.delete(name);

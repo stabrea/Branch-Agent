@@ -394,6 +394,7 @@ async function closeBranch(
 export * from "./contracts.js";
 export * from "./store.js";
 export * from "./registry.js";
+export * from "./catalog.js";
 export * from "./runtime.js";
 export * from "./demo.js";
 export * from "./providers.js";

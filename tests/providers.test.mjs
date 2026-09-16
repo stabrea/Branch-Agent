@@ -131,7 +131,8 @@ test("Anthropic protocol translates tool_use and tool_result blocks", async (t) 
     requests[1].body.messages.at(-1).content[0].tool_use_id,
     "call1",
   );
-  assert.equal(requests[0].body.system, "system");
+  // The instructions travel as a text block now so they can carry the prompt-cache marker.
+  assert.deepEqual(requests[0].body.system, [{ type: "text", text: "system", cache_control: { type: "ephemeral" } }]);
   assert.equal(requests[0].headers["x-api-key"], "fixture-key");
 });
 
