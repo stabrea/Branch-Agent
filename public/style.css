@@ -385,6 +385,16 @@ textarea {
 form > button {
   margin-top: 17px;
 }
+.provider-actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.provider-actions button {
+  flex: 1;
+  min-width: 120px;
+}
 .subtle {
   font-size: 11px;
   color: var(--faint);

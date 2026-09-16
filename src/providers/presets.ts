@@ -147,6 +147,16 @@ export const builtInPresets: ProviderPreset[] = [
       "Download LM Studio from https://lmstudio.ai/ and load a model. Any placeholder API key works.",
     kind: "local",
   },
+  {
+    id: "azure-openai",
+    displayName: "Azure OpenAI",
+    baseUrl: "https://<resource-name>.openai.azure.com/openai/deployments/<deployment-name>/chat/completions?api-version=2024-10-01-preview",
+    headerStyle: "azure-key",
+    modelIds: ["gpt-4o", "gpt-4-turbo", "gpt-4"],
+    keyHelp:
+      "Set up Azure OpenAI from https://portal.azure.com/. Your API key is in the Manage Keys section. Replace <resource-name> and <deployment-name> in the URL with your resource and deployment names.",
+    kind: "cloud",
+  },
 ];
 
 /**

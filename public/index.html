@@ -522,6 +522,12 @@
             <h2>Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
             <fieldset id="model-settings-fields">
+              <label for="provider-preset">Choose a provider</label>
+              <select id="provider-preset"></select>
+              <div class="provider-actions">
+                <button id="provider-test" type="button" class="secondary">Test this connection</button>
+                <button id="provider-local" type="button" class="secondary">Use the model running on this computer</button>
+              </div>
               <label for="model-provider">Provider</label>
               <select id="model-provider">
                 <option value="demo">Offline demonstration</option>
@@ -533,7 +539,8 @@
                 <input id="model-endpoint" type="url" maxlength="2048"
                   placeholder="https://api.openai.com/v1" />
                 <label for="model-name">Model identifier</label>
-                <input id="model-name" maxlength="256" autocomplete="off" />
+                <input id="model-name" maxlength="256" autocomplete="off" list="provider-model-suggestions" />
+                <datalist id="provider-model-suggestions"></datalist>
                 <label for="model-key">API key</label>
                 <input id="model-key" type="password" maxlength="8192"
                   autocomplete="new-password" spellcheck="false" />

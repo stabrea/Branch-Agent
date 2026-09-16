@@ -1,4 +1,11 @@
-const $ = (id) => document.getElementById(id);
+export const $ = (id) => document.getElementById(id);
+export function toast(message) {
+  $("toast").textContent = message;
+  $("toast").hidden = false;
+  setTimeout(() => {
+    $("toast").hidden = true;
+  }, 6000);
+}
 const desktop = new URLSearchParams(location.search).get("desktop") === "1";
 if (desktop) document.querySelector(".brand").href = "/?desktop=1";
 let savedAppearance;
@@ -33,13 +40,6 @@ function el(tag, text, className) {
   if (text !== undefined) node.textContent = String(text);
   if (className) node.className = className;
   return node;
-}
-function toast(message) {
-  $("toast").textContent = message;
-  $("toast").hidden = false;
-  setTimeout(() => {
-    $("toast").hidden = true;
-  }, 6000);
 }
 async function api(path, body) {
   const response = await fetch("/api/" + path, {
@@ -1568,3 +1568,13 @@ if (window.branchDesktop) {
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});
 }, 3000);
+
+// Initialize provider selection UI
+import("./providers.js").then((mod) => {
+  // Call initProvidersUI when settings view is shown
+  const originalShowModelSettings = showModelSettings;
+  globalThis.showModelSettings = function(value) {
+    originalShowModelSettings(value);
+    mod.initProvidersUI().catch((e) => toast(`Provider UI error: ${e.message}`));
+  };
+}).catch((e) => console.error("Failed to load providers UI:", e));
