@@ -17,8 +17,12 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
+import { chooseForInjection } from "./memory-layers.js";
+import { MemoryTidy, registerMemoryTidy, shipTidyProcedure } from "./memory-tidy.js";
+import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
+import { SqliteMemoryBackend } from "./memory-backend.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
@@ -193,10 +197,19 @@ export async function createBranch(options: {
   const memory = {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
+    tidy: undefined as unknown as MemoryTidy,
+    backend: new SqliteMemoryBackend(store),
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
-  store.review.orderFacts = (factOwner, agent) => memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record);
+  memory.tidy = new MemoryTidy(store, memory.hygiene, memory.retrieval);
+  registerMemoryTidy(registry, memory.tidy);
+  // "Tidy my memory" arrives as a recipe the owner can look at and check, like any other.
+  try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
+  // What goes in front of a task is taken layer by layer in the documented order and budget: what
+  // is happening now, then the job in hand, then everything the assistant knows for good.
+  store.review.orderFacts = (factOwner, agent) =>
+    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -367,6 +380,8 @@ export async function createBranch(options: {
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
   // Facts written during a task are compared by meaning as soon as it finishes, never during it.
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
+  registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
   const documentContext = documents;
   // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
   // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
@@ -682,6 +697,10 @@ export * from "./local-runtimes.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
+export * from "./memory-layers.js";
+export * from "./memory-tidy.js";
+export * from "./memory-evaluation.js";
+export * from "./memory-backend.js";
 export * from "./memory-hygiene.js";
 export * from "./memory-consolidate.js";
 export * from "./embeddings.js";

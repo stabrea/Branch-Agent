@@ -778,7 +778,7 @@ async function api(
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
-      health: await healthReport(app), version: app.version,
+      health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
     });
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
@@ -936,6 +936,12 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
       .strict().parse(await readBody(request));
     return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
   }
+  // "Tidy my memory" in one screen: the four checks together, and the same call with stage on.
+  if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
+  if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
   if (request.method === "POST" && path === "/api/memory/tidy") {
     z.object({}).strict().parse(await readBody(request));

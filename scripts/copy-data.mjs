@@ -5,5 +5,5 @@ import { mkdir, copyFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 await mkdir(resolve("dist"), { recursive: true });
-for (const name of ["holidays.json", "providers.json"])
+for (const name of ["holidays.json", "providers.json", "memory-retrieval.json"])
   await copyFile(resolve("data", name), resolve("dist", name));

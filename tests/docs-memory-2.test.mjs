@@ -8,6 +8,9 @@ import { createBranch } from "../dist/index.js";
 import { readDocument, tryReadDocument, picturesMessage, readableTypes } from "../dist/document-readers.js";
 import { pdfText, readContent, parseCmap, unescapeLiteral } from "../dist/document-pdf.js";
 import { documentType } from "../dist/document-text.js";
+import { chooseForInjection, factKindOf, layerOf } from "../dist/memory-layers.js";
+import { tidyProcedureId, tidyProcedureName } from "../dist/memory-tidy.js";
+import { loadMemorySet, runMemoryEvaluation } from "../dist/memory-evaluation.js";
 
 /** A minimal ZIP container, the way Word, spreadsheet, slide and e-book files are packed. */
 function zip(entries) {
@@ -315,4 +318,146 @@ test("the document library reads a Word file and refuses a locked PDF with a rea
   const locked = await app.documents.add("local", { name: "secret.pdf", content: pdf({ encrypt: true }).toString("base64") });
   assert.equal(locked.status, "failed");
   assert.match(locked.note, /locked with a password/);
+});
+
+// ---------------------------------------------------------------- memory kinds and layers
+
+test("a fact remembers what kind of thing it is and how long it should last", async (t) => {
+  const { app } = await fixture(t);
+  const run = app.store.createRun("local", "remember things");
+  const context = app.runtime.context({ runId: run.id });
+  const preference = await app.registry.execute("memory.put",
+    { text: "He drinks his tea without sugar.", source: "said so", kind: "preference" }, context);
+  const scratch = await app.registry.execute("memory.put",
+    { text: "The third invoice is the odd one out.", source: "this job", kind: "task-scratch" }, context);
+  assert.equal(factKindOf(app.store.get("memory", "local", preference.id)), "preference");
+  assert.equal(layerOf(app.store.get("memory", "local", preference.id)), "long-term");
+  assert.equal(layerOf(app.store.get("memory", "local", scratch.id)), "task", "a scribble is short-lived by default");
+  assert.equal(factKindOf({ data: {}, id: "x", revision: 1 }), "fact-about-world", "an older fact keeps behaving as it did");
+  assert.equal(layerOf({ data: {}, id: "x", revision: 1 }), "long-term");
+});
+
+test("notes a job made for itself go when it ends, unless the owner asked to keep one", async (t) => {
+  const { app } = await fixture(t);
+  const run = app.store.createRun("local", "tidy the invoices");
+  const context = app.runtime.context({ runId: run.id });
+  const going = await app.registry.execute("memory.put",
+    { text: "Invoice 3 is duplicated.", source: "this job", kind: "task-scratch" }, context);
+  const staying = await app.registry.execute("memory.put",
+    { text: "Invoice 9 was never sent.", source: "this job", kind: "task-scratch" }, context);
+  await app.registry.execute("memory.keep", { id: staying.id }, context);
+
+  const result = app.store.clearTaskScratch("local", run.id);
+  assert.deepEqual(result.cleared, [going.id]);
+  assert.ok(app.store.get("memory", "local", staying.id), "the note the owner asked to keep is still there");
+  assert.equal(app.store.get("memory", "local", going.id), undefined);
+  const left = app.store.get("memory", "local", staying.id);
+  assert.equal(layerOf(left), "long-term", "keeping a note moves it out of the job's own layer");
+  assert.ok(app.store.review.versions("local", going.id).length, "the note that went can still be brought back");
+});
+
+test("what goes in front of a task follows the documented order and budget", () => {
+  const make = (id, layer, text) => ({ id, revision: 1, createdAt: "", updatedAt: "", data: { text, layer } });
+  const records = [
+    ...Array.from({ length: 9 }, (_, n) => make(`w${n}`, "working", `working note ${n}`)),
+    ...Array.from({ length: 9 }, (_, n) => make(`t${n}`, "task", `task note ${n}`)),
+    ...Array.from({ length: 9 }, (_, n) => make(`l${n}`, "long-term", `lasting fact ${n}`)),
+  ];
+  const chosen = chooseForInjection(records, { facts: 20, chars: 2000 });
+  assert.deepEqual(chosen.perLayer, { working: 6, task: 4, "long-term": 9 }, "each layer is capped in the documented order");
+  assert.equal(chosen.records.length, 19);
+  assert.deepEqual(chosen.records.slice(0, 3).map((r) => r.id), ["w0", "w1", "w2"], "what is happening now comes first");
+  assert.equal(chosen.records[6].id, "t0", "then the job in hand");
+
+  const tight = chooseForInjection(records, { facts: 20, chars: 40 });
+  assert.ok(tight.records.length < 19, "the space allowed stops it too");
+  const tied = { id: "p1", revision: 1, createdAt: "", updatedAt: "", data: { text: "only for the shed", layer: "long-term", project: "Shed" } };
+  assert.ok(chooseForInjection([tied], { facts: 20, chars: 2000 }, "shed").records.some((r) => r.id === "p1"),
+    "a fact tied to the project being worked on is in");
+  assert.equal(chooseForInjection([tied], { facts: 20, chars: 2000 }, "Kitchen").records.length, 0,
+    "a fact tied to one project is left out while another is being worked on");
+  assert.equal(chooseForInjection([tied], { facts: 20, chars: 2000 }).records.length, 1, "with no project in hand, everything is in");
+});
+
+test("tidying finds all four troubles, stages suggestions and deletes nothing", async (t) => {
+  const { app } = await fixture(t);
+  const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
+  app.store.save("memory", "local", "a", { text: "Bins go out on Tuesday evening.", source: "owner" });
+  app.store.save("memory", "local", "b", { text: "Bins go out on Tuesday evening", source: "owner" });
+  app.store.save("memory", "local", "c", { text: "Car insurer: Green Valley Mutual.", source: "owner" });
+  app.store.save("memory", "local", "d", { text: "Car insurer: Riverbend Direct.", source: "owner" });
+  app.sqliteForTests?.();
+  app.store.sqlite.prepare("UPDATE memory SET updated_at=? WHERE owner='local' AND id='c'").run(old);
+
+  const report = app.memory.tidy.run("local", { stage: false });
+  assert.equal(report.deleted, 0);
+  assert.ok(report.duplicates.length, "the same thing saved twice is found");
+  assert.ok(report.contradictions.length, "two facts that disagree are found");
+  assert.ok(report.stale.some((entry) => entry.id === "c"), "something not touched in a long time is found");
+  assert.ok(report.neverUsed.length, "something never drawn on is found");
+  assert.equal(report.health.facts, 4);
+  assert.equal(report.health.byLayer["long-term"], 4);
+
+  const before = app.store.list("memory", "local").length;
+  const staged = app.memory.tidy.run("local", { stage: true });
+  assert.ok(staged.staged.length, "findings become suggestions");
+  assert.equal(app.store.list("memory", "local").length, before, "staging removes nothing");
+  assert.ok(app.store.review.proposals("local", "pending").length >= staged.staged.length);
+});
+
+test("the shipped tidying recipe is in the owner's list, as a proposal like any other", async (t) => {
+  const { app } = await fixture(t);
+  const saved = app.store.get("procedures", "local", tidyProcedureId);
+  assert.ok(saved, "it is shipped");
+  assert.equal(saved.data.definition.name, tidyProcedureName);
+  assert.equal(saved.data.status, "proposed", "it is not marked as checked until it has been");
+  assert.equal(saved.data.definition.steps[0].tool, "memory.tidy");
+});
+
+test("the memory evaluation reports a hit rate before and after the nightly pass", async (t) => {
+  const { app } = await fixture(t);
+  const set = loadMemorySet();
+  const result = await runMemoryEvaluation(app.store, app.memory.retrieval, app.consolidation, set);
+  assert.equal(result.questions, set.questions.length);
+  assert.ok(result.hitRateBefore > 0.5, `expected most questions answered, got ${result.hitRateBefore}`);
+  assert.ok(result.hitRateAfter >= result.hitRateBefore, "the nightly pass never makes it worse");
+  assert.ok(result.meaningSearch, "without a connected model it says so rather than pretending");
+  assert.deepEqual(app.store.list("memory", "memory-evaluation"), [], "the set is cleared away afterwards");
+  assert.deepEqual(app.store.list("memory", "local"), [], "nothing the owner saved is touched");
+});
+
+// ---------------------------------------------------------------- backend and transfer
+
+test("the shipped backend answers every part of the contract it promises", async (t) => {
+  const { app } = await fixture(t);
+  const backend = app.memory.backend;
+  assert.equal(typeof backend.name, "string");
+  const saved = backend.write("local", "one", { text: "The gate sticks in wet weather.", source: "owner", kind: "procedure-hint" });
+  assert.equal(backend.read("local", "one").id, "one");
+  assert.equal(backend.read("local", "missing"), undefined, "a fact that is not there is an answer, not a failure");
+  assert.equal(backend.count("local"), 1);
+  assert.equal(backend.list("local").length, 1);
+  assert.ok(backend.search("local", "gate").some((record) => record.id === "one"));
+  assert.equal(backend.list("other-owner").length, 0, "owners never see each other's facts");
+  assert.equal(backend.forget("local", "one"), true);
+  assert.equal(backend.forget("local", "one"), false);
+  assert.equal(saved.data.kind, "procedure-hint");
+});
+
+test("taking memory out and putting it back keeps the kind, the layer and the project", async (t) => {
+  const { app } = await fixture(t);
+  app.store.save("memory", "local", "one", { text: "He prefers phone calls to email.", source: "owner", kind: "preference", layer: "long-term" });
+  app.store.save("memory", "local", "two", { text: "The shed roof is felt, not tile.", source: "owner", kind: "project-note", project: "Shed", layer: "long-term" });
+  const written = app.memory.transfer.export("local");
+  assert.match(written, /"kind":"preference"/);
+  assert.match(written, /"project":"Shed"/);
+
+  const { app: second } = await fixture(t);
+  const report = second.memory.transfer.import("local", written);
+  assert.equal(report.imported, 2);
+  const back = second.store.get("memory", "local", "two");
+  assert.equal(back.data.kind, "project-note");
+  assert.equal(back.data.project, "Shed");
+  assert.equal(layerOf(back), "long-term");
+  assert.equal(second.memory.transfer.import("local", written).imported, 0, "putting the same file back makes no copies");
 });

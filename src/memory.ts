@@ -4,6 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { SavedRecord, Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import { FactKindSchema, MemoryLayerSchema, layerForKind, layerOf } from "./memory-layers.js";
 
 export const maximumMemoryArchiveBytes = 16 * 1024 * 1024;
 export const MemoryDataSchema = z.object({
@@ -20,6 +21,14 @@ export const MemoryDataSchema = z.object({
   validTo: z.iso.datetime().nullable().optional(),
   /** private (owner only, default), shared (also visible to delegated specialists), or agent:<id>. */
   scope: z.string().regex(/^(private|shared|agent:[a-zA-Z0-9_.:-]{1,80})$/).optional(),
+  /** What kind of thing this is; absent means a fact about the world. See src/memory-layers.ts. */
+  kind: FactKindSchema.optional(),
+  /** How long it is meant to last; absent means long-term, which is how every older fact behaved. */
+  layer: MemoryLayerSchema.optional(),
+  /** The project it belongs to, when it belongs to one rather than to the person in general. */
+  project: z.string().trim().min(1).max(120).optional(),
+  /** Set when the owner asked for a scribble to be kept, so ending the job no longer clears it. */
+  promoted: z.boolean().optional(),
 }).strict();
 /** Scopes a reader may see: everything for the owner, shared plus its own for a delegated specialist. */
 export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {
@@ -53,6 +62,10 @@ export const PutMemorySchema = z.object({
   attribute: z.string().trim().min(1).max(80).optional(),
   validFrom: z.iso.datetime().optional(),
   scope: z.enum(["private", "shared"]).optional(),
+  /** What kind of thing this is. A task-scratch note is cleared when the job that made it ends. */
+  kind: FactKindSchema.optional(),
+  /** Which project it belongs to, when it belongs to one rather than to the person in general. */
+  project: z.string().trim().min(1).max(120).optional(),
 }).strict();
 export const AtMemorySchema = z.object({ entity: z.string().trim().min(1).max(120), attribute: z.string().trim().min(1).max(80).optional(), at: z.iso.datetime().optional() }).strict();
 export interface MemoryRecord extends SavedRecord { revision: number }
@@ -102,6 +115,37 @@ export class MemoryFacts {
     if (!previous) return false;
     this.keepVersion(owner, previous, reason);
     return this.db.prepare("DELETE FROM memory WHERE owner=? AND id=?").run(owner, id).changes > 0;
+  }
+  /**
+   * A scribble made while doing one job, kept for good instead. The owner asks for this from the
+   * Memory screen, or a task asks for it before it finishes; either way the note stops being
+   * cleared when the job ends and joins everything else the assistant knows.
+   */
+  promote(owner: string, id: string): MemoryRecord {
+    const record = this.get(owner, id);
+    if (!record) throw new Error("That note is no longer saved");
+    if (layerOf(record) !== "task") throw new Error("Only a note made while doing a job can be kept this way");
+    this.keepVersion(owner, record, "kept for good");
+    const data = { ...record.data, layer: "long-term" as const, promoted: true };
+    this.db.prepare("UPDATE memory SET data=?, updated_at=?, revision=revision+1 WHERE owner=? AND id=?")
+      .run(JSON.stringify(data), new Date().toISOString(), owner, id);
+    return this.get(owner, id)!;
+  }
+  /**
+   * Clears the scribbles one job made, which is what "task scratch" means: they were only ever for
+   * the length of that job. A note the owner asked to keep is left alone, and every note that does
+   * go keeps its last wording as a version, so nothing is lost beyond recall.
+   */
+  clearTaskScratch(owner: string, runId: string): { cleared: string[] } {
+    const cleared: string[] = [];
+    for (const record of this.list(owner)) {
+      const data = record.data as { sourceRunId?: string };
+      // Keeping a note moves it out of this layer, which is exactly what spares it from here.
+      if (layerOf(record) !== "task" || String(data.sourceRunId ?? "") !== runId) continue;
+      this.delete(owner, record.id, "the job this note was for finished");
+      cleared.push(record.id);
+    }
+    return { cleared };
   }
   /** Puts a record back exactly as a checkpoint kept it, id, times and revision included. */
   restoreExact(owner: string, record: { id: string; data: Record<string, unknown>; createdAt: string; updatedAt: string; revision: number }): void {
@@ -334,9 +378,14 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
       const scope = context.agent ? (value.scope === "shared" ? "shared" : `agent:${context.agent}`) : value.scope;
       const { scope: _requested, ...rest } = value; void _requested;
+      // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
+      const layer = layerForKind(value.kind ?? "fact-about-world");
       return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", context.owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), sourceRunId: context.runId });
+        ?? store.save("memory", context.owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), layer, sourceRunId: context.runId });
     } });
+  registry.register({ name: "memory.keep", description: "Keep a note made while doing this job for good, so it is not cleared when the job ends.",
+    permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
+    execute: async (value, context) => store.promoteMemory(context.owner, value.id) });
   registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment (default now), for details that change over time.",
     permission: "memory.read", parameters: AtMemorySchema,
     execute: async (value, context) => store.memoryAt(context.owner, value, context.agent) });

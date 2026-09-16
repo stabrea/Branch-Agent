@@ -539,6 +539,10 @@ export class Store {
   memoryHygiene(owner: string, input: unknown, now?: number) { return this.memories.hygiene(owner, input, now); }
   archivedMemory(owner: string) { return this.memories.archived(owner); }
   restoreMemory(owner: string, id: string) { return this.memories.restore(owner, id); }
+  /** Keeps a note made while doing one job, so finishing that job no longer clears it. */
+  promoteMemory(owner: string, id: string) { return this.memories.promote(owner, id); }
+  /** Clears the notes one job made for itself; notes the owner asked to keep are left alone. */
+  clearTaskScratch(owner: string, runId: string) { return this.memories.clearTaskScratch(owner, runId); }
   claimSchedule(
     owner: string,
     id: string,
