@@ -90,6 +90,7 @@ import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
+import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
@@ -639,6 +640,11 @@ async function api(
     const kept = await app.artifacts.list();
     return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
   }
+  // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
+  if (request.method === "GET" && path === "/api/credentials/settings")
+    return readCredentialSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/credentials/settings")
+    return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);

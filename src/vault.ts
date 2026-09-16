@@ -75,10 +75,24 @@ export interface SecretEntry {
 export interface SecretUse { runId: string | null; project: string; name: string; purpose: string; usedAt: string }
 const dayMs = 86_400_000;
 
+/**
+ * Something that can replace references of its own inside a value at the moment of a call. The
+ * password managers on this computer are wired in this way, so the locker does not have to know
+ * anything about them.
+ */
+export interface ReferenceFiller {
+  fill<T>(value: T, use: { runId?: string | undefined; purpose: string }): Promise<T>;
+}
+
 export class Secrets {
   readonly scrubber = new SecretScrubber();
   /** Set by the session lock: it throws a plain reason when secrets may not be used yet. */
   gate: () => void = () => undefined;
+  /**
+   * The owner's own password manager, when they have switched that on. It is asked first, so a
+   * `secret://bitwarden/...` reference never reaches the locker's own project look-up.
+   */
+  credentials: ReferenceFiller | null = null;
   constructor(private readonly db: DatabaseSync, private readonly locker: Locker) {
     db.exec(`CREATE TABLE IF NOT EXISTS secret_meta(owner TEXT NOT NULL, project TEXT NOT NULL, name TEXT NOT NULL,
       rotated_at TEXT, expires_at TEXT, PRIMARY KEY(owner,project,name));
@@ -139,12 +153,15 @@ export class Secrets {
    * moment of the call and nowhere earlier. A reference to another project is refused.
    */
   async fill<T>(owner: string, project: string, value: T, use: { runId?: string | undefined; purpose: string }): Promise<T> {
-    const references = collectReferences(value);
-    if (!references.length) return value;
+    // The password managers go first: their item names are not locker names, and reading them as a
+    // project would turn "secret://bitwarden/GitHub" into a refusal about the wrong thing.
+    const started = this.credentials ? await this.credentials.fill(value, use) : value;
+    const references = collectReferences(started);
+    if (!references.length) return started;
     const foreign = references.find((reference) => reference.project !== project);
     if (foreign) throw new Error(`${secretReference(foreign.project, foreign.name)} is not in the active project (${project})`);
     const values = await this.resolve(owner, project, references.map((reference) => reference.name), use);
-    return mapStrings(value, (text) => text.replace(anyReference, (whole, _project, name: string) => values[name] ?? whole));
+    return mapStrings(started, (text) => text.replace(anyReference, (whole, _project, name: string) => values[name] ?? whole));
   }
 
   /** Which run used which secret, newest first. */

@@ -2740,3 +2740,21 @@ going to be built. They are written down here so nobody goes looking for them.
   reached over a key on this computer or over your own private Tailscale address.
 - **No invitations.** Accounts are not handed out. Nobody signs up; you create a profile for someone
   in this house and that is the whole of it.
+
+## Passwords from the password manager you already have (batch 26, wave 8)
+
+Branch can read a password out of Bitwarden or 1Password instead of keeping a copy of its own. You
+write a reference where the password would go — `secret://bitwarden/GitHub Deploy`, or
+`secret://1password/Private/GitHub/password` — and the real value is asked of that program's own
+command line at the moment it is handed over, then taken straight back out of the transcript, the
+traces, the receipts and any error message. Nothing is ever stored.
+
+It is off until you turn it on, and then only for the vaults you tick. Branch only ever reads: it
+never writes to a vault, never unlocks one and never signs in for you. If the command line is not
+installed, or the vault is locked, Branch says so plainly and stops — it does not guess and does not
+fall back to anything else.
+
+Settings: `enabled` (off by default), `services` (`bitwarden`, `1password`), `bitwardenCommand`
+(`bw`), `onePasswordCommand` (`op`) and `timeoutMs`. New routes: `GET|POST
+/api/credentials/settings`. The look-up waits for the same unlock the secrets locker does, so a
+locked app reads nothing.

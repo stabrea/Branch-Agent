@@ -10,6 +10,7 @@ import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
+import { CredentialResolver } from "./credential-cli.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -229,6 +230,11 @@ export async function createBranch(options: {
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();
+  // Batch 26 (wave 8): the owner's own password manager, asked at the call boundary and only when
+  // they have switched it on. It waits for the same unlock the locker does.
+  const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
+  credentials.gate = () => sessionLock.require();
+  store.secrets.credentials = credentials;
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -878,6 +884,7 @@ export * from "./code-change.js";
 export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
+export * from "./credential-cli.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
