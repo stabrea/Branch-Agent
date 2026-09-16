@@ -13,6 +13,7 @@ import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
+import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { healthReport } from "./health.js";
@@ -344,6 +345,7 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    orchestration: orchestrationSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
     setAside: app.store.governance.exclusions(),
@@ -410,7 +412,7 @@ async function api(
     return voiceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/voice/settings")
     return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts))?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.runtime.owner)
@@ -419,6 +421,17 @@ async function api(
       return { cancelled: app.runtime.cancel(run.id) };
     if (request.method === "POST" && match[2] === "resume")
       return app.runtime.resume(run.id);
+    // Steering a task that is working, and editing or approving the plan it is waiting on.
+    if (request.method === "POST" && match[2] === "steer") {
+      const { text } = z.object({ text: z.string().trim().min(1).max(2000) }).strict().parse(await readBody(request));
+      return app.runtime.steer(run.id, text);
+    }
+    if (request.method === "GET" && match[2] === "plan")
+      return { plan: app.runtime.orchestration.plan(run.sessionId) ?? null };
+    if (request.method === "POST" && match[2] === "plan") {
+      const body = z.object({ steps: z.array(PlanStepSchema).min(1).max(8).optional() }).strict().parse(await readBody(request));
+      return app.runtime.orchestration.editPlan(run.id, body.steps);
+    }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
     if (request.method === "GET" && !match[2])
       return {
@@ -431,6 +444,10 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/activity")
     return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/orchestration")
+    return orchestrationSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/orchestration")
+    return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
@@ -489,6 +506,8 @@ async function api(
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
       ...(input.images?.length ? { images: input.images } : {}),
+      ...(input.plan !== undefined ? { plan: input.plan } : {}),
+      ...(input.verify !== undefined ? { verify: input.verify } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {

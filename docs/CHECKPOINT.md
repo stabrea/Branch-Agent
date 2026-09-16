@@ -595,6 +595,42 @@ A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deli
 retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`
 when approval is off, `forget`, and the delete-then-restore inside `restoreCheckpoint`) still remove
 without a suggestion — R1 holds for the paths added here, not for those.
+## Batch 22 (wave 3) — plans, several specialists at once, steering, reviewers and shared notes
+`src/orchestration.ts` and `src/orchestration-tools.ts` add six things to how a task is run, each
+behind a flag that is off by default, so an unchanged install behaves exactly as before.
+A task may be asked to **plan first** (`plan: true` on a run, or the `autoPlan` setting with a cheap
+heuristic for long or multi-part prompts): the model returns two to six numbered steps, they are
+stored for the conversation and carried out one at a time with a per-step check and one retry, and
+`plan.step.started/finished` say where it is. With `planApproval` the task stops through the
+existing needs-input pause with the plan as its question, and `POST /api/runs/:id/plan` edits and
+approves it; a plan being carried out by a task that stops early is dropped, so the next message is
+never silently answered by an abandoned plan. **`delegate.parallel`** runs up to six specialist
+branches (four in flight, the runtime's existing child limit), splitting what is left of the task's
+tokens evenly and charging each branch back at no more than its share; one branch failing leaves the
+others running unless `failFast`, and the answers go back to the parent to combine.
+**`delegate.handoff`** gives the rest of a piece of work to a named specialist.
+**`POST /api/runs/:id/steer`** puts a note in front of the working task's next round (a follow-up,
+by contrast, waits for the task to finish). An optional **reviewer pass** (`verify`) checks a
+finished answer against the task's checks and the owner's memory snapshot and either accepts or
+returns a short fix list, at most twice. **Long-task hygiene**: `run.milestone` notes built from the
+task's own events, with no extra model call, and a `stuckAction` that asks the owner or changes
+model after the stall watchdog has fired twice instead of retrying the same thing. A **shared
+scratch area** (`scratch.set` / `scratch.read`, capped at 32 notes and 64 KB) is keyed by the top
+task of a delegation tree through a new `ToolContext.scratchRoot` and emptied when that task ends.
+New state reaches clients through the existing events and `GET /api/activity` (`plan`, `milestone`,
+`verdict`); there is no new screen.
+One change outside the theme was needed and is worth knowing about: `registry.descriptions()` now
+drops the `$schema` dialect line from generated tool schemas (Gemini's adapter already stripped it
+and no provider reads it). The tool catalog is sent every round, and at 58 tools that line alone
+cost about 800 estimated tokens — enough that, before the change, adding five tools pushed
+`tests/compaction-attention.test.mjs` over its 11,000-token compaction threshold and made a settled
+conversation summarise itself twice. Measured: catalog 8,554 → 7,551 tokens, and the third run of
+that test went from 11,008 (over) to 10,183. The threshold is close enough to the catalog size that
+the next few tools will run into it again; raising `compactionThreshold` is the real fix and was
+left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks in one wave while
+`delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
+today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
+and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
