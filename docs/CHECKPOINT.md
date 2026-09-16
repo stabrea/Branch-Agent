@@ -349,6 +349,10 @@ available and free (offline); higher-quality voice from provider is optional. Vo
 read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
 read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
+## Released 0.7.3 and 0.8.0 (2026-09-16)
+
+0.7.3: silent update hand-over (Task Scheduler + hidden Windows Script Host launcher; the old detached script made every `tasklist | find` step open a console window), provider presets and Gemini, voice, usage screen. 0.8.0: documents library, triggers and webhooks, MCP server mode, plus two front-end fixes found by the packaged suite (static-asset allowlist now guarded by `tests/static-assets.test.mjs`; classic scripts must use `var` for shared helpers). Both rehearsed on a staged copy with a console-window counter (0 windows) and hand-installed on the owner's PC. Wave 2 (integration branch): shell pass 1, code tools, Git/GitHub, approval policies; cost/trace and shell pass 2 in progress. Subagents default to Haiku on this machine (CLAUDE_CODE_SUBAGENT_MODEL); builders now run on Opus explicitly.
+
 ## Batch 20 (wave 2) — app shell, tokens and appearance
 
 The browser and desktop interface was rebuilt around the approved KeepOak redesign. A token layer
