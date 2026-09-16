@@ -480,8 +480,21 @@ test("somebody else's profile reaches none of the owner's sharing, workflows, wa
   const state = await call("/api/state");
   assert.deepEqual(state.body.collab.workflows, [], "nor are the owner's workflows listed to them");
   assert.deepEqual(state.body.collab.shares, []);
+  // The assistant always works as the owner, so the tools must check the profile too, not just
+  // the web routes: otherwise a task started under somebody else's name reaches them that way.
+  await assert.rejects(
+    () => app.runtime.executeTool("workflows.list", {}),
+    /belongs to the owner/,
+    "the assistant's own workflow tools are refused while a profile is switched on",
+  );
+  await assert.rejects(
+    () => app.runtime.executeTool("workflows.create", { name: "Sneaky", steps: [{ name: "Do it", kind: "tool", tool: "memory.put", args: { text: "x", source: "y" } }] }),
+    /belongs to the owner/,
+  );
   await call("/api/profiles/switch", { profileId: null });
   assert.equal((await call("/api/workflows")).body.workflows.length, 1, "the owner still sees their own");
+  assert.equal((await app.runtime.executeTool("workflows.list", {})).workflows.length, 1,
+    "and the owner's own assistant still reaches them");
 });
 
 test("the assistant cannot say yes to a workflow's approval step; the owner still can", async (t) => {

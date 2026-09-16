@@ -82,6 +82,15 @@ export class Workflows {
       status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, output TEXT NOT NULL DEFAULT '',
       run_id TEXT, started_at TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(workflow_id, step_index))`);
   }
+  /**
+   * The assistant always works as the owner, even during somebody else's task, so every tool here
+   * checks whose profile is switched on first: a saved workflow's steps use tools with the whole
+   * run of the app and must stay out of reach of anybody but the owner.
+   */
+  forOwner(owner: string): string {
+    this.store.profiles.requireOwner("Saved workflows");
+    return owner;
+  }
   create(owner: string, input: unknown): WorkflowView {
     const definition = WorkflowSchema.parse(input);
     const id = definition.id ?? randomUUID();
@@ -244,34 +253,34 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Save a list of steps the app can work through on its own: ask the assistant, replay a saved procedure, use one tool, wait for the owner to approve, wait a while, or skip ahead when the last answer did not say what was expected.",
     permission: "workflows.manage",
     parameters: WorkflowSchema,
-    execute: async (value, context) => workflows.create(context.owner, value),
+    execute: async (value, context) => workflows.create(workflows.forOwner(context.owner), value),
   });
   registry.register({
     name: "workflows.list",
     description: "Saved workflows with where each one has got to and what every step did.",
     permission: "workflows.read",
     parameters: z.object({}).strict(),
-    execute: async (_value, context) => ({ workflows: workflows.list(context.owner) }),
+    execute: async (_value, context) => ({ workflows: workflows.list(workflows.forOwner(context.owner)) }),
   });
   registry.register({
     name: "workflows.run",
     description: "Start a saved workflow, or carry on one that was stopped part of the way through.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) => workflows.run(context.owner, value.id),
+    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id),
   });
   registry.register({
     name: "workflows.pause",
     description: "Stop a workflow between steps; everything already done stays done.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) => workflows.pause(context.owner, value.id),
+    execute: async (value, context) => workflows.pause(workflows.forOwner(context.owner), value.id),
   });
   registry.register({
     name: "workflows.resume",
     description: "Carry a stopped workflow on. A workflow waiting for the owner's approval is not carried on by this; the owner says yes on their own screen.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) => workflows.resumeWithoutApproving(context.owner, value.id),
+    execute: async (value, context) => workflows.resumeWithoutApproving(workflows.forOwner(context.owner), value.id),
   });
 }
