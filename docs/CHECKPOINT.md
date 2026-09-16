@@ -406,7 +406,7 @@ sentence that tells the assistant to report back rather than carry on. `browser.
 to the "workspace" approval preset, and every new changing tool reports the page's host as its
 approval target. New UI: `public/browser.js` and one additive Settings card; new routes
 `/api/browser/profiles`, `/api/browser/profiles/remove`, `/api/browser/signin`. Tests:
-`tests/browser-more.test.mjs` (12 cases). No new dependency — the same Playwright.
+`tests/browser-more.test.mjs` (13 cases). No new dependency — the same Playwright.
 
 ## Batch 21 (wave 2) — the shell, second pass
 

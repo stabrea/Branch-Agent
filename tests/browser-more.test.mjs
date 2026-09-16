@@ -145,6 +145,20 @@ test('waiting and extracting read a table as rows, and tabs can be opened and sw
   } finally { await h.close(); }
 });
 
+test('the current page can be saved as a PDF beside the private database', async () => {
+  const h = await harness('browser-pdf');
+  try {
+    const context = runContext('pdf');
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/table`}, context);
+    const saved = await h.registry.execute('browser.pdf', {}, context);
+    assert.equal(saved.mediaType, 'application/pdf');
+    const bytes = await readFile(saved.path);
+    assert.equal(bytes.subarray(0, 5).toString('utf8'), '%PDF-');
+    assert.equal(bytes.byteLength, saved.bytes);
+    await h.registry.finishRun(context);
+  } finally { await h.close(); }
+});
+
 test('a message box from the website is dismissed and reported instead of stopping the task', async () => {
   const h = await harness('browser-dialog');
   try {

@@ -133,6 +133,7 @@ export class BranchBrowser {
       throw new Error(originStop(this.config.maxOriginsPerRun));
     return this.operation(context, async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
+      // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
       entry.host = new URL(url).host;
       return { url: page.url(), title: await page.title() };
@@ -250,13 +251,20 @@ export class BranchBrowser {
     const ending = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
     if (!this.config.downloadTypes.includes(ending))
       throw new Error(`files ending in .${ending || '(nothing)'} are not saved`);
-    const relative = await this.freeName(name);
-    const target = await this.files.checked(relative);
-    await mkdir(dirname(target), { recursive: true });
-    return this.stream(download, target, relative);
+    // Two files arriving at once can pick the same free name, so a taken name is tried again once.
+    for (let attempt = 0; ; attempt++) {
+      const relative = await this.freeName(name);
+      const target = await this.files.checked(relative);
+      await mkdir(dirname(target), { recursive: true });
+      try { return await this.stream(download, target, relative); }
+      catch (error) {
+        if (attempt > 0 || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    }
   }
   private async stream(download: Download, target: string, relative: string): Promise<DownloadRecord> {
-    const limit = this.config.maxDownloadBytes, handle = await open(target, 'wx');
+    const handle = await open(target, 'wx');
+    const limit = this.config.maxDownloadBytes;
     let bytes = 0;
     try {
       const source = await download.createReadStream();
