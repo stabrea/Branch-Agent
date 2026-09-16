@@ -1538,6 +1538,16 @@ lines you name. `debug.step` moves it on, `debug.variables` shows what every nam
 stopped, and `debug.stop` ends it. Starting one asks you exactly as running any other program does,
 only one debugging session runs at a time, and what the program prints is kept in a rolling buffer.
 
+**Neither is left running.** A language server or a program being debugged that a task started
+stops again when that task is done, the same way a program `process.start` left running in a
+conversation stops when the conversation does — so nothing you did not ask for is sitting there
+using the machine afterwards. A task that has only stopped to ask you something is not done, so
+what it started is still there when you answer. Two switches keep them up instead, **Keep a
+language server running between tasks** and **Keep a program being debugged running between
+tasks** (`keepRunning` in each of the two settings), which makes the next task that needs one start
+sooner. Pressing one of these tools' own buttons yourself is one short task per press, so a press
+is left alone — otherwise the debugger would stop between "start it" and "what is this name".
+
 **Trying something risky on a copy (plan branches).** `plans.try` makes a parallel copy of the
 repository on a line of work named after the plan, inside `.branch-worktrees`. Work happens there,
 `plans.diff` shows exactly what it changed compared with where it started, and only `plans.merge`

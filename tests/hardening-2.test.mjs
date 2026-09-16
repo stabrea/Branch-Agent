@@ -303,6 +303,71 @@ test("the extra refused websites are saved and read back through the browser set
 });
 
 // ---------------------------------------------------------------------------
+// 5. A language server or a program being debugged that a task started stops
+//    when that task is over, unless the owner asked to keep it running.
+// ---------------------------------------------------------------------------
+
+test("a language server and a debuggee a task started go when that task is over", async (t) => {
+  const { app, root } = await fixture(t);
+  const { saveLanguageServerSettings, saveDebugSettings } = await import("../dist/index.js");
+  const { fileURLToPath } = await import("node:url");
+  const { writeFile } = await import("node:fs/promises");
+  const fixtures = join(fileURLToPath(import.meta.url), "..", "fixtures");
+  await saveLanguageServerSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    servers: { fake: { path: process.execPath, args: [join(fixtures, "fake-language-server.mjs")], languages: ["TypeScript"] } } });
+  await saveDebugSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    adapters: { fake: { path: process.execPath, args: [join(fixtures, "fake-debug-adapter.mjs")], launch: {} } } });
+  t.after(async () => { await app.languageServers.stopAll(); await app.debugAdapters.stopAll(); });
+  await writeFile(join(app.files.base, "one.ts"), "export const one = 1;\n");
+
+  const run = app.store.createRun(app.runtime.owner, "look at one.ts");
+  app.store.message(run.sessionId, { role: "user", content: "look at one.ts" });
+  const context = app.runtime.context({ runId: run.id, signal: AbortSignal.timeout(20000) });
+  await app.languageServers.diagnostics({ path: "one.ts", waitMs: 200 }, run.id);
+  await app.debugAdapters.start({ adapter: "fake", program: "one.ts", args: [], breakpoints: [], waitMs: 200 }, context);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 1);
+
+  // The task is over: both go, without anyone having to remember to stop them.
+  app.store.finish(run.id, "completed", "done");
+  await delay(400);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 0,
+    "a language server a task started does not outlive it");
+  // Nothing is being debugged any more: the program the task launched went with it.
+  await assert.rejects(() => app.debugAdapters.stop(context), /Nothing is being debugged/);
+  assert.equal(await app.debugAdapters.closeRun(run.id), 0);
+});
+
+test("a task that only stopped to ask keeps what it started, and a pinned server stays up", async (t) => {
+  const { app } = await fixture(t);
+  const { saveLanguageServerSettings } = await import("../dist/index.js");
+  const { fileURLToPath } = await import("node:url");
+  const { writeFile } = await import("node:fs/promises");
+  const fixtures = join(fileURLToPath(import.meta.url), "..", "fixtures");
+  await saveLanguageServerSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    servers: { fake: { path: process.execPath, args: [join(fixtures, "fake-language-server.mjs")], languages: ["TypeScript"] } } });
+  t.after(() => app.languageServers.stopAll());
+  await writeFile(join(app.files.base, "two.ts"), "export const two = 2;\n");
+
+  const waiting = app.store.createRun(app.runtime.owner, "ask first");
+  app.store.message(waiting.sessionId, { role: "user", content: "ask first" });
+  await app.languageServers.diagnostics({ path: "two.ts", waitMs: 200 }, waiting.id);
+  // Stopping to ask the owner something is not the task being over.
+  app.store.finish(waiting.id, "needs_input", "Is that all right?");
+  await delay(200);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 1,
+    "a task waiting on an answer still needs what it started");
+
+  // And with "keep it running" on, the end of the task leaves it alone.
+  await saveLanguageServerSettings(app.store, "local", { enabled: true, timeoutMs: 10000, keepRunning: true,
+    servers: { fake: { path: process.execPath, args: [join(fixtures, "fake-language-server.mjs")], languages: ["TypeScript"] } } });
+  app.store.finish(waiting.id, "completed", "done");
+  await delay(200);
+  assert.equal(app.languageServers.list().filter((server) => server.running).length, 1,
+    "the owner pinned it, so it stays up");
+  assert.equal(await app.languageServers.closeRun(waiting.id), 0);
+});
+
+// ---------------------------------------------------------------------------
 // 6. A service the owner turned into tools is still there after a restart, and
 //    "forget this service" really forgets it. Nothing is fetched on the way back.
 // ---------------------------------------------------------------------------

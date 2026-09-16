@@ -197,6 +197,23 @@ export async function createBranch(options: {
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
   registerProcesses(registry, processes);
   store.onSessionClosed((sessionId) => { void processes.closeSession(sessionId); });
+  // Batch 20 (wave 8): a language server or a program being debugged that a task started goes when
+  // that task is over, the same way a program started in a conversation goes when it closes. The
+  // owner can keep either running instead, with a switch in Settings under Developer.
+  //
+  // "A task" means a task in a conversation. Pressing a tool's own button is one short task per
+  // press, so tearing down at the end of one of those would stop the debugger between "start it"
+  // and "what is this name"— the opposite of what was asked for. A press is left alone, and closing
+  // the app still stops everything.
+  const startedInAConversation = (runId: string): boolean => {
+    const run = store.run(runId);
+    return !!run && store.messages(run.sessionId).length > 0;
+  };
+  store.onRunFinished((runId) => {
+    if (!startedInAConversation(runId)) return;
+    void languageServers.closeRun(runId).catch(() => undefined);
+    void debugAdapters.closeRun(runId).catch(() => undefined);
+  });
   registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());

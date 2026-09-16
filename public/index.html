@@ -1098,6 +1098,9 @@
               <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
               <label for="dbg-list">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
+              <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
+              <label class="check-row"><input type="checkbox" id="ls-keep" /> Keep a language server running between tasks</label>
+              <label class="check-row"><input type="checkbox" id="dbg-keep" /> Keep a program being debugged running between tasks</label>
               <button id="code-ide-save" type="button">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
