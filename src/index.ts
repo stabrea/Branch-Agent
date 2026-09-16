@@ -11,6 +11,7 @@ import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
 import { CredentialResolver } from "./credential-cli.js";
+import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -211,6 +212,11 @@ export async function createBranch(options: {
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
+  // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
+  // there looks like nothing happening at all. The screen is probed by asking for the window list;
+  // the microphone and the camera are read out of what the person already chose.
+  const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
+  desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
@@ -572,6 +578,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
+    osPermissions,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -889,6 +897,7 @@ export * from "./processes.js";
 export * from "./code-run.js";
 export * from "./credential-cli.js";
 export * from "./sandbox.js";
+export * from "./os-permissions.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";

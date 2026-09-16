@@ -2786,3 +2786,24 @@ never turn a refusal into a yes, and it is not consulted at all on something you
 said no to. If the check takes longer than its `timeoutMs` or falls over, the call is held for a yes
 rather than let through, unless you set `onTimeout` to `allow` on that hook. Every time a check
 changes what happened, it is written into "What the assistant was allowed to do".
+
+## What each answer cost, in the terminal (batch 26, wave 8)
+
+The status line at the bottom of `branch chat` has always carried the running totals for the whole
+conversation — the model in use, tokens in and out, the money so far, and which approval preset is
+on. Each answer now also prints one dim line under it saying what that answer alone used and cost,
+so a single expensive turn is visible without doing the subtraction yourself. Nothing is printed
+when no tokens were counted.
+
+## What Windows itself allows (batch 26, wave 8)
+
+Branch's own switches are not the only ones. Windows keeps its own, under Settings, Privacy &
+security, and when Windows says no a program just sees nothing happen. Branch now asks first: before
+it touches your screen it checks whether Windows will let it take hold of another program's window,
+and the microphone and camera are read out of what you already chose. A refusal is one plain
+sentence naming the page that turns it on (`ms-settings:privacy-microphone`,
+`ms-settings:privacy-webcam`, `ms-settings:privacy-graphicscaptureprogrammatic`).
+
+Only an outright "no" stops anything: a computer that keeps no such setting answers "nothing to say"
+and Branch carries on exactly as before. New route: `GET /api/os-permissions`. Branch never asks
+Windows to grant a permission — only you can do that.

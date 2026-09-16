@@ -254,3 +254,72 @@ test("A0824 a check that says nothing, or falls over, cannot let something throu
   ], async (hook) => ({ ok: true, verdict: { decision: hook.id === "hard" ? "deny" : "ask", reason: hook.id } }));
   assert.equal((await app.hooks.decide(context.runId, { tool: "files.write" })).hook, "hard");
 });
+
+// ---------------------------------------------------------------- A0638
+
+test("A0638 the terminal says what the conversation has cost and what this one answer cost", async (t) => {
+  const { app } = await fixture(t);
+  const { statusLine, sessionTotals, runTotals, answerLine, activeModel } = await import("../dist/terminal-commands.js");
+  const run = await app.runtime.run({ prompt: "hello" });
+
+  // The running totals were already there: the verification report looked in terminal-tui.ts,
+  // where the line is drawn, rather than terminal-commands.ts, where it is worked out.
+  const line = statusLine(app.runtime, run.sessionId, "alpha", 120);
+  assert.match(line, /[\d.]+k? in \/ [\d.]+k? out/, "tokens are on the status line");
+  const totals = sessionTotals(app.runtime, run.sessionId, "a");
+  assert.ok(totals.input > 0 || totals.output > 0);
+
+  // What is new: the same reckoning for one answer, printed under it.
+  const one = runTotals(app.runtime, run.id, activeModel(app.runtime, "alpha"));
+  assert.equal(one.input, totals.input, "one answer in a one-answer conversation is the whole of it");
+  assert.match(answerLine(one), /^\[this answer: .* in \/ .* out · .*\]$/);
+  assert.equal(answerLine({ input: 0, output: 0, cost: "$0.00" }), "", "nothing counted, nothing said");
+  assert.equal(activeModel(app.runtime, "alpha"), "a");
+});
+
+// ---------------------------------------------------------------- A1465
+
+test("A1465 Windows is asked before the screen and the microphone, and the answer is a plain sentence", async (t) => {
+  const { OsPermissions, capabilityCheck, probeReader } = await import("../dist/os-permissions.js");
+
+  // The decision logic on its own: only an outright refusal stops anything.
+  assert.equal(capabilityCheck("microphone", "allowed").allowed, true);
+  assert.equal(capabilityCheck("microphone", "unknown").allowed, true, "a computer that cannot say never blocks");
+  const refused = capabilityCheck("microphone", "refused");
+  assert.equal(refused.allowed, false);
+  assert.match(refused.message, /Windows is not letting Branch use the microphone/);
+  assert.equal(refused.settingsLink, "ms-settings:privacy-microphone");
+  assert.equal(capabilityCheck("camera", "refused").settingsLink, "ms-settings:privacy-webcam");
+  assert.equal(capabilityCheck("screen", "refused").settingsLink, "ms-settings:privacy-graphicscaptureprogrammatic");
+
+  // Read through a fake Windows, and kept for a short while rather than asked over and over.
+  const asked = [];
+  const permissions = new OsPermissions(async (capability) => { asked.push(capability); return capability === "microphone" ? "refused" : "allowed"; }, 1000);
+  permissions.now = () => 1_000_000;
+  assert.equal((await permissions.check("microphone")).allowed, false);
+  assert.equal((await permissions.check("microphone")).allowed, false);
+  assert.deepEqual(asked, ["microphone"], "the same question is not put to Windows twice");
+  assert.deepEqual((await permissions.all()).map((entry) => entry.allowed), [false, true, true]);
+  permissions.forget();
+  await permissions.check("microphone");
+  assert.equal(asked.length, 4, "after a change of mind it is asked again");
+
+  // The screen has no switch to read, so it is probed; a probe that throws means refused.
+  const good = probeReader(async () => 7, async () => "unknown");
+  assert.equal(await good("screen"), "allowed");
+  const bad = probeReader(async () => { throw new Error("no access"); }, async () => "unknown");
+  assert.equal(await bad("screen"), "refused");
+  assert.equal(await bad("camera"), "unknown", "the other two are left to the registry");
+});
+
+test("A1465 screen control stops with the Windows sentence before it touches anything", async (t) => {
+  const { app } = await fixture(t);
+  const { OsPermissions } = await import("../dist/os-permissions.js");
+  const { context } = taskContext(app);
+  app.store.save("settings", app.runtime.owner, "desktop-control", { enabled: true, maxActionsPerRun: 40 });
+  app.desktop.permissions = new OsPermissions(async () => "refused");
+  await assert.rejects(() => app.desktop.windows({ action: "list" }, context),
+    /Windows is not letting Branch take hold of other programs' windows/);
+  // Nothing was attempted: the refusal happens before the notice goes up or an action is counted.
+  assert.ok(!app.store.events(context.runId).some((event) => event.kind === "desktop.started"));
+});

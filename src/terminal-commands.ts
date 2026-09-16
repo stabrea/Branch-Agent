@@ -31,6 +31,30 @@ export function sessionTotals(runtime: Runtime, sessionId: string | undefined, m
   return { input, output, cost: formatCost(estimateCost(model, { input, output }, overrides)) };
 }
 
+/**
+ * What one answer used and cost on its own. The status line has always carried the running totals
+ * for the whole conversation; this is the same reckoning for the task that has just finished, so
+ * the terminal says what each answer cost as well as what the conversation has cost so far.
+ */
+export function runTotals(runtime: Runtime, runId: string, model: string): SessionTotals {
+  const usage = runtime.store.usage(runId);
+  const input = usage.reportedInput || usage.estimatedInput || 0;
+  const output = usage.reportedOutput || usage.estimatedOutput || 0;
+  const { overrides } = pricingSettings(runtime.store, runtime.owner);
+  return { input, output, cost: formatCost(estimateCost(model, { input, output }, overrides)) };
+}
+/** The one line printed under an answer; empty when nothing was counted, so nothing is said. */
+export function answerLine(totals: SessionTotals): string {
+  if (!totals.input && !totals.output) return "";
+  return `[this answer: ${short(totals.input)} in / ${short(totals.output)} out · ${totals.cost}]`;
+}
+/** The model behind a named preset, which is what the prices are looked up under. */
+export function activeModel(runtime: Runtime, presetId: string | undefined): string {
+  const summary = runtime.models.summary(runtime.owner);
+  const active = presetId ?? summary.activePreset ?? summary.defaultPreset;
+  return runtime.models.presets.get(active)?.model ?? active;
+}
+
 /** The one line that always sits above what the person is typing. */
 export function statusLine(runtime: Runtime, sessionId: string | undefined, presetId: string | undefined, width: number): string {
   const summary = runtime.models.summary(runtime.owner);

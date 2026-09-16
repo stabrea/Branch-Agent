@@ -640,6 +640,9 @@ async function api(
     const kept = await app.artifacts.list();
     return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
   }
+  // Batch 26 (wave 8): what Windows itself allows, with the page that turns each one on.
+  if (request.method === "GET" && path === "/api/os-permissions")
+    return { permissions: await app.osPermissions.all() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
