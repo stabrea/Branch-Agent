@@ -1323,6 +1323,44 @@ session key, so the address is the secret. Two new look-only tools, `mcp.dry_run
 `mcp.servers`, and one new read-only permission, `mcp.read`. `tests/mcp-mode.test.mjs` (12 tests)
 covers every one of these; the existing MCP, integrations and catalog-diet suites are untouched and
 green. Covers the mcp-server-mode theme (#68).
+
+## Batch 20 (wave 7) — orchestration, second pass: styles, patches, processes, flows
+Six things, all backend-first with additive UI in Specialists, Procedures and Skills only, and no
+new dependency. **Specialist styles** (`src/specialist-styles.ts`): a specialist declares a `style`
+that changes its loop rather than only its prompt. `react` is told to open each reply with one
+`Thought:` line; the runtime takes that line off the answer, records it as a `react.scratch` event
+and leaves it in the stored transcript, so the model keeps its own trail while the person never
+reads it. `plan-execute` turns on the existing plan runner for a delegated sub-task, which an
+ordinary child never gets. `critic` is narrowed to read-only permissions in `activeSpecialist()` —
+narrowing, so the escalation check is untouched. `researcher` and `coder` seed `openCatalog` with
+the toolboxes their work always needs. **Multi-file changes** (`src/code-change.ts`): `code.patch`
+and `code.change_set` plan the whole change first (`CodeEditor.planPatch`/`preview`/`writeAll`, made
+public; `files.patch` is unchanged and its tests untouched), refuse binary files, write through the
+existing `writeObserver` so every file lands in the file history, and then run the owner's configured
+check program — which is what makes "the assistant sees what it broke in its very next step" true
+rather than aspirational. The change set's `target()` names the files, so one approval reads "2
+files: a.txt, b.txt". **Background processes** (`src/processes.ts`): a dedicated `Running` class
+rather than `ShellProcess`, because a dev server needs a ring buffer and must not sit behind
+`BranchShell`'s single-slot guard; it reuses the exported job object and tree-kill helpers. Keyed by
+**session**, not run — `onRunFinished` fires every round, so keying by run would kill a server before
+the next one. Stopped on `store.onSessionClosed` (new, fired from `purgeSession`) and on
+`createBranch().close()`. **Deferred calls and tool search** are intercepted in `callTool` beside
+`tools.expand`, because the per-run `ToolCatalog` lives in the runtime and a registered tool cannot
+see what is closed; a deferral settles through the existing follow-up queue, not a new mechanism.
+**Flows** (`src/flows.ts`): the wave-6 `Workflows` seen as nodes and edges, with branch steps
+yielding a labelled edge each way. `src/workflows.ts` is a byte-for-byte copy from
+`wave6/collab-workflows`, which had not reached `wave2/integration` when this batch started — the
+copy is deliberate so an add/add merge is clean. Node-completion callbacks are a before/after diff of
+the step states around the run rather than a hook inside `Workflows`, again to keep that file
+identical. **Skill self-improvement** (`src/skill-revisions.ts`): the governance draft is now shown
+as a line diff, tried against the last three real tasks that used the skill with `dryRun` on the
+parent context (so the child inherits it), and refused for acceptance until that trial says the draft
+did no worse. `skills.sync` writes and reads skills as `.md` in a workspace folder. Plugins get a
+local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a folder or a zip
+(reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
+source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
+plugin-and-extension-system (#70) leftovers.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
