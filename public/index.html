@@ -212,6 +212,17 @@
             <p>Imports merge saved facts. Identical facts are skipped; conflicting IDs reject the entire import. Review imported facts before using them.</p>
             <p id="memory-import-result" role="status"></p>
           </div>
+          <form id="learning-form" class="card">
+            <h2>What it learns</h2>
+            <label class="check-row"><input type="checkbox" id="learning-review" /> After each task, suggest what is worth remembering. You accept or reject each suggestion.</label>
+            <label class="check-row"><input type="checkbox" id="learning-approval" /> Ask me before the assistant saves, changes or removes a memory on its own.</label>
+            <h3>Suggested changes</h3>
+            <div id="memory-proposals" class="card-list" aria-live="polite"></div>
+            <h3>Checkpoints</h3>
+            <p class="subtle">A checkpoint keeps every memory and which skill versions are enabled, so you can put everything back exactly as it was.</p>
+            <div class="input-row"><input id="checkpoint-label" maxlength="120" placeholder="Name this checkpoint (optional)" /><button id="checkpoint-save" type="button">Save a checkpoint</button></div>
+            <div id="memory-checkpoints" class="card-list"></div>
+          </form>
           <div id="memory-list" class="card-list"></div>
         </section>
         <section id="specialists" class="view" hidden>
@@ -450,6 +461,12 @@
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
             <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
+          </section>
+          <section id="snapshots-card" class="card">
+            <h2>Workspace snapshots</h2>
+            <p>Keep a copy of every file in your workspace and put them all back later. Each change the assistant makes to a file can also be undone one at a time from Activity.</p>
+            <div class="input-row"><input id="snapshot-label" maxlength="120" placeholder="Name this snapshot (optional)" /><button id="snapshot-save" type="button">Take a snapshot</button></div>
+            <div id="snapshots-list" class="card-list"></div>
           </section>
           <form id="models-form" class="card">
             <h2>Models</h2>

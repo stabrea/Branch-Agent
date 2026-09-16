@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 63 implemented, 33 partial, 1 external and 72 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 70 implemented, 31 partial, 1 external and 67 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -109,12 +109,12 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | Context compaction preserving task handoff (`learning.compaction`) | implemented | Covered by the listed local fixtures. |
 | Scheduled consolidation from append-only history (`learning.dream`) | missing | Process only new archive entries during scheduled consolidation and advance the consumption cursor after success. |
-| Versioned durable memory (`learning.versioning`) | partial | Version and restore durable-memory content itself. |
-| Post-task memory and skill review (`learning.review`) | missing | Run a post-task review that can propose a memory or skill change with a link to the originating task. |
-| Pending memory write review (`learning.approval`) | missing | Stage a memory write when review is enabled and apply it only after acceptance. |
+| Versioned durable memory (`learning.versioning`) | implemented | Covered by the listed local fixtures. |
+| Post-task memory and skill review (`learning.review`) | implemented | Covered by the listed local fixtures. |
+| Pending memory write review (`learning.approval`) | implemented | Covered by the listed local fixtures. |
 | Inspect edit prune and archive learning (`learning.journey`) | partial | Complete learning-view edit/remove/archive operations for memories and skills. |
-| Bounded session-start memory snapshots (`learning.cache`) | missing | Keep the injected memory snapshot stable within a session and refresh it at the next session boundary. |
-| Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | partial | Create and restore exact pre-mutation memory/skill checkpoints with acceptance fixtures. |
+| Bounded session-start memory snapshots (`learning.cache`) | implemented | Covered by the listed local fixtures. |
+| Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | implemented | Covered by the listed local fixtures. |
 | Evidence-governed skill lifecycle and rollback (`learning.governance`) | partial | Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics. |
 | Optimize skill candidates from recorded traces (`learning.trace-optimization`) | missing | Generate a skill candidate from trace data and retain both candidate and original for comparison. |
 | Compare skill versions on reproducible evaluation tasks (`learning.skill-benchmark`) | partial | Add a runner executing baseline/candidate skills against identical fixtures and seeds and persisting per-task outcomes/costs. |
@@ -157,8 +157,8 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Project-scoped secrets and knowledge (`workspace.secrets`) | implemented | Covered by the listed local fixtures. |
 | Live editable Markdown artifacts (`workspace.markdown`) | partial | Provide user editor and conflict-aware nonconflicting agent/user merge fixture. |
 | Document spreadsheet and presentation cowork (`workspace.office`) | missing | Create and reopen a document, spreadsheet and presentation in the supported office integration. |
-| Visible file diffs and artifacts (`workspace.diffs`) | missing | Show the actual before-and-after file diff and link the resulting artifact after an edit. |
-| Workspace snapshots and revert (`workspace.snapshots`) | missing | Capture a workspace snapshot, modify a file and restore its exact previous bytes. |
+| Visible file diffs and artifacts (`workspace.diffs`) | implemented | Covered by the listed local fixtures. |
+| Workspace snapshots and revert (`workspace.snapshots`) | implemented | Covered by the listed local fixtures. |
 | Explicit topic context sharing (`workspace.cross-topic`) | missing | Attach another topic as context and record which topic was accessed for the task. |
 | Authenticated managed files with read-only sandbox mounts (`workspace.managed-files`) | missing | Upload a managed file and expose it to a task through a read-only mount that rejects writes. |
 | Tasks assigned to agents and teams on a board (`workspace.task-board`) | missing | Create a task, assign it to an agent or team and move it through board stages with persisted state. |

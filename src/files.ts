@@ -147,9 +147,15 @@ async function checkWorkspaceAncestors(root: string): Promise<void> {
     current = parent;
   }
 }
+/** Lets workspace history keep a file's bytes before a write and record the change afterwards. */
+export interface WriteObserver {
+  before(path: string, context: ToolContext): Promise<unknown>;
+  after(path: string, context: ToolContext, token: unknown): Promise<void>;
+}
 export function registerFiles(
   registry: ToolRegistry,
   files: WorkspaceFiles,
+  observer?: WriteObserver,
 ): void {
   registry.register({
     name: "files.read",
@@ -185,8 +191,12 @@ export function registerFiles(
     parameters: z
       .object({ path: pathSchema, content: z.string().max(32768) })
       .strict(),
-    execute: async (a, c: ToolContext) =>
-      files.write(a.path, a.content, c.signal),
+    execute: async (a, c: ToolContext) => {
+      const token = observer ? await observer.before(a.path, c) : undefined;
+      const result = await files.write(a.path, a.content, c.signal);
+      if (observer) await observer.after(a.path, c, token);
+      return result;
+    },
   });
   registerVerification(registry, files);
 }

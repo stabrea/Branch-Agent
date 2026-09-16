@@ -40,6 +40,7 @@ import {
 const childConcurrency = 4;
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
 const compactionThreshold = 11000;
 const compactionKeep = 6;
 const contextLimit = 16000;
@@ -348,7 +349,31 @@ export class Runtime {
       output = errorText(error);
       if (error instanceof NeedsInputError) this.store.event(run.id, "attention.needed", { question: error.question });
     }
-    return this.settleRun(run, context, status, output);
+    const settled = await this.settleRun(run, context, status, output);
+    if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    return settled;
+  }
+  /** When review is on, asks the model separately, after the task, what is worth remembering; suggestions wait for the owner. */
+  private scheduleReview(run: Run, context: ToolContext): void {
+    if (!this.store.review.settings(context.owner).review || this.store.sessionTemporary(run.sessionId)) return;
+    void this.track(() => this.reviewRun(run, context).catch((error) => this.store.event(run.id, "learning.review_failed", { error: errorText(error) })));
+  }
+  private async reviewRun(run: Run, context: ToolContext): Promise<void> {
+    const transcript = this.store.messages(run.sessionId).filter((m) => m.role !== "system").slice(-8)
+      .map((m) => `${m.role}: ${m.content.slice(0, 1500)}`).join("\n").slice(0, 8000);
+    const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }), signal: AbortSignal.timeout(60000) };
+    const completion = await this.complete(run, [
+      { role: "system", content: reviewInstructions },
+      { role: "user", content: `Task: ${run.prompt.slice(0, 1000)}\n\nWhat happened:\n${transcript}` },
+    ], scoped, preset, null);
+    const parsed = checkResult(completion.content, { type: "object", properties: { memories: { type: "array" }, skills: { type: "array" } } });
+    if (parsed.status !== "resolved") { this.store.event(run.id, "learning.reviewed", { memories: 0, skills: 0, unreadable: true }); return; }
+    const value = parsed.value as { memories?: { text?: string; source?: string }[]; skills?: { skillId?: string; note?: string }[] };
+    const memories = (value.memories ?? []).filter((m) => m?.text).slice(0, 5), skills = (value.skills ?? []).filter((s) => s?.skillId && s.note).slice(0, 3);
+    for (const m of memories) this.store.review.propose(context.owner, { kind: "put", text: String(m.text).slice(0, 4000), source: String(m.source ?? "Suggested after a task").slice(0, 500), runId: run.id });
+    for (const s of skills) this.store.review.propose(context.owner, { kind: "skill-note", skillId: String(s.skillId).slice(0, 200), text: String(s.note).slice(0, 4000), runId: run.id });
+    this.store.event(run.id, "learning.reviewed", { memories: memories.length, skills: skills.length });
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
@@ -439,6 +464,9 @@ export class Runtime {
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context),
       },
     ];
+    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId);
+    if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
+    this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);

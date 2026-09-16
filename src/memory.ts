@@ -58,6 +58,29 @@ export class MemoryFacts {
       created_at TEXT NOT NULL, PRIMARY KEY(owner,session_id))`);
     db.exec(`CREATE TABLE IF NOT EXISTS memory_archive(id TEXT NOT NULL, owner TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL, revision INTEGER NOT NULL, archived_at TEXT NOT NULL, PRIMARY KEY(id,owner))`);
+    db.exec(`CREATE TABLE IF NOT EXISTS memory_versions(id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL, memory_id TEXT NOT NULL,
+      revision INTEGER NOT NULL, data TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL)`);
+  }
+  /** Every earlier content of a fact, newest first; kept before each edit and on deletion. */
+  versions(owner: string, memoryId: string) {
+    return this.db.prepare("SELECT * FROM memory_versions WHERE owner=? AND memory_id=? ORDER BY revision DESC, id DESC LIMIT 100").all(owner, memoryId)
+      .map((row) => ({ memoryId: String(row.memory_id), revision: Number(row.revision), data: JSON.parse(String(row.data)) as Record<string, unknown>, reason: String(row.reason), createdAt: String(row.created_at) }));
+  }
+  private keepVersion(owner: string, record: MemoryRecord, reason: string): void {
+    this.db.prepare("INSERT INTO memory_versions(owner,memory_id,revision,data,reason,created_at) VALUES(?,?,?,?,?,?)")
+      .run(owner, record.id, record.revision, JSON.stringify(record.data), reason, new Date().toISOString());
+  }
+  /** Removes a fact but keeps its last content as a version so it can be brought back. */
+  delete(owner: string, id: string, reason = "deleted"): boolean {
+    const previous = this.get(owner, id);
+    if (!previous) return false;
+    this.keepVersion(owner, previous, reason);
+    return this.db.prepare("DELETE FROM memory WHERE owner=? AND id=?").run(owner, id).changes > 0;
+  }
+  /** Puts a record back exactly as a checkpoint kept it, id, times and revision included. */
+  restoreExact(owner: string, record: { id: string; data: Record<string, unknown>; createdAt: string; updatedAt: string; revision: number }): void {
+    this.db.prepare("INSERT OR REPLACE INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,?)")
+      .run(record.id, owner, JSON.stringify(record.data), record.createdAt, record.updatedAt, record.revision);
   }
   /** Facts a conversation's runs saved by themselves, split into removable and kept (owner-edited) ones. */
   forgetPreview(owner: string, sessionId: string) {
@@ -154,6 +177,7 @@ export class MemoryFacts {
     const data = { ...parsed, ...(origin ? { originRunId: origin } : {}) };
     if (!previous) this.requireRoom(owner, 1);
     if (previous?.revision === Number.MAX_SAFE_INTEGER) throw new Error("Memory revision limit reached");
+    if (previous) this.keepVersion(owner, previous, "before edit");
     const now = new Date(Math.max(Date.now(), previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString();
     this.db.prepare(`INSERT INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,1)
       ON CONFLICT(id,owner) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at,revision=memory.revision+1`)
@@ -214,6 +238,12 @@ export class MemoryFacts {
   }
 }
 
+/** When the owner asked to approve memory changes, the model's change waits as a suggestion. */
+function staged(store: Store, context: { owner: string; runId: string }, proposal: Record<string, unknown>) {
+  if (!store.review.settings(context.owner).requireApproval) return null;
+  const saved = store.review.propose(context.owner, { ...proposal, runId: context.runId });
+  return { staged: true, proposalId: saved.id, message: "Saved as a suggestion. The owner can accept it in the Memory view." };
+}
 export function registerMemory(registry: ToolRegistry, store: Store): void {
   registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp.",
     permission: "memory.write", parameters: UpdateMemorySchema.pick({ text: true, source: true }),
@@ -221,17 +251,19 @@ export function registerMemory(registry: ToolRegistry, store: Store): void {
       const sessionId = store.run(context.runId)?.sessionId;
       if (sessionId && store.memorySuppressed(context.owner, sessionId))
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
-      return store.save("memory", context.owner, randomUUID(), { ...value, sourceRunId: context.runId });
+      return staged(store, context, { kind: "put", text: value.text, source: value.source })
+        ?? store.save("memory", context.owner, randomUUID(), { ...value, sourceRunId: context.runId });
     } });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
-    execute: async (value, context) => store.updateMemory(context.owner, value, context.runId) });
+    execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
+      ?? store.updateMemory(context.owner, value, context.runId) });
   registry.register({ name: "memory.search", description: "Search this owner's facts by literal text, returning bounded matches and their edit revisions.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => store.searchMemory(context.owner, value.query) });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
-    execute: async (value, context) => store.delete("memory", context.owner, value.id) });
+    execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", context.owner, value.id) });
 }
 
 function summary(record: MemoryRecord) {

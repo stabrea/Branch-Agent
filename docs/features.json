@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T00:25:38.508373+00:00",
+  "assessment_date": "2026-09-16T00:51:12.276643+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1529,52 +1529,66 @@
       "family": "learning",
       "name": "Versioned durable memory",
       "acceptance_criterion": "Inspect two durable-memory revisions and recover the prior content after a faulty edit.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts"
+          "src/memory-review.ts",
+          "src/memory.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions",
-          "specialists require evidence to promote and delegation cannot escalate"
+          "every memory edit and deletion keeps an exact earlier version that can be restored"
         ],
-        "detail": "Version history applies to procedures/specialists, not memory records."
+        "detail": "memory_versions keeps the exact previous content before every edit and on deletion; GET /api/memory/versions?id= lists them and POST /api/memory/versions/restore writes one back as a new revision (a deleted fact comes back). Memory cards have a History button."
       },
-      "remaining": "Version and restore durable-memory content itself."
+      "remaining": ""
     },
     {
       "id": "learning.review",
       "family": "learning",
       "name": "Post-task memory and skill review",
       "acceptance_criterion": "Run a post-task review that can propose a memory or skill change with a link to the originating task.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "with review on, a finished task is reviewed separately and suggestions link back to it"
+        ],
+        "detail": "With review on, each completed top-level, non-temporary task gets a separate bounded model call (its own small budget, 60 s limit) that may propose memories and skill notes as JSON; every proposal links to the originating run and waits for acceptance. Recorded as learning.reviewed."
       },
-      "remaining": "Run a post-task review that can propose a memory or skill change with a link to the originating task."
+      "remaining": ""
     },
     {
       "id": "learning.approval",
       "family": "learning",
       "name": "Pending memory write review",
       "acceptance_criterion": "Stage a memory write when review is enabled and apply it only after acceptance.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "with approval on, the model's memory changes wait as suggestions until the owner accepts or rejects them"
+        ],
+        "detail": "With requireApproval on (Memory \u2192 What it learns), memory.put/update/delete from the model become staged proposals (kind, text, source, run id); nothing is written until the owner accepts (applied exactly) or rejects (recorded)."
       },
-      "remaining": "Stage a memory write when review is enabled and apply it only after acceptance."
+      "remaining": ""
     },
     {
       "id": "learning.journey",
@@ -1599,34 +1613,44 @@
       "family": "learning",
       "name": "Bounded session-start memory snapshots",
       "acceptance_criterion": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
+          "src/memory-review.ts",
+          "src/memory.ts",
           "src/runtime.ts",
-          "experiments/accounting.py"
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a conversation keeps the memory snapshot it started with; a new conversation gets a fresh one"
+        ],
+        "detail": "A conversation's first run takes a memory snapshot (up to 20 recent facts, 2,000 chars) into a system message and stores it per session; later runs in that conversation reuse it unchanged (memory.snapshot event with reused: true); a new conversation takes a fresh one."
       },
-      "remaining": "Keep the injected memory snapshot stable within a session and refresh it at the next session boundary."
+      "remaining": ""
     },
     {
       "id": "learning.pre-edit-checkpoint",
       "family": "learning",
       "name": "Automatic recovery point before memory or skill edits",
       "acceptance_criterion": "Create a checkpoint before an automated memory or skill mutation and restore the exact previous content.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts"
+          "src/memory-review.ts",
+          "src/memory.ts",
+          "src/runtime.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/learning.test.mjs"
         ],
         "tests": [
-          "procedure verification uses actual results; replay enforces preconditions and versions"
+          "a checkpoint puts memories and skill versions back exactly"
         ],
-        "detail": "Procedure/specialist revisions retain prior definitions; memory checkpoints and general restore are absent."
+        "detail": "POST /api/memory/checkpoints freezes every memory record (id, text, times, revision) and each skill's active version; restore replaces the current memory set with the checkpoint's exact records and re-selects the recorded skill versions, in one transaction."
       },
-      "remaining": "Create and restore exact pre-mutation memory/skill checkpoints with acceptance fixtures."
+      "remaining": ""
     },
     {
       "id": "learning.governance",
@@ -2171,34 +2195,44 @@
       "family": "workspace",
       "name": "Visible file diffs and artifacts",
       "acceptance_criterion": "Show the actual before-and-after file diff and link the resulting artifact after an edit.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/workspace-history.ts",
           "src/files.ts",
-          "public/app.js"
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/workspace-history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "every file change keeps the bytes before it, shows a diff, and can be undone"
+        ],
+        "detail": "Every files.write keeps the previous bytes as a version and records a file.changed event with a line diff (+/- counts and a compact unified text). The Activity card lists each change with Show change and Undo this change (POST /api/history/restore); files.history and files.restore expose the same to the model."
       },
-      "remaining": "Show the actual before-and-after file diff and link the resulting artifact after an edit."
+      "remaining": ""
     },
     {
       "id": "workspace.snapshots",
       "family": "workspace",
       "name": "Workspace snapshots and revert",
       "acceptance_criterion": "Capture a workspace snapshot, modify a file and restore its exact previous bytes.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/index.ts",
+          "src/workspace-history.ts",
           "src/files.ts",
-          "public/app.js"
+          "src/index.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/workspace-history.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "a workspace snapshot restores every file to its exact previous bytes and skips secrets"
+        ],
+        "detail": "POST /api/history/snapshots (or the workspace.snapshot tool, or Settings \u2192 Workspace snapshots) records every workspace file's exact bytes (base64 in SQLite; node_modules/.git/dist/release and secret-named files skipped; 500 files / 256 KiB each / 16 MB total). Restore writes every recorded file's exact bytes back; files created later are left in place."
       },
-      "remaining": "Capture a workspace snapshot, modify a file and restore its exact previous bytes."
+      "remaining": ""
     },
     {
       "id": "workspace.cross-topic",

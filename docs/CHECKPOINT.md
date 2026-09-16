@@ -47,10 +47,19 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 12 (local, unreleased): workspace history, memory versions, checkpoints, approval, review, session snapshot
+
+`src/workspace-history.ts` (file_versions/workspace_snapshots, lineDiff, files.history/files.restore/
+workspace.snapshot, `/api/history/*`, Activity undo buttons, Settings snapshots card) wired through a
+`WriteObserver` on files.write; `src/memory-review.ts` (settings `learning`, proposals, checkpoints,
+session snapshot) + memory_versions in `MemoryFacts` (kept before edit and on delete), staged memory
+tools when requireApproval, post-task review in `Runtime.scheduleReview` (detached, tracked). Note:
+Store's `history` is the session library; the workspace one is `store.workspaceHistory`.
+
 ## Release 0.6.0 (batches 10 and 11)
 
-Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
-made with `C:\Windows\System32	ar.exe -a -cf` (forward-slash entries, like earlier releases) and a
+Published: https://github.com/stabrea/Branch-Agent/releases/tag/v0.6.0 (main d831752, PR #27, CI green before merge). Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
+made with `C:\Windows\System32\tar.exe -a -cf` (forward-slash entries, like earlier releases) and a
 two-space `sha256sum`-style checksum file. `npm run package:desktop` does not produce the zip.
 
 ## Batch 11 (released in 0.6.0): skill scanning, receipts, content guard, delegated exit criteria, live activity

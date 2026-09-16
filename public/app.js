@@ -135,6 +135,18 @@ function renderRuns() {
         el("p", date(run.createdAt), "meta"),
         button("Inspect trace", () => showRun(run.id)),
       );
+      for (const change of run.changes || []) {
+        const row = el("div", undefined, "file-change");
+        row.append(el("span", `${change.existed ? "Changed" : "Created"} ${change.path} (+${change.added} −${change.removed})`));
+        if (change.diff) row.append(button("Show change", () => {
+          const existing = row.querySelector("pre");
+          if (existing) existing.remove(); else { const pre = el("pre", change.diff, "diff"); row.append(pre); }
+        }));
+        if (change.existed && change.versionId) row.append(button("Undo this change", async () => {
+          await api("history/restore", { versionId: change.versionId }); toast(`${change.path} is back to how it was before.`); await refresh();
+        }));
+        node.append(row);
+      }
       if (run.status === "running")
         node.append(
           button("Cancel", async () => {
@@ -180,10 +192,54 @@ function renderMemory() {
   for (const node of [...target.children]) if (!cards.includes(node)) node.remove();
   cards.forEach((node, index) => { if (target.children[index] !== node) target.insertBefore(node, target.children[index] || null); });
   if (!cards.length) target.append(el("div", "Save a preference, decision, or useful fact.", "empty"));
+  renderLearning();
   if (focused?.isConnected && document.activeElement !== focused) {
     focused.focus({ preventScroll: true });
     if (selection) focused.setSelectionRange(...selection);
   }
+}
+function renderLearning() {
+  const learning = state.learning || {};
+  if (document.activeElement !== $("learning-review")) $("learning-review").checked = !!learning.review;
+  if (document.activeElement !== $("learning-approval")) $("learning-approval").checked = !!learning.requireApproval;
+  list("memory-proposals", state.memoryProposals || [], (p) => {
+    const node = el("div", undefined, "record");
+    const what = p.kind === "put" ? "Remember" : p.kind === "update" ? "Change a memory to" : p.kind === "delete" ? "Forget a memory" : "Note for a skill";
+    node.append(el("strong", `${what}${p.text ? ": " + p.text : ""}`), el("p", `${p.source || ""}${p.runId ? " · from a task" : ""}`, "meta"));
+    node.append(button("Accept", async () => { await api(`memory/proposals/${p.id}/accept`, {}); toast("Applied."); await refresh(); }),
+      button("Reject", async () => { await api(`memory/proposals/${p.id}/reject`, {}); await refresh(); }));
+    return node;
+  }, "No suggestions waiting.");
+  list("memory-checkpoints", state.memoryCheckpoints || [], (c) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", c.label), el("p", `${c.memories} memories · ${c.skills} skills · ${date(c.createdAt)}`, "meta"),
+      button("Put everything back to this", async () => { await api(`memory/checkpoints/${c.id}/restore`, {}); toast("Memories and skill versions restored."); await refresh(); }));
+    return node;
+  }, "No checkpoints yet.");
+}
+async function saveLearning() {
+  try { await api("memory/settings", { review: $("learning-review").checked, requireApproval: $("learning-approval").checked }); await refresh(); }
+  catch (e) { toast(e.message); }
+}
+$("learning-review").addEventListener("change", saveLearning);
+$("learning-approval").addEventListener("change", saveLearning);
+$("checkpoint-save").addEventListener("click", async () => {
+  const label = $("checkpoint-label").value.trim();
+  try { await api("memory/checkpoints", label ? { label } : {}); $("checkpoint-label").value = ""; toast("Checkpoint saved."); await refresh(); } catch (e) { toast(e.message); }
+});
+async function showMemoryHistory(node, record) {
+  const { versions } = await api(`memory/versions?id=${encodeURIComponent(record.id)}`);
+  let box = node.querySelector(".memory-history");
+  if (box) { box.remove(); return; }
+  box = el("div", undefined, "memory-history");
+  if (!versions.length) box.append(el("p", "No earlier versions yet.", "meta"));
+  for (const v of versions) {
+    const row = el("div", undefined, "record");
+    row.append(el("p", v.data.text), el("p", `Version ${v.revision} · ${v.reason} · ${date(v.createdAt)}`, "meta"),
+      button("Restore this version", async () => { await api("memory/versions/restore", { id: record.id, revision: v.revision }); toast("Earlier version restored."); await refresh(); }));
+    box.append(row);
+  }
+  node.append(box);
 }
 function memoryCard(record) {
   const node = recordCard(record.data.text);
@@ -191,6 +247,7 @@ function memoryCard(record) {
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
+    button("History", () => showMemoryHistory(node, record)),
     button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }));
   if (memoryEditors.has(record.id)) node.append(memoryEditor(record));
   return node;
@@ -399,6 +456,7 @@ async function refresh() {
   renderProjects();
   void renderSecrets();
   void renderChannels();
+  renderSnapshots();
   renderAttention();
 }
 const notifiedAttention = new Set();
@@ -424,6 +482,18 @@ function renderAttention() {
     else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
   }
 }
+function renderSnapshots() {
+  list("snapshots-list", state.snapshots || [], (s) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", s.label), el("p", `${s.files} files · ${Math.round(s.bytes / 1024)} KB · ${date(s.createdAt)}`, "meta"),
+      button("Put the workspace back to this", async () => { await api(`history/snapshots/${s.id}/restore`, {}); toast("Workspace files restored."); await refresh(); }));
+    return node;
+  }, "No snapshots yet.");
+}
+$("snapshot-save").addEventListener("click", async () => {
+  const label = $("snapshot-label").value.trim();
+  try { await api("history/snapshots", label ? { label } : {}); $("snapshot-label").value = ""; toast("Snapshot taken."); await refresh(); } catch (e) { toast(e.message); }
+});
 async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }

@@ -199,7 +199,11 @@ function state(app: Branch): unknown {
     workspace: app.runtime.workspace,
     runs: app.store
       .runs(owner)
-      .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id) })),
+      .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
+    learning: app.store.review.settings(owner),
+    memoryProposals: app.store.review.proposals(owner),
+    memoryCheckpoints: app.store.review.checkpoints(owner),
+    snapshots: app.store.workspaceHistory.snapshots(),
     models: app.runtime.models.summary(owner),
     memory: app.store.list("memory", owner),
     memoryCapacity: app.store.memoryCapacity(owner),
@@ -220,6 +224,7 @@ async function api(
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
+  if (path.startsWith("/api/history/")) return historyApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
@@ -318,6 +323,18 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Endpoint not found");
 }
+async function historyApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const history = app.store.workspaceHistory;
+  if (request.method === "GET" && path === "/api/history/files")
+    return { versions: history.history(new URL(request.url ?? "/", "http://local").searchParams.get("path") ?? "") };
+  if (request.method === "POST" && path === "/api/history/restore")
+    return history.restore(z.object({ versionId: z.string().uuid() }).strict().parse(await readBody(request)).versionId);
+  if (request.method === "GET" && path === "/api/history/snapshots") return { snapshots: history.snapshots() };
+  if (request.method === "POST" && path === "/api/history/snapshots") return history.snapshot(await readBody(request));
+  const restore = /^\/api\/history\/snapshots\/([a-f0-9-]{36})\/restore$/.exec(path);
+  if (restore && request.method === "POST") return history.restoreSnapshot(restore[1]!);
+  throw new HttpError(404, "Endpoint not found");
+}
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
@@ -333,6 +350,21 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
     return app.store.forgetMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
+  if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
+  if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
+  const decide = /^\/api\/memory\/proposals\/([a-f0-9-]{36})\/(accept|reject)$/.exec(path);
+  if (decide && request.method === "POST") return app.store.review.decide(owner, decide[1]!, decide[2] === "accept");
+  if (request.method === "GET" && path === "/api/memory/versions")
+    return { versions: app.store.review.versions(owner, new URL(request.url ?? "/", "http://local").searchParams.get("id") ?? "") };
+  if (request.method === "POST" && path === "/api/memory/versions/restore") {
+    const body = z.object({ id: z.string().min(1).max(200), revision: z.number().int().positive() }).strict().parse(await readBody(request));
+    return app.store.review.restoreVersion(owner, body.id, body.revision);
+  }
+  if (request.method === "GET" && path === "/api/memory/checkpoints") return { checkpoints: app.store.review.checkpoints(owner) };
+  if (request.method === "POST" && path === "/api/memory/checkpoints") return app.store.review.checkpoint(owner, await readBody(request));
+  const restoreCheckpoint = /^\/api\/memory\/checkpoints\/([a-f0-9-]{36})\/restore$/.exec(path);
+  if (restoreCheckpoint && request.method === "POST") return app.store.review.restoreCheckpoint(owner, restoreCheckpoint[1]!);
   const restore = /^\/api\/memory\/archive\/([^/]{1,200})\/restore$/.exec(path);
   if (restore && request.method === "POST") {
     z.object({}).strict().parse(await readBody(request));
@@ -430,6 +462,11 @@ async function chatgptApi(app: Branch, request: IncomingMessage, path: string): 
     return status;
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/** Files a run changed, with the kept version to undo each change. */
+function fileChanges(app: Branch, runId: string) {
+  return app.store.events(runId).filter((e) => e.kind === "file.changed").slice(0, 10)
+    .map((e) => ({ path: e.data.path, versionId: e.data.versionId, existed: e.data.existed, added: e.data.added, removed: e.data.removed, diff: e.data.diff }));
 }
 /** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
 async function receiptsView(app: Branch, runId: string) {
