@@ -1,0 +1,1 @@
+{"task_id": "code-add", "prompt": "Write and export a function add(a, b) that returns the sum of two numbers.", "entry_point": "add", "language": "javascript", "test": "import assert from \"node:assert/strict\";\nimport { add } from \"./solution.mjs\";\nassert.equal(add(2, 3), 5);\nassert.equal(add(-1, 1), 0);\n"}

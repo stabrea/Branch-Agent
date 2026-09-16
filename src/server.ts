@@ -42,11 +42,21 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
+import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+import { channelEntries } from "./channels/catalog.js";
+import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
 // Wave 7 (a coder's toolbox): the two Developer switches.
 import { languageServerSettings, saveLanguageServerSettings } from "./language-server.js";
 import { debugSettings, saveDebugSettings } from "./debug-adapter.js";
+// Wave 7 (benchmarks and experiments).
+import { scorerKinds } from "./evaluation-scorers.js";
+import { benchmarkAdapters } from "./benchmark-adapters.js";
+import { notIntegratedBenchmarks } from "./benchmarks.js";
+import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
+import { runToolEvaluations } from "./tool-evaluations.js";
+
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
 // shown, connection lifecycle, the "try a server" bench, and small pages an outside server sends.
@@ -56,6 +66,8 @@ import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js
 import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+import { readServingSettings, saveServingSettings } from "./mcp-server.js";
+import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -197,6 +209,12 @@ function authorize(
   limits?.onFailure(from);
   throw new HttpError(401, "Local session token required");
 }
+/** A study result without its thousands of rows, for the list on the Evaluation screen. */
+const studySummary = (result: StudyRunResult) => ({
+  id: result.id, studyId: result.studyId, name: result.name, startedAt: result.startedAt,
+  rows: result.rows, tasks: result.tasks.length, resumed: result.resumed, stoppedEarly: result.stoppedEarly,
+});
+
 async function staticFile(
   path: string,
   response: ServerResponse,
@@ -214,6 +232,7 @@ async function staticFile(
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -233,6 +252,8 @@ async function staticFile(
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
+    // Wave 7: written-down experiments, under the evaluation card.
+    "/studies.js": ["studies.js", "text/javascript; charset=utf-8"],
     // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
     "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
     // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
@@ -556,6 +577,10 @@ async function api(
       base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
       token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
     });
+  // A phone-sized list of conversations. It goes through the same door and needs the same key as
+  // everything else, so a paired phone can pick up what was started at the computer.
+  if (request.method === "GET" && path === "/api/sessions")
+    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -706,6 +731,17 @@ async function api(
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
     return toolCatalogReport(app);
   }
+  if (path === "/api/tools/meaning-search") {
+    app.store.profiles.requireOwner("How the assistant finds its tools");
+    if (request.method === "POST") {
+      const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(await readBody(request));
+      app.store.save("settings", app.runtime.owner, meaningSearchSetting, { enabled });
+    }
+    const reader = app.knowledgeBases.embeddings(app.runtime.owner);
+    return { enabled: meaningSearchOn(app.store, app.runtime.owner),
+      available: reader !== null,
+      explanation: meaningSearchExplanation(meaningSearchReceiver(app, reader)) };
+  }
   if (request.method === "POST" && path === "/api/tools/forget") {
     app.store.profiles.requireOwner("What the assistant has learned about its tools");
     const { what } = z.object({ what: z.enum(["history", "notes", "all"]).default("all") }).strict().parse(await readBody(request));
@@ -742,6 +778,28 @@ async function api(
     const suite = new URL(request.url ?? "/", "http://local").searchParams.get("suite") ?? undefined;
     return { runs: app.evaluationSuites.history(suite), trend: app.evaluationSuites.trend(suite) };
   }
+  // Wave 7 (benchmarks and experiments): scorers, benchmarks read from the owner's own files,
+  // studies with checkpoints and resume, comparison with an interval, and the tool checks.
+  if (request.method === "GET" && path === "/api/evaluation/benchmarks")
+    return { adapters: benchmarkAdapters.map(({ id, name, format, layout }) => ({ id, name, format, layout })), notIntegrated: notIntegratedBenchmarks, scorers: scorerKinds };
+  if (request.method === "GET" && path === "/api/studies")
+    return { studies: app.studies.list(), results: app.studies.results().map(studySummary) };
+  if (request.method === "POST" && path === "/api/studies") return app.studies.save(await readBody(request));
+  if (request.method === "POST" && path === "/api/studies/run") {
+    const body = z.object({ id: z.string().min(1).max(64), fresh: z.boolean().default(false) }).strict().parse(await readBody(request));
+    const result = await app.studies.run(body.id, { fresh: body.fresh });
+    return { result, table: studyTable(result) };
+  }
+  if (request.method === "POST" && path === "/api/studies/compare") {
+    const body = z.object({ a: z.string().uuid(), b: z.string().uuid() }).strict().parse(await readBody(request));
+    const all = app.studies.results();
+    const left = all.find((entry) => entry.id === body.a), right = all.find((entry) => entry.id === body.b);
+    if (!left || !right) throw new Error("One of those study results is not on file");
+    const comparison = compareStudies(left, right);
+    return { comparison, table: comparisonTable(comparison) };
+  }
+  if (request.method === "POST" && path === "/api/evaluation/tools")
+    return runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
@@ -808,7 +866,7 @@ async function api(
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
-      health: await healthReport(app), version: app.version,
+      health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
     });
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
@@ -1002,6 +1060,12 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
       .strict().parse(await readBody(request));
     return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
   }
+  // "Tidy my memory" in one screen: the four checks together, and the same call with stage on.
+  if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
+  if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
   if (request.method === "POST" && path === "/api/memory/tidy") {
     z.object({}).strict().parse(await readBody(request));
@@ -1179,6 +1243,63 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
   send(response, 200, result);
   return true;
 }
+/**
+ * The one address every other chat service posts to. Which signature has to be there, and what the
+ * post looks like inside, comes from that service's row in `data/channels.json`; this route only
+ * hands over the exact bytes and the headers. Like the WhatsApp route it carries no session key,
+ * so the signature check is the only thing letting a post through.
+ */
+async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
+  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  if (!match) return false;
+  // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
+  // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
+  const from = requestSource(request.socket?.remoteAddress);
+  const waiting = limiter.refusal(from, "signature");
+  if (waiting) throw new HttpError(429, waiting);
+  const adapter = app.channels.adapter(match[1]!);
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const result = await adapter.receive(raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, { limiter, from }); });
+  limiter.succeed(from);
+  // Some services will not send anything until the address echoes a word back once.
+  send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
+  return true;
+}
+/** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
+interface ChatWebhookLimit { limiter: AuthLimiter; from: string }
+/** A post that did not prove it came from the service is refused, and the refusal is written down. */
+function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
+  audit(app.store, app.runtime.owner, {
+    action: "auth.refused", actor: `the ${kind} connection`, subject: `/webhooks/chat/${channel}`, source: "system",
+    reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
+    outcome: "refused",
+  });
+  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
+  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
+  return new HttpError(401, errorText(error));
+}
+/** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
+async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method === "GET") {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const challenge = tryOr(() => adapter.verify(query), 403);
+    response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    response.end(challenge);
+    return true;
+  }
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const signature = request.headers["x-hub-signature-256"];
+  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  send(response, 200, result);
+  return true;
+}
 function tryOr<T>(work: () => T, status: number): T {
   try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
 }
@@ -1196,6 +1317,10 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
 
   const verified = app.triggers.verify(trigger, request.headers, raw);
   if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
+  // A copied request cannot be sent again: when the owner asked for it, the timestamp must be
+  // fresh and the nonce one nobody has used before.
+  const fresh = app.triggers.checkFreshness(trigger, request.headers);
+  if (!fresh.valid) throw new HttpError(401, fresh.error ?? "Unauthorized");
 
   return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
     const message = errorText(error);
@@ -1254,7 +1379,7 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && path === "/api/webhooks")
     return app.webhooks.create(context, await readBody(request));
 
-  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable))?$/.exec(path);
+  const match = /^\/api\/webhooks\/([a-f0-9-]{36})(?:\/(log|test|remove|enable|preview))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
 
   const webhook = app.webhooks.get(owner, match[1]!);
@@ -1276,6 +1401,13 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
     return { removed: true };
   }
 
+  // The shape editor in Settings: what one event would be sent as, without sending anything.
+  if (request.method === "POST" && match[2] === "preview") {
+    const body = z.object({ event: z.string().min(1).max(50), sample: z.record(z.string().max(60), z.unknown()).default({}) })
+      .strict().parse(await readBody(request));
+    return app.webhooks.preview(owner, match[1]!, body.event, body.sample);
+  }
+
   if (request.method === "POST" && match[2] === "enable") {
     z.object({}).strict().parse(await readBody(request));
     return app.webhooks.enable(owner, match[1]!);
@@ -1286,6 +1418,13 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // The chat services this copy knows how to talk to, so the Connections card lists them from data
+  // rather than from a piece of hand-written page per service. No secret is involved either way.
+  if (request.method === "GET" && path === "/api/channels/catalog")
+    return { services: channelEntries().map((entry) => ({
+      id: entry.id, name: entry.name, docs: entry.docs, needs: entry.needs, note: entry.note,
+      can: entry.can, maxTextLength: entry.maxTextLength, canReceive: entry.receive !== null,
+    })) };
   const retry = /^\/api\/channels\/deliveries\/([^/]{1,220})\/retry$/.exec(path);
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
@@ -1440,17 +1579,22 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     const mcp = app.mcpServer;
     if (!mcp) throw new HttpError(500, "Sharing is not available");
     if (request.method === "GET")
-      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+      return { ...mcp.sharing(), ...readServingSettings(app.store, app.runtime.owner), tools: shareableTools(app.registry) };
     if (request.method === "POST") {
       const body = await readBody(request);
-      const sharing = McpSharingSchema.parse(body);
+      // How long a quiet connection is kept and how long a call waits for the owner's yes are
+      // saved separately, so a screen that does not know about them cannot reset them by saving.
+      const { idleMinutes, askWaitSeconds, ...rest } = (body as Record<string, unknown> | null) ?? {};
+      const serving = saveServingSettings(app.store, app.runtime.owner,
+        { ...(idleMinutes === undefined ? {} : { idleMinutes }), ...(askWaitSeconds === undefined ? {} : { askWaitSeconds }) });
+      const sharing = McpSharingSchema.parse(rest);
       const known = new Set(app.registry.names());
       const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
       // A screen that does not know about answering other assistants must not switch it off by saving.
       const said = (body as Record<string, unknown> | null)?.a2a;
       const a2a = typeof said === "boolean" ? said : mcp.sharing().a2a;
       app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a });
-      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+      return { ...mcp.sharing(), ...serving, tools: shareableTools(app.registry) };
     }
   }
   throw new HttpError(404, "Endpoint not found");
@@ -1488,6 +1632,23 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
     // stays with the owner even where several people share the app.
     app.store.profiles.requireOwner("Trying another AI tool's server");
     return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+  }
+  // The pages outside servers offered during one conversation, newest first. The page itself
+  // travels with the answer so the card can hand it straight back for a one-time address; it is
+  // never put in a frame here, only listed.
+  if (path === "/api/mcp/apps" && request.method === "GET") {
+    const sessionId = new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("session") ?? "";
+    const scope = app.store.profiles.scope();
+    const apps: { server: string; uri: string; html: string; runId: string }[] = [];
+    for (const run of app.store.runs(scope).slice(0, 12)) {
+      if (sessionId && run.sessionId !== sessionId) continue;
+      for (const event of app.store.events(run.id))
+        if (event.kind === "mcp.app")
+          apps.push({ server: String(event.data.server ?? "a server"), uri: String(event.data.uri ?? ""),
+            html: String(event.data.html ?? ""), runId: run.id });
+      if (apps.length >= 5) break;
+    }
+    return { apps: apps.slice(0, 5) };
   }
   if (path === "/api/mcp/app" && request.method === "POST") {
     const resource = AppResourceSchema.parse(await readBody(request, 512_000));
@@ -1706,6 +1867,9 @@ export async function startServer(
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
   // place is made to wait, with a line written into the record of what the assistant was allowed to do.
   const authLimiter = new AuthLimiter(options.authLimits);
+  // Counted separately from the session key, so a chat service that is set up wrongly can slow
+  // itself down without ever standing between the owner and their own app.
+  const webhookLimiter = new AuthLimiter(options.authLimits);
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
@@ -1720,6 +1884,7 @@ export async function startServer(
         return;
       }
       if (await whatsAppWebhook(app, request, response, path)) return;
+      if (await chatWebhook(app, request, response, path, webhookLimiter)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
@@ -2100,6 +2265,17 @@ function meteringDeps(app: Branch) {
     overrides: () => pricingSettings(app.store, app.runtime.owner).overrides,
   };
 }
+/**
+ * Who would actually receive the tool descriptions, named, so the sentence the owner reads before
+ * switching meaning search on says where their words go rather than gesturing at "a model".
+ */
+function meaningSearchReceiver(app: Branch, reader: { local: boolean } | null): string | undefined {
+  if (!reader) return undefined;
+  if (reader.local) return "the model running on this computer, so nothing leaves it";
+  const provider = app.runtime.models.plan(app.runtime.owner, "").candidates[0]?.provider.name;
+  return provider ? `${provider}, the model service you have connected` : undefined;
+}
+
 function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,
@@ -2110,7 +2286,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

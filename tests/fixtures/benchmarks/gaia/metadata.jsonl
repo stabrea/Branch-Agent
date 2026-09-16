@@ -1,0 +1,2 @@
+{"task_id": "gaia-hours", "Question": "Read notes.txt and say what time the corner shop closes. Answer with the time only.", "Level": "1", "Final answer": "five", "file_name": "notes.txt"}
+{"task_id": "gaia-sum", "Question": "What is seventeen multiplied by twenty-three? Answer with the number only.", "Level": "1", "Final answer": "391", "file_name": ""}

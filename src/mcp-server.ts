@@ -12,6 +12,8 @@ import {
   DryRunSchema, dryRunPlan, hiddenToolsText, hiddenToolsUri, preflight, type DryRunPlan,
 } from './mcp-policy.js';
 import { compareSnapshot, listSnapshots, recordSnapshot, type SnapshotTool } from './mcp-snapshots.js';
+import { argumentFingerprint } from './runtime.js';
+import { approvalQuestion } from './approvals.js';
 
 /**
  * Protocol versions Branch understands, newest first. A client that asks for something else is told
@@ -58,6 +60,30 @@ export const McpSharingSchema = z
   })
   .strict();
 export type McpSharing = z.infer<typeof McpSharingSchema>;
+
+/**
+ * How Branch serves other AI tools, as opposed to what it shares with them. Two numbers: how long
+ * a quiet connection is kept, and how long a call that needs the owner's yes waits for one.
+ */
+export const McpServingSchema = z
+  .object({
+    /** A connection nobody has said anything on for this long is dropped, as well as at the cap. */
+    idleMinutes: z.number().int().min(1).max(1440).default(30),
+    /** How long a call needing the owner's yes waits in the app before the client is told to retry. */
+    askWaitSeconds: z.number().int().min(0).max(600).default(120),
+  })
+  .strict();
+export type McpServing = z.infer<typeof McpServingSchema>;
+/** The serving settings, read fresh so a change in Settings takes effect on the very next call. */
+export function readServingSettings(store: Store, owner: string): McpServing {
+  const saved = McpServingSchema.safeParse(store.get('settings', owner, 'mcp-serving')?.data ?? {});
+  return saved.success ? saved.data : McpServingSchema.parse({});
+}
+export function saveServingSettings(store: Store, owner: string, input: unknown): McpServing {
+  const value = McpServingSchema.parse({ ...readServingSettings(store, owner), ...(input as object ?? {}) });
+  store.save('settings', owner, 'mcp-serving', value);
+  return value;
+}
 
 /** A tool only reads when its permission ends in `.read`; anything else can change things. */
 export const toolChangesThings = (permission: string): boolean => !/\.read$/.test(permission);
@@ -132,6 +158,33 @@ export class McpSession {
 
 /** How many conversations are kept at once. At the cap the quietest one is dropped. */
 const SESSION_LIMIT = 100;
+/**
+ * How many calls may sit waiting for the owner's yes at once: in all, and from any one connection.
+ * Waiting deliberately does not count as work, so without these two numbers a client could park
+ * call after call and leave a question, a task and a timer behind for each one. Past either cap
+ * the call is turned away at once, with nothing created and nothing to answer.
+ *
+ * One per connection, not more, because the app holds one question per conversation: a second
+ * would quietly replace the first and the owner would never see what they were asked.
+ */
+const WAITING_LIMIT = 16, WAITING_PER_SESSION = 1;
+
+/** What the settings say about one call from outside, and the words for each way it can end. */
+interface McpVerdict {
+  decision: 'allow' | 'deny' | 'ask';
+  name: string;
+  target: string;
+  label: string;
+  /** Where the owner's answer is kept: the client's own connection, so a retry finds it. */
+  approvalKey: string;
+  /** The exact request, with saved passwords taken out, and the fingerprint a yes is bound to. */
+  bytes: string;
+  fingerprint: string;
+  refusal: string;
+  waiting: string;
+  /** Said when there is no free place to wait in, so nothing was asked and nothing was done. */
+  tooMany: string;
+}
 
 /** A resource only shows up when the owner's approval settings would allow the matching tool. */
 interface ResourceScope { uri: string; name: string; description: string; mimeType: string; tool: string; permission: string }
@@ -147,6 +200,14 @@ const scopedResources: readonly ResourceScope[] = [
 export class McpServer {
   private sessions = new Map<string, McpSession>();
   private inFlight = 0;
+  /**
+   * Calls parked on a question for the owner. Waiting for a person is not work, so it is taken off
+   * the busy count: otherwise a couple of unanswered questions would hold every slot the connection
+   * has for two minutes and refuse even a read.
+   */
+  private waiting = 0;
+  /** How many of those belong to each connection, so one client cannot take every free place. */
+  private readonly waitingPerSession = new Map<string, number>();
   private readonly stopWatching: () => void;
   /** The document library, once the launcher has built it, so documents can be offered too. */
   documents?: { list(owner: string): unknown[] };
@@ -171,11 +232,32 @@ export class McpServer {
     this.sessions.clear();
   }
 
+  /** The clock, so a test can step over half an hour without waiting it out. */
+  now: () => number = () => Date.now();
+
+  /**
+   * Drops every connection nobody has said anything on for a while. A connection with a stream
+   * open is left alone however quiet it is: the stream is Branch talking, not the client, and a
+   * client that opened one and is waiting to be told something has not gone away.
+   */
+  dropIdleSessions(): string[] {
+    const limit = readServingSettings(this.store, this.runtime.owner).idleMinutes * 60_000;
+    const cutoff = this.now() - limit;
+    const gone: string[] = [];
+    for (const session of [...this.sessions.values()]) {
+      if (session.listeners.size || session.lastSeen > cutoff) continue;
+      this.deleteSession(session.id);
+      gone.push(session.id);
+    }
+    return gone;
+  }
+
   /** Get or create a session for a given session ID. */
   getSession(sessionId?: string): McpSession {
+    this.dropIdleSessions();
     const id = sessionId ?? randomBytes(24).toString('hex');
     const found = this.sessions.get(id);
-    if (found) { found.lastSeen = Date.now(); return found; }
+    if (found) { found.lastSeen = this.now(); return found; }
     // A name nobody has used before opens a new conversation, but only so many may be open, or a
     // caller that made one up every time would fill this computer's memory.
     while (this.sessions.size >= SESSION_LIMIT) {
@@ -184,12 +266,14 @@ export class McpServer {
       this.deleteSession(quietest.id);
     }
     const created = new McpSession(id);
+    created.lastSeen = this.now();
     this.sessions.set(id, created);
     return created;
   }
 
   /** Whether this is a conversation Branch actually opened, rather than a name somebody made up. */
   hasSession(sessionId: string): boolean {
+    this.dropIdleSessions();
     return this.sessions.has(sessionId);
   }
 
@@ -362,7 +446,7 @@ export class McpServer {
     if (parsed._meta?.dryRun === true) return this.dryRun({ name: parsed.name, arguments: args });
     if (parsed.name === 'mcp.dry_run') return this.dryRun(DryRunSchema.parse(args));
     if (parsed.name === 'mcp.snapshot') return this.snapshot(session, args);
-    if (this.inFlight >= this.options.maxConcurrentCalls)
+    if (this.inFlight - this.waiting >= this.options.maxConcurrentCalls)
       return failure('Branch is already busy with as many shared calls as it allows. Try again shortly.');
     this.inFlight++;
     try {
@@ -370,7 +454,7 @@ export class McpServer {
       const exposed = this.exposed();
       if (!exposed.has(parsed.name))
         return failure(`Branch is not sharing "${parsed.name}". Turn it on in Settings, under Sharing with other AI tools.`);
-      return await this.callRegistryTool(parsed.name, args, exposed);
+      return await this.callRegistryTool(parsed.name, args, exposed, session);
     } finally {
       this.inFlight--;
     }
@@ -428,9 +512,16 @@ export class McpServer {
   }
 
   /** Run one shared tool as its own recorded task, so it appears in Activity with a receipt. */
-  private async callRegistryTool(name: string, args: Record<string, unknown>, exposed: Set<string>): Promise<unknown> {
-    const refusal = this.gate(name, args);
-    if (refusal) return failure(refusal);
+  private async callRegistryTool(
+    name: string, args: Record<string, unknown>, exposed: Set<string>, session?: McpSession,
+  ): Promise<unknown> {
+    const verdict = this.gate(name, args, session);
+    if (verdict.decision === 'deny') return failure(verdict.refusal);
+    if (verdict.decision === 'ask') {
+      const answered = await this.park(verdict, session);
+      if (answered === 'full') return failure(verdict.tooMany);
+      if (answered !== 'allow') return failure(answered === 'deny' ? verdict.refusal : verdict.waiting);
+    }
     const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
     this.store.event(run.id, 'run.started', { source: 'mcp', tool: name, provider: this.runtime.provider.name, parentRunId: null });
     try {
@@ -449,21 +540,92 @@ export class McpServer {
   }
 
   /**
-   * The owner's approval settings, applied at the moment of the call. There is nobody at this end
-   * of an MCP connection to answer a question, so a call the settings want asked about is stopped
-   * with a message rather than quietly allowed.
+   * The owner's approval settings, applied at the moment of the call. A flat refusal is final; a
+   * call the settings want asked about becomes a real question in the app, which the owner can
+   * answer while the client waits (see `waitForOwner`).
+   *
+   * The answer is kept against the client's own connection and bound to the exact bytes asked for,
+   * so a yes covers this call and a retry of it, and nothing else.
    */
-  private gate(name: string, args: Record<string, unknown>): string | null {
+  private gate(name: string, args: Record<string, unknown>, session?: McpSession): McpVerdict {
     const permission = this.registry.permissionOf(name);
     const context = this.toolContext('policy-check', new Set([name]));
     const target = this.registry.targetOf(name, args, context);
+    const label = describeToolCall(name, args);
+    const bytes = this.runtime.hideSecrets(JSON.stringify(args));
+    const fingerprint = argumentFingerprint(bytes);
+    const approvalKey = `mcp:${session?.id ?? 'once'}`;
     const policy = cappedPolicy(readPolicy(this.store, this.runtime.owner), 'mcp');
     const { decision } = evaluatePolicy(policy, { tool: name, target, readOnly: isReadOnlyPermission(permission) });
-    if (decision === 'allow') return null;
+    const answered = decision === 'ask'
+      ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint) : undefined;
     const where = target ? ` on ${target}` : '';
-    return decision === 'deny'
-      ? `Your approval settings do not allow ${name}${where}.`
-      : `${name}${where} needs your yes. Open Branch and run it there, or change your approval settings.`;
+    return {
+      decision: answered ?? decision, name, target, label, approvalKey,
+      bytes: bytes.slice(0, 2000), fingerprint,
+      refusal: `Your approval settings do not allow ${name}${where}.`,
+      waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
+      tooMany: 'Branch is already holding as many questions for the owner as it allows. Nothing was asked and nothing was done. Answer the ones waiting in Branch, then try again.',
+    };
+  }
+
+  /**
+   * Holding one call open while the owner is asked, but only if there is a place free. Waiting is
+   * not work, so it does not count against how many calls may run at once; these two counts are
+   * what stops that becoming a way to make Branch hold an unlimited number of them. A call turned
+   * away here has had nothing created for it — no question, no task, nothing to answer.
+   */
+  private async park(verdict: McpVerdict, session?: McpSession): Promise<'allow' | 'deny' | 'waiting' | 'full'> {
+    const key = verdict.approvalKey;
+    const mine = this.waitingPerSession.get(key) ?? 0;
+    if (this.waiting >= WAITING_LIMIT || mine >= WAITING_PER_SESSION) return 'full';
+    this.waiting++;
+    this.waitingPerSession.set(key, mine + 1);
+    try {
+      return await this.waitForOwner(verdict, session);
+    } finally {
+      this.waiting--;
+      const left = (this.waitingPerSession.get(key) ?? 1) - 1;
+      if (left > 0) this.waitingPerSession.set(key, left); else this.waitingPerSession.delete(key);
+    }
+  }
+
+  /**
+   * A call the settings want a question about. There used to be nobody at this end of an MCP
+   * connection to answer one, so it was simply refused. Now the question goes into the app exactly
+   * as a question from the owner's own conversation does — the same pending approval, the same
+   * exact bytes, the same fingerprint — and the client's call is held open while the owner looks at
+   * it, for as long as the owner's setting allows. If nothing comes, the question stays waiting and
+   * the client is told to ask again: the answer is bound to these bytes, so a retry finds it.
+   */
+  private async waitForOwner(verdict: McpVerdict, session?: McpSession): Promise<'allow' | 'deny' | 'waiting'> {
+    const name = verdict.name;
+    const asking = this.store.createRun(this.runtime.owner, `Another AI tool asked to use ${name}`);
+    const question = approvalQuestion(verdict.label, verdict.target);
+    this.runtime.approvals.ask({
+      runId: asking.id, sessionId: verdict.approvalKey, tool: name, target: verdict.target,
+      label: verdict.label, question, source: 'mcp', remember: 'session',
+      askedAt: new Date().toISOString(), bytes: verdict.bytes, fingerprint: verdict.fingerprint,
+    });
+    this.store.event(asking.id, 'policy.ask', { name, label: verdict.label, target: verdict.target,
+      remember: 'session', question, bytes: verdict.bytes, fingerprint: verdict.fingerprint, source: 'mcp' });
+    const deadline = this.now() + readServingSettings(this.store, this.runtime.owner).askWaitSeconds * 1000;
+    do {
+      const answer = this.runtime.approvals.answer(verdict.approvalKey, name, verdict.target, verdict.fingerprint);
+      if (answer) {
+        this.store.finish(asking.id, 'completed', answer === 'allow' ? 'You said yes.' : 'You said no.');
+        return answer;
+      }
+      if (this.now() >= deadline) break;
+      // A client holding a call open is not an idle one, so the idle sweep must not take its
+      // session away underneath it — the answer is remembered against that session id.
+      if (session) session.lastSeen = this.now();
+      await new Promise((resolve) => { const timer = setTimeout(resolve, 150); timer.unref?.(); });
+    } while (this.now() < deadline);
+    // The question is deliberately left waiting: the owner can still answer it, and the answer is
+    // bound to these exact bytes, so the client's next try finds it without asking again.
+    this.store.finish(asking.id, 'needs_input', question);
+    return 'waiting';
   }
 
   /** Anyone watching the list of finished tasks is told, and so is anyone watching this one. */

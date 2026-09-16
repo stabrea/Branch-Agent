@@ -113,7 +113,9 @@ export class Flows {
 
 export function registerFlows(registry: ToolRegistry, flows: Flows): void {
   registry.register({
-    name: "flows.list", permission: "workflows.read", group: "agents",
+    // No explicit group: the name decides it, exactly as `workflows.*` does, so the one table in
+    // src/catalog.ts really is where a tool's box comes from and the "flows." prefix there is used.
+    name: "flows.list", permission: "workflows.read",
     description: "Saved flows as boxes and arrows: every step, what it does, where it has got to, and which step follows which.",
     parameters: z.object({}).strict(),
     execute: async () => ({ flows: flows.list() }),

@@ -1,0 +1,2 @@
+{"id": "shop-hours", "web_name": "Corner shop", "web": "https://example.invalid/hours", "ques": "When does the corner shop close on a weekday?", "answer": "five", "page": "shop-hours.html"}
+{"id": "live-only", "web_name": "Live shop", "web": "https://example.invalid/live", "ques": "What is on offer today?", "answer": "anything"}

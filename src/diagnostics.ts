@@ -127,7 +127,7 @@ export async function writeDiagnosticsBundle(
   store: Store,
   owner: string,
   dataDir: string,
-  details: { health: unknown; version: string },
+  details: { health: unknown; version: string; memory?: unknown },
 ): Promise<DiagnosticsBundle> {
   const createdAt = new Date().toISOString();
   const folder = join(dataDir, "diagnostics", createdAt.replace(/[:.]/g, "-"));
@@ -146,6 +146,9 @@ export async function writeDiagnosticsBundle(
     // How the tool list is doing: the same plain line the Developer card shows, and the counts
     // behind it. Tool names only — never an argument, a result or anything a task was asked to do.
     await writeJson(folder, "tools.json", store.toolUsage.health(owner)),
+    // How the saved facts are made up: counts of each kind and layer, and how many have never been
+    // drawn on. Counts only — the wording of a fact never goes into the folder.
+    await writeJson(folder, "memory.json", details.memory ?? { note: "Memory health was not available in this launch." }),
   ];
   await writeFile(join(folder, "README.txt"), explanation, { mode: 0o600 });
   files.push("README.txt");

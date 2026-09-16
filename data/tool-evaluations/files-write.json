@@ -1,0 +1,17 @@
+{
+  "tool": "files.write",
+  "description": "Writing a file should say what it wrote, and should refuse a path outside the workspace.",
+  "cases": [
+    {
+      "name": "writes a small file and reports the path and size",
+      "input": { "path": "tool-check-write.txt", "content": "ready" },
+      "shape": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" } } },
+      "contains": ["tool-check-write.txt"]
+    },
+    {
+      "name": "refuses a path that leaves the workspace",
+      "input": { "path": "../escape.txt", "content": "no" },
+      "refuses": "Path denied"
+    }
+  ]
+}

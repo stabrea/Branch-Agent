@@ -97,6 +97,10 @@ export class Profiles {
   scope(): string {
     return this.current ? `profile:${this.current}` : this.owner;
   }
+  /** The owner's own name, so a caller can tell the owner's records apart from a profile's. */
+  get ownerName(): string {
+    return this.owner;
+  }
   isOwner(): boolean {
     return this.current === null;
   }

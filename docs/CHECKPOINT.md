@@ -1603,6 +1603,93 @@ those jobs spend one to two rounds finding tools, and never a wasted one). `Tool
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
 
+## Batch 26 (wave 7) — the hardening pass: closing the gaps the integrators handed back
+Twelve specific things the reviewers wrote down as "not fixed". Every one is now fixed and pinned
+by a test in `tests/hardening.test.mjs` (17 tests: fakes, plus the real stdio MCP fixture).
+
+**Lazy MCP connections are real.** `mcp.connect` (`"startup"` | `"on-demand"`, default `"startup"`,
+so nothing about an existing install moves) decides when a configured server is started. `openMcp`
+in `src/integrations/mcp.ts` is the connect-without-registering half that `connectMcp` is now built
+on; `registerCachedMcp` puts a server's tools in the list from what it said the last time it was
+connected — kept per server as `mcp-tools:<id>`, rewritten on every connect — and opens the
+connection, through `McpConnections.acquire`, the first time one of them is actually called, so
+keep-warm, the concurrency cap and the retries all apply to it. A server nobody has ever connected
+has no list to show, so it is connected once and never again at startup. `health()` lists a server
+it knows how to open but has not opened as `idle`, "Set up, not connected yet." The seam is
+`ChannelHost.mcp`, so `cli.ts` and `desktop/main.ts` are untouched. The paragraph in
+docs/configuration.md and the Connections card that said none of this was wired up now say what is
+true. **MCP `ask` is an answerable pause.** A call from outside that the settings want a question
+about becomes a real pending approval — same bytes, same fingerprint, keyed to the client's own
+connection — and the JSON-RPC call is held open for `mcp.askWaitSeconds` (default 120) while the
+owner answers in the app. On the timeout the question is left waiting and the client is told to ask
+again; the answer is bound to those bytes, so the retry finds it and a different request does not.
+Waiting does not count against how many shared calls may run at once, so two numbers bound it
+instead: at most sixteen calls may be parked in all, and one per connection — the app holds a
+single question per conversation, and a second would replace the one the owner is reading. A call
+past either number is refused straight away, with no question and no task created for it. On
+demand, the first call after a connection is finally opened is checked against what the server says
+its tools need *now*, not the shape written down at the last connect, and anything the server
+echoes back has the credentials it was opened with taken out of it.
+**MCP apps got a surface**: a tool from outside answering with an HTML resource is kept as an
+`mcp.app` event and offered in the context pane as "Open in Branch", opening the sandboxed,
+one-time-address frame that was already built for it. **Idle MCP sessions** are dropped after
+`mcp.idleMinutes` (default 30) as well as at the hundred-session cap; one with a stream open is
+never dropped for being quiet, because the stream is Branch talking, not the client going away.
+
+**The rest.** `process.list`, `process.read` and `process.stop` are scoped to the conversation that
+started the program; the owner still sees every one of them in Activity. Forcing a skill revision
+past its trial needs the owner's own profile, a second button, and the exact sentence with the
+request, and is audited as `skill.forced`. Telegram gets `fetch: guardedFetch` like Discord and
+WhatsApp, so replies and voice-note downloads both go through the network policy.
+`provider-probe.ts` and `media-images.ts` read Gemini's `bearer` flag, and the picture route stopped
+putting the credential in the address; `tests/media.test.mjs` asserts the header instead. Tool
+search got its embeddings half: with a connected model that can compare writing and the owner's
+"Also find tools by meaning" ticked (off by default, one plain sentence saying what is sent),
+descriptions are read once — cached by sha-256 of description and model, in the same store as every
+other read passage — and fused with BM25 by reciprocal rank, so "make a graphic" finds `data.chart`;
+`ToolLoader.search` is async now. `unhandledRejection` is recorded as a span and then thrown on, so
+Node ends exactly as it would have with nobody listening, and the desktop shell's own crashes reach
+the same tracer through Electron's IPC. `flows.list` no longer names its own toolbox, so the
+`"flows."` prefix in `src/catalog.ts` is really used. And facts saved during a household profile's
+task land in that profile's scope, which is also what stops a profile's task reading the owner's —
+not through `memory.search`, and not through the snapshot a task opens with. Models, settings and
+the secrets locker still belong to the owner; only what is remembered moves.
+
+## Batch 25 (wave 7) — every document people actually have, and memory that knows what it remembers
+Branch now reads Word, spreadsheet, slide, OpenDocument, e-book, rich-text and PDF files with nothing
+but Node built-ins: no dependency was added. `src/document-office.ts`, `src/document-open.ts` and
+`src/document-pdf.ts` hold the readers; `src/document-readers.ts` is the one door in front of them,
+capping every read by size and by time and returning the text with its shape kept (Markdown headings
+for sections, sheets and slides; `[[page N]]` markers the existing passage-cutter already understands),
+the tables it found, and a plain sentence for every part it could not read. The PDF reader finds
+objects by scanning rather than trusting the cross-reference table, unpacks FlateDecode streams and
+packed object stores, walks the page tree, reads `Tj`/`TJ`/`'`/`"` with the file's own ToUnicode
+tables, and rebuilds lines from where text sat on the page. It refuses a password-locked PDF outright
+and reports a picture-only PDF as pictures rather than returning nothing; docs/configuration.md lists
+what it cannot do, so the limit is stated rather than discovered.
+Knowledge bases walk every one of those kinds (`readableFile` now asks the reader registry, not a
+hand-written extension list), cut passages at headings, slides, sheets and pages so citations carry
+them, and keep a per-file content hash in the new `kb_documents` table — a second reading leaves
+unchanged files alone and reports how many (`unchanged`), while every file that could not be read is
+listed against the collection with its reason (`unread`). `documents.analyse` answers a question about
+one file with the heading and page behind each claim and opens the file's tables as `data.*` figures;
+`documents.compare` lines two documents up section by section. `knowledge.propose` reads a finished
+conversation and stages fact cards as `knowledge-card` suggestions; accepting one writes it into the
+chosen collection through `KnowledgeBases.addCard`, indexed and cited like any passage.
+On the memory side, `src/memory-layers.ts` gives every fact a kind and a layer — both optional on the
+record, so nothing already saved changes meaning — and `chooseForInjection` takes what reaches a task
+layer by layer in a documented order and budget (working 6, task 4, then long-term, capped at the
+snapshot's 20 facts and 2000 characters). Task-scratch notes are cleared by an `onRunFinished` hook
+unless `memory.keep` promoted them. `src/memory-tidy.ts` runs all four hygiene checks in one call,
+stages suggestions and deletes nothing, ships as the **Tidy my memory** recipe, and feeds the
+counts-only `memory.json` now written into the diagnostics folder. `branch eval memory`
+(`src/memory-evaluation.ts`) measures retrieval against the owner-editable set in
+`data/memory-retrieval.json`, reporting hit rate before and after the nightly pass under a scope of
+its own that is emptied afterwards. `src/memory-backend.ts` writes down the contract the SQLite store
+keeps, with that store as the only implementation, and the JSON Lines export now round-trips kinds,
+layers and projects. Sessions already persisted; `GET /api/sessions` adds the phone-sized list of
+recent conversations, served through the existing paired-remote listener with the same key — no new
+door was opened.
 ## Batch 25 (wave 7) — the screens the last waves left as routes, and the observability leftovers
 
 Several earlier waves landed a route or a module without the screen that uses it. This batch
@@ -1647,6 +1734,7 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+<<<<<<< HEAD
 (Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
 adds the figures up a project at a time.)
 
@@ -1689,3 +1777,86 @@ changes, settling a burst of saves into one run and never running twice at once.
 Tests: `tests/other-2.test.mjs` (11). No new dependency. The remaining ids of #60 are decided in
 docs/configuration.md under "The long tail…": covered elsewhere, or deliberately not built with the
 reason written down.
+||||||| 4da2910
+=======
+
+## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
+
+Everything that turns "it feels better" into a number two people can check. `src/evaluation-scorers.ts`
+adds an `Evaluator` shape — `score(task, trajectory, answer)` giving a score, a pass and its reasons
+— with twelve built-in scorers: exact (normalised), contains, regex, JSON shape, a number within a
+tolerance, a URL pattern, file-exists and file-contains, "this tool was called with these
+arguments", a budget over rounds/time/tokens/money, a model-graded rubric (cached, and refusing to
+guess when no connection is chosen), and `finished`, the completion review that catches an answer
+which quietly gave up. A suite task carries them as `"scorers": [...]`. `src/evaluation-run.ts` reads
+a finished task back as a trajectory and holds the gates: thresholds that fail a whole run, with
+`branch eval --suite x --gate '{...}'` making the exit code the gate's verdict so a release script
+can stop on it.
+
+`src/benchmarks.ts` and `src/benchmark-adapters.ts` add a `BenchmarkAdapter`
+(`discover`/`prepare`/`judge`) and five adapters that read the published formats from files the
+owner already has: SWE-bench Lite/Verified (refuses by name when the repository is not at
+`repos/<owner>__<name>`, copies it rather than touching it, applies the instance's own `test_patch`
+before running the named tests), GAIA, APPS/MBPP/HumanEval-style code tasks, WebVoyager/BrowserGym
+tasks against pages saved next to the dataset, and terminal-bench folders. Tests run through
+`src/benchmark-shell.ts`, under the same job limits and dead proxies every other command gets.
+Nothing is ever downloaded. OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld and
+the live BrowserGym environments are listed by name as **not** integrated, with what each would need.
+
+`src/study.ts` is the experiment: a study of source, subset, model choices, repeats, concurrency,
+retries and a money cap; the runner works through the matrix several at a time, writes every cell
+down as it lands so a stopped study carries on rather than restarting, keeps the best of N tries, and
+tabulates. `compareStudies` reports the difference over the tasks two studies share with a 95% range
+from a seeded bootstrap — no library, and the same answer every time. `src/tool-evaluations.ts`
+calls each tool directly with a known input (`branch eval tools`). `src/testing.ts` exports
+`ScriptedProvider` and `ScriptedTools` so contributors and plugin authors can write deterministic
+tests. Every evaluation and study task's trace is tagged (`branch.evaluation.suite`,
+`branch.study.id`) through a new additive `traceAttributes` on `RunOptions`.
+
+Routes: `GET /api/evaluation/benchmarks`, `GET|POST /api/studies`, `POST /api/studies/run`,
+`POST /api/studies/compare`, `POST /api/evaluation/tools`. UI: `public/studies.js`, a card under the
+existing evaluation card on Usage. Docs: "Measuring the assistant" in `docs/configuration.md`.
+
+Tests: `tests/evaluation-2.test.mjs` (25) and `tests/testing-utilities.test.mjs` (3, importing only
+the public entry point), with synthetic samples for all five adapters in
+`tests/fixtures/benchmarks/`. No new dependency.
+
+Known gaps: the code-task adapter runs the JavaScript splits and says so for Python rather than
+guessing at an interpreter; terminal-bench needs a bash on the machine and names what to install
+when there is none; a study over a benchmark prepares each task inside the one workspace rather than
+a sandbox of its own.
+
+## Batch 25 (wave 7) — messaging channels, second pass: ten services from one list
+
+Team-chat services mostly share one shape: an address to send to, an address they post to, and a signature or a
+shared word proving the post is theirs. `data/channels.json` now holds that shape for ten of them (Mattermost,
+Rocket.Chat, Google Chat, Microsoft Teams, Zulip, Feishu/Lark, DingTalk, WeCom, LINE, Viber) and
+`src/channels/webhook-chat.ts` is the single connection that reads it; nothing in that file names a service, so an
+eleventh is a row in the file and a row in the test table. Everything a channel needs beyond sending and receiving —
+pairing codes, the allowlist, answering only when addressed, splitting, retries, quiet hours, the `reply y / a / n`
+fallback — is still the router's and the ledger's, and is inherited unchanged.
+
+Three services do not fit that shape and got their own files: Matrix (`src/channels/matrix.ts`, a held-open sync
+request with a widening retry; encrypted rooms are counted and reported, not read), Signal
+(`src/channels/signal-cli.ts`, JSON-RPC over stdio, refused outright when the program the owner installed is not
+there), and Messenger/Instagram (`src/channels/meta-graph.ts`), which share WhatsApp's address check, signature and
+send — `whatsapp.ts` now imports them from there — and are flagged as needing Meta's app review. X/Twitter direct
+messages are deliberately not built, and the documentation says why.
+
+`/webhooks/chat/<channel id>` is the one unauthenticated address they all post to, next to the WhatsApp one and with
+the same Host rule. Plugins may now bring a chat service (`plugin.channel.<id>`) exactly as they bring a model
+connection, `channels.broadcast` sends one message to several linked chats and `channels.digest` sends the morning
+brief over any connected service, both through the ledger so quiet hours apply. Outbound webhooks gained a JSON
+shape per event, a signing key named in the locker rather than copied into the row, and a preview route for the
+shape editor; inbound triggers gained optional timestamp-and-nonce replay protection. The Connections table in
+`docs/configuration.md` is generated from `data/channels.json` and a test regenerates it byte for byte.
+
+Tightened while merging: every chat connection now remembers for two minutes what it has already taken in
+(`src/channels/seen.ts`), checked only after a post is proved genuine, so a service that resends a message is
+answered once rather than twice; repeated unproved posts to `/webhooks/chat/<id>` are counted per place they came
+from and made to wait after five tries, on a counter of their own so a badly set-up service can never stand between
+the owner and their own app; `channels.broadcast` and `channels.digest` are refused to anybody but the owner;
+`needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
+are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
+against a fake of its documented shape, not against the real service.
+>>>>>>> wave2/integration

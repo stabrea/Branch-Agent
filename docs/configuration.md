@@ -414,6 +414,100 @@ Save the mailbox password as `EMAIL_PASSWORD` and give both servers:
 
 Built on Node's own TLS with no mail library: a small IMAP4rev1 reader (`LOGIN`, `SELECT INBOX`, `SEARCH UNSEEN`, `FETCH`, `STORE \Seen`) looks for unread mail every `pollSeconds`, answers it, and marks it read so it is never answered twice; a small SMTP sender (implicit TLS, `AUTH PLAIN` then `AUTH LOGIN`, `8BITMIME`) sends the reply threaded onto the original with `In-Reply-To` and `References` and a `Re:` subject. `allowlist` holds sender addresses. `tls: false` on a server connects in the clear and upgrades with `STARTTLS` when the server offers it, which is only sensible for a mail server on this computer. **Plain text only**: attachments, HTML mail and multipart bodies are not read or sent, and quoted history below an "On … wrote:" line is trimmed from the question. An address longer than 60 characters is shortened to a stable `who:<hash>` handle, because a chat id may hold 64 characters; such an address therefore cannot be put on the `allowlist` by address, and has to pair with a code instead. The first look at the inbox does not hold up starting, so a mail server that is unreachable shows as **reconnecting** with the reason rather than stopping Branch.
 
+## Connections: the other chat services
+
+Ten more team-chat services work the same way as each other: you paste in an address to send to, the service posts what people write to an address of yours, and a signature or a shared word proves the post really came from the service. Branch has one connection for all of them, and what each one needs is kept as data in `data/channels.json` rather than as a separate piece of program. The table below is written from that file, so it can never say a service does something its row does not say it does.
+
+The **longest message** column is what the service itself accepts. Branch splits every reply at 3,500 characters whatever the service allows, because a longer one is unreadable in a chat window, so a service with a higher limit is never sent more than that. The table is regenerated with `node scripts/channels-table.mjs`.
+
+<!-- channels-table:start -->
+
+| Service | Text | Files | Voice in | Voice out | Buttons | Can reply to you | Longest message | How this was checked |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [Mattermost](https://developers.mattermost.com/integrate/webhooks/) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Rocket.Chat](https://docs.rocket.chat/docs/integrations) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Google Chat](https://developers.google.com/chat/how-tos/webhooks) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Microsoft Teams](https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-outgoing-webhook) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Zulip](https://zulip.com/api/outgoing-webhooks) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [Feishu / Lark](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) | yes | no | no | no | no | yes | 4000 | tested against a fake of the documented shape |
+| [DingTalk](https://open.dingtalk.com/document/robots/custom-robot-access) | yes | no | no | no | no | yes | 2000 | tested against a fake of the documented shape |
+| [WeCom group robot](https://developer.work.weixin.qq.com/document/path/91770) | yes | no | no | no | no | send only | 2000 | tested against a fake of the documented shape |
+| [LINE](https://developers.line.biz/en/docs/messaging-api/receiving-messages/) | yes | no | no | no | no | yes | 4900 | tested against a fake of the documented shape |
+| [Viber](https://developers.viber.com/docs/api/rest-bot-api/) | yes | no | no | no | no | yes | 7000 | tested against a fake of the documented shape |
+
+- **Mattermost** (`mattermost`) — Outgoing webhooks post the words people type with the token you chose; incoming webhooks carry the reply back. Text only. You need: The address of an incoming webhook (Integrations, then Incoming Webhooks); The token you set on the matching outgoing webhook.
+- **Rocket.Chat** (`rocketchat`) — Two integrations, one each way, sharing the token Rocket.Chat shows you. Text only. You need: The address of an incoming webhook integration; The token shown on the matching outgoing webhook integration.
+- **Google Chat** (`googlechat`) — A space webhook carries the reply; the Chat app's own events carry what people write, proved by the verification token Google shows you. Branch does not check Google's bearer token, so put this address behind something only Google can reach. You need: The address of a space webhook (Manage webhooks inside the space); The verification token shown on your Chat app's configuration page.
+- **Microsoft Teams** (`msteams`) — An incoming webhook sends and an outgoing webhook receives, with Teams signing every post. This is not a full Teams app: there is no Bot Framework registration, so one-to-one chats, cards and file sharing are out of reach. You need: The address of an incoming webhook added to the channel; The security token Teams shows when you create the outgoing webhook.
+- **Zulip** (`zulip`) — Replies go back as private messages to whoever wrote, so a question asked in a stream is answered in a direct message. You need: Your Zulip address, for example https://example.zulipchat.com; A bot's email and key written as one base64 word, for the Basic header; The token shown on the outgoing webhook bot.
+- **Feishu / Lark** (`feishu`) — Feishu asks the address to echo a word once before it will send anything; Branch answers that automatically. Encrypted event subscriptions are not supported, so leave the encrypt key empty. You need: The address of a custom bot webhook added to the group; The verification token from the app's Event Subscriptions page.
+- **DingTalk** (`dingtalk`) — Both directions are signed with the same secret and a timestamp. DingTalk signs the timestamp rather than the words, so the signature proves who sent it and that it is recent, not what it says; a post copied and sent again more than five minutes later is refused, one copied within that window is not. You need: The address of a custom robot webhook; The signing secret shown beside it (starts with SEC).
+- **WeCom group robot** (`wecom`) — Send only. A WeCom group robot has no way to hand messages back, so Branch can post to the group but cannot be asked anything there; use it for the morning brief and for notices. You need: The address of a group robot webhook.
+- **LINE** (`line`) — Replies are sent with the push endpoint rather than the reply token, so an answer that takes a while still arrives. LINE counts pushed messages against your plan. You need: The channel access token from the LINE Developers console; The channel secret from the same page.
+- **Viber** (`viber`) — The same token both signs what Viber sends and authorises what Branch sends back. One-to-one chats only. You need: The bot authentication token from the Viber admin panel.
+
+<!-- channels-table:end -->
+
+Connect one by naming the service in the connections file:
+
+```json
+{ "channels": [{ "type": "chat", "id": "work-chat", "service": "mattermost",
+  "webhookUrlSecret": "MATTERMOST_WEBHOOK", "secretSecret": "MATTERMOST_TOKEN",
+  "botName": "branch", "activation": "mention", "pairing": true, "allowlist": [] }] }
+```
+
+`service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
+
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>`. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+
+`activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
+
+**What is not built.** None of these ten carry files, voice notes or buttons, so a question that needs an answer goes out as words with "reply y for yes, a for yes always, or n for no". Google Chat's own bearer-token check is not implemented — Branch checks the verification token the Chat app is given, so put that address somewhere only Google can reach it. Microsoft Teams is an incoming webhook plus an outgoing webhook, **not** a Bot Framework app: one-to-one chats, cards and file sharing are out of reach. Feishu's encrypted event subscriptions are not supported. A WeCom group robot can only be posted to, so Branch can send the morning brief there but cannot be asked anything.
+
+### Matrix
+
+Matrix is not a webhook service, so it gets its own connection: one long request is held open asking what has happened since, and the next goes out when it answers. A dropped connection is retried with a widening wait, and stopping the channel stops the loop.
+
+```json
+{ "channels": [{ "type": "matrix", "homeserver": "https://matrix.example.org",
+  "userId": "@branch:example.org", "tokenSecret": "MATRIX_ACCESS_TOKEN", "syncSeconds": 30 }] }
+```
+
+Save an access token for the assistant's own Matrix account as `MATRIX_ACCESS_TOKEN`. **End-to-end encrypted rooms are not supported**: their messages arrive as `m.room.encrypted` and Branch has no key to read them, so they are counted and the channel's health line says how many have arrived rather than pretending nothing happened. Invite the assistant to an unencrypted room. Whatever is already in a room when Branch connects is not answered, so it does not reply to history after a restart.
+
+### Signal
+
+Signal has no bot API. The only supported way in is a registered account driven by the `signal-cli` program, which **you install yourself** — Branch downloads nothing. Give the full path to it:
+
+```json
+{ "channels": [{ "type": "signal", "path": "C:/tools/signal-cli/bin/signal-cli.bat", "account": "+15550000000" }] }
+```
+
+If there is no program at that path the channel refuses to start and says so, rather than appearing to work. Messages travel over that program's JSON-RPC mode — one JSON document per line in and out — so this connection makes no network call of its own.
+
+### Messenger and Instagram
+
+Facebook Messenger and Instagram direct messages use the same Meta webhook and send shape WhatsApp does, so they share its code: the same one-off address check, the same `X-Hub-Signature-256` over the exact bytes, and the same Graph API send.
+
+```json
+{ "channels": [{ "type": "messenger", "id": "messenger", "pageId": "123456789012345",
+  "tokenSecret": "META_PAGE_TOKEN", "verifyTokenSecret": "META_VERIFY_TOKEN", "appSecretSecret": "META_APP_SECRET" }] }
+```
+
+Use `"type": "instagram"` for Instagram, with the professional account's id as `pageId`. Point Meta's webhook at `/webhooks/chat/<channel id>`; `GET` answers the `hub.challenge` check and `POST` is refused with 401 unless the signature matches.
+
+**Meta must review your app before anybody outside your own team can write to it.** Until that review passes, only people with a role on the app can message the page, which is enough to try it out and not enough to use it. Branch says so in the channel's health line rather than leaving you to discover it.
+
+**X / Twitter direct messages are not built.** The direct-message endpoints need an elevated access tier that is applied for and paid for per project, and there is no shape Branch could ship that would work on a fresh developer account, so shipping a connection that always fails would be worse than not shipping one.
+
+### Sending without being asked
+
+Two tools send on the assistant's own initiative rather than answering somebody. `channels.broadcast` sends one message to several linked chats at once — leave the list empty to reach every chat that has talked to the assistant — and `channels.digest` sends the morning brief as it stands right now to one chat on any connected service. Both go through the same waiting line every reply uses, so quiet hours, splitting and retries apply unchanged: during quiet hours the message is written down and sent when they end. Both are the owner's alone: somebody else using this computer under their own profile is refused, because the chats belong to the owner. Neither is available to a task started from a chat message, so somebody you have paired cannot make the assistant write to everyone else.
+
+### Chat services a plugin brings
+
+A plugin may bring a chat service of its own, the same way it may bring a way of talking to a model. It exports one or more adapters under `plugin.channel.<id>`; each is a factory that is handed what the owner typed, a way to fetch a named secret out of the locker, and a fetch that has already checked the address against your network settings. Registering one only makes it available to connect — a plugin cannot quietly start answering your chats — and switching the plugin off takes its services away again.
+
 ## Voice
 
 **Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:
@@ -681,6 +775,183 @@ exits non-zero when one fails; `branch eval --suite <id> --compare a,b` prints t
 `branch eval` with no suite still runs the original three-task standard suite.
 The Usage screen has a card for picking a suite and running it.
 
+## Measuring the assistant
+
+There are three different things here, and they are easy to mix up.
+
+A **suite** is a handful of your own tasks with the right answers written down. It is how you tell
+whether a change made the assistant better or worse at the work you actually do. Suites are the
+section above.
+
+A **benchmark** is somebody else's published set of tasks, used so a number here can be put beside a
+number in a paper. Branch Agent never downloads one. You download the dataset yourself, put it in a
+folder, and point at that folder; the program only reads files that are already on this computer.
+
+A **study** is a written-down experiment: a benchmark or suite, a subset of its tasks, the model
+choices to try, how many repeats, and what it may cost. Running a study works through every
+combination several at a time and writes each result down as it lands, so a study you stop — or one
+that stops itself when the power goes — carries on from where it was rather than starting again.
+
+### Scorers
+
+A task can be decided by one or more scorers. Every scorer gives a score from 0 to 1, a pass or
+fail, and its reasons in plain words; a task passes only when every one of its scorers passes. Put
+them on a task in a suite file as `"scorers": [...]`:
+
+`exact` (the answer, once case, spacing and trailing punctuation are taken off), `contains`,
+`regex`, `json-schema`, `numeric` (with a tolerance), `url` (a pattern the address must match),
+`file-exists` and `file-contains` (inside the workspace), `tool-called` (optionally `withArgs`, so
+you can say a tool must have been used with particular arguments), `budget` (`maxSteps`, `maxMs`,
+`maxTokens`, `maxDollars` — the rounds, time, tokens and money a task may use), `finished` (did it
+actually do the work, or did it say it could not — the completion checks you already use, plus the
+phrases an answer uses when it has quietly given up), and `rubric`.
+
+`rubric` is the only one that costs money: it asks the model in use to grade a free-text answer
+against words you write. It refuses to guess when no model connection has been chosen, and the same
+question is only ever paid for once within a run. Everything else is decided without a model, which
+is what makes a result two people can check against each other.
+
+`GET /api/evaluation/benchmarks` lists the scorers, the benchmarks that can be read, and the ones
+that cannot.
+
+### Gates
+
+A gate is the bar a run has to clear, for a release script that should stop when it is not cleared.
+`POST /api/evaluation/run { suite, gates: { minAccuracy, maxDollars, maxMeanMs, maxRegressions,
+mustPass: [taskId] } }`, or on the command line:
+
+```
+branch eval --suite everyday --gate '{"minAccuracy":0.9,"maxRegressions":0}'
+branch eval --suite everyday --gate release-gate.json
+```
+
+Everything in a gate is optional, and a gate with nothing set passes. The gate is checked against
+the schema above, so a misspelled name is a plain error rather than a bar that quietly never
+applies.
+
+Exit codes for `branch eval --suite`: **0** when it passed, **1** when it did not. With no `--gate`,
+"passed" means every task passed. With `--gate`, the gate's verdict is the exit code and nothing
+else — a run can have a failing task and still exit 0 when the bar it was given was cleared.
+
+### Where dataset files go
+
+| Benchmark | What it reads | Where to put it |
+| --- | --- | --- |
+| SWE-bench (Lite, Verified) | the instances JSONL | `<folder>/*.jsonl`, and each repository at `<folder>/repos/<owner>__<name>` |
+| GAIA | `metadata.jsonl` | `<folder>/metadata.jsonl`, with any attached files beside it |
+| Code tasks (APPS, MBPP, HumanEval) | a JSONL of prompt, entry point and tests | `<folder>/*.jsonl` |
+| Web tasks (WebVoyager, BrowserGym) | a JSONL of questions and answers | `<folder>/*.jsonl`, with each saved page at `<folder>/pages/<name>.html` |
+| terminal-bench | one folder per task | `<folder>/<task>/task.md` and `<folder>/<task>/tests.sh` |
+
+SWE-bench never clones anything from the internet. If the repository an instance names is not
+already at `repos/<owner>__<name>`, that task is refused and the message says exactly where to put
+it. When it is there, it is **copied** into a folder of its own inside the workspace, so your own
+checkout is never touched, and the copy is moved to the instance's base commit when it is a real Git
+checkout — a local move of a copy that is already here, never a fetch, so no sign-in is ever
+involved. Judging puts the instance's own `test_patch` back over the assistant's work and runs the
+named tests (`FAIL_TO_PASS` and `PASS_TO_PASS`), so the assistant cannot pass by editing the tests.
+
+Four rules hold for every benchmark that decides by running something:
+
+- **The owner switches it on first.** Marking by running the tests a dataset ships is starting a
+  program on this computer, so it waits on the same switch small scripts use (Settings → running
+  small scripts). Until then those tasks are refused by name and nothing is run.
+- **A dataset never chooses what runs.** The tests are run by this copy of Node, by the bash you
+  pointed at, or by your own Git — each named in full — and the program is started with no `PATH`,
+  so nothing in a downloaded file can decide which program on this computer starts.
+- **A dataset never points outside its own folder.** A record naming `..\..\somewhere` as its
+  attachment, its saved page or its repository is refused rather than followed.
+- **Same limits as any other command**: the same time, memory, processor and output ceilings, in a
+  job the operating system enforces, with no way out to the internet.
+
+Web tasks are run against pages you have saved next to the dataset. A task that points at a live
+website is refused by name: a score against today's version of a shopping site is not a score
+anybody can repeat. terminal-bench tasks are marked by running their `tests.sh`, which needs a bash
+on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the one you have.
+
+### What is not supported, and why
+
+OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
+environments are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
+Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
+what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
+what each would need, rather than half-supported.
+
+### Studies
+
+A study is saved with `POST /api/studies`:
+
+```json
+{
+  "id": "gaia-level-one", "name": "GAIA, level one, two models",
+  "source": { "kind": "benchmark", "benchmark": "gaia", "directory": "C:/datasets/gaia" },
+  "presets": ["fast", "careful"], "limit": 20, "repeats": 1,
+  "concurrency": 2, "retries": 1, "maxDollars": 2, "bestOfN": 1
+}
+```
+
+`source` can instead be `{ "kind": "suite", "suite": "everyday" }`. `concurrency` is how many tasks
+run at once, from 1 to 4. The whole app allows eight pieces of work at once; a running study holds
+one of those eight for as long as it lasts and its own tasks do not take places of their own, so the
+cap is set at half to keep a study plus ordinary work under that ceiling. `bestOfN` runs each task that
+many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
+stops the study when it has spent that much, and says so.
+
+`POST /api/studies/run { id, fresh }` runs it — without `fresh`, anything already finished is kept.
+`GET /api/studies` lists the studies and past results. `POST /api/studies/compare { a, b }` takes two
+result ids and reports the difference over the tasks both ran, with the range that difference is
+very likely to be in, worked out by resampling the tasks two thousand times. When the range includes
+zero, nothing is claimed.
+
+On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
+result per line), and `branch study compare <result id> <result id>`.
+
+**Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
+by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and
+Best-of-3 is three hundred and sixty runs. Set `limit` and `maxDollars` before the first one.
+
+### Checking the tools themselves
+
+`branch eval tools` (or `POST /api/evaluation/tools`) calls each tool directly with a known input and
+checks what comes back against what the tool is documented to do. No model is involved, so it takes
+a moment and costs nothing, and it belongs in a build script. The cases are plain JSON in
+`data/tool-evaluations/`.
+
+The cases call the real tools, so they leave real traces: a small file in the workspace and a couple
+of notes in memory. That is deliberate — a check that stubbed the tool out would not be checking the
+tool — but it is why the cases are kept few and obvious.
+
+### Writing your own tests against Branch Agent
+
+`ScriptedProvider` and `ScriptedTools` are part of the package, so a plugin or skill author can
+write tests with no model, no key and no network:
+
+```js
+import { createBranch, ScriptedProvider, ScriptedTools, say, callTool } from "branch-agent";
+
+const provider = new ScriptedProvider([
+  ["greet Ada", [callTool("notes.add", { name: "Ada" }), say("I have greeted Ada.")]],
+]);
+const app = await createBranch({ workspace, dataDir, provider });
+const doubles = new ScriptedTools().reply("notes.add", { greeted: "Ada" });
+doubles.register(app.registry, ["notes.add"], "memory.write");
+await app.runtime.run({ prompt: "Please greet Ada for me.", permissions: ["memory.write"] });
+doubles.calledWith("notes.add"); // [{ name: "Ada" }]
+```
+
+A scripted model answers by *what it was asked* — each route is a phrase to look for in the newest
+question — not by how many times it has been called, so one task cannot shift another task's script.
+
+### Traces
+
+Every evaluation task and every study task is a trace of its own, labelled with
+`branch.evaluation.suite` and `branch.evaluation.task`, or `branch.study.id`, `branch.benchmark.id`
+and `branch.study.task`. An export can then be narrowed to one suite, one study or one task months
+later.
+
+The Usage screen shows the experiments you have written down under the card for running a suite.
+
 ## Skill governance and consolidation
 
 `GET|POST /api/governance` holds `excludeAfterFailures`, `windowMinutes`, `recoveryAfterMinutes` and `demoteAfterFailures`. A skill with a repeating failure pattern is set aside (`skill.set_aside`, `skill.excluded` on later runs), gets one recovery trial after the cool-off (`skill.recovery_trial`, `skill.recovered`), and is demoted when failures pile up (`skill.demoted`); `POST /api/governance/set-aside/:skillId/restore` lets it back in. `POST /api/skills/:id/benchmark { baselineVersion, candidateVersion, tasks, seed }` records per-task outcomes and costs; `POST /api/skills/:id/draft { runId }` saves an inactive draft version from a task. `consolidateDaily` in the learning settings (or `POST /api/memory/consolidate`) digests completed tasks since a cursor into memory suggestions.
@@ -825,7 +1096,9 @@ Branch can also be the one asking: somebody else's MCP server becomes tools Bran
 
 **Trying one first.** **Settings → Sharing with other AI tools → Try a server** takes a web address (`https://…`, or `http://` on this computer) or the command that starts a server, asks it what it offers, and draws a form from the shape each tool describes. Fill it in, run the tool once, and see exactly what came back. Nothing is registered and nothing is kept: the connection is opened for the try and closed again. Every try is written into the record of what the assistant was allowed to do, as **You tried out another AI tool's server**, with the server, the tool and how it ended. `POST /api/mcp/try` takes `{ server: { transport: "http", url } | { transport: "stdio", command, args }, call?: { name, arguments } }`.
 
-**When connections open and close.** Be clear about what is true today: **a server named in the connections file is still opened when Branch starts**, because that is when Branch asks it what tools it offers, and the tools have to exist before a task can use one. The settings below govern connections opened on demand instead — opened the first time a task needs one and closed when that task ends — and nothing in Branch opens one that way yet, so **Other people's servers** is empty on a normal install. What that machinery does when it is used: an unused connection can be kept open for a few minutes in case the next task wants it; there is a cap on how many servers may be connected at once, and at the cap Branch closes the oldest one nobody is using and refuses the new one only when every open server is busy; a server that will not answer is tried again with a growing wait before Branch gives up with a plain reason. `GET /api/mcp/connections` returns `{ settings, servers, known }`; `POST` it `{ keepWarmMinutes, maxConcurrentServers, reconnectAttempts }` to change the settings, and anything you leave out keeps its value. Where several people share this computer, each profile keeps its own settings.
+**When connections open and close.** A server named in the connections file can be started in one of two ways, and `connect` decides which. **`"startup"`** — what has always happened, and still what you get unless you change it — opens every configured server as Branch starts, because that is when Branch asks each one what tools it offers. **`"on-demand"`** lists a server's tools from what that server said the last time it was connected and starts nothing; the connection is made the first time a task really calls one of them, and the list is written down again as soon as it is. Either way the tools are searchable and callable from the first moment, which is the point — a tool that is not in the list might as well not exist. A server set up on demand that has never been connected has no list to show, so it is connected once; after that, every launch starts nothing. In **Settings → Connections**, a server that is set up but not started says **"Set up, not connected yet. It starts the first time a task needs it."**
+
+The rest of these settings govern a connection once it is open: an unused one can be kept for a few minutes in case the next task wants it; there is a cap on how many servers may be connected at once, and at the cap Branch closes the oldest one nobody is using and refuses the new one only when every open server is busy; a server that will not answer is tried again with a growing wait before Branch gives up with a plain reason. `GET /api/mcp/connections` returns `{ settings, servers, known }`; `POST` it `{ connect, keepWarmMinutes, maxConcurrentServers, reconnectAttempts }` to change the settings, and anything you leave out keeps its value. Where several people share this computer, each profile keeps its own settings.
 
 **Servers that need a sign-in.** Some servers do not hand out keys by hand. Branch reads what the server publishes at `/.well-known/oauth-authorization-server` (or `/.well-known/openid-configuration`), asks it for an identity of its own if it allows that (dynamic client registration), and then runs the ordinary sign-in in your own browser with a proof key (PKCE, `S256`). The key that comes back goes straight into the locker and the identity is remembered, so signing in again does not register a second time. Every address is checked by the network policy first, and the key never appears in a log, an event, the audit record or a message. A server that publishes no sign-in details, or one that needs a sign-in but will not let a program register itself, is refused with a sentence saying so.
 
@@ -2309,6 +2582,142 @@ somebody handed you, holding `branch-plugin.json` and the plugin's own `.mjs` be
 
 Installing switches nothing on: turning a plugin on is still a separate, deliberate step, and that
 is the step that runs its code.
+
+## Reading documents (batch 25, wave 7)
+
+Branch reads the files people actually have, using nothing but Node's own building blocks. No file
+is ever executed, and no address written inside a file is ever fetched: a document is read, never
+obeyed. Every read is capped — a file larger than 20 MB is refused before a byte is parsed, and a
+file still being walked after 20 seconds is cut short and says so in the "could not be read" list.
+Unpacking is capped too, because a few hundred kilobytes of file can be built to unpack into
+gigabytes: one Word, spreadsheet, slide, OpenDocument or e-book file may unpack to at most 64 MB and
+list at most 5,000 parts, and one PDF may unpack to at most 64 MB. Past either, the file is refused
+in a sentence rather than left to fill the machine's memory. A PDF is checked against its time
+allowance before each page, so a long one stops and says how many pages it managed.
+
+**What can be read**
+
+| Kind | What comes out |
+| --- | --- |
+| Notes, Markdown, web pages, tables, JSON | The text, headings kept where there are any |
+| Word (`.docx`, `.docm`) | Headings at the level the document gives them, paragraphs, tables, footnotes |
+| Spreadsheets (`.xlsx`, `.xlsm`) | Every sheet under its own heading, one line per row; a formula gives the value it last worked out |
+| Slides (`.pptx`, `.pptm`) | Each slide numbered, with its title, its words and the speaker's notes |
+| OpenDocument (`.odt`, `.ods`) | The same, from what a free office suite writes |
+| E-books (`.epub`) | The chapters in reading order, each under a heading |
+| Rich text (`.rtf`) | The words, with the type-setting instructions dropped |
+| PDF (`.pdf`) | The words, page by page, reconstructed from where they sit on the page |
+
+**What cannot be read, said plainly**
+
+- A PDF locked with a password is refused outright: open it with the password and save an unlocked
+  copy first. Branch never tries to guess or break a password.
+- A PDF that is pictures of text has no words to lift out. It says so, and you can ask for it to be
+  read with a vision model instead, which sends the pages to whichever provider you have connected.
+- A PDF written an unusual way — text drawn with an encoding the file does not describe, or streams
+  packed in a way this reader does not unpack (only FlateDecode is unpacked) — comes back with those
+  parts listed rather than silently missing. Lines are rebuilt from where text sits on the page, so
+  a heavily designed page can come out in an odd order.
+- `.doc`, `.xls` and `.ppt` — the formats before the current ones — are not read. Save as the newer
+  format first. OpenDocument presentations (`.odp`) are not read either.
+- Anything with no reader is listed on the knowledge base with a reason, never quietly skipped.
+
+**What is sent where.** Reading happens entirely on this computer. What may leave it is exactly what
+left it before: the passages sent to your provider's embeddings route so they can be compared by
+meaning, under the same network policy as every other provider call, and only when you have such a
+connection. Turning meaning search off keeps everything here. Asking a vision model to look at a
+scanned PDF sends those pages to your provider, and only when you ask for it.
+
+**Into a knowledge base.** A collection now walks every kind above. Passages are cut at headings,
+slides, sheets and pages, so a citation says which one it came from. Reading a folder again compares
+each file by its contents and leaves the ones that have not changed, so a second reading of a large
+folder is quick; the progress line says how many were left alone (`unchanged`). Every file that could
+not be read is kept against the collection with its reason, and `GET /api/knowledge` returns them as
+`unread`.
+
+**Asking about one file.** `documents.analyse` takes `{ file, question }`: it reads the file with the
+right reader, finds the passages that fit, and answers with the heading and page each claim came
+from. Tables inside the file are opened as figures the `data.*` tools can be pointed at, under the
+names the answer lists. `documents.compare` takes `{ file, against }` and says in plain language what
+was added, taken out or reworded, section by section. Both are under `documents.read`; the panel
+under **Documents** has a box for each.
+
+**Cards from a conversation.** `knowledge.propose` takes `{ sessionId, collection }`, reads a finished
+conversation and writes up what is worth looking up again as fact cards: a title, a few sentences,
+the turn it came from and how sure it is. Every card is a suggestion. Nothing reaches a knowledge
+base until you accept it under "What it learns", and an accepted card is indexed and cited exactly
+like a passage from a file. It is under `documents.write`. A conversation can repeat whatever a
+document or a web page said, so every card is put through the same check that guards what comes back
+from the web: a card that reads like an order to the assistant is never offered, and is refused again
+if something else puts it in the queue — otherwise that order would outlive the conversation.
+
+## How memory is organised (batch 25, wave 7)
+
+Every saved fact now says two things about itself.
+
+**What kind of thing it is.** A *preference* (how you like things done), a *fact about a person*, a
+*fact about the world*, a *procedure hint* (how to do something), a *project note*, or *task scratch*
+— a note the assistant made for itself while doing one job. A fact saved before this arrived, or
+saved without a kind, counts as a fact about the world, which is exactly how it behaved before.
+
+**How long it is meant to last.** *Working* is this conversation. *Task* is this job and no longer:
+a task-scratch note is cleared when the job that made it ends, unless you asked to keep it. *Long
+term* is everything else, kept until you forget it. A fact with no layer of its own is long-term.
+
+Keeping a note (the `memory.keep` tool, or `POST /api/memory/{id}/keep`) moves it to long-term, which
+is what spares it when the job ends. A cleared note keeps its last wording as a version, so it can
+still be brought back. Facts can also belong to a **project**, and a fact tied to one project is left
+out while another is being worked on.
+
+**What reaches a task.** The facts put in front of a task are taken layer by layer in this order and
+budget: working first (at most 6 facts), then task (at most 4), then long-term — stopping at 20 facts
+or 2000 characters, whichever comes first. Within a layer the most useful facts come first, which is
+the same ordering the Memory screen shows.
+
+**Tidying.** "Tidy my memory" runs every check at once: the same thing saved twice, a newer fact that
+disagrees with an older one, facts not touched in 180 days, facts never drawn on, and notes left over
+from a job. It shows everything in one screen and **removes nothing** — each finding becomes a
+suggestion you accept or reject under "What it learns", and accepting one sets the fact aside in the
+archive where it can be brought back. A leftover note from a job has a **Keep this** button beside
+it, so you can keep one for good instead of setting it aside.
+
+It also ships as a recipe called **Tidy my memory**, so the steps are written down where you can read
+them. That recipe stays a proposal on purpose: the recipe checker compares a step's whole result
+against a fixed expectation, and a tidy report says what it found, which differs every time — so it
+cannot be certified that way. Run tidying from the Memory screen, or by calling `memory.tidy`.
+
+**Counts you can see.** `GET /api/memory/health` gives counts only — how
+many of each kind and layer, how many are notes from a job, how many have never been used, how many
+are set aside. No wording of any fact is included, which is why the same line goes into the
+diagnostics folder as `memory.json`.
+
+**Is it finding the right fact?** `branch eval memory` measures it. It loads the labelled set in
+`data/memory-retrieval.json` under a scope of its own, asks every question, runs the nightly pass,
+asks again, and reports the hit rate before and after. The set is a plain file: replace it with your
+own facts and questions to measure your own kind of memory. The scope is emptied afterwards, so
+nothing you actually saved is touched.
+
+**Where facts are kept.** In this computer's own database, and only there. What that database has to
+promise is written down as the `MemoryBackend` contract in `src/memory-backend.ts` — read, list,
+write, search, forget and count, with owners never seeing each other's facts and nothing leaving this
+computer unless you asked for it. The SQLite implementation is the only one that ships.
+
+**Taking memory elsewhere.** The export is one fact per line, and it now carries the kind, the layer
+and the project too, so a file written out and read back in comes back the same. Reading a file back
+never makes a second copy of something already saved.
+
+**Picking a conversation up on your phone.** Conversations already persist, and a paired phone
+already reaches the whole app through the same door with the same key. `GET /api/sessions` is the
+list that makes that practical on a small screen: the recent conversations with how each one started,
+what was last said and who said it. `GET /api/sessions/{id}` then gives the messages. Both need the
+same key as everything else, and remote access still listens only on the private Tailscale address,
+so nothing here widens what can reach this computer.
+
+New routes: `GET|POST /api/memory/tidy/all` (every check; `{ "stage": true }` turns findings into
+suggestions), `GET /api/memory/health`, `POST /api/memory/{id}/keep`, and `GET /api/sessions`. New
+tools: `memory.tidy` and `memory.keep` under `memory.write`,
+`documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
+`documents.write`.
 
 ## The long tail: the API description, kept answers, whole sets, Lockdown, branches and projects (batch 21, wave 8)
 

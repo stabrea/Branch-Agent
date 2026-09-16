@@ -16,6 +16,13 @@ export const McpLifecycleSchema = z
     maxConcurrentServers: z.number().int().min(1).max(20).default(4),
     /** How many times a server that will not answer is tried again before Branch gives up. */
     reconnectAttempts: z.number().int().min(0).max(10).default(3),
+    /**
+     * When a server Branch is set up to use is actually started. "startup" opens every one of them
+     * as Branch starts, which is what has always happened. "on-demand" lists their tools from what
+     * they said last time and starts one only when a task really calls it, so a server the owner
+     * set up and rarely uses is never started at all.
+     */
+    connect: z.enum(["startup", "on-demand"]).default("startup"),
   })
   .strict();
 export type McpLifecycleSettings = z.infer<typeof McpLifecycleSchema>;
@@ -34,7 +41,7 @@ export function saveLifecycleSettings(store: Store, scope: string, input: unknow
 }
 
 export interface McpConnection { close(): Promise<void> }
-export type ConnectionState = "connecting" | "ready" | "warm" | "failed";
+export type ConnectionState = "connecting" | "ready" | "warm" | "failed" | "idle";
 export interface ServerHealth {
   id: string;
   state: ConnectionState;
@@ -63,6 +70,7 @@ const summarise = (entry: Entry): string => {
   if (entry.state === "ready") return `Connected and in use by ${entry.runs.size} task${entry.runs.size === 1 ? "" : "s"}.`;
   if (entry.state === "connecting") return "Connecting.";
   if (entry.state === "warm") return "Connected but not in use; it closes itself shortly.";
+  if (entry.state === "idle") return "Set up, not connected yet. It starts the first time a task needs it.";
   return entry.lastError ? `Not answering: ${entry.lastError}` : "Not answering.";
 };
 
@@ -76,6 +84,8 @@ export class McpConnections {
 
   /** How to open each server by name, for servers that were configured ahead of time. */
   private readonly openers = new Map<string, () => Promise<McpConnection>>();
+  /** When this manager was made, which is as long as an unopened server has been waiting. */
+  private readonly started = Date.now();
 
   constructor(
     private readonly store: Store,
@@ -187,12 +197,23 @@ export class McpConnections {
     if (connection) await connection.close().catch(() => undefined);
   }
 
-  /** How each configured server is doing, for Settings → Connections. */
+  /**
+   * How each configured server is doing, for Settings → Connections. A server Branch knows how to
+   * open but has not opened is listed too, saying so plainly, rather than being missing from a
+   * list the owner reads as "everything I set up".
+   */
   health(): ServerHealth[] {
-    return [...this.entries.values()].map((entry) => ({
+    const live = [...this.entries.values()].map((entry) => ({
       id: entry.id, state: entry.state, runs: entry.runs.size, attempts: entry.attempts,
       since: new Date(entry.since).toISOString(), lastError: entry.lastError, summary: summarise(entry),
     }));
+    const seen = new Set(live.map((entry) => entry.id));
+    const waiting = this.known().filter((id) => !seen.has(id)).map((id) => ({
+      id, state: "idle" as const, runs: 0, attempts: 0, since: new Date(this.started).toISOString(),
+      lastError: null,
+      summary: "Set up, not connected yet. It starts the first time a task needs it.",
+    }));
+    return [...live, ...waiting].sort((a, b) => a.id.localeCompare(b.id));
   }
 
   /** How many outside servers are connected right now. */

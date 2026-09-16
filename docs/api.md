@@ -4,7 +4,7 @@ Written by `node scripts/write-api-docs.mjs` from the app's own input checks. Do
 
 Branch Agent's own web API. It runs on this computer only, and every request carries the session key the app printed when it started.
 
-Version 0.14.0. The machine-readable description is at `GET /api/openapi.json`.
+Version 0.15.0. The machine-readable description is at `GET /api/openapi.json`.
 
 ## runs
 

@@ -17,8 +17,12 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
+import { chooseForInjection } from "./memory-layers.js";
+import { MemoryTidy, registerMemoryTidy, shipTidyProcedure } from "./memory-tidy.js";
+import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
+import { SqliteMemoryBackend } from "./memory-backend.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
@@ -32,7 +36,8 @@ import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
-import { McpConnections } from "./mcp-lifecycle.js";
+import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
+import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
 import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
@@ -49,6 +54,7 @@ import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
+import { ChannelConnectors, registerChannelTools } from "./channels/connectors.js";
 import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
@@ -61,6 +67,7 @@ import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
+import { StudyRunner } from "./study.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
@@ -79,6 +86,7 @@ import { Flows, registerFlows } from "./flows.js";
 import { PluginCatalog } from "./plugin-catalog.js";
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
+import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
 import { MorningBrief, registerBrief } from "./brief.js";
@@ -90,6 +98,7 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
 import { KnowledgeBases } from "./knowledge-bases.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -228,10 +237,19 @@ export async function createBranch(options: {
   const memory = {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
+    tidy: undefined as unknown as MemoryTidy,
+    backend: new SqliteMemoryBackend(store),
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
-  store.review.orderFacts = (factOwner, agent) => memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record);
+  memory.tidy = new MemoryTidy(store, memory.hygiene, memory.retrieval);
+  registerMemoryTidy(registry, memory.tidy);
+  // "Tidy my memory" arrives as a recipe the owner can look at and check, like any other.
+  try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
+  // What goes in front of a task is taken layer by layer in the documented order and budget: what
+  // is happening now, then the job in hand, then everything the assistant knows for good.
+  store.review.orderFacts = (factOwner, agent) =>
+    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -338,6 +356,12 @@ export async function createBranch(options: {
   const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
   plugins.providers = providerPlugins;
+  // Chat services a plugin brought, registered the same way a model connection is: available to
+  // connect, never connected on the plugin's own say-so.
+  const lockerSecret = (purpose: string) => async (name: string) =>
+    (await store.secrets.resolve(runtime.owner, "default", [name], { purpose }))[name]!;
+  const channelConnectors = new ChannelConnectors(channels, web.policy, lockerSecret("channel"), globalThis.fetch);
+  plugins.channels = channelConnectors;
   // Where plugins come from: a folder or one file on this computer, shown in full before it is
   // copied in, with its fingerprint kept so a file that changes later is noticed.
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
@@ -351,6 +375,8 @@ export async function createBranch(options: {
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
+  // A webhook's signing key lives in the locker with the other secrets, named rather than copied.
+  webhooks.secretFor = lockerSecret("webhook");
   // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
   const notify = webhooks.notifier(runtime.owner);
   const guardedNotify: typeof notify = (event, payload) => {
@@ -365,18 +391,27 @@ export async function createBranch(options: {
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Asking a question of one document, and holding two up against each other. Tables inside a
+  // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
+  const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
+  registerDocumentAnalysis(registry, documentAnalysis);
   const research = new Research(store, web, files, documents, writeObserver);
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
+  // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
+  registerChannelTools(registry, channels, brief, store.profiles);
   scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   // Wave 7: once a night, a plain-language look at how the assistant is finding its tools.
   scheduler.onTick.add(async (now) => { catalogHealthTick(store, runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
+  // Wave 7: written-down experiments — a benchmark or suite across several model choices, run
+  // several at a time, checkpointed so a stopped study carries on rather than starting again.
+  const studies = new StudyRunner(store, runtime);
   // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
@@ -427,12 +462,19 @@ export async function createBranch(options: {
     { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  // What was said in a conversation, written up as fact cards the owner can accept into a
+  // knowledge base. Accepting one indexes it exactly like a passage from a file.
+  registerKnowledgeCards(registry, new KnowledgeCards(store, knowledgeBases, runtime.models));
+  store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
+    { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
   // Facts written during a task are compared by meaning as soon as it finishes, never during it.
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
+  registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
   const documentContext = documents;
   // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
   // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
@@ -441,6 +483,20 @@ export async function createBranch(options: {
       if (documentContext.settings(owner).useDocuments === false) return null;
       return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
         ?? documentContext.contextFor(owner, prompt, signal);
+    },
+  };
+  // Finding a tool by meaning, through the same reader and the same store of already-read
+  // passages as everything else: a tool description that has not changed is never read twice.
+  // The switch is checked in the runtime at the moment of the search, so this seam being here
+  // does not by itself send anything anywhere.
+  runtime.toolMeaning = {
+    embed: async (texts, runId) => {
+      const reader = knowledgeBases.embeddings(runtime.owner);
+      if (!reader) return [];
+      // Charged to the task that searched, the same way its model answers are, so the owner can
+      // see what finding tools by meaning actually costs instead of it being spent out of sight.
+      const vectors = await reader.embedFor(runId, [...texts], AbortSignal.timeout(20_000));
+      return vectors.map((vector) => Array.from(vector));
     },
   };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
@@ -501,6 +557,8 @@ export async function createBranch(options: {
     practice,
     /** Model connections plugins have brought. */
     providerPlugins,
+    /** Chat services plugins have brought, and the channels connected from them. */
+    channelConnectors,
     /**
      * Searching, reading and commenting on issues, once the launcher has loaded the integration
      * settings. It stays null while no tracker is set up.
@@ -572,6 +630,8 @@ export async function createBranch(options: {
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
+    /** Wave 7: written-down experiments over suites and benchmarks, with checkpoints and resume. */
+    studies,
     triggers,
     webhooks,
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
@@ -619,6 +679,18 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      // Whether another person's server is started as Branch starts or only when a task really
+      // needs it, and what it last said its tools are, so they can be listed either way.
+      mcp: {
+        connectWhen: () => readLifecycleSettings(store, store.profiles.scope()).connect,
+        cache: {
+          read: (id: string) =>
+            ((store.get("settings", runtime.owner, `mcp-tools:${id}`)?.data as { tools?: CachedMcpTool[] } | undefined)?.tools) ?? [],
+          write: (id: string, tools: CachedMcpTool[]) =>
+            void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
+        },
+        connections: mcpConnections,
+      },
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
@@ -750,7 +822,25 @@ export * from "./evaluation.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
 export * from "./evaluation-runner.js";
+// Wave 7 (benchmarks and experiments): scorers, gates, benchmark adapters, studies, and the
+// deterministic test doubles a plugin author writes their own tests with.
+export * from "./evaluation-scorers.js";
+export * from "./evaluation-run.js";
+export * from "./benchmarks.js";
+export * from "./benchmark-adapters.js";
+export * from "./benchmark-shell.js";
+export * from "./study.js";
+export * from "./tool-evaluations.js";
+export * from "./testing.js";
 export * from "./channels/deliveries.js";
+export * from "./channels/catalog.js";
+export * from "./channels/webhook-chat.js";
+export * from "./channels/meta-graph.js";
+export * from "./channels/matrix.js";
+export * from "./channels/signal-cli.js";
+export * from "./channels/connectors.js";
+export * from "./channels/docs-table.js";
+export * from "./json-template.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";
@@ -774,6 +864,10 @@ export * from "./local-runtimes.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
+export * from "./memory-layers.js";
+export * from "./memory-tidy.js";
+export * from "./memory-evaluation.js";
+export * from "./memory-backend.js";
 export * from "./memory-hygiene.js";
 export * from "./memory-consolidate.js";
 export * from "./embeddings.js";
@@ -781,6 +875,7 @@ export * from "./vector-store.js";
 export * from "./chunking.js";
 export * from "./bm25.js";
 export * from "./knowledge-bases.js";
+export * from "./knowledge-cards.js";
 export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
 export * from "./citations.js";

@@ -7,12 +7,17 @@ import { isReadOnlyPermission } from "./policy.js";
 import { estimateCost, pricingSettings, type CostConfidence } from "./pricing.js";
 import { findSuite, type EvaluationTask, type SuiteEntry } from "./evaluation-suites.js";
 import { gradeTask, type GradeMethod } from "./evaluation-grading.js";
+import { applyGates, EvaluationGateSchema, readTrajectory, runtimeJudge, scoreTrajectory, type GateVerdict } from "./evaluation-run.js";
 
 /** One task's result: did it pass, how long it took, how many tokens and how much money. */
 export interface TaskOutcome {
   id: string; runId: string | null; status: string; passed: boolean; skipped: boolean;
-  score: number; method: GradeMethod | "skipped"; problem: string | null; reason: string | null;
+  score: number; method: GradeMethod | "skipped" | "scorers"; problem: string | null; reason: string | null;
   ms: number; tokens: number; dollars: number | null; tags: string[];
+  /** Wave 7: each scorer's own verdict, when the task declares scorers. */
+  scores?: { kind: string; score: number; pass: boolean }[];
+  /** Wave 7: every reason a scorer gave for failing, in plain words. */
+  reasons?: string[];
 }
 export interface SuiteRun {
   id: string; suiteId: string; suiteName: string; preset: string; model: string; version: string;
@@ -24,6 +29,8 @@ export interface SuiteRun {
   };
   /** Tasks that passed in each of the three runs before this one and have just failed. */
   regressions: { taskId: string; problem: string | null }[];
+  /** Wave 7: whether this run cleared the bar it was given, or null when it was given none. */
+  gate?: GateVerdict | null;
 }
 /** One model choice's line in a side-by-side comparison. */
 export interface CompareRow {
@@ -38,6 +45,8 @@ export const RunSuiteSchema = z.object({
   readOnly: z.boolean().optional(),
   maxSteps: z.number().int().min(1).max(200).default(30),
   maxTokens: z.number().int().min(1000).max(1_000_000).default(120_000),
+  /** Wave 7: the bar this run has to clear, for a release script that stops when it does not. */
+  gates: EvaluationGateSchema.optional(),
 }).strict();
 export const CompareSchema = z.object({
   suite: z.string().min(1).max(64),
@@ -57,6 +66,8 @@ const recordId = (id: string): string => `evaluation-run:${id}`;
  * measure it honestly.
  */
 export class SuiteRunner {
+  /** Rubric answers already paid for, so one study never asks the same question twice. */
+  private readonly judgeCache = new Map<string, { score: number; reason: string }>();
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly version: string) {}
   private get owner(): string { return this.runtime.owner; }
 
@@ -64,11 +75,14 @@ export class SuiteRunner {
     const request = RunSuiteSchema.parse(input);
     const suite = findSuite(this.store, this.owner, request.suite);
     const readOnly = request.readOnly ?? suite.readOnly;
+    // A grader's answer is only reused within one run; two runs may be grading different work.
+    this.judgeCache.clear();
     const choice = this.runtime.models.plan(this.owner, "evaluation", request.preset ? { preset: request.preset } : {}).choice;
     const startedAt = new Date().toISOString();
     const tasks: TaskOutcome[] = [];
     for (const task of suite.tasks) tasks.push(await this.runTask(task, request, readOnly, choice.model));
     const result = this.assemble(suite, choice.presetId, choice.model, startedAt, tasks);
+    if (request.gates) result.gate = applyGates(result, request.gates);
     this.store.save("governance", this.owner, recordId(result.id), { ...result });
     return result;
   }
@@ -83,11 +97,29 @@ export class SuiteRunner {
       ? await gradeTask(this.runtime, task, run.output)
       : { score: 0, passed: false, method: "checks" as const, problem: run.output.slice(0, 200), reason: null };
     const tokens = this.tokensFor(run.id);
-    return {
+    const outcome: TaskOutcome = {
       id: task.id, runId: run.id, status: run.status, passed: grade.passed, skipped: false,
       score: grade.score, method: grade.method, problem: grade.problem, reason: grade.reason,
       ms: Date.now() - began, tokens: tokens.input + tokens.output,
       dollars: this.costOf(model, tokens).amount, tags: task.tags,
+    };
+    return task.scorers?.length ? await this.applyScorers(task, outcome, run.output) : outcome;
+  }
+
+  /** Wave 7: the task's own scorers, run over its record. Every one has to pass for the task to. */
+  private async applyScorers(task: EvaluationTask, outcome: TaskOutcome, answer: string): Promise<TaskOutcome> {
+    const trajectory = readTrajectory(this.store, outcome.runId, { ms: outcome.ms, tokens: outcome.tokens, dollars: outcome.dollars });
+    const scored = await scoreTrajectory(task.scorers, { workspace: this.runtime.workspace, judge: runtimeJudge(this.runtime), judgeCache: this.judgeCache },
+      { id: task.id, prompt: task.prompt, expected: task.expected }, trajectory, answer);
+    if (!scored) return outcome;
+    const passed = outcome.passed && scored.pass;
+    // A task that already failed its checks keeps "checks" as how it was decided, so the report
+    // never blames a scorer for something the checks caught first.
+    return {
+      ...outcome, passed, method: outcome.passed ? "scorers" : outcome.method,
+      score: Math.round(((outcome.score + scored.score) / 2) * 1000) / 1000,
+      problem: outcome.problem ?? (scored.pass ? null : scored.reasons[0] ?? "A scorer failed"),
+      scores: scored.parts, reasons: scored.reasons,
     };
   }
 
@@ -96,6 +128,9 @@ export class SuiteRunner {
     const permissions = readOnly ? this.runtime.registry.permissions().filter(isReadOnlyPermission) : undefined;
     const options = {
       prompt: task.prompt, signal: AbortSignal.timeout(task.timeoutMs),
+      // Wave 7: every evaluation task is a trace of its own, labelled so an export can be filtered
+      // down to one suite or one task months later.
+      traceAttributes: { "branch.evaluation.suite": request.suite, "branch.evaluation.task": task.id },
       ...(permissions ? { permissions } : {}),
       ...(request.preset ? { model: request.preset } : {}),
       ...(task.checks ? { checks: { ...task.checks, maxRetries: 0 as const } } : {}),
@@ -219,5 +254,7 @@ export function summaryLine(result: SuiteRun): string {
     : "";
   // A skipped task is never quietly dropped from the denominator; it is said out loud.
   const skipped = result.summary.skipped ? `, ${result.summary.skipped} skipped` : "";
-  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}${skipped}, ${result.summary.latencyMs.mean} ms each on average, ${money}.${regressions}`;
+  // Wave 7: when a bar was set, say whether it was cleared — that is the line a build log needs.
+  const gate = !result.gate ? "" : result.gate.passed ? " It cleared the bar that was set." : ` It did not clear the bar: ${result.gate.failures.join("; ")}.`;
+  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}${skipped}, ${result.summary.latencyMs.mean} ms each on average, ${money}.${regressions}${gate}`;
 }
