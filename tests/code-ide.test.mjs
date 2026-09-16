@@ -226,6 +226,115 @@ test("a debugger launches with breakpoints, steps, shows the names in view and s
   await assert.rejects(app.runtime.executeTool("debug.variables", {}), /Nothing is being debugged/);
 });
 
+// ---------------------------------------------------------------- checkpoints, undo, redo
+
+/** A run inside a real conversation, so undo and redo have a conversation to work on. */
+function conversation(app, prompt = "changing files") {
+  const run = app.store.createRun("local", prompt);
+  return { runId: run.id, sessionId: run.sessionId, context: app.runtime.context({ runId: run.id }) };
+}
+
+test("a checkpoint keeps the exact bytes of what changed, and puts them all back", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await put(workspace, "notes.txt", "first\n");
+  const { runId, context } = conversation(app);
+
+  await app.registry.execute("files.write", { path: "notes.txt", content: "second\n" }, context);
+  const point = await app.registry.execute("workspace.checkpoint", { label: "after the second draft" }, context);
+  assert.equal(point.label, "after the second draft");
+  assert.equal(point.files, 1, "only the file that changed is in the point");
+
+  await app.registry.execute("files.write", { path: "notes.txt", content: "third\n" }, context);
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "third\n");
+
+  const points = await app.registry.execute("workspace.points", {}, context);
+  assert.ok(points.points.some((entry) => entry.id === point.id));
+
+  const back = await app.registry.execute("workspace.restore_point", { id: point.id }, context);
+  assert.equal(back.restored, 1);
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "second\n", "the exact bytes came back");
+  assert.ok(runId);
+});
+
+test("a checkpoint refuses when nothing has been changed yet", async (t) => {
+  const { app } = await fixture(t);
+  const { context } = conversation(app);
+  await assert.rejects(app.registry.execute("workspace.checkpoint", { label: "empty" }, context), /Nothing has been changed/);
+});
+
+test("undo and redo walk back and forward through this conversation's changes", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await put(workspace, "song.txt", "one\n");
+  const { context } = conversation(app);
+  const read = () => readFile(join(workspace, "song.txt"), "utf8");
+
+  await app.registry.execute("files.write", { path: "song.txt", content: "two\n" }, context);
+  await app.registry.execute("files.write", { path: "song.txt", content: "three\n" }, context);
+  assert.equal(await read(), "three\n");
+
+  const preview = await app.registry.execute("workspace.undo", { preview: true }, context);
+  assert.equal(preview.change.path, "song.txt");
+  assert.match(preview.change.diff, /-three/);
+  assert.equal(await read(), "three\n", "a preview changes nothing");
+
+  await app.registry.execute("workspace.undo", {}, context);
+  assert.equal(await read(), "two\n");
+  await app.registry.execute("workspace.undo", {}, context);
+  assert.equal(await read(), "one\n", "the second undo goes back another step");
+
+  await app.registry.execute("workspace.redo", {}, context);
+  assert.equal(await read(), "two\n", "redo puts the undone change forward again");
+  await app.registry.execute("workspace.redo", {}, context);
+  assert.equal(await read(), "three\n");
+
+  await assert.rejects(app.registry.execute("workspace.redo", {}, context), /nothing to put back/);
+});
+
+test("undo leaves another conversation's changes alone", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const mine = conversation(app, "mine"), theirs = conversation(app, "theirs");
+  await app.registry.execute("files.write", { path: "mine.txt", content: "a\n" }, mine.context);
+  await app.registry.execute("files.write", { path: "theirs.txt", content: "b\n" }, theirs.context);
+
+  const plan = await app.registry.execute("workspace.undo", { preview: true }, mine.context);
+  assert.equal(plan.change.path, "mine.txt");
+  await app.registry.execute("workspace.undo", {}, mine.context);
+  assert.equal(await readFile(join(workspace, "theirs.txt"), "utf8"), "b\n", "the other conversation is untouched");
+  await assert.rejects(app.registry.execute("workspace.undo", {}, mine.context), /nothing to undo/);
+});
+
+test("a build output is kept version by version with its checksum", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await writeFile(join(workspace, "app.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]));
+  const { context } = conversation(app);
+
+  const first = await app.registry.execute("artifacts.keep", { path: "app.zip", name: "nightly", note: "first build" }, context);
+  assert.equal(first.version, 1);
+  assert.equal(first.bytes, 6);
+  assert.match(first.sha256, /^[0-9a-f]{64}$/);
+
+  await writeFile(join(workspace, "app.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x02, 0x03]));
+  const second = await app.registry.execute("artifacts.keep", { path: "app.zip", name: "nightly", note: "second build" }, context);
+  assert.equal(second.version, 2);
+  assert.notEqual(second.sha256, first.sha256, "a different build has a different checksum");
+
+  const all = await app.registry.execute("artifacts.list", { name: "nightly" }, context);
+  assert.deepEqual(all.versions.map((entry) => entry.version), [2, 1], "newest first");
+  assert.equal(all.versions[0].note, "second build");
+
+  const newest = await app.registry.execute("artifacts.list", {}, context);
+  assert.deepEqual(newest.versions.map((entry) => `${entry.name}@${entry.version}`), ["nightly@2"]);
+
+  const bytes = await app.keptArtifacts.read("nightly", 1);
+  assert.equal(bytes.length, 6, "the first version is still there, byte for byte");
+});
+
+test("keeping a file that is not in the workspace is refused", async (t) => {
+  const { app } = await fixture(t);
+  const { context } = conversation(app);
+  await assert.rejects(app.registry.execute("artifacts.keep", { path: "nowhere.zip", name: "x" }, context), /no file at that path/);
+});
+
 test("only one debugging session runs at a time", async (t) => {
   const { app, workspace } = await withDebugAdapter(t);
   await put(workspace, "run.js", "console.log(1);\n");

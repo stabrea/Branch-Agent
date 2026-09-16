@@ -94,6 +94,8 @@ import { ProjectMap, registerProjectMap } from "./code-map.js";
 import { LanguageServers } from "./language-server.js";
 import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
+import { registerCheckpoints } from "./checkpoints.js";
+import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -154,6 +156,11 @@ export async function createBranch(options: {
   };
   registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
+  // Points to come back to, the last change put back, and that change put forward again.
+  registerCheckpoints(registry, store, history);
+  // Files a task produced that are not text, kept version by version with their checksums.
+  const keptArtifacts = new KeptArtifacts(join(dataDir, "kept"));
+  registerKeptArtifacts(registry, keptArtifacts, files);
   registerCodeSearch(registry, new WorkspaceSearch(files));
   // The project map: built once, then kept up to date file by file, and ordered around a request.
   const projectMap = new ProjectMap(files);
@@ -505,6 +512,8 @@ export async function createBranch(options: {
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
     projectMap,
+    /** Files a task produced that are not text, kept version by version. */
+    keptArtifacts,
     /** Language servers and debuggers the owner set up; both stop when the app closes. */
     languageServers,
     debugAdapters,
@@ -746,3 +755,5 @@ export * from "./stdio-rpc.js";
 export * from "./language-server.js";
 export * from "./language-server-tools.js";
 export * from "./debug-adapter.js";
+export * from "./checkpoints.js";
+export * from "./build-artifacts.js";
