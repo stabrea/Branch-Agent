@@ -57,14 +57,16 @@ import {
 } from "./provider-retry.js";
 import {
   ToolCatalog, answerReserve, catalogTokens, compactionThresholdFloor, contextBudget, expandToolName,
-  rankGroups, type ContextBudget,
+  rankGroups, searchToolName, type ContextBudget,
 } from "./catalog.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
+import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
+import { Deferrals, deferredCall } from "./deferred.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -133,6 +135,8 @@ export interface RunOptions {
   plan?: boolean;
   /** Have a reviewer check the finished answer before it is given. */
   verify?: boolean;
+  /** Internal: the working style of the specialist carrying out this run. */
+  style?: SpecialistStyle;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -166,6 +170,8 @@ export class Runtime {
   private readonly rates: RateLimiter;
   /** Plans, reviewer passes, milestone notes and the shared scratch area. */
   readonly orchestration: Orchestration;
+  /** Tool calls handed over to finish later; their answers come back as follow-up messages. */
+  readonly deferrals: Deferrals;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -179,6 +185,18 @@ export class Runtime {
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
     this.rates = new RateLimiter(this.reliability.rateWindowMs);
     this.orchestration = new Orchestration(store, this.owner, workspace);
+    this.deferrals = new Deferrals(store, this.owner);
+  }
+  /**
+   * The answer to a tool call that was handed over earlier. It is written down and then put to the
+   * conversation as an ordinary follow-up message, so the assistant picks the thread back up.
+   */
+  settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
+    const entry = this.deferrals.settle(id, outcome);
+    if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
+    const queued = this.followUp(entry.sessionId,
+      `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`);
+    return { id: entry.id, sessionId: entry.sessionId, queued: queued.queued };
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -256,7 +274,7 @@ export class Runtime {
     let started: Run | undefined;
     const startedAt = new Promise<Run>((resolve) => { started = undefined; void resolve; });
     void startedAt;
-    const child = this.track(() => this.execute({ prompt, signal: context.signal, onStarted: (r) => { started = r; }, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
+    const child = this.track(() => this.execute({ prompt, signal: context.signal, onStarted: (r) => { started = r; }, ...(options.checks ? { checks: options.checks } : {}), ...(options.style ? { style: options.style } : {}) }, context, instructions));
     void child.then((run) => {
       const result: BackgroundResult = { childRunId: run.id, parentRunId: parent.runId, status: run.status, output: run.output.slice(0, 4000), finishedAt: new Date().toISOString() };
       this.backgroundResults.unshift(result); this.backgroundResults.splice(20);
@@ -392,7 +410,7 @@ export class Runtime {
       ...(options.agent ? { agent: options.agent } : {}),
     };
     try {
-      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
+      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}), ...(options.style ? { style: options.style } : {}) }, context, instructions));
     } finally {
       clearTimeout(timer);
       const left = (this.children.get(parent.runId) ?? 1) - 1;
@@ -414,7 +432,7 @@ export class Runtime {
    * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
    * results into later prompts; every result is merged under the parent run.
    */
-  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string; agent?: string }): Promise<FanoutOutcome> {
+  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string; agent?: string; style?: SpecialistStyle }): Promise<FanoutOutcome> {
     const waves = fanoutWaves(tasks), byId = new Map(tasks.map((t) => [t.id, t]));
     const outcomes: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> = {};
     for (const wave of waves) {
@@ -426,6 +444,7 @@ export class Runtime {
           ...(task.resultSchema ? { resultSchema: task.resultSchema } : {}),
           ...(task.checks ? { checks: CompletionCheckSchema.parse(task.checks) } : {}),
           ...(spec.agent ? { agent: spec.agent } : {}),
+          ...(spec.style ? { style: spec.style } : {}),
         });
         outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
       }));
@@ -496,7 +515,7 @@ export class Runtime {
         ...(options.plan !== undefined ? { plan: options.plan } : {}),
         ...(options.verify !== undefined ? { verify: options.verify } : {}),
         ...(context.depth > 0 || context.agent ? { delegated: true } : {}),
-      });
+      }, options.style);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -664,15 +683,20 @@ export class Runtime {
     checks?: CompletionCheck,
     images?: ImagePart[],
     conduct: ConductOptions = {},
+    style?: SpecialistStyle,
   ): Promise<string> {
+    const shape = styleShape(style);
+    if (style && style !== "default") this.store.event(run.id, "specialist.style", { style, summary: shape.summary });
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
-    const catalog = this.openCatalog(run, context, messages);
+    const catalog = this.openCatalog(run, context, messages, shape.groups);
     const plan = this.models.plan(context.owner, run.sessionId, this.routed(run, context.owner, override));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
-    const conductor = this.orchestration.conductor(run, { ...conduct, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
+    // A plan-execute specialist plans its own sub-task, which an ordinary delegated run never does.
+    const planned = shape.plan ? { plan: true, delegated: false } : {};
+    const conductor = this.orchestration.conductor(run, { ...conduct, ...planned, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
     for (let round = 0; round < conductor.maxRounds(12); round++) {
@@ -682,6 +706,11 @@ export class Runtime {
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
+      // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
+      // the model can see its own trail; the owner reads it in the events; the answer never has it.
+      const scratch = shape.scratch ? takeScratch(completion.content) : null;
+      if (scratch) this.store.event(run.id, "react.scratch", { round: round + 1, text: scratch.line });
+      const spoken = scratch ? scratch.rest : completion.content;
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
@@ -690,9 +719,9 @@ export class Runtime {
       messages.push(assistant); ids.push(null);
       this.store.message(run.sessionId, assistant);
       if (!completion.toolCalls.length) {
-        if (checks && conductor.lastStep() && !(await this.answerPasses(run, messages, ids, context, checks, completion.content, checkFailures))) { checkFailures++; continue; }
-        const next = await conductor.afterAnswer(completion.content);
-        if (!next) return completion.content;
+        if (checks && conductor.lastStep() && !(await this.answerPasses(run, messages, ids, context, checks, spoken, checkFailures))) { checkFailures++; continue; }
+        const next = await conductor.afterAnswer(spoken);
+        if (!next) return spoken;
         this.add(run, messages, ids, next);
         continue;
       }
@@ -855,18 +884,21 @@ export class Runtime {
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
    * spend a round opening one. No model call and no network is involved.
    */
-  private openCatalog(run: Run, context: ToolContext, messages: Message[]): ToolCatalog {
+  private openCatalog(run: Run, context: ToolContext, messages: Message[], styleGroups: readonly string[] = []): ToolCatalog {
     const tools = this.registry.descriptions(context.permissions);
     const available = [...new Set(tools.map((tool) => this.registry.groupOf(tool.name)))];
     const recent = messages.filter((m) => m.role !== "system").slice(-4).map((m) => m.content);
     const project = this.store.projects.active(context.owner);
     const guessed = rankGroups({ prompt: run.prompt, recent, project: `${project.name} ${project.instructions}` }, available, 3);
+    // A specialist's style says which toolboxes its work always needs, so it never spends a round
+    // opening the obvious one; a box it has no tools for is simply not there and costs nothing.
+    const opened = styleGroups.filter((group) => available.includes(group));
     const catalog = new ToolCatalog(tools, {
-      expanded: [...alwaysOpenGroups, ...guessed],
+      expanded: [...alwaysOpenGroups, ...guessed, ...opened],
       groupOf: (name) => this.registry.groupOf(name),
     });
     this.catalogs.set(run.id, catalog);
-    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length });
+    this.store.event(run.id, "catalog.preselected", { guessed, available, tools: tools.length, ...(opened.length ? { style: opened } : {}) });
     return catalog;
   }
   /**
@@ -1237,6 +1269,33 @@ export class Runtime {
     this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { opened, unknown, tools: tools.length } });
     return { ok: true, result: { opened, unknown, tools, note: "These are yours to use from your next step; their inputs are in the tool list." } };
   }
+  /**
+   * Finds a tool by words, closed toolboxes included, so the assistant can reach one tool without
+   * opening a whole box. What it finds is usable straight away: the catalog was built from this
+   * task's own permissions, and a tool it names stays visible for the next few rounds.
+   */
+  private findTools(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
+    const catalog = this.catalogs.get(context.runId);
+    if (!catalog) return { ok: false, error: "There are no tools to look through in this task." };
+    const query = String((args as { query?: unknown })?.query ?? "").trim();
+    if (!query) return { ok: false, error: `Say what you are looking for, for example {"query":"send a message"}.` };
+    const found = catalog.search(query);
+    for (const tool of found) catalog.noteUse(tool.name);
+    this.store.event(context.runId, "catalog.searched", { query: query.slice(0, 200), found: found.length });
+    this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { found: found.length } });
+    return { ok: true, result: { query, tools: found,
+      note: found.length ? "Use any of these from your next step; their inputs are in the tool list." : "Nothing matched. Try other words, or open a whole toolbox with tools.expand." } };
+  }
+  /** A tool that answered "not yet": the job is written down and the task carries on without it. */
+  private noteDeferred(call: ToolCall, context: ToolContext, result: unknown): unknown | null {
+    const deferred = deferredCall(result);
+    if (!deferred) return null;
+    const entry = this.deferrals.open({ id: deferred.id, runId: context.runId, sessionId: this.sessionOf(context),
+      tool: call.name, description: deferred.description });
+    this.store.event(context.runId, "tool.deferred", { name: call.name, id: call.id, deferredId: entry.id, description: entry.description });
+    return { deferred: true, id: entry.id,
+      note: "This is not finished yet and you are not to wait for it. Carry on with whatever else you can do, and finish your answer. When it is done, what came of it arrives as a new message in this conversation." };
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -1245,6 +1304,7 @@ export class Runtime {
     try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
+    if (call.name === searchToolName) return this.findTools(call, context, args);
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
@@ -1256,6 +1316,8 @@ export class Runtime {
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
+      const handedOver = this.noteDeferred(call, context, result);
+      if (handedOver) return { ok: true, result: handedOver };
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       return { ok: true, result };

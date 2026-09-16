@@ -6,6 +6,8 @@ import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
 import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
 import { CodeEditor, registerCodeEdit } from "./code-edit.js";
+import { CodeChanges, registerCodeChanges } from "./code-change.js";
+import { registerHumanTasks } from "./deferred.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -130,7 +132,12 @@ export async function createBranch(options: {
   registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
   registerCodeSearch(registry, new WorkspaceSearch(files));
-  registerCodeEdit(registry, files, new CodeEditor(files, writeObserver));
+  const editor = new CodeEditor(files, writeObserver);
+  registerCodeEdit(registry, files, editor);
+  // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
+  // followed by the check the owner set up for this project.
+  const codeChanges = new CodeChanges(store, options.owner ?? "local", files, editor, workspace);
+  registerCodeChanges(registry, codeChanges);
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
   registerGit(registry, git);
@@ -174,6 +181,8 @@ export async function createBranch(options: {
     parameters: z.object({ question: z.string().trim().min(1).max(2000) }).strict(),
     execute: async ({ question }) => { throw new NeedsInputError(question); },
   });
+  // Handing something to the person and carrying on: the plainest deferred tool call there is.
+  registerHumanTasks(registry);
   registerKnowledge(registry, knowledge);
   // Working with several specialists at once, handing work over, and the shared scratch area.
   registerOrchestration(registry, runtime, knowledge);
@@ -343,6 +352,8 @@ export async function createBranch(options: {
     webhooks,
     /** Saved workflows: steps the app works through on its own, remembered across restarts. */
     workflows,
+    /** Multi-file changes and the check the owner set up for this project. */
+    codeChanges,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -510,6 +521,10 @@ export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 export * from "./workflows.js";
+// Batch 20 (wave 7) — orchestration, second pass.
+export * from "./specialist-styles.js";
+export * from "./code-change.js";
+export * from "./deferred.js";
 export * from "./media.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";

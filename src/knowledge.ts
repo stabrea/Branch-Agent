@@ -11,6 +11,7 @@ import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
+import { SpecialistStyleSchema, styleShape, styledPermissions, type SpecialistStyle } from "./specialist-styles.js";
 
 export const CheckSchema = z
   .object({ path: z.string().min(1).max(500), expected: z.string().max(32768) })
@@ -48,6 +49,8 @@ export const SpecialistSchema = z
     id: z.string().uuid().optional(),
     name: z.string().min(1).max(100),
     instructions: z.string().min(1).max(8000),
+    /** How this specialist works: think out loud, plan first, review only, look things up, or write code. */
+    style: SpecialistStyleSchema.default("default"),
     permissions: z.array(z.string().max(100)).max(50),
     evaluation: z
       .object({
@@ -349,12 +352,15 @@ export class Knowledge {
     const state = this.required("specialists", owner, id).data as unknown as SpecialistState;
     const version = state.activeVersion === state.version ? state : state.history.find((v) => v.version === state.activeVersion);
     if (!version || !version.evaluationPassed) throw new Error(`Specialist ${id} has no evaluated active version`);
-    return { permissions: version.definition.permissions, instructions: version.definition.instructions, agent: id };
+    // The style narrows what the specialist may do and adds to what it is told; it never widens either.
+    const style = (version.definition.style ?? "default") as SpecialistStyle, shape = styleShape(style);
+    return { permissions: styledPermissions(style, version.definition.permissions),
+      instructions: version.definition.instructions + shape.instructions, agent: id, style };
   }
   async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean } = {}) {
     this.require(context, "specialists.use");
     const spec = this.activeSpecialist(context.owner, id);
-    const scoped = { ...options, agent: id };
+    const scoped = { ...options, agent: id, style: spec.style };
     if (options.background) return this.runtime.delegateBackground(prompt, context, spec.permissions, spec.instructions, scoped);
     return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, scoped);
   }
