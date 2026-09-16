@@ -93,6 +93,42 @@ async function drawWorking() {
   rows("context-working", items, "Nothing recorded for this conversation yet.");
 }
 
+/**
+ * A small page an outside server sent during this conversation. Nothing is shown until you ask
+ * for it: the card is a name and a button, and pressing it puts the page in a frame that can run
+ * nothing, reach nothing and remember nothing. The address it opens at works once and then stops.
+ */
+async function drawApps() {
+  const here = session();
+  const target = $("context-apps");
+  if (!target) return;
+  const { apps } = here ? await api(`mcp/apps?session=${encodeURIComponent(here)}`).catch(() => ({ apps: [] })) : { apps: [] };
+  rows("context-apps", apps.map((app) => appCard(app)), "Nothing to open here.");
+}
+function appCard(app) {
+  const node = row(`${app.server}: ${app.uri}`, "a page this server sent");
+  const open = el("button", "Open in Branch");
+  open.type = "button";
+  open.addEventListener("click", async () => {
+    open.disabled = true;
+    try {
+      const { url } = await api("mcp/app", { server: app.server, uri: app.uri, html: app.html });
+      const frame = document.createElement("iframe");
+      frame.src = url;
+      frame.title = `${app.server}: ${app.uri}`;
+      frame.setAttribute("sandbox", "");
+      frame.style.cssText = "width:100%;height:20rem;border:1px solid var(--line, #444);border-radius:.5rem";
+      node.append(frame);
+      open.remove();
+    } catch (error) {
+      node.append(el("span", error.message, "meta"));
+      open.disabled = false;
+    }
+  });
+  node.append(open);
+  return node;
+}
+
 let busy = false;
 async function draw() {
   if (busy || $("workspace").hidden) return;
@@ -107,6 +143,7 @@ async function draw() {
     drawTasks(running);
     await drawReceipts(state);
     drawFacts(state);
+    await drawApps();
   } catch {
     /* the pane keeps whatever it last showed until the next pass */
   } finally {

@@ -67,6 +67,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import type { ToolEmbedder } from "./tool-index.js";
+import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
@@ -1536,6 +1537,17 @@ export class Runtime {
     return { deferred: true, id: entry.id,
       note: "This is not finished yet and you are not to wait for it. Carry on with whatever else you can do, and finish your answer. When it is done, what came of it arrives as a new message in this conversation." };
   }
+  /**
+   * Some servers answer with a small page meant to be looked at rather than read out. It is kept
+   * with the task so the context pane can offer to open it, in the frame that can do nothing.
+   * Only a tool from outside can offer one — Branch's own tools answer in words.
+   */
+  private noteApp(call: ToolCall, context: ToolContext, result: unknown): void {
+    if (!this.registry.isExternal(call.name)) return;
+    const app = mcpAppIn(result);
+    if (!app) return;
+    this.store.event(context.runId, "mcp.app", { tool: call.name, server: call.name.split(".")[1] ?? call.name, ...app });
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -1564,6 +1576,7 @@ export class Runtime {
       const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
+      this.noteApp(call, context, result);
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);

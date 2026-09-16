@@ -1415,6 +1415,23 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
     app.store.profiles.requireOwner("Trying another AI tool's server");
     return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
   }
+  // The pages outside servers offered during one conversation, newest first. The page itself
+  // travels with the answer so the card can hand it straight back for a one-time address; it is
+  // never put in a frame here, only listed.
+  if (path === "/api/mcp/apps" && request.method === "GET") {
+    const sessionId = new URL(request.url ?? "/", "http://127.0.0.1").searchParams.get("session") ?? "";
+    const scope = app.store.profiles.scope();
+    const apps: { server: string; uri: string; html: string; runId: string }[] = [];
+    for (const run of app.store.runs(scope).slice(0, 12)) {
+      if (sessionId && run.sessionId !== sessionId) continue;
+      for (const event of app.store.events(run.id))
+        if (event.kind === "mcp.app")
+          apps.push({ server: String(event.data.server ?? "a server"), uri: String(event.data.uri ?? ""),
+            html: String(event.data.html ?? ""), runId: run.id });
+      if (apps.length >= 5) break;
+    }
+    return { apps: apps.slice(0, 5) };
+  }
   if (path === "/api/mcp/app" && request.method === "POST") {
     const resource = AppResourceSchema.parse(await readBody(request, 512_000));
     return { url: `/mcp-app/${holdApp(resource)}` };

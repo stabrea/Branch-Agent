@@ -401,3 +401,40 @@ test("9 — a tool search still works when reading by meaning fails", async (t) 
   assert.equal(found.matches[0].name, "files.write", "the word search stands on its own");
   void app;
 });
+
+test("3 — a page an outside server sent is offered by name, and opens at a one-time address", async (t) => {
+  const page = "<h1>Pick a seat</h1><script>fetch('https://elsewhere.example')</script>";
+  const { app, server, headers, call } = await served(t, ({ messages }) => {
+    const last = messages.at(-1);
+    if (last?.role === "tool") return say("There is your seat picker.");
+    return { content: "", toolCalls: [{ id: "c1", name: "mcp.seats.abc", arguments: "{}" }] };
+  });
+  // A tool from outside, whose answer carries a small page rather than words.
+  app.registry.register({
+    name: "mcp.seats.abc", description: "Show the seat picker", permission: "mcp.seats.abc", external: true,
+    parameters: z.object({}).strict(),
+    execute: async () => ({ content: [{ type: "resource", resource: { uri: "ui://seats", mimeType: "text/html", text: page } }] }),
+  });
+  const run = await app.runtime.run({ prompt: "let me pick a seat", permissions: ["mcp.seats.abc"] });
+  assert.equal(run.status, "completed");
+
+  const listed = await call(`/api/mcp/apps?session=${run.sessionId}`);
+  assert.equal(listed.body.apps.length, 1, "the conversation has one page to offer");
+  assert.equal(listed.body.apps[0].uri, "ui://seats");
+  assert.equal(listed.body.apps[0].server, "seats");
+
+  // The card hands the page straight back for an address of its own, with no key on it.
+  const opened = await call("/api/mcp/app", { server: "seats", uri: "ui://seats", html: listed.body.apps[0].html });
+  assert.match(opened.body.url, /^\/mcp-app\/[A-Za-z0-9_-]{32,48}$/);
+
+  const shown = await fetch(server.url + opened.body.url, { headers: { origin: server.url } });
+  assert.equal(shown.status, 200, "the address carries no key, because a frame cannot");
+  const body = await shown.text();
+  assert.match(shown.headers.get("content-security-policy"), /sandbox; default-src 'none'/);
+  assert.ok(!body.includes("<script"), "the script is gone as well as refused");
+  assert.match(body, /Pick a seat/);
+
+  const again = await fetch(server.url + opened.body.url, { headers: { origin: server.url } });
+  assert.equal(again.status, 404, "and the address is good for one fetch only");
+  void headers;
+});
