@@ -43,7 +43,7 @@ export class WorkspaceSearch {
     for (const name of [".branchignore", ".gitignore"]) {
       try {
         const text = await readFile(join(this.files.base, name), "utf8");
-        return ignoreMatcher(text);
+        return ignoreMatcher(text).ignores;
       } catch { /* No ignore file of that name. */ }
     }
     return () => false;

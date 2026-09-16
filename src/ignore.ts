@@ -1,70 +1,62 @@
 /**
- * A `.gitignore`-style matcher. Kept deliberately small and free of imports so that any branch
- * can create this file and the merge stays trivial.
- *
- * Supported: blank lines and `#` comments, `!` negation, a trailing `/` for directories only,
- * a leading or embedded `/` for patterns anchored at the ignore file, `*`, `?` and `**`.
+ * A `.branchignore` file in the workspace root hides extra paths from the assistant. It uses the
+ * same syntax people already know from `.gitignore`: one pattern per line, `#` for a comment, a
+ * trailing `/` for folders only, `!` to un-hide something, `*` and `?` inside one folder name and
+ * `**` across folders. The fixed secret patterns (`.env`, `.ssh`, keys and the like) are applied
+ * first and a `!` line can never bring those back.
  */
-export function ignoreMatcher(
-  text: string,
-): (path: string, isDirectory?: boolean) => boolean {
-  const rules = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
-    .slice(0, 500)
-    .map(toRule);
-  return (path, isDirectory = false) => {
-    const clean = path.replace(/^\.\//, "").replace(/\/+$/, "");
-    let ignored = false;
-    for (const rule of rules)
-      if (matches(rule, clean, isDirectory)) ignored = !rule.negated;
-    return ignored;
-  };
+export interface IgnoreMatcher {
+  /** True when this path, written relative to the workspace root with "/" separators, is hidden. */
+  ignores(path: string, isDirectory?: boolean): boolean;
+  /** How many usable patterns the file contained. */
+  readonly patterns: number;
 }
+interface Rule { test: RegExp; negated: boolean; directoryOnly: boolean }
 
-interface Rule {
-  expression: RegExp;
-  negated: boolean;
-  directoryOnly: boolean;
-}
-
-function toRule(line: string): Rule {
-  const negated = line.startsWith("!");
-  let pattern = negated ? line.slice(1) : line;
-  const directoryOnly = pattern.endsWith("/");
-  if (directoryOnly) pattern = pattern.slice(0, -1);
-  const anchored = pattern.includes("/") && !pattern.startsWith("**/");
-  if (pattern.startsWith("/")) pattern = pattern.slice(1);
-  const body = translate(pattern);
-  return {
-    expression: new RegExp(anchored ? `^${body}$` : `^(?:.*/)?${body}$`),
-    negated,
-    directoryOnly,
-  };
-}
-
-/** Translates one glob body into a regular expression source string. */
-function translate(pattern: string): string {
-  let out = "";
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i]!;
-    if (char === "*" && pattern[i + 1] === "*") {
-      const slash = pattern[i + 2] === "/";
-      out += slash ? "(?:.*/)?" : ".*";
-      i += slash ? 2 : 1;
-    } else if (char === "*") out += "[^/]*";
-    else if (char === "?") out += "[^/]";
-    else out += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+/** Builds a matcher from the text of a `.branchignore` (or any gitignore-style) file. */
+export function ignoreMatcher(text: string): IgnoreMatcher {
+  const rules: Rule[] = [];
+  for (const raw of text.split(/\r?\n/).slice(0, 1000)) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line || line.startsWith("#")) continue;
+    const negated = line.startsWith("!");
+    const body = (negated ? line.slice(1) : line).replace(/^\\([!#])/, "$1");
+    const directoryOnly = body.endsWith("/");
+    const pattern = directoryOnly ? body.slice(0, -1) : body;
+    if (!pattern || pattern === "/") continue;
+    rules.push({ negated, directoryOnly, test: compile(pattern) });
   }
-  return out;
+  return { patterns: rules.length, ignores: (path, isDirectory = false) => decide(rules, path, isDirectory) };
 }
 
-/** A rule matches the path itself or, for a directory rule, anything inside that directory. */
-function matches(rule: Rule, path: string, isDirectory: boolean): boolean {
-  if (rule.expression.test(path)) return !rule.directoryOnly || isDirectory;
-  const parts = path.split("/");
-  for (let i = 1; i < parts.length; i++)
-    if (rule.expression.test(parts.slice(0, i).join("/"))) return true;
-  return false;
+const escape = (character: string): string => (/[.+^${}()|[\]\\]/.test(character) ? "\\" + character : character);
+
+/** Turns one gitignore pattern into an anchored regular expression over a "/" separated path. */
+function compile(pattern: string): RegExp {
+  const anchored = pattern.includes("/") && !pattern.startsWith("**/") && pattern.indexOf("/") !== pattern.length - 1;
+  const body = pattern.replace(/^\//, "");
+  let out = "";
+  for (let index = 0; index < body.length; index++) {
+    const character = body[index]!;
+    if (character !== "*") { out += character === "?" ? "[^/]" : escape(character); continue; }
+    if (body[index + 1] !== "*") { out += "[^/]*"; continue; }
+    if (body[index + 2] === "/") { out += "(?:.*/)?"; index += 2; } else { out += ".*"; index += 1; }
+  }
+  return new RegExp(`^${anchored ? "" : "(?:.*/)?"}${out}$`);
+}
+
+/** Last matching rule wins, and nothing inside a hidden folder can be un-hidden. */
+function decide(rules: Rule[], path: string, isDirectory: boolean): boolean {
+  const parts = path.split("/").filter(Boolean);
+  let ignored = false;
+  for (let depth = 1; depth <= parts.length; depth++) {
+    const candidate = parts.slice(0, depth).join("/");
+    const directory = depth < parts.length || isDirectory;
+    for (const rule of rules) {
+      if (rule.directoryOnly && !directory) continue;
+      if (rule.test.test(candidate)) ignored = !rule.negated;
+    }
+    if (ignored && depth < parts.length) return true;
+  }
+  return ignored;
 }

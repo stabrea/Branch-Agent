@@ -1,9 +1,10 @@
-import { lstat, mkdir, open, readdir } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
 import { resolve, relative, isAbsolute, dirname, join } from "node:path";
 import { constants } from "node:fs";
 import { z } from "zod";
 import type { ToolRegistry } from "./registry.js";
 import type { ToolContext } from "./contracts.js";
+import { ignoreMatcher, type IgnoreMatcher } from "./ignore.js";
 
 const pathSchema = z.string().min(1).max(500);
 const secret =
@@ -39,6 +40,11 @@ export class WorkspaceFiles {
       rel = relative(base, target);
     if (rel.startsWith("..") || isAbsolute(rel))
       throw new Error("Path outside workspace");
+    if (
+      rel &&
+      (await this.hidden(relative(this.root, target), allowRoot))
+    )
+      throw new Error("Path hidden by .branchignore");
     await checkWorkspaceAncestors(this.root);
     if (base !== this.root) await mkdir(base, { recursive: true });
     let current = base;
@@ -53,6 +59,30 @@ export class WorkspaceFiles {
       }
     }
     return target;
+  }
+  /**
+   * The owner's `.branchignore` in the workspace root, re-read whenever the file changes. The
+   * fixed secret patterns above are applied first, so a `!` line in this file cannot bring an
+   * `.env` or a key back into view; it only ever hides more.
+   */
+  private ignore: { at: number; matcher: IgnoreMatcher } | undefined;
+  private async matcher(): Promise<IgnoreMatcher | undefined> {
+    try {
+      const file = resolve(this.root, ".branchignore");
+      const info = await stat(file);
+      if (!info.isFile() || info.size > 65536) return undefined;
+      if (this.ignore?.at !== info.mtimeMs)
+        this.ignore = { at: info.mtimeMs, matcher: ignoreMatcher(await readFile(file, "utf8")) };
+      return this.ignore.matcher;
+    } catch {
+      return undefined;
+    }
+  }
+  /** True when `.branchignore` hides this path, written relative to the workspace root. */
+  async hidden(path: string, isDirectory = false): Promise<boolean> {
+    const matcher = await this.matcher();
+    const relative = path.replace(/\\/g, "/").replace(/^\/+/, "");
+    return !!relative && !!matcher && matcher.ignores(relative, isDirectory);
   }
   async read(path: string): Promise<{ path: string; content: string }> {
     const target = await this.checked(path);
@@ -101,13 +131,15 @@ export class WorkspaceFiles {
     path = ".",
   ): Promise<{ entries: { name: string; type: string }[] }> {
     const target = await this.checked(path, true);
-    const entries = (await readdir(target, { withFileTypes: true }))
-      .filter((e) => !e.isSymbolicLink() && !secret.test(e.name))
-      .slice(0, 200)
-      .map((e) => ({
-        name: e.name,
-        type: e.isDirectory() ? "directory" : "file",
-      }));
+    const here = relative(this.root, target).replace(/\\/g, "/");
+    const entries: { name: string; type: string }[] = [];
+    for (const e of (await readdir(target, { withFileTypes: true })).slice(0, 400)) {
+      if (entries.length >= 200) break;
+      if (e.isSymbolicLink() || secret.test(e.name)) continue;
+      if (await this.hidden(here ? `${here}/${e.name}` : e.name, e.isDirectory()))
+        continue;
+      entries.push({ name: e.name, type: e.isDirectory() ? "directory" : "file" });
+    }
     return { entries };
   }
   async search(
