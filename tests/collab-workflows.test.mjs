@@ -1,0 +1,423 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createBranch, shareHtml, redactText, dayOffDecision, inQuietHours, quietUntil,
+  weeklyReviewWorkflow, RedactionSchema,
+} from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+
+function scripted() {
+  const provider = { name: "scripted", requests: [], failNext: false, hold: null, async complete(request) {
+    provider.requests.push(request);
+    if (provider.hold) await provider.hold;
+    if (provider.failNext) { provider.failNext = false; throw new Error("provider down"); }
+    return { content: `Result ${provider.requests.length}`, toolCalls: [] };
+  } };
+  return provider;
+}
+const discard = (base) => rm(base, { recursive: true, force: true }).catch(() => undefined);
+/** One app on its own data folder. Everything is closed before the folder goes, in that order. */
+async function fixture(t, root) {
+  const base = root ?? await mkdtemp(join(tmpdir(), "branch-collab-"));
+  const provider = scripted();
+  const app = await createBranch({ workspace: join(base, "workspace"), dataDir: join(base, "data"), provider });
+  t.after(async () => {
+    await app.close().catch(() => undefined);
+    if (!root) await discard(base);
+  });
+  return { app, base, provider };
+}
+async function served(t) {
+  const base = await mkdtemp(join(tmpdir(), "branch-collab-"));
+  const provider = scripted();
+  const app = await createBranch({ workspace: join(base, "workspace"), dataDir: join(base, "data"), provider });
+  const server = await startServer(app, { dataDir: join(base, "data"), port: 0 });
+  t.after(async () => {
+    await server.close().catch(() => undefined);
+    await app.close().catch(() => undefined);
+    await discard(base);
+  });
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url };
+  const call = async (path, body) => {
+    const response = await fetch(server.url + path, body === undefined
+      ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  };
+  return { app, provider, server, headers, call };
+}
+const planted = "Here is the key sk-proj-abcdefghijklmnopqrstuvwx1234 for the deploy and my address ada@example.com.";
+
+/* ---- W1: a conversation as a page that can do nothing, with a receipt ---- */
+
+test("the shared page carries no scripts and blanks out a planted key", async (t) => {
+  const { app } = await fixture(t);
+  const run = await app.runtime.run({ prompt: planted });
+  const { html, receipt } = shareHtml({ sessionId: run.sessionId, title: "A chat" }, app.store.messages(run.sessionId));
+  assert.ok(!/<script/i.test(html), "the page must carry no scripts at all");
+  assert.ok(!/ on[a-z]+=/i.test(html), "the page must carry no inline handlers");
+  assert.ok(!html.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"), "the planted key must not survive");
+  assert.ok(html.includes("[removed before sharing]"));
+  assert.equal(receipt.secretsRemoved, 1);
+  assert.equal(receipt.contactDetailsRemoved, 0, "contact details stay unless the owner asks");
+  assert.ok(receipt.messagesShared >= 1 && receipt.sessionId === run.sessionId);
+  const withContacts = shareHtml({ sessionId: run.sessionId }, app.store.messages(run.sessionId),
+    RedactionSchema.parse({ contactDetails: true }));
+  assert.ok(!withContacts.html.includes("ada@example.com"));
+  assert.equal(withContacts.receipt.contactDetailsRemoved >= 1, true);
+});
+
+test("the redaction pass leaves ordinary words alone", () => {
+  const plain = redactText("We met on Tuesday and agreed the plan.", RedactionSchema.parse({ contactDetails: true }));
+  assert.equal(plain.text, "We met on Tuesday and agreed the plan.");
+  assert.equal(plain.secrets + plain.contactDetails, 0);
+});
+
+test("a share link needs its code, works once, and expires", async (t) => {
+  const { app, server, call } = await served(t);
+  const run = await app.runtime.run({ prompt: planted });
+  const made = await call(`/api/sessions/${run.sessionId}/share`, { title: "Shared", expiresInMinutes: 60 });
+  assert.equal(made.status, 200);
+  assert.match(made.body.code, /^[0-9A-F]{6}$/);
+  assert.equal(made.body.receipt.secretsRemoved, 1);
+  const noCode = await fetch(server.url + made.body.path);
+  assert.equal(noCode.status, 403, "a link without the code gives nothing away");
+  const wrong = await fetch(`${server.url}${made.body.path}?code=ABCDEF`);
+  assert.equal(wrong.status, 403);
+  const right = await fetch(`${server.url}${made.body.path}?code=${made.body.code}`);
+  assert.equal(right.status, 200);
+  const page = await right.text();
+  assert.ok(!/<script/i.test(page) && !page.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));
+  const again = await fetch(`${server.url}${made.body.path}?code=${made.body.code}`);
+  assert.equal(again.status, 403, "the code works once");
+  assert.equal((await again.text()).includes("already been used"), true);
+  const expired = app.store.shares.create("local", { sessionId: run.sessionId, expiresInMinutes: 5 }, []);
+  app.store.shares.now = () => new Date(Date.now() + 6 * 60000);
+  assert.throws(() => app.store.shares.open(expired.id, expired.code), /expired/);
+});
+
+test("the HTML download hands back a receipt of what was shared", async (t) => {
+  const { app, server, headers } = await served(t);
+  const run = await app.runtime.run({ prompt: planted });
+  const response = await fetch(`${server.url}/api/sessions/${run.sessionId}/export?format=html`, { headers });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition") ?? "", /attachment/);
+  const receipt = JSON.parse(response.headers.get("x-branch-share-receipt") ?? "{}");
+  assert.equal(receipt.secretsRemoved, 1);
+  assert.ok(!(await response.text()).includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));
+});
+
+/* ---- W2: labels and project notes ---- */
+
+test("labels filter the conversation search and notes stay with their project", async (t) => {
+  const { app, call } = await served(t);
+  const taxes = await app.runtime.run({ prompt: "what do I owe" });
+  const other = await app.runtime.run({ prompt: "book a table" });
+  await call("/api/labels", { target: "conversation", targetId: taxes.sessionId, label: "Money" });
+  await call("/api/labels", { target: "conversation", targetId: taxes.sessionId, label: "urgent" });
+  await call("/api/labels", { target: "conversation", targetId: other.sessionId, label: "money" });
+  const both = await call("/api/sessions/search", { query: "", labels: ["money", "urgent"] });
+  assert.deepEqual(both.body.sessions.map((s) => s.sessionId), [taxes.sessionId], "every label must match");
+  const money = await call("/api/sessions/search", { query: "", labels: ["money"] });
+  assert.equal(money.body.sessions.length, 2, "labels are matched however they were typed");
+  const unlabelled = await call("/api/sessions/search", { query: "" });
+  assert.equal(unlabelled.body.sessions.length, 2, "no labels means no filter");
+  const catalog = await call("/api/labels");
+  assert.deepEqual(catalog.body.catalog, [{ label: "money", count: 2 }, { label: "urgent", count: 1 }]);
+  const gone = await call("/api/labels/remove", { target: "conversation", targetId: other.sessionId, label: "money" });
+  assert.equal(gone.body.removed, true);
+  assert.equal((await call("/api/sessions/search", { query: "", labels: ["money"] })).body.sessions.length, 1);
+  const note = await call("/api/projects/notes", { project: "default", body: "Keep receipts for this one" });
+  assert.ok(note.body.createdAt && note.body.id);
+  const listed = await call("/api/projects/notes?project=default");
+  assert.deepEqual(listed.body.notes.map((n) => n.body), ["Keep receipts for this one"]);
+  assert.deepEqual((await call("/api/projects/notes?project=other")).body.notes, []);
+});
+
+test("labels and notes travel with the backup", async (t) => {
+  const { app, call } = await served(t);
+  const run = await app.runtime.run({ prompt: "keep this" });
+  await call("/api/labels", { target: "conversation", targetId: run.sessionId, label: "keep" });
+  await call("/api/projects/notes", { project: "default", body: "a note" });
+  const backup = app.store.backup("test");
+  assert.equal(backup.tables.labels.length, 1);
+  assert.equal(backup.tables.project_notes.length, 1);
+});
+
+/* ---- W3: durable workflows ---- */
+
+test("a workflow waits for approval, survives a restart, and carries on", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-collab-restart-"));
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => undefined));
+  const first = await fixture(t, root);
+  const made = first.app.workflows.create("local", {
+    name: "Two halves", steps: [
+      { name: "Look into it", kind: "prompt", prompt: "look into it" },
+      { name: "Ask me first", kind: "approval", question: "Send it?" },
+      { name: "Send it", kind: "prompt", prompt: "send it" },
+    ],
+  });
+  const waiting = await first.app.workflows.run("local", made.id);
+  assert.equal(waiting.status, "waiting_approval");
+  assert.equal(waiting.question, "Send it?");
+  assert.equal(waiting.cursor, 1);
+  assert.equal(waiting.state[0].status, "done");
+  await first.app.close();
+
+  const second = await fixture(t, root);
+  const reopened = second.app.workflows.view("local", made.id);
+  assert.equal(reopened.status, "waiting_approval", "the workflow is exactly where it stopped");
+  assert.equal(reopened.state[0].output, "Result 1", "what the first step produced was kept");
+  const finished = await second.app.workflows.resume("local", made.id);
+  assert.equal(finished.status, "completed");
+  assert.deepEqual(finished.state.map((s) => s.status), ["done", "approved", "done"]);
+});
+
+test("a failing step is tried again, and gives up plainly when it keeps failing", async (t) => {
+  const { app, provider } = await fixture(t);
+  const retried = app.workflows.create("local", {
+    name: "Flaky", steps: [{ name: "Try", kind: "prompt", prompt: "try", retries: 1 }],
+  });
+  provider.failNext = true;
+  const done = await app.workflows.run("local", retried.id);
+  assert.equal(done.status, "completed");
+  assert.equal(done.state[0].attempts, 2, "the step was tried a second time");
+  const doomed = app.workflows.create("local", {
+    name: "Broken", steps: [{ name: "Use a tool", kind: "tool", tool: "no.such.tool", args: {} }],
+  });
+  const failed = await app.workflows.run("local", doomed.id);
+  assert.equal(failed.status, "failed");
+  assert.match(failed.error, /Unknown tool/);
+  assert.equal(failed.state[0].status, "failed");
+});
+
+test("a branch step skips ahead when the last answer did not say what was expected", async (t) => {
+  const { app } = await fixture(t);
+  const made = app.workflows.create("local", {
+    name: "Only if needed", steps: [
+      { name: "Check", kind: "prompt", prompt: "check" },
+      { name: "Go on when it matched", kind: "branch", contains: "never appears", skipAhead: 2 },
+      { name: "Skipped", kind: "prompt", prompt: "skipped" },
+      { name: "Also skipped", kind: "prompt", prompt: "also skipped" },
+    ],
+  });
+  const done = await app.workflows.run("local", made.id);
+  assert.equal(done.status, "completed");
+  assert.deepEqual(done.state.map((s) => s.name), ["Check", "Go on when it matched"]);
+});
+
+test("every wait step waits its own turn, not only the first", async (t) => {
+  const { app } = await fixture(t);
+  const made = app.workflows.create("local", {
+    name: "Twice over", steps: [
+      { name: "Wait a moment", kind: "wait", waitMinutes: 0 },
+      { name: "Do it", kind: "prompt", prompt: "do it" },
+      { name: "Wait an hour", kind: "wait", waitMinutes: 60 },
+      { name: "Do it again", kind: "prompt", prompt: "again" },
+    ],
+  });
+  const held = await app.workflows.run("local", made.id);
+  assert.equal(held.status, "waiting_time", "the second wait must hold, even though the first is over");
+  assert.equal(held.cursor, 2);
+  assert.ok(held.waitingUntil > new Date().toISOString());
+  assert.deepEqual(held.state.map((step) => step.status), ["done", "done", "waiting"]);
+});
+
+test("the weekly review ships ready to save and run", async (t) => {
+  const { app } = await fixture(t);
+  const example = weeklyReviewWorkflow();
+  assert.equal(example.name, "Weekly review");
+  const saved = app.workflows.create("local", example);
+  assert.equal(saved.steps.length, 3);
+  const done = await app.workflows.run("local", saved.id);
+  assert.equal(done.status, "completed", done.error ?? "");
+  assert.equal(app.store.list("memory", "local").length, 1, "the review was kept in memory");
+});
+
+test("a paused workflow does not move until it is carried on", async (t) => {
+  const { app } = await fixture(t);
+  const made = app.workflows.create("local", {
+    name: "Slow", steps: [
+      { name: "One", kind: "prompt", prompt: "one" },
+      { name: "Hold", kind: "approval" },
+      { name: "Two", kind: "prompt", prompt: "two" },
+    ],
+  });
+  await app.workflows.run("local", made.id);
+  const paused = app.workflows.pause("local", made.id);
+  assert.equal(paused.status, "paused");
+  const carried = await app.workflows.resume("local", made.id);
+  assert.equal(carried.status, "completed");
+});
+
+/* ---- W4: the waiting line ---- */
+
+test("tasks join a waiting line in order of who asked, and a queued one can be taken out", async (t) => {
+  const { app, provider, call } = await served(t);
+  let release;
+  provider.hold = new Promise((resolve) => { release = resolve; });
+  await call("/api/queue/settings", { atOnce: 1 });
+  const working = await call("/api/queue", { prompt: "first", source: "owner" });
+  assert.equal(working.body.status, "running");
+  const automatic = await call("/api/queue", { prompt: "from a schedule", source: "schedule" });
+  const mine = await call("/api/queue", { prompt: "mine", source: "owner" });
+  assert.equal(automatic.body.status, "waiting");
+  const line = await call("/api/queue");
+  assert.deepEqual(line.body.waiting.map((entry) => entry.prompt), ["first", "mine", "from a schedule"],
+    "what the owner asks for goes in front of anything automatic");
+  assert.deepEqual(line.body.waiting.map((entry) => entry.position), [1, 2, 3]);
+  const cancelled = await call(`/api/queue/${automatic.body.id}/cancel`, {});
+  assert.deepEqual(cancelled.body, { cancelled: true, wasRunning: false });
+  assert.equal((await call("/api/queue")).body.waiting.length, 2);
+  release();
+  provider.hold = null;
+  for (let i = 0; i < 100 && (await call("/api/queue")).body.waiting.length; i++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  const after = await call("/api/queue");
+  assert.equal(after.body.waiting.length, 0, "the line empties once there is room");
+  assert.deepEqual(after.body.recent.filter((e) => e.status === "done").map((e) => e.prompt).sort(), ["first", "mine"]);
+});
+
+test("a task already working is cancelled rather than simply dropped", async (t) => {
+  const { app, provider, call } = await served(t);
+  let release;
+  provider.hold = new Promise((resolve) => { release = resolve; });
+  const working = await call("/api/queue", { prompt: "long one" });
+  assert.equal(working.body.status, "running");
+  for (let i = 0; i < 100 && !app.runQueue.entry("local", working.body.id).runId; i++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  const cancelled = await call(`/api/queue/${working.body.id}/cancel`, {});
+  assert.equal(cancelled.body.wasRunning, true);
+  release();
+  provider.hold = null;
+});
+
+/* ---- W5: days off and quiet hours ---- */
+
+test("a schedule can skip a holiday or move to the next working day", () => {
+  const settings = { country: "GB", daysOff: ["2026-07-06"], workingDays: [1, 2, 3, 4, 5], timezone: "UTC",
+    quietHours: { enabled: false, from: "21:00", to: "07:00", timezone: "UTC" } };
+  const holidays = { "2026-12-25": "Christmas Day" };
+  const christmas = new Date("2026-12-25T09:00:00.000Z");
+  assert.deepEqual(dayOffDecision(christmas, "run", settings, holidays), { action: "run", reason: null });
+  assert.equal(dayOffDecision(christmas, "skip", settings, holidays).reason, "Christmas Day");
+  const shifted = dayOffDecision(christmas, "shift", settings, holidays);
+  assert.equal(shifted.action, "shift");
+  assert.equal(shifted.moveTo.slice(0, 10), "2026-12-28", "Friday is a holiday and the weekend is not worked");
+  const saturday = new Date("2026-07-04T09:00:00.000Z");
+  assert.equal(dayOffDecision(saturday, "skip", settings, holidays).reason, "not one of your working days");
+  const ownDayOff = new Date("2026-07-06T09:00:00.000Z");
+  assert.equal(dayOffDecision(ownDayOff, "skip", settings, holidays).reason, "a day you marked off");
+  const workday = new Date("2026-07-07T09:00:00.000Z");
+  assert.deepEqual(dayOffDecision(workday, "shift", settings, holidays), { action: "run", reason: null });
+});
+
+test("a due schedule set to skip does not run on a day off", async (t) => {
+  const { app } = await fixture(t);
+  app.calendar.configure("local", { country: "GB", workingDays: [1, 2, 3, 4, 5], timezone: "UTC" });
+  const context = app.runtime.context();
+  const skipped = app.scheduler.create(context, { prompt: "daily note", dueAt: "2026-12-25T09:00:00.000Z",
+    kind: "task", intervalMs: 86400000, daysOff: "skip" });
+  const always = app.scheduler.create(context, { prompt: "always", dueAt: "2026-12-25T09:00:00.000Z",
+    kind: "task", intervalMs: 86400000 });
+  const runs = await app.scheduler.tick(new Date("2026-12-25T09:30:00.000Z"));
+  assert.equal(runs.length, 1, "only the one that does not mind days off ran");
+  const held = app.store.get("schedules", "local", skipped.id).data;
+  assert.equal(held.lastDayOff.action, "skip");
+  assert.equal(held.lastDayOff.reason, "Christmas Day");
+  assert.equal(held.status, "pending");
+  assert.ok(held.dueAt > "2026-12-25T09:30:00.000Z", "it waits for its next turn instead");
+  assert.equal(app.store.get("schedules", "local", always.id).data.runCount, 1);
+});
+
+test("quiet hours run past midnight and say when they end", () => {
+  const quiet = { enabled: true, from: "21:00", to: "07:00", timezone: "UTC" };
+  assert.equal(inQuietHours(new Date("2026-05-01T22:30:00.000Z"), quiet), true);
+  assert.equal(inQuietHours(new Date("2026-05-01T03:00:00.000Z"), quiet), true);
+  assert.equal(inQuietHours(new Date("2026-05-01T12:00:00.000Z"), quiet), false);
+  assert.equal(quietUntil(new Date("2026-05-01T12:00:00.000Z"), quiet), null);
+  assert.equal(quietUntil(new Date("2026-05-01T22:30:00.000Z"), quiet), "2026-05-02T07:00:00.000Z");
+  assert.equal(inQuietHours(new Date("2026-05-01T22:30:00.000Z"), { ...quiet, enabled: false }), false);
+});
+
+test("messages made during quiet hours wait until the morning", async (t) => {
+  const { app } = await fixture(t);
+  app.calendar.configure("local", { timezone: "UTC", quietHours: { enabled: true, from: "21:00", to: "07:00", timezone: "UTC" } });
+  const night = new Date("2026-05-01T23:00:00.000Z");
+  app.channels.deliveries.now = () => night;
+  const held = app.channels.deliveries.enqueue("telegram", "7", "goodnight", "quiet:1");
+  assert.equal(held[0].nextAt, "2026-05-02T07:00:00.000Z");
+  const channel = { sent: [], async send(chatId, text) { channel.sent.push({ chatId, text }); return "m1"; } };
+  assert.deepEqual(await app.channels.deliveries.flush("telegram", channel.send), { sent: 0, failed: 0, dead: 0 });
+  assert.deepEqual(channel.sent, [], "nothing arrives in the night");
+  app.channels.deliveries.now = () => new Date("2026-05-02T08:00:00.000Z");
+  assert.equal((await app.channels.deliveries.flush("telegram", channel.send)).sent, 1);
+  assert.deepEqual(channel.sent, [{ chatId: "7", text: "goodnight" }]);
+});
+
+test("the bundled holiday list is there and the owner gets an editable copy", async (t) => {
+  const { app } = await fixture(t);
+  const countries = app.calendar.countries();
+  assert.ok(countries.length >= 3, "a few countries ship with the app");
+  assert.ok(countries.every((country) => country.days > 0 && country.name));
+  app.calendar.configure("local", { country: "US" });
+  assert.equal(app.calendar.holidays("local")["2026-07-03"], "Independence Day (observed)");
+});
+
+/* ---- W6: profiles for a household ---- */
+
+test("a second person's profile keeps their records apart and is refused the owner's secrets", async (t) => {
+  const { app, call, server, headers } = await served(t);
+  const ownersFact = await call("/api/memory/import", { jsonl: JSON.stringify({ id: "owner-1",
+    data: { text: "The boiler code is on the fridge", source: "owner" } }) });
+  assert.equal(ownersFact.body.imported, 1);
+  const ownersChat = await app.runtime.run({ prompt: "owner's own conversation" });
+  const made = await call("/api/profiles", { name: "Sam", pin: "4321" });
+  assert.ok(made.body.id);
+  const wrongPin = await call("/api/profiles/switch", { profileId: made.body.id, pin: "0000" });
+  assert.equal(wrongPin.status, 400);
+  assert.match(wrongPin.body.error, /PIN is not right/);
+  const switched = await call("/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
+  assert.equal(switched.body.active.name, "Sam");
+  assert.equal(switched.body.scope, `profile:${made.body.id}`);
+
+  const state = await call("/api/state");
+  assert.deepEqual(state.body.memory, [], "the owner's saved facts are not Sam's to read");
+  assert.deepEqual(state.body.runs, [], "nor are the owner's conversations");
+  assert.equal((await call("/api/sessions/search", { query: "" })).body.sessions.length, 0);
+  assert.equal((await call(`/api/sessions/${ownersChat.sessionId}`)).status, 400);
+  const secrets = await fetch(`${server.url}/api/secrets/default`, { headers });
+  assert.equal(secrets.status, 400);
+  assert.match((await secrets.json()).error, /belongs to the owner/);
+  assert.match((await call("/api/projects")).body.error, /belongs to the owner/);
+
+  const samsRun = await call("/api/run", { prompt: "Sam's own question" });
+  assert.equal(samsRun.status, 200);
+  assert.equal(app.store.ownsSession(`profile:${made.body.id}`, samsRun.body.sessionId), true);
+  assert.equal(app.store.ownsSession("local", samsRun.body.sessionId), false);
+  const samsState = await call("/api/state");
+  assert.deepEqual(samsState.body.runs.map((run) => run.prompt), ["Sam's own question"]);
+  assert.equal((await call(`/api/runs/${samsRun.body.id}`)).status, 200, "Sam can open her own task");
+  assert.equal((await call(`/api/runs/${ownersChat.id}`)).status, 404, "but not the owner's");
+
+  const back = await call("/api/profiles/switch", { profileId: null });
+  assert.equal(back.body.active, null);
+  const ownerState = await call("/api/state");
+  assert.equal(ownerState.body.memory.length, 1, "the owner's facts are still the owner's");
+  assert.deepEqual(ownerState.body.runs.map((run) => run.prompt), ["owner's own conversation"]);
+  assert.equal((await fetch(`${server.url}/api/secrets/default`, { headers })).status, 200);
+});
+
+test("a profile cannot be added or removed by anyone but the owner", async (t) => {
+  const { call } = await served(t);
+  const made = await call("/api/profiles", { name: "Kit", pin: "1234" });
+  await call("/api/profiles/switch", { profileId: made.body.id, pin: "1234" });
+  const blocked = await call("/api/profiles", { name: "Another", pin: "1111" });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.body.error, /belongs to the owner/);
+  assert.match((await call(`/api/profiles/${made.body.id}/remove`, {})).body.error, /belongs to the owner/);
+  await call("/api/profiles/switch", { profileId: null });
+  assert.equal((await call(`/api/profiles/${made.body.id}/remove`, {})).body.removed, true);
+});

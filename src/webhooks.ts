@@ -40,7 +40,7 @@ const deliveryTimeoutMs = 10000;
 export const webhookEvents = [
   "run.completed",
   "run.failed",
-  "schedule.fired",
+  "schedule.fired", "schedule.day_off",
   "delivery.failed",
   "trigger.fired",
   "approval.needed",

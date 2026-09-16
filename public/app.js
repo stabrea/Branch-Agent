@@ -469,6 +469,7 @@ async function refresh() {
   renderProcedures();
   renderSchedules();
   renderAutomations();
+  renderCollab();
   renderIdentity();
   renderSkills();
   renderModels();
@@ -1711,6 +1712,17 @@ function renderAutomations() {
   const container = $("automations-container");
   if (!container || !automations || !state) return;
   container.replaceChildren(automations.showAutomations(state, { el, api, toast, refresh }));
+}
+/* Wave 6: workflows, the waiting line, days off, shared copies and the people here. */
+let collab = null;
+import("./collab.js").then((module) => {
+  collab = module;
+  if (state) renderCollab();
+}).catch(() => {});
+function renderCollab() {
+  const container = $("collab-container");
+  if (!container || !collab || !state) return;
+  container.replaceChildren(collab.showCollab(state, { el, api, toast, refresh }));
 }
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});

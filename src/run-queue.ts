@@ -1,0 +1,138 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import type { Store } from "./store.js";
+import type { Runtime } from "./runtime.js";
+import { errorText } from "./contracts.js";
+
+/**
+ * A waiting line for tasks. When as many tasks are already working as this computer is set to
+ * handle, a new one joins the line instead of being turned away, and the person is told where in
+ * the line it is. What the owner asks for goes in front of anything a schedule or another app
+ * started. A conversation only ever has one task working, so its other messages wait their turn.
+ */
+export const queueSources = ["owner", "schedule", "trigger", "mcp"] as const;
+export type QueueSource = (typeof queueSources)[number];
+/** Lower runs sooner. The owner's own requests are served before anything automatic. */
+export const sourcePriority: Record<QueueSource, number> = { owner: 0, schedule: 5, trigger: 5, mcp: 7 };
+export const QueueEntrySchema = z.object({
+  prompt: z.string().trim().min(1).max(16000),
+  sessionId: z.string().uuid().optional(),
+  source: z.enum(queueSources).default("owner"),
+}).strict();
+export const QueueSettingsSchema = z.object({
+  /** How many tasks may work at the same time before the rest wait. */
+  atOnce: z.number().int().min(1).max(8).default(3),
+}).strict();
+export interface QueueEntry {
+  id: string; prompt: string; sessionId: string | null; source: QueueSource; priority: number;
+  status: "waiting" | "running" | "done" | "failed" | "cancelled";
+  position: number | null; runId: string | null; error: string | null; createdAt: string;
+}
+
+export class RunQueue {
+  constructor(private readonly store: Store, private readonly runtime: Runtime) {
+    store.sqlite.exec(`CREATE TABLE IF NOT EXISTS run_queue(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+      prompt TEXT NOT NULL, session_id TEXT, source TEXT NOT NULL, priority INTEGER NOT NULL,
+      status TEXT NOT NULL, run_id TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    // A task left working when the app closed is not replayed; it is marked so the line can move on.
+    store.sqlite.exec("UPDATE run_queue SET status='failed', error='The app closed before this task finished' WHERE status='running'");
+  }
+  settings(owner: string): z.infer<typeof QueueSettingsSchema> {
+    return QueueSettingsSchema.parse(this.store.get("settings", owner, "run_queue")?.data ?? {});
+  }
+  configure(owner: string, input: unknown): z.infer<typeof QueueSettingsSchema> {
+    const value = QueueSettingsSchema.parse(input);
+    this.store.save("settings", owner, "run_queue", value);
+    this.drain(owner);
+    return value;
+  }
+  /** Joins the line. It starts straight away when there is room, and says where it is if not. */
+  submit(owner: string, input: unknown): QueueEntry {
+    const value = QueueEntrySchema.parse(input);
+    if (value.sessionId && !this.store.ownsSession(owner, value.sessionId)) throw new Error("Conversation not found");
+    if (this.waiting(owner).length >= 200) throw new Error("The waiting line is full");
+    const id = randomUUID(), now = new Date().toISOString();
+    this.store.sqlite.prepare("INSERT INTO run_queue VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, owner, value.prompt, value.sessionId ?? null, value.source, sourcePriority[value.source], "waiting", null, null, now, now);
+    this.drain(owner);
+    return this.entry(owner, id)!;
+  }
+  /** Takes the queued task out of the line. A task already working is cancelled instead. */
+  cancel(owner: string, id: string): { cancelled: boolean; wasRunning: boolean } {
+    const entry = this.entry(owner, id);
+    if (!entry) throw new Error("No queued task with that number");
+    if (entry.status === "running") {
+      const cancelled = entry.runId ? this.runtime.cancel(entry.runId) : false;
+      this.mark(owner, id, "cancelled", { error: "Cancelled by the owner" });
+      this.drain(owner);
+      return { cancelled, wasRunning: true };
+    }
+    if (entry.status !== "waiting") throw new Error("That task is no longer waiting");
+    this.mark(owner, id, "cancelled", { error: "Cancelled by the owner" });
+    return { cancelled: true, wasRunning: false };
+  }
+  /** Everything still in the line or working, in the order it will be served. */
+  list(owner: string): QueueEntry[] {
+    const rows = this.store.sqlite.prepare(`SELECT * FROM run_queue WHERE owner=? AND status IN ('waiting','running')
+      ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, priority, created_at, id`).all(owner);
+    return rows.map((row, index) => ({ ...this.toEntry(row), position: index + 1 }));
+  }
+  /** The last few that finished, newest first, so the owner can see what happened. */
+  recent(owner: string, limit = 20): QueueEntry[] {
+    return this.store.sqlite.prepare(`SELECT * FROM run_queue WHERE owner=? AND status NOT IN ('waiting','running')
+      ORDER BY updated_at DESC LIMIT ?`).all(owner, Math.max(1, Math.min(100, limit))).map((row) => this.toEntry(row));
+  }
+  entry(owner: string, id: string): QueueEntry | undefined {
+    const row = this.store.sqlite.prepare("SELECT * FROM run_queue WHERE owner=? AND id=?").get(owner, id);
+    if (!row) return undefined;
+    const place = this.list(owner).find((item) => item.id === id);
+    return { ...this.toEntry(row), position: place?.position ?? null };
+  }
+  private waiting(owner: string): QueueEntry[] {
+    return this.store.sqlite.prepare("SELECT * FROM run_queue WHERE owner=? AND status='waiting' ORDER BY priority, created_at, id")
+      .all(owner).map((row) => this.toEntry(row));
+  }
+  private running(owner: string): QueueEntry[] {
+    return this.store.sqlite.prepare("SELECT * FROM run_queue WHERE owner=? AND status='running'")
+      .all(owner).map((row) => this.toEntry(row));
+  }
+  /** Starts as many waiting tasks as there is room for, in order, one per conversation. */
+  drain(owner: string): number {
+    const atOnce = this.settings(owner).atOnce;
+    let running = this.running(owner);
+    let started = 0;
+    for (const next of this.waiting(owner)) {
+      if (running.length >= atOnce) break;
+      if (next.sessionId && running.some((item) => item.sessionId === next.sessionId)) continue;
+      this.mark(owner, next.id, "running", {});
+      this.start(owner, next);
+      running = this.running(owner);
+      started++;
+    }
+    return started;
+  }
+  private start(owner: string, entry: QueueEntry): void {
+    void this.runtime.run({
+      prompt: entry.prompt, source: entry.source,
+      ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), onTextDelta: () => undefined,
+      onStarted: (run) => this.mark(owner, entry.id, "running", { runId: run.id }),
+    }).then(
+      (run) => this.mark(owner, entry.id, run.status === "completed" ? "done" : "failed",
+        { runId: run.id, ...(run.status === "completed" ? {} : { error: `The task ended as ${run.status}` }) }),
+      (error: unknown) => this.mark(owner, entry.id, "failed", { error: errorText(error) }),
+    ).finally(() => { try { this.drain(owner); } catch { /* the line must never break a finished task */ } });
+  }
+  private mark(owner: string, id: string, status: QueueEntry["status"], patch: { runId?: string; error?: string }): void {
+    this.store.sqlite.prepare(`UPDATE run_queue SET status=?, run_id=COALESCE(?,run_id), error=COALESCE(?,error),
+      updated_at=? WHERE owner=? AND id=?`)
+      .run(status, patch.runId ?? null, patch.error ?? null, new Date().toISOString(), owner, id);
+  }
+  private toEntry(row: Record<string, unknown>): QueueEntry {
+    return { id: String(row.id), prompt: String(row.prompt),
+      sessionId: row.session_id === null ? null : String(row.session_id),
+      source: String(row.source) as QueueSource, priority: Number(row.priority),
+      status: String(row.status) as QueueEntry["status"], position: null,
+      runId: row.run_id === null ? null : String(row.run_id),
+      error: row.error === null ? null : String(row.error), createdAt: String(row.created_at) };
+  }
+}

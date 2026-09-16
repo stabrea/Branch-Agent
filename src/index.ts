@@ -45,6 +45,11 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+// Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
+import { registerLabels } from "./labels.js";
+import { Workflows, registerWorkflows } from "./workflows.js";
+import { RunQueue } from "./run-queue.js";
+import { CalendarSettingsStore } from "./calendar.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -158,6 +163,15 @@ export async function createBranch(options: {
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
+  // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
+  registerLabels(registry, store.labels);
+  const workflows = new Workflows(store, runtime, knowledge);
+  registerWorkflows(registry, workflows);
+  const runQueue = new RunQueue(store, runtime);
+  const calendar = new CalendarSettingsStore(store, dataDir);
+  await calendar.seed();
+  scheduler.calendar = calendar;
+  channels.deliveries.holdUntil = (at) => calendar.holdUntil(runtime.owner, at);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
   const chatgpt = options.chatgpt;
@@ -201,6 +215,10 @@ export async function createBranch(options: {
     evaluation,
     triggers,
     webhooks,
+    /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
+    workflows,
+    runQueue,
+    calendar,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
@@ -306,3 +324,10 @@ export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+// Wave 6 (collaboration and workflows).
+export * from "./labels.js";
+export * from "./conversation-share.js";
+export * from "./workflows.js";
+export * from "./run-queue.js";
+export * from "./calendar.js";
+export * from "./profiles.js";

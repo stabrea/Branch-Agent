@@ -13,6 +13,8 @@ export const backupTables = [
   "specialists", "procedures", "schedules", "settings", "deliveries",
   "installed_skills", "skill_versions", "session_branches", "session_origins",
   "file_versions", "workspace_snapshots",
+  // Wave 6 (collaboration and workflows): labels, project notes, workflows and their per-step state.
+  "labels", "project_notes", "workflows", "workflow_state",
 ] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 export const BackupArchiveSchema = z.object({

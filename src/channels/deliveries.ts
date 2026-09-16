@@ -57,6 +57,11 @@ export class Deliveries {
   private next: number | undefined;
   /** Announces a given-up chunk to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /**
+   * Wave 6: when the owner's quiet hours are on, this says the moment they end, and new messages
+   * wait until then instead of arriving in the night. Nothing is held until it is connected.
+   */
+  holdUntil: (at: Date) => string | null = () => null;
   constructor(private readonly store: Store, private readonly owner: string, public now: () => Date = () => new Date()) {}
   private nextOrder(): number {
     this.next ??= this.list().reduce((max, d) => Math.max(max, d.order + 1), 0);
@@ -66,12 +71,13 @@ export class Deliveries {
   enqueue(channel: string, chatId: string, text: string, key: string, replyTo?: string, limit?: number): Delivery[] {
     const chunks = chunkText(text, Math.min(limit ?? chunkLimit, chunkLimit));
     const rows: Delivery[] = [];
+    const held = this.holdUntil(this.now());
     for (const [seq, chunk] of chunks.entries()) {
       const id = `${key}#${seq}`;
       const existing = this.get(id);
       if (existing) { rows.push(existing); continue; }
       const data = DeliverySchema.parse({ key, channel, chatId, seq, order: this.nextOrder(), text: chunk, replyTo: seq === 0 ? replyTo ?? null : null,
-        status: "pending", attempts: 0, nextAt: this.now().toISOString() });
+        status: "pending", attempts: 0, nextAt: held ?? this.now().toISOString() });
       rows.push(this.save(id, data));
     }
     return rows;

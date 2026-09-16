@@ -39,6 +39,10 @@ import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } fro
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+// Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
+// the waiting line for tasks, days off and quiet hours, and the household's profiles.
+import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
+import { shareHtml, RedactionSchema } from "./conversation-share.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -136,6 +140,8 @@ async function staticFile(
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
+    "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -330,7 +336,10 @@ function attention(app: Branch) {
 }
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;
+  // Wave 6: conversations and saved facts are read under whoever's profile is switched on.
+  const scope = app.store.profiles.scope();
   return {
+    collab: collabState(app),
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
@@ -342,7 +351,7 @@ function state(app: Branch): unknown {
     identity: assistantIdentity(app.store, owner),
     workspace: app.runtime.workspace,
     runs: app.store
-      .runs(owner)
+      .runs(scope)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
     orchestration: orchestrationSettings(app.store, owner),
@@ -355,8 +364,8 @@ function state(app: Branch): unknown {
     memoryCheckpoints: app.store.review.checkpoints(owner),
     snapshots: app.store.workspaceHistory.snapshots(),
     models: app.runtime.models.summary(owner),
-    memory: app.store.list("memory", owner),
-    memoryCapacity: app.store.memoryCapacity(owner),
+    memory: app.store.list("memory", scope),
+    memoryCapacity: app.store.memoryCapacity(scope),
     skills: app.store.skills.list(owner),
     skillPolicy: app.store.skills.policy(owner),
     specialists: app.store.list("specialists", owner),
@@ -374,6 +383,9 @@ async function api(
   dataDir: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
+  // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
+  const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
+  if (collab !== notCollab) return collab;
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
@@ -415,7 +427,7 @@ async function api(
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
-    if (!run || run.owner !== app.runtime.owner)
+    if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
     if (request.method === "POST" && match[2] === "cancel")
       return { cancelled: app.runtime.cancel(run.id) };
@@ -499,7 +511,8 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
-    return app.runtime.run({
+    // Wave 6: a task started while somebody's profile is switched on is filed under their name.
+    return runForCurrentPerson(app, {
       prompt: input.prompt,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.temporary ? { temporary: true } : {}),
@@ -540,14 +553,14 @@ async function api(
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
     const run = app.store.run(traceMatch[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return buildTraceDocument(app.store, run.id, app.version);
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
     if (!match) throw new HttpError(400, "Invalid run ID");
     const run = app.store.run(match[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return { timeline: app.store.usageStore().getRunTimeline(run.id) };
   }
   if (request.method === "GET" && path === "/api/usage/budget") {
@@ -562,7 +575,8 @@ async function api(
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner;
+  // Wave 6: conversations belong to whoever's profile is switched on, not always to the owner.
+  const owner = app.store.profiles.scope();
   if (request.method === "POST" && path === "/api/sessions/search")
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
@@ -636,7 +650,8 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
   throw new HttpError(404, "Endpoint not found");
 }
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner;
+  // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
+  const owner = app.store.profiles.scope();
   if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
   if (request.method === "POST" && path === "/api/memory/import") {
     const body = await readBody(request, maximumMemoryArchiveBytes);
@@ -697,6 +712,7 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   throw new HttpError(404, "Endpoint not found");
 }
 async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  app.store.profiles.requireOwner("Projects"); // Wave 6: projects stay with the owner.
   const owner = app.runtime.owner, projects = app.store.projects;
   if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
   if (request.method === "POST" && path === "/api/projects") {
@@ -717,6 +733,7 @@ async function projectsApi(app: Branch, request: IncomingMessage, path: string):
 }
 /** Secret values go in and never come out; only names are listed. */
 async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  app.store.profiles.requireOwner("The secrets locker"); // Wave 6: secrets stay with the owner.
   const owner = app.runtime.owner, locker = app.store.locker;
   const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
   const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
@@ -1144,6 +1161,8 @@ export async function startServer(
         return;
       }
       if (await whatsAppWebhook(app, request, response, path)) return;
+      // Wave 6: a read-only shared conversation carries its own code instead of the session key.
+      if (await sharePage(app, request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1175,7 +1194,7 @@ export async function startServer(
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
       const sameHost = request.headers.host === new URL(url).host && (!request.headers.origin || request.headers.origin === url);
-      if (!match || !run || run.owner !== app.runtime.owner || !sameHost || !tokenFromProtocol(request, token)) {
+      if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
@@ -1206,7 +1225,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
     return true;
@@ -1264,6 +1283,26 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       "cache-control": "no-store",
     });
     response.end(jsonl);
+    return true;
+  }
+  // Wave 6: one conversation as a single page, with keys blanked out, ready to keep or send on.
+  const htmlExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
+  if (htmlExport && request.method === "GET"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "html") {
+    const sessionId = htmlExport[1]!, query = new URL(request.url ?? "/", "http://local").searchParams;
+    if (!app.store.ownsSession(app.store.profiles.scope(), sessionId)) throw new HttpError(404, "Conversation not found");
+    const redact = RedactionSchema.parse({ secrets: query.get("secrets") !== "0",
+      contactDetails: query.get("contactDetails") === "1", toolResults: query.get("toolResults") === "0" });
+    const view = app.store.sessionView(app.store.profiles.scope(), sessionId) as { createdAt?: string; title?: string };
+    const page = shareHtml({ sessionId, ...(view.createdAt ? { createdAt: view.createdAt } : {}),
+      ...(view.title ? { title: view.title } : {}) }, app.store.messages(sessionId), redact);
+    response.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-disposition": `attachment; filename="conversation-${sessionId.slice(0, 8)}.html"`,
+      "cache-control": "no-store", "x-content-type-options": "nosniff",
+      "x-branch-share-receipt": JSON.stringify(page.receipt),
+    });
+    response.end(page.html);
     return true;
   }
   const sessionExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
@@ -1330,9 +1369,35 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Not found");
 }
+/**
+ * Wave 6: a shared conversation page. It needs the code the owner was shown, works once, and stops
+ * at its expiry. It is served by this app on this computer, so it needs no session key of its own;
+ * nothing is published anywhere.
+ */
+async function sharePage(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const match = /^\/share\/([a-f0-9-]{36})$/.exec(path);
+  if (!match) return false;
+  if (request.method !== "GET") throw new HttpError(404, "Endpoint not found");
+  const code = new URL(request.url ?? "/", "http://local").searchParams.get("code") ?? "";
+  let body: string, status = 200;
+  try { body = app.store.shares.open(match[1]!, code); }
+  catch (error) {
+    status = 403;
+    body = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Not available</title></head>`
+      + `<body style="font:16px system-ui;margin:3rem auto;max-width:32rem"><h1>This link is not available</h1>`
+      + `<p>${errorText(error).replace(/[<>&"]/g, "")}</p></body></html>`;
+  }
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+    "x-content-type-options": "nosniff", "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  });
+  response.end(body);
+  return true;
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/(workflows|queue|profiles|labels|shares|calendar)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

@@ -631,6 +631,62 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+## Batch 23 (wave 6) — sharing, durable workflows, a waiting line, days off and household profiles
+Six additions, each in its own file, wired in through one block per shared file.
+**Sharing (`src/conversation-share.ts`).** `shareHtml` writes one conversation as a whole page with
+its colours written in and no `<script>` anywhere, so it can be opened but can do nothing. Before it
+is written, every pattern `skill-scan.ts` already recognises as a secret is blanked out (that array
+is now exported rather than copied), optionally with email addresses and phone-like numbers, and the
+caller gets a receipt counting what went out and what was held back. `ShareLinks` keeps the finished
+page in `conversation_shares` with a scrypt-free sha256 of a six-character code plus a salt; opening
+`/share/<id>?code=…` checks the code with `timingSafeEqual`, refuses a second use and an expiry, and
+answers under `default-src 'none'`. That route sits before `authorize()` beside `/hooks/` because it
+carries its own code, and it is loopback-only: the server still binds 127.0.0.1 and still rejects a
+foreign `Host`, so there is no public hosting and the docs say so. The audit's "URL-based sharing"
+is therefore met as far as this app honestly can meet it on one computer.
+**Labels and notes (`src/labels.ts`).** A real `labels` table (owner, target, target id, label) and
+`project_notes`, both added to `backupTables`. `SessionSearchSchema` gained `labels: []` and
+`SessionLibrary.search` an `IN (...) GROUP BY … HAVING COUNT(DISTINCT label)=?` clause, so a filter
+means *every* label, not any. Labels fold to lower case inside the class rather than through a zod
+`.transform`: a transform in a registered tool's schema makes `z.toJSONSchema` throw, which took
+`/api/state` down with "Transforms cannot be represented in JSON Schema" until it was found.
+**Workflows (`src/workflows.ts`).** `workflows` is a new record table; per-step state lives in
+`workflow_state` (status, attempts, output, run id, times). The runner walks the steps, retries a
+working step up to `retries` times, halts on `approval` and on a `wait` whose time has not come, and
+lets `branch` jump `skipAhead` steps when the previous output does not contain given words. Prompt
+steps go through the existing `runtime.run`; recipe steps through `knowledge.replayProcedure`.
+Restart safety is the Store's job: `interruptWorkflows()` marks a workflow and its steps that were
+`running` as interrupted, and a workflow waiting on an approval is untouched by recovery, so closing
+and reopening the app leaves it exactly where it was — proven by a test that closes the app and
+builds a second one on the same data folder. `pause` remembers what it interrupted so carrying on
+from a pause still counts as the approval.
+**The waiting line (`src/run-queue.ts`).** A `run_queue` table ordered by `source` priority (owner 0,
+schedule and trigger 5, mcp 7) then arrival, with a settable `atOnce` (default three), a position,
+cancel for both waiting and working entries, and one task per conversation at a time. It is a new
+route (`POST /api/queue`), not a change to `/api/run`: the existing `executions >= 8 → 429` guard
+that `core-regressions` asserts is untouched.
+**Days off (`src/calendar.ts`, `data/holidays.json`).** Four countries ship as plain JSON; a copy is
+seeded into the data folder on first use and preferred over the bundled one, so the owner can
+correct it. `dayOffDecision` is a pure function the tests hit directly; the scheduler consults it
+before claiming a due schedule, so nothing runs on a held-back day. Quiet hours reuse the delivery
+ledger's own `nextAt` gate through a new `holdUntil` hook, so a night-time message simply waits.
+**Profiles (`src/profiles.ts`).** `household_profiles` holds a name and a scrypt hash of a PIN.
+`runtime.owner` is readonly and was left alone; instead the profile supplies a *scope* string
+(`profile:<id>`) that the session, memory and label routes read under, `projectsApi` and
+`secretsApi` call `requireOwner()`, and `runForCurrentPerson` lends the conversation to the
+assistant for the length of a task and hands it straight back, so their conversations stay theirs.
+What this is not is written plainly in both the docs and the UI copy: one computer, no syncing, the
+assistant still runs with the owner's settings, and facts it saves by itself during a task are still
+the owner's.
+Left undone on purpose: filtering the rail's conversation list and Ctrl+K by label needs
+`public/shell.js`, which wave 6's interface branch owns, so the label controls live in this batch's
+own panel and the `labels` filter is on the search route ready for it. Profiles are out of
+`backupTables` on purpose — a PIN hash belongs to one computer, and `RowSchema` takes no BLOBs — so
+a restore brings a profile's records back without the person; the docs say to add them again.
+`tests/collab-workflows.test.mjs` (21 tests) covers all of it; `automation`, `session-library`,
+`channels`, `server`, `projects-locker`, `static-assets`, `ui`, `core-regressions`, `memory`,
+`triggers-webhooks` and `runtime` still pass (88 in all). No new dependency.
+Covers A1901, A1999, A2226, A0862, A0632, A2073 and A0697.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
