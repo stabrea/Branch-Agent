@@ -2,6 +2,8 @@
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
 import { api, displayView, openConversation, titles } from "/app.js";
+/* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
+import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 
 const $ = (id) => document.getElementById(id);
 const ICONS = {
@@ -321,11 +323,29 @@ function drawRail() {
     list.append(railItem(entry));
   }
 }
+/* ---------- labels: the chips above Recents and inside Ctrl+K ---------- */
+/** The labels now filtering Recents. Empty means every conversation, which is the resting state. */
+let chosenLabels = new Set();
+let labelCatalog = [];
+
+/** Draws the chip row above Recents and reloads the list through the labels search parameter. */
+async function drawLabelChips() {
+  const host = $("rail-labels");
+  if (!host) return;
+  host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
+    chosenLabels = next;
+    await loadRail();
+  }));
+  host.hidden = labelCatalog.length === 0;
+}
+
 export async function loadRail() {
   try {
-    const value = await api("sessions/search", { query: "", offset: 0 });
-    conversations = value.sessions ?? [];
+    /* The same `labels` parameter the conversation search already takes does the filtering. */
+    conversations = await conversationsWithLabels(chosenLabels);
     drawRail();
+    labelCatalog = await conversationLabels();
+    await drawLabelChips();
   } catch {
     /* Not connected yet; the rail fills in once the workspace opens. */
   }
@@ -348,6 +368,11 @@ $("rail-new").addEventListener("click", () => {
   $("new-session").click();
   closeRailOverlay();
   setTimeout(loadRail, 400);
+});
+/* The label picker for whatever conversation is open. */
+$("thread-labels")?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  void openLabelPicker($("thread-labels"), $("conversation").dataset.sessionId || null, loadRail);
 });
 $("rail-find").addEventListener("click", () => openPalette());
 $("cmd-open").addEventListener("click", () => openPalette());
@@ -429,6 +454,7 @@ function buildPalette() {
   root.innerHTML =
     '<div class="cmd-panel" role="dialog" aria-label="Find anything">' +
     '<input id="cmd-input" type="search" autocomplete="off" placeholder="Jump to a section, a conversation or an action…" aria-label="Find anything" />' +
+    '<div id="cmd-labels" class="label-chips-host"></div>' +
     '<div class="cmd-list"></div></div>';
   root.addEventListener("click", (event) => {
     if (event.target === root) closePalette();
@@ -444,6 +470,23 @@ export function openPalette() {
   input.value = "";
   drawPalette("");
   input.focus();
+  void drawPaletteLabels();
+}
+/**
+ * The same chips as Recents, inside the Ctrl+K box. Choosing one narrows the conversations the box
+ * offers, through the very same search parameter, so the two agree about what a label means.
+ */
+async function drawPaletteLabels() {
+  const host = palette?.querySelector("#cmd-labels");
+  if (!host) return;
+  labelCatalog = await conversationLabels();
+  host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
+    chosenLabels = next;
+    await loadRail();
+    await drawPaletteLabels();
+    drawPalette(palette.querySelector("input").value);
+  }));
+  host.hidden = labelCatalog.length === 0;
 }
 function closePalette() {
   if (palette) palette.hidden = true;

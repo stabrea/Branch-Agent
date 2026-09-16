@@ -31,7 +31,7 @@ import type { WebhookNotifier } from "./webhooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
-import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
+import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
@@ -737,6 +737,23 @@ export class Runtime {
     this.store.event(run.id, "model.routed", { preset: choice.preset, kind: choice.kind, reason: choice.reason });
     return { ...override, preset: choice.preset };
   }
+  /**
+   * Which connection answers this piece of work. When a picture is part of the question, only the
+   * connections whose catalog line says they can be shown one are considered; if none can, the
+   * refusal says so and names a connection that could, rather than sending the picture anyway.
+   */
+  private planned(run: Run, owner: string, override: RunModelOverride, withPictures: boolean): ModelPlan {
+    const routed = this.routed(run, owner, override);
+    if (!withPictures) return this.models.plan(owner, run.sessionId, routed);
+    const plan = this.models.planFor(owner, run.sessionId, "vision", routed);
+    if (plan.refusal) {
+      this.store.event(run.id, "images.unsupported", { model: plan.choice.presetName, reason: plan.refusal });
+      throw new Error(plan.refusal);
+    }
+    if (plan.choice.fallbackReason)
+      this.store.event(run.id, "model.routed", { preset: plan.choice.presetId, kind: "vision", reason: plan.choice.fallbackReason });
+    return { choice: plan.choice, candidates: plan.candidates };
+  }
   private async loop(
     run: Run,
     context: ToolContext,
@@ -753,7 +770,7 @@ export class Runtime {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     const catalog = this.openCatalog(run, context, messages, shape.groups);
-    const plan = this.models.plan(context.owner, run.sessionId, this.routed(run, context.owner, override));
+    const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
@@ -1410,6 +1427,13 @@ export class Runtime {
     sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session",
     /** The fingerprint the person was shown; a different one means the request changed since. */
     fingerprint?: string,
+    /**
+     * Which chat app the answer was pressed in, when it was not this app. It is written into the
+     * record of what the assistant was allowed to do and nothing else reads it — in particular it
+     * does not change what "yes always" may do, which still turns on where the task itself came
+     * from.
+     */
+    answeredOn?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
     const waiting = this.approvals.waiting(sessionId).at(-1);
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
@@ -1425,14 +1449,35 @@ export class Runtime {
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
-      reason: waiting.label || waiting.question, source: waiting.source, runId: waiting.runId,
+      // The record's "came from" column is a fixed list of the places a task can start, so which
+      // chat app the answer was pressed in goes in the "why" column beside the question itself.
+      // The column holds 500 characters and a row too long for it would be dropped in silence, so
+      // a long question is shortened here and the chat app's name always survives.
+      reason: answeredOn
+        ? `${(waiting.label || waiting.question).slice(0, 440)} — answered on ${answeredOn.slice(0, 40)}`
+        : (waiting.label || waiting.question).slice(0, 500),
+      source: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
   }
+  /** The questions a conversation has stopped on, for whichever surface is going to put them. */
+  waitingApprovals(sessionId?: string) {
+    return this.approvals.waiting(sessionId);
+  }
   /** What this conversation is allowed to do right now, for the "What is allowed" list. */
   allowedNow(sessionId: string) {
     return this.approvals.grants(sessionId);
+  }
+  /** Takes one of those back; the conversation asks again next time. */
+  revokeGrant(sessionId: string, tool: string, target: string): boolean {
+    const gone = this.approvals.revoke(sessionId, tool, target);
+    if (gone)
+      audit(this.store, this.owner, {
+        action: "approval.decided", actor: this.owner, subject: `${tool}${target ? ` on ${target}` : ""}`,
+        reason: "You took back a yes you had given for this conversation", outcome: "refused",
+      });
+    return gone;
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {

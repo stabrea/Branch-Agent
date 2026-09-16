@@ -8,6 +8,8 @@
  * opened it falls back to asking the activity route every second.
  */
 import { t, formatNumber } from "/i18n.js";
+/* Wave 7: the same words the "What is allowed right now" list uses for what a yes leaves behind. */
+import { grantSentence } from "/allowed.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -82,12 +84,21 @@ function askCard(question) {
   ];
   for (const [label, decision, remember] of answers) {
     if (remember === "always" && question.source !== "owner") continue;
-    card.append(button(label, decision === "deny" ? "danger" : "", async () => {
+    const choice = el("div", undefined, "live-ask-choice");
+    choice.append(button(label, decision === "deny" ? "danger" : "", async () => {
       try {
-        await api("policy/approve", { sessionId: question.sessionId, decision, remember });
+        /* The yes is tied to the exact bytes shown, so a changed request has to ask again. */
+        await api("policy/approve", {
+          sessionId: question.sessionId, decision, remember,
+          ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}),
+        });
         card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
       } catch (error) { status(error.message); }
     }));
+    /* Wave 7: say what this answer leaves behind before it is pressed, in the same words the
+       "What is allowed right now" list uses for the same thing. */
+    if (decision === "allow") choice.append(el("small", grantSentence(remember), "live-ask-grant"));
+    card.append(choice);
   }
   return card;
 }

@@ -1284,6 +1284,68 @@ No wake word, and nothing listens unless the button is held. `tests/voice-provid
 tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
 all of it. No new dependency.
 
+## Batch 25 (wave 7) — every model service a person might already pay for, as data not code
+
+The list of model services Branch can talk to is now a data file, `data/providers.json`, copied
+next to the built program the way the holiday list is. Thirty-eight services are on it — OpenAI and
+its Responses route, Azure OpenAI, Anthropic, Gemini, Vertex AI, Mistral, Groq, OpenRouter,
+Together, Fireworks, DeepSeek, xAI, Perplexity, Cohere, Cerebras, SambaNova, Hugging Face, GitHub
+Models, Cloudflare Workers AI, AWS Bedrock, Ollama, LM Studio, vLLM, llama.cpp, LocalAI, Jan,
+LiteLLM, Portkey, Moonshot, Zhipu, Qwen, MiniMax, ModelScope, Doubao, Qianfan, Voyage AI, and a
+"something else that speaks OpenAI's shape" entry that takes any address. Each line says which wire
+shape the service speaks, where it lives, how it wants to be shown a key, which of conversation,
+pictures, tools, fixed format, streaming, comparing passages, speech and making pictures it offers,
+what it charges where a price is known, and one plain sentence about anything else it needs. The
+Settings provider list and the documentation table are both derived from that file, so there is no
+second copy to drift.
+
+Adapters are per shape, not per service: the existing OpenAI, Anthropic and Gemini ones became the
+first three, and Azure OpenAI (deployment in the path, `api-version` on the end, `api-key` header),
+AWS Bedrock (Converse, signed with SigV4 written by hand against `node:crypto`, streaming through
+Amazon's binary event frames), Cohere chat v2, OpenAI's Responses route and Ollama's own route were
+added. No AWS SDK and no new dependency of any kind.
+
+Planning is capability-aware where it can be checked: a question that carries a picture goes
+through `ModelRouter.planFor`, which will not send it to a connection whose catalog line says it
+cannot be shown one — it moves to a connection that can, and if none can, it says so and names what
+would be needed instead of sending the picture anyway. Routing profiles do the same: a profile only
+offers a connection work its catalog line covers. Tools and fixed-format replies are *not* gated on
+the ordinary path, because every task offers tools and a wrongly-filled catalog line would take a
+working connection away; `planFor` and `capabilityRefusal` answer for them, and the Settings card
+and `branch doctor --probe` say in plain words what each connection can and cannot do. A connection
+Branch did not set up from the catalog is never assumed to be worse than it is. Each connection
+records what it has actually been doing — latency, last complaint, the allowance the service
+reports in its rate-limit headers — and a failing connection is skipped and comes back after its
+rest, with the "why this model" line now saying which one was passed over. `POST
+/api/connections/from-preset` adds a service in plain language: the key is checked by using it
+before anything is saved, then stored in the secrets locker under the project `model-connections`,
+never in a settings file and never in an answer or a log. The connection itself — its name, the
+service, the model and the boxes that were filled in — is written down under the setting
+`model-connections` and built again when Branch starts, so a service added this way is still there
+after a restart; a record whose key has since been removed by hand is left out rather than half
+built. `POST /api/connections/forget` takes one away again — the model list, the written-down
+record and the key all at once — so a revoked key is not something that comes back every morning.
+
+Honest gaps. **A2258 (multiple agent runtimes)** was not built. Branch runs one runtime, and that is
+deliberate: a second one would double the surface that has to be inspected, approved and audited
+without giving the owner anything they cannot already have. Where another agent is genuinely wanted,
+Branch hands the task over across A2A or ACP (wave 4) and reads the result back, which is the same
+outcome without a second engine inside the app. **A2367 (Google PaLM)** was not built either: Google
+retired the PaLM API in favour of Gemini, so an adapter for it would be dead code on the day it was
+written. Gemini and Vertex AI are both in the catalog.
+
+Every claim here is tested against a fake of the service, not against the real one.
+`tests/providers-2.test.mjs` (83 tests) checks the catalog against its schema, completes a chat
+against a fake of every entry's own shape, streams every shape that says it streams, reproduces two
+of Amazon's published SigV4 test vectors step by step (canonical request, string to sign, signature),
+decodes Amazon's event frames including one split across two reads and one deliberately damaged,
+checks the Azure address and header, the Cohere mapping, the capability refusal, the from-preset
+route storing nothing when a key is refused, the skip-and-return of a failing connection, that a
+second connection to the same service keeps its own health record, that a connection added from a
+preset comes back after a restart with its key still in the locker, that a routing profile will not
+send picture work to a connection that cannot see one, and that the documentation table regenerates
+byte for byte. No new dependency.
+
 
 ## Batch 25 (wave 7) — Branch as a first-class MCP citizen, both ways round
 Branch already spoke MCP at both ends; this batch makes it a citizen rather than a tourist.
@@ -1481,3 +1543,48 @@ computer has seen that kind of job it loads every tool up front and spends no ro
 those jobs spend one to two rounds finding tools, and never a wasted one). `ToolCatalog` in
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
+
+## Batch 25 (wave 7) — the screens the last waves left as routes, and the observability leftovers
+
+Several earlier waves landed a route or a module without the screen that uses it. This batch
+finishes them and adds the observability pieces the audit had open.
+
+The details pane now lists what a conversation is allowed to do without asking again: every
+remembered yes with its plain words and its expiry, the standing rules that say "go ahead", and a
+"Take this back" beside each yes (`POST /api/rules/allowed/revoke`). The approval card says what
+each answer leaves behind before it is pressed, and now sends the exact-bytes fingerprint with it.
+
+`provider-probe.ts` honours the provider's `bearer` flag, so a Gemini connection holding a Google
+sign-in token is checked with an `Authorization` header instead of `x-goog-api-key` — it was being
+reported as broken when the key header made Google answer 401. The Gemini card has a "Sign in with
+Google" button behind `/api/models/gemini-signin`, and when Google refuses a sign-in the card says
+exactly why in plain words and keeps pointing at the ordinary key flow.
+
+A task started from a chat app that stops to ask now asks there with buttons: Telegram an inline
+keyboard, Discord an action row of components, each button carrying its answer and the fingerprint
+of the exact request. Telegram's poll asks for `callback_query` as well as `message`, which it did
+not before, so a press arrives at all. A channel with no buttons gets "reply y / a / n", and a bare
+letter from a chat with a question waiting answers it. Every route ends at the same approval call,
+and the record says which chat app answered.
+
+Slash-command parsing moved into `public/app.js`, so `/model` and `/help` work when
+`model-profiles.js` has not loaded; the module stays the handler when it is there. Profile cards
+name connections rather than listing ids. Labels appear as chips above Recents and inside Ctrl+K,
+filtering through the `labels` search parameter, with a picker on the conversation title. The
+Activity cards and the reply inside Look inside go through the shared markdown renderer, and every
+word on the Appearance card is behind a key answered in English and French.
+
+New: a documented trajectory shape (`/api/runs/<id>/trajectory`, `/api/runs/trajectories.jsonl`, and
+a read-only `runs.export` tool) holding a task's whole record; a Compare button that puts two tasks
+side by side with the difference between their answers; `/api/events/stream`, an authenticated SSE
+feed of every event filtered by kind, which drives a live "Happening now" list on Activity; a month
+view on Usage with a plain "at this pace, about $X this month" sentence, the money broken by model,
+conversation and channel, and a statistics card counted from the ledger; and a metering setting that
+keeps that spreadsheet in a folder of the workspace on the scheduler's existing beat.
+
+Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and 400) in
+`C:/Users/bishi/AppData/Local/Temp/claude-session-files/wave7-polish/`, refreshed by
+`node tests/wave7-screenshots.mjs`. No new dependency.
+
+Known gap: a task is not filed under a project anywhere in the ledger, so there is no
+cost-per-project breakdown; the month view shows model, conversation and channel instead.

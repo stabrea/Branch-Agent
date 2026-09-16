@@ -24,7 +24,8 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows."]],
-  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects."]],
+  // A finished task's own record is history, so "runs." belongs with the rest of what happened.
+  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs."]],
   ["documents", ["documents.", "pdf.", "library."]],
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],

@@ -21,6 +21,9 @@ import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
+import { registerRunExport } from "./trajectory.js";
+import { meteringTick } from "./metering.js";
+import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
@@ -57,6 +60,7 @@ import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
+import { restoreConnections } from "./connections-preset.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
@@ -240,6 +244,11 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // Batch 19 (wave 7): the model services the owner added from the catalog are built again from
+  // what was written down, with each key taken out of the locker, so they survive a restart.
+  await restoreConnections({
+    models: runtime.models, locker: store.locker, owner: runtime.owner, policy: web.policy, store,
+  });
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
@@ -288,6 +297,8 @@ export async function createBranch(options: {
   const teams = new Teams(store, runtime.owner);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
+  // Wave 7: one finished task's full record, in the documented trajectory shape.
+  registerRunExport(registry, store, version);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
@@ -399,6 +410,14 @@ export async function createBranch(options: {
     },
   };
   scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
+  // Wave 7: the month's usage written out as a spreadsheet, into a folder of the owner's own
+  // workspace, on the schedule they set. Nothing leaves this computer.
+  scheduler.onTick.add(async (now) => {
+    await meteringTick({
+      store, owner: runtime.owner, workspace: files.root,
+      overrides: () => pricingSettings(store, runtime.owner).overrides,
+    }, now);
+  });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
   // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as
@@ -753,6 +772,7 @@ export * from "./voice-api.js";
 export * from "./model-profiles.js";
 export * from "./model-switch.js";
 export * from "./provider-probe.js";
+export * from "./trajectory.js";
 export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
