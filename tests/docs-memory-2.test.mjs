@@ -510,6 +510,11 @@ test("the shipped tidying recipe is in the owner's list, as a proposal like any 
   // It stays a proposal on purpose: the recipe checker wants a step's whole result to match a fixed
   // expectation, and a tidy report says what it found, which differs every time. So checking it
   // stops — and because the step only looks, stopping leaves nothing behind.
+  // Seeded so tidying has something to find: an empty memory would keep the queue empty anyway.
+  app.store.save("memory", "local", "a", { text: "Bins go out on Tuesday evening.", source: "owner" });
+  app.store.save("memory", "local", "b", { text: "Bins go out on Tuesday evening", source: "owner" });
+  assert.ok(app.memory.tidy.run("local", { stage: false }).duplicates.length, "there is something to suggest");
+
   const context = app.runtime.context();
   await assert.rejects(app.registry.execute("procedures.replay", { id: tidyProcedureId }, context),
     /Only verified procedures can replay/);
