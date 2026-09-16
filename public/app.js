@@ -9,7 +9,7 @@ export function toast(message) {
   }, 6000);
 }
 const desktop = new URLSearchParams(location.search).get("desktop") === "1";
-if (desktop) document.querySelector(".brand").href = "/?desktop=1";
+if (desktop) for (const home of document.querySelectorAll(".rail-home")) home.href = "/?desktop=1";
 let savedAppearance;
 let historyReadRevision = 0;
 let conversationBusy = false;
@@ -88,6 +88,8 @@ function displayView(view) {
       node.classList.toggle("active", node.dataset.view === view),
     );
   $("page-title").textContent = titles[view];
+  /* The open conversation is named beside the title, but only on the conversation. */
+  $("thread-name").hidden = view !== "chat";
   if (view === "usage") void window.branchUsage?.render();
 }
 document
@@ -1003,8 +1005,31 @@ for (const [id, key] of [["identity-name", "name"], ["identity-instructions", "i
     if (!identityBusy && identityDraft) { identityDraft[key] = $(id).value; identityDirty = true; }
   });
 }
+/** Plain language for one tool call, so the step row reads like a sentence. */
+function stepLabel(calls) {
+  const names = [...new Set(calls.map((call) => call.name.replace(/[._]/g, " ")))];
+  const shown = names.slice(0, 3).join(", ");
+  return calls.length === 1 ? `Used ${shown}` : `Worked with ${calls.length} tools · ${shown}`;
+}
+/** A tool step is one quiet row in the flow that opens, not a card of its own. */
+function toolStep(content, calls) {
+  const node = el("details", undefined, "message assistant-step tool-step");
+  const summary = el("summary");
+  summary.append(el("span", stepLabel(calls)));
+  node.append(summary);
+  const body = el("div", undefined, "step-body");
+  if (content.trim()) body.append(el("p", content));
+  for (const call of calls) {
+    const line = el("div", undefined, "step-line");
+    line.append(el("strong", call.name), el("span", call.arguments.slice(0, 160)));
+    body.append(line);
+  }
+  node.append(body);
+  $("conversation").append(node);
+}
 function message(role, content, source) {
-  const node = el("div", undefined, "message " + (source?.toolCalls?.length ? "assistant-step" : role));
+  if (source?.toolCalls?.length) return toolStep(content, source.toolCalls);
+  const node = el("div", undefined, "message " + role);
   node.append(
     el("small", role === "user" ? "You" : "Branch Agent"),
     document.createTextNode(content),
@@ -1167,6 +1192,8 @@ async function previewForget(context) {
 function renderConversation(value, status) {
   selectConversation(value.sessionId, value.branch, value.imported);
   $("conversation").replaceChildren();
+  const first = value.messages.find((entry) => entry.role === "user");
+  $("thread-name").textContent = first ? first.content.slice(0, 70) : "";
   for (const source of value.messages) {
     if (["user", "assistant"].includes(source.role)) message(source.role, source.content, source);
   }
@@ -1178,6 +1205,7 @@ async function loadConversation(id, status) {
     await loadSessionModel();
   } catch (error) {
     renderConversationContext();
+    $("thread-name").textContent = "";
     const context = $("session-context");
     context.hidden = false;
     context.append(el("p", "The conversation is saved, but its messages could not be loaded. New messages will continue this saved conversation. You can retry opening it."),
@@ -1387,6 +1415,7 @@ $("new-session").addEventListener("click", async () => {
   currentImported = false;
   $("conversation").dataset.sessionId = "";
   $("conversation").replaceChildren();
+  $("thread-name").textContent = "";
   $("session-label").textContent = "New conversation";
   renderConversationContext();
   sessionModel = { preset: null, reasoning: null };

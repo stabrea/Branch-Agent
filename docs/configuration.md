@@ -545,10 +545,23 @@ still loads. Settings → Appearance changes all of them; each choice shows at o
 it.
 
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
-Settings) has its own button in the icon column on the left, so nothing hides behind a drop-down.
-Ctrl+K opens a search box that jumps to a section, a saved conversation, a recipe, a skill, or an
-action such as starting a conversation or checking for updates. Ctrl+N starts a conversation,
-Ctrl+, opens Appearance, and Esc closes whatever is open. The conversation rail is filled from
-`POST /api/sessions/search`. The interface files `/tokens.css`, `/shell.css`, `/shell.js` and
-`/appearance.js` are served from the same local allowlist as the rest of the interface. See
-[design.md](design.md) for the tokens and the layout.
+Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a
+drop-down. Below it, "Projects" lists the workspace folders (`POST /api/projects/active` switches
+the active one) and "Recents" lists conversations from `POST /api/sessions/search`, grouped by day.
+Each group folds and the choice is kept in this browser. Renaming, pinning and taking a
+conversation off the Recents list are this browser's own labels, kept in local storage; they never
+change the saved conversation, which stays in Settings → Saved conversations.
+
+The owner row at the foot of the rail opens Settings and connections, Change the appearance, Lock
+session, Check for updates and About. Ctrl+K opens a search box that jumps to a section, a saved
+conversation, a project, a recipe, a skill, or an action such as starting a conversation or
+checking for updates. Ctrl+N starts a conversation, Ctrl+, opens Appearance, and Esc closes
+whatever is open.
+
+The pane on the right reads the state you are already authenticated for: the active model from
+`GET /api/state`, running tasks from `GET /api/activity`, the receipts of this conversation's last
+tasks from `GET /api/runs/:id/receipts` translated into plain language, and recently saved memory.
+It refreshes every five seconds while it is open and hides below 1180 px. The interface files
+`/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
+the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
+and the layout.

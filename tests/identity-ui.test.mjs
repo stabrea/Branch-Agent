@@ -51,7 +51,7 @@ test('identity saves across reload and the next task receives its name and instr
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Juniper');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Use concise answers and cite saved sources.');
   assert.match(await f.page.locator('.brand').innerText(), /Juniper/, 'the sidebar carries the assistant name');
-  assert.match(await f.page.locator('.topbar-brand').innerText(), /Branch Agent[\s\S]*by[\s\S]*KeepOak/, 'the header names the product and its maker');
+  assert.match(await f.page.locator('.rail-maker').innerText(), /Branch Agent[\s\S]*by[\s\S]*KeepOak/i, 'the rail names the product and its maker');
   await f.page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await f.page.setViewportSize({ width: 1440, height: 1000 });

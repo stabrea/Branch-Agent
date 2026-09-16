@@ -128,6 +128,8 @@ test("the shell fits a 400 pixel window without sideways scrolling", async (t) =
     await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     true,
   );
+  /* On a narrow window the rail slides over the page, so it is opened first. */
+  await f.page.getByRole("button", { name: "Conversations", exact: true }).click();
   await f.page.getByRole("button", { name: "Memory", exact: true }).click();
   assert.match(await f.page.locator("#page-title").innerText(), /Memory/);
   assert.equal(
