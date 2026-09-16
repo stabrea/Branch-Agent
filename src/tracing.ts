@@ -119,18 +119,29 @@ function toSpan(row: Record<string, unknown>): SpanRow {
  * Uncaught failures in the engine, written down as their own one-moment span with the stack put
  * through the same scrubber as everything else. This only watches — it never stops Node doing what
  * it would have done — so a crash still crashes and is still visible in the usual places.
+ *
+ * A promise nobody caught is the awkward one. Node's own answer to that is to treat it as an
+ * uncaught failure and stop; but the moment anything listens for `unhandledRejection` that stops
+ * happening, and a listener that only wrote the failure down would quietly turn every one of them
+ * into a shrug. So the listener here writes it down and then throws it on, which is exactly what
+ * Node would have done with no listener at all: it becomes an uncaught failure, the monitor above
+ * sees it, and the process ends the way it was always going to. The only thing that changes is
+ * that there is now a record of it. `process.exitCode` is deliberately left alone — Node sets the
+ * exit code itself when it ends on an uncaught failure, and setting it here would only be guessing.
  */
-const errorSinks = new Set<(error: unknown) => void>();
+const errorSinks = new Set<(error: unknown, name?: string) => void>();
 let watchingProcess = false;
+/** Failures already written down, so throwing a rejection on does not record it a second time. */
+const alreadyRecorded = new Set<unknown>();
 export function recordUncaughtErrors(spans: SpanStore, owner: string, scrub: (value: string) => string): () => void {
-  const sink = (error: unknown): void => {
+  const sink = (error: unknown, name = "branch.uncaught_error"): void => {
     const at = new Date().toISOString();
     const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     const stack = error instanceof Error ? (error.stack ?? "") : "";
     try {
       spans.begin({
         traceId: newTraceId(), spanId: newSpanId(), parentSpanId: "", runId: "", owner,
-        kind: "error", name: "branch.uncaught_error", startedAt: at, endedAt: at, status: "error",
+        kind: "error", name, startedAt: at, endedAt: at, status: "error",
         message: scrub(message).slice(0, 300),
         attributes: { "exception.type": error instanceof Error ? error.name : "Error", "exception.stacktrace": scrub(stack).slice(0, 300) },
       });
@@ -140,9 +151,39 @@ export function recordUncaughtErrors(spans: SpanStore, owner: string, scrub: (va
   if (!watchingProcess) {
     watchingProcess = true;
     // "uncaughtExceptionMonitor" watches without taking the failure over, so Node still exits.
-    process.on("uncaughtExceptionMonitor", (error) => { for (const each of [...errorSinks]) each(error); });
+    process.on("uncaughtExceptionMonitor", (error) => {
+      if (alreadyRecorded.delete(error)) return;
+      for (const each of [...errorSinks]) each(error);
+    });
+    process.on("unhandledRejection", (reason) => {
+      alreadyRecorded.add(reason);
+      for (const each of [...errorSinks]) each(reason, "branch.unhandled_rejection");
+      // Hand it on, so Node ends exactly as it would have with nobody listening.
+      throw reason;
+    });
   }
   return () => { errorSinks.delete(sink); };
+}
+
+/**
+ * The desktop shell's own crashes, which happen in a different process and so cannot reach the
+ * handlers above. `src/desktop/main.ts` passes them here over IPC; they are written down as the
+ * same kind of span with the part of the app they came from on them.
+ */
+export function recordDesktopCrash(
+  spans: SpanStore, owner: string, scrub: (value: string) => string,
+  report: { where: string; message: string; stack?: string },
+): void {
+  const at = new Date().toISOString();
+  try {
+    spans.begin({
+      traceId: newTraceId(), spanId: newSpanId(), parentSpanId: "", runId: "", owner,
+      kind: "error", name: "branch.desktop_crash", startedAt: at, endedAt: at, status: "error",
+      message: scrub(String(report.message)).slice(0, 300),
+      attributes: { "exception.type": "DesktopCrash", "branch.where": String(report.where).slice(0, 120),
+        "exception.stacktrace": scrub(String(report.stack ?? "")).slice(0, 300) },
+    });
+  } catch { /* recording a crash must never cause a second one */ }
 }
 
 export interface OpenSpan {

@@ -150,7 +150,7 @@ test("a tool the assistant has just used keeps its place when everything is comp
   const preload = tools.filter((tool) => tool.name.startsWith("data.")).slice(0, 6).map((tool) => ({ name: tool.name, reason: "history" }));
   const loader = new ToolLoader(tools, { groupOf: groupOf(app), maxLoaded: defaultMaxLoaded, preload,
     signals: { prompt: "chart the rows in the spreadsheet" } });
-  loader.search("chart rows spreadsheet columns", 8);
+  await loader.search("chart rows spreadsheet columns", 8);
   // A tool with nothing to do with the request, and no history behind it: on score alone it loses
   // to every preload and every search hit, and the cap would put it away mid-job.
   const inUse = "media.speak";
@@ -246,7 +246,7 @@ test("the tiers change what one request carries, not what the rest of the produc
   assert.ok(narrowed.length < everything.length && narrowed.some((tool) => tool.name === "files.read"));
   assert.ok(!narrowed.some((tool) => tool.name === "files.write"), "a permission it does not hold is simply not there");
   const loader = new ToolLoader(narrowed, { groupOf: groupOf(app), signals: { prompt: "read a file" } });
-  assert.deepEqual(loader.search("write a file", 5).matches.filter((m) => m.name === "files.write"), []);
+  assert.deepEqual((await loader.search("write a file", 5)).matches.filter((m) => m.name === "files.write"), []);
   assert.deepEqual(loader.describe(["files.write"]).unknown, ["files.write"]);
 });
 

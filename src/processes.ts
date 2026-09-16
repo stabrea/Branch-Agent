@@ -160,7 +160,8 @@ export class BackgroundProcesses {
     if (context.runId) this.store.event(context.runId, "process.started", { id: entry.id, name: entry.name, program: entry.program, pid: child.pid ?? null });
     return entry.view();
   }
-  private sessionOf(context: ToolContext): string {
+  /** The conversation a task belongs to: what a program is filed under and read back by. */
+  sessionOf(context: ToolContext): string {
     return this.store.run(context.runId)?.sessionId ?? context.runId;
   }
   list(options: { active?: boolean; sessionId?: string } = {}): ProcessView[] {
@@ -168,16 +169,23 @@ export class BackgroundProcesses {
       .filter((view) => (!options.active || view.status === "running") && (!options.sessionId || view.sessionId === options.sessionId))
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   }
-  /** What one program has printed so far, the newest at the end. */
-  read(id: string, limit = 4000): ProcessView & { output: string } {
+  /**
+   * What one program has printed so far, the newest at the end. When a conversation is named, a
+   * program another conversation started is simply not there — the same words as a wrong number,
+   * so one conversation cannot find out what another one is running.
+   */
+  read(id: string, limit = 4000, sessionId?: string): ProcessView & { output: string } {
     const entry = this.running.get(id);
-    if (!entry) throw new Error("There is no program with that number");
+    if (!entry || (sessionId !== undefined && entry.sessionId !== sessionId))
+      throw new Error("There is no program with that number");
     const { text, dropped } = entry.output(limit);
     return { ...entry.view(), dropped, output: text };
   }
-  async stop(id: string, context?: ToolContext): Promise<ProcessView> {
+  /** Stopping is scoped the same way reading is, so one conversation cannot stop another's work. */
+  async stop(id: string, context?: ToolContext, sessionId?: string): Promise<ProcessView> {
     const entry = this.running.get(id);
-    if (!entry) throw new Error("There is no program with that number");
+    if (!entry || (sessionId !== undefined && entry.sessionId !== sessionId))
+      throw new Error("There is no program with that number");
     const view = await entry.stop();
     if (context?.runId) this.store.event(context.runId, "process.stopped", { id: view.id, name: view.name, exitCode: view.exitCode });
     return view;
@@ -205,20 +213,20 @@ export function registerProcesses(registry: ToolRegistry, processes: BackgroundP
   });
   registry.register({
     name: "process.list", permission: "process.read", group: "code",
-    description: "What is still running, what each one is, and whether it is still going.",
+    description: "What this conversation has left running, what each one is, and whether it is still going. Programs other conversations started are not listed here; the owner sees all of them in the Activity screen.",
     parameters: z.object({}).strict(),
-    execute: async () => ({ processes: processes.list() }),
+    execute: async (_args, context) => ({ processes: processes.list({ sessionId: processes.sessionOf(context) }) }),
   });
   registry.register({
     name: "process.read", permission: "process.read", group: "code",
     description: "Read what a running program has printed so far. Only the most recent part is kept; the answer says when older output was dropped.",
     parameters: z.object({ id: z.string().uuid(), characters: z.number().int().min(100).max(8000).default(4000) }).strict(),
-    execute: async (args) => processes.read(args.id, args.characters),
+    execute: async (args, context) => processes.read(args.id, args.characters, processes.sessionOf(context)),
   });
   registry.register({
     name: "process.stop", permission: "process.manage", group: "code",
     description: "Stop a running program and everything it started.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: (args, context) => processes.stop(args.id, context),
+    execute: (args, context) => processes.stop(args.id, context, processes.sessionOf(context)),
   });
 }

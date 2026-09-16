@@ -44,7 +44,32 @@ function card(revision) {
   actions.append(button("Keep it", () => api("skill-revisions/accept", body)));
   actions.append(button("Throw it away", () => api("skill-revisions/reject", body)));
   node.append(actions);
+  if (!revision.trial || !revision.trial.noWorse) node.append(skipTrial(body));
   return node;
+}
+
+/**
+ * Keeping a draft that has not been tried, or that did worse. It takes two presses on purpose: the
+ * first one only says, in plain words, what you are about to skip, and nothing has happened yet.
+ */
+const SKIP_WORDS = "I have not tried this draft and I want it anyway";
+function skipTrial(body) {
+  const box = el("div", undefined, "skill-actions");
+  // A plain button, not the one that redraws the list: pressing it must only ask the question.
+  const open = el("button", "Keep it without trying it");
+  open.type = "button";
+  open.addEventListener("click", () => {
+    const back = el("button", "Leave it alone");
+    back.type = "button";
+    back.addEventListener("click", () => box.replaceChildren(open));
+    box.replaceChildren(
+      el("p", "Trying a draft is how you find out it did not make things worse. Keeping this one without trying it means nobody has checked.", "meta"),
+      button("Yes — " + SKIP_WORDS, () => api("skill-revisions/accept", { ...body, force: true, confirm: SKIP_WORDS })),
+      back,
+    );
+  });
+  box.append(open);
+  return box;
 }
 async function draw() {
   const list = $("skill-revisions-list");

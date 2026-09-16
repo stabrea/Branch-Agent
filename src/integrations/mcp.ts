@@ -46,7 +46,18 @@ function redact(result: unknown, secrets: string[]): unknown {
   return clean(result, secrets);
 }
 
-function definition(client: Client, config: McpConfig, tool: Tool, secrets: string[]): ToolDefinition {
+/**
+ * How one of a server's tools is actually called. With the server already connected this is the
+ * client it was connected with; on demand it is a function that opens the connection first, so a
+ * tool can sit in the list long before anything has been started.
+ */
+type CallThrough = (tool: string, args: Record<string, unknown>, context: ToolContext) => Promise<unknown>;
+
+const through = (client: Client): CallThrough =>
+  (tool, args, context) => client.callTool({ name: tool, arguments: args }, undefined,
+    { signal: context.signal, timeout: 30000 });
+
+function definition(call: CallThrough, config: McpConfig, tool: Tool, secrets: string[]): ToolDefinition {
   if (JSON.stringify(redact(tool, secrets)) !== JSON.stringify(tool))
     throw new Error('MCP discovery contains a configured credential');
   const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema as JsonSchemaType);
@@ -56,8 +67,7 @@ function definition(client: Client, config: McpConfig, tool: Tool, secrets: stri
     execute: async (args: unknown, context: ToolContext) => {
       if (!validate(args).valid) throw new Error('MCP arguments do not match the configured tool schema');
       try {
-        const result = await client.callTool({ name: tool.name, arguments: args as Record<string, unknown> },
-          undefined, { signal: context.signal, timeout: 30000 });
+        const result = await call(tool.name, args as Record<string, unknown>, context) as { isError?: boolean };
         if (result.isError) throw new Error('Remote tool reported failure');
         return redact(result, secrets);
       } catch {
@@ -67,7 +77,77 @@ function definition(client: Client, config: McpConfig, tool: Tool, secrets: stri
     } };
 }
 
-export async function connectMcp(registry: ToolRegistry, input: unknown, env = process.env, policy?: { guard(base: typeof fetch): typeof fetch }) {
+/** What a connected server said its tools are, kept so they can be listed without connecting. */
+export interface CachedMcpTool { name: string; description: string; inputSchema: unknown }
+/**
+ * A server that is actually open: a way to call it, the credentials it was opened with so they can
+ * be kept out of what comes back, and what it says its tools are right now.
+ */
+export interface LiveMcp {
+  call: CallThrough;
+  secrets?: readonly string[];
+  tools?: readonly { name: string; inputSchema?: unknown }[];
+}
+export interface McpToolCache {
+  read(id: string): CachedMcpTool[];
+  write(id: string, tools: CachedMcpTool[]): void;
+}
+const cacheable = (tools: Tool[]): CachedMcpTool[] =>
+  tools.map(tool => ({ name: tool.name, description: tool.description?.slice(0, 2000) ?? tool.name,
+    inputSchema: tool.inputSchema }));
+
+/**
+ * Puts a server's tools in the list without starting it. They come from what that server said the
+ * last time it was connected, so the assistant can find them and the owner can see them; the
+ * connection is opened the first time one of them is actually called, and the list is written down
+ * again as soon as it is. A server nobody has ever connected has nothing to list, so this gives
+ * back an empty list and the caller connects it the ordinary way instead.
+ */
+export function registerCachedMcp(
+  registry: ToolRegistry, input: unknown, cached: readonly CachedMcpTool[],
+  open: () => Promise<LiveMcp>,
+): string[] {
+  const config = McpConfigSchema.parse(input);
+  const wanted = config.tools
+    .map(name => cached.find(tool => tool.name === name))
+    .filter((tool): tool is CachedMcpTool => tool !== undefined);
+  if (wanted.length !== config.tools.length) return [];
+  const remembered = new Map(wanted.map(tool => [tool.name, JSON.stringify(tool.inputSchema)]));
+  let opened: Promise<LiveMcp> | undefined;
+  const call: CallThrough = async (name, args, context) => {
+    const live = await (opened ??= open());
+    // The shape above came from an earlier connection. If the server has changed what this tool
+    // needs since then, the remembered shape is not to be trusted for a moment longer: the call is
+    // checked against what the server says now, and refused if it no longer fits.
+    const fresh = live.tools?.find(tool => tool.name === name);
+    if (fresh && JSON.stringify(fresh.inputSchema) !== remembered.get(name)) {
+      remembered.set(name, JSON.stringify(fresh.inputSchema));
+      const check = new AjvJsonSchemaValidator().getValidator(fresh.inputSchema as JsonSchemaType);
+      if (!check(args).valid) throw new Error('MCP server changed this tool since Branch last spoke to it');
+    }
+    const result = await live.call(name, args, context);
+    // Redacted here as well as in `definition`, because the credentials are only known once the
+    // connection has actually been made; without this an on-demand server could echo one back.
+    return live.secrets?.length ? redact(result, [...live.secrets]) : result;
+  };
+  const names: string[] = [];
+  for (const tool of wanted) {
+    const made = definition(call, config, tool as unknown as Tool, []);
+    registry.register(made);
+    names.push(made.name);
+  }
+  return names;
+}
+
+/**
+ * Opens a server and asks it what its tools are, without putting anything in the tool list. This
+ * is what the on-demand path uses: the tools are already listed from what the server said last
+ * time, so all that is wanted here is a way to call them, and a fresh list to write down.
+ */
+export async function openMcp(
+  input: unknown, env = process.env,
+  policy?: { guard(base: typeof fetch): typeof fetch }, cache?: McpToolCache,
+) {
   const config = McpConfigSchema.parse(input);
   if (new Set(config.tools).size !== config.tools.length) throw new Error('Duplicate MCP tool allowlist entry');
   const { transport, secrets } = makeTransport(config, env, policy);
@@ -77,14 +157,30 @@ export async function connectMcp(registry: ToolRegistry, input: unknown, env = p
     await client.connect(transport as Transport, { timeout: 10000 });
     if (client.getServerVersion()?.version !== config.expectedVersion)
       throw new Error('MCP server version changed; review compatibility before enabling');
-    const definitions = (await discover(client, config.tools)).map(tool => definition(client, config, tool, secrets));
+    const found = await discover(client, config.tools);
+    // What it has just said its tools are, so a later launch can list them without starting it.
+    cache?.write(config.id, cacheable(found));
+    return { config, found, secrets, call: through(client), close: () => client.close() };
+  } catch {
+    await client.close().catch(() => undefined);
+    throw new Error('MCP connection failed: check server availability, version, tool allowlist and metadata');
+  }
+}
+
+export async function connectMcp(
+  registry: ToolRegistry, input: unknown, env = process.env,
+  policy?: { guard(base: typeof fetch): typeof fetch }, cache?: McpToolCache,
+) {
+  const opened = await openMcp(input, env, policy, cache);
+  try {
+    const definitions = opened.found.map(tool => definition(opened.call, opened.config, tool, opened.secrets));
     const existing = new Set(registry.descriptions(new Set(registry.permissions())).map(tool => tool.name));
     if (definitions.some(tool => existing.has(tool.name))) throw new Error('MCP tool name collision');
     for (const tool of definitions) registry.register(tool);
-    return { id: config.id, version: config.expectedVersion, tools: definitions.map(tool => tool.name),
-      close: () => client.close() };
+    return { id: opened.config.id, version: opened.config.expectedVersion,
+      tools: definitions.map(tool => tool.name), call: opened.call, close: opened.close };
   } catch {
-    await client.close().catch(() => undefined);
+    await opened.close().catch(() => undefined);
     throw new Error('MCP connection failed: check server availability, version, tool allowlist and metadata');
   }
 }

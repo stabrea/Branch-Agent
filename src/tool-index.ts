@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { detectInjection } from "./content-guard.js";
 import { inferToolGroup, maxToolDescriptionChars } from "./catalog.js";
+import { fuseRanks } from "./document-embeddings.js";
 import type { ToolDescription } from "./contracts.js";
 
 /**
@@ -38,11 +39,31 @@ const withheldPurpose = "description withheld";
 export const maxExternalDescriptionChars = 200;
 
 /**
- * A seam for searching by meaning as well as by words. Nothing implements it yet: the embeddings
- * service arrives with the document search work, and until it does every search here is lexical.
+ * Searching by meaning as well as by words. When the owner has switched this on and a connected
+ * model can read passages, each tool's description is turned into numbers once — kept against the
+ * sha-256 of that description and the model that read it, so a description that has not changed is
+ * never read a second time — and the query is compared against them. Nothing about the person's
+ * own request is stored; the query itself is read and thrown away.
  */
 export interface ToolEmbedder {
   embed(texts: readonly string[]): Promise<number[][]>;
+}
+/**
+ * The same reader, told which task asked, so what the reading costs is charged to that task and
+ * shows up beside the model's own cost rather than being spent invisibly.
+ */
+export interface RunToolEmbedder {
+  embed(texts: readonly string[], runId?: string): Promise<number[][]>;
+}
+
+/** How alike two lists of numbers are, between -1 and 1. Empty on either side means nothing. */
+export function cosineOf(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || a.length !== b.length) return 0;
+  let dot = 0, left = 0, right = 0;
+  for (let at = 0; at < a.length; at++) {
+    dot += a[at]! * b[at]!; left += a[at]! * a[at]!; right += b[at]! * b[at]!;
+  }
+  return left && right ? dot / Math.sqrt(left * right) : 0;
 }
 
 const stop = new Set(["a", "an", "the", "of", "to", "in", "on", "for", "and", "or", "it", "is", "my", "me", "that", "this", "with", "from", "by", "at", "as", "be", "can", "use", "used", "using"]);
@@ -116,7 +137,7 @@ export class ToolIndex {
   private readonly byName = new Map<string, ToolEntry>();
   private readonly frequency = new Map<string, number>();
   private readonly averageLength: number;
-  /** Declared but not used: search is lexical until the embeddings service is available. */
+  /** Set when the owner has switched meaning search on; otherwise every search here is lexical. */
   embedder: ToolEmbedder | undefined;
   constructor(tools: readonly ToolDescription[], options: ToolIndexOptions = {}) {
     this.entries = tools.map((tool) => entryOf(tool, options));
@@ -155,6 +176,37 @@ export class ToolIndex {
       .filter((hit) => hit.score > 0)
       .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
     return ranked.slice(0, Math.max(1, limit));
+  }
+
+  /**
+   * The same search, with meaning folded in when the owner has switched it on. The two orders —
+   * the word one above and the meaning one — are combined by where each tool came in each list
+   * rather than by their scores, which are not on the same scale and never will be. A tool high in
+   * one list and absent from the other still comes through; a tool high in both wins.
+   *
+   * If reading by meaning fails for any reason, the word search stands on its own: a search must
+   * never fail because a service was unreachable.
+   */
+  async searchByMeaning(query: string, limit = 8): Promise<{ entry: ToolEntry; score: number }[]> {
+    const words = this.search(query, Math.max(limit * 3, 24));
+    if (!this.embedder || !this.entries.length) return words.slice(0, Math.max(1, limit));
+    try {
+      const [asked, ...described] = await this.embedder.embed([query, ...this.entries.map((entry) => entry.description)]);
+      if (!asked?.length) return words.slice(0, Math.max(1, limit));
+      const meaning = this.entries
+        .map((entry, at) => ({ entry, score: cosineOf(asked, described[at] ?? []) }))
+        .filter((hit) => hit.score > 0)
+        .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
+        .slice(0, Math.max(limit * 3, 24));
+      const fused = fuseRanks([words.map((hit) => hit.entry.name), meaning.map((hit) => hit.entry.name)]);
+      const byName = new Map([...words, ...meaning].map((hit) => [hit.entry.name, hit.entry]));
+      return [...fused]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, Math.max(1, limit))
+        .map(([name, score]) => ({ entry: byName.get(name)!, score }));
+    } catch {
+      return words.slice(0, Math.max(1, limit));
+    }
   }
 }
 

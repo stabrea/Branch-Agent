@@ -114,6 +114,9 @@ test("integrations file starts a Telegram channel from a locker secret, and the 
   const { state, apiBase } = await fakeTelegram(t);
   await app.store.locker.set("local", "default", "TELEGRAM_BOT_TOKEN", "555:token-value");
   const configPath = join(root, "integrations.json");
+  // Telegram now goes through the network settings like Discord and WhatsApp, so a stand-in
+  // server on this computer has to be allowed the way any local address is.
+  app.web.policy.configure({ allowPrivateAddresses: true });
   await writeFile(configPath, JSON.stringify({ channels: [{ type: "telegram", tokenSecret: "TELEGRAM_BOT_TOKEN", apiBase, activation: "always", pairing: false, allowlist: ["42"] }] }));
   const loaded = await loadIntegrations(app.registry, configPath, {}, app.secretsFor, app.channelHost);
   t.after(() => loaded.close());

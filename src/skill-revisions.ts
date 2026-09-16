@@ -6,6 +6,7 @@ import type { ToolContext } from "./contracts.js";
 import { WorkspaceFiles } from "./files.js";
 import { lineDiff } from "./workspace-history.js";
 import { parseSkillDocument } from "./skill-document.js";
+import { audit } from "./audit.js";
 
 /**
  * A skill that improves itself, but never behind the owner's back. When a task goes well the app
@@ -110,6 +111,15 @@ export class SkillRevisions {
     if (!options.force && trial && !trial.noWorse)
       throw new Error("The draft did worse than the version in use on those tasks. Accept it anyway only if you mean to.");
     const skill = this.store.skills.view(this.owner, skillId);
+    // Skipping the trial is the owner's own decision and nothing else's, so it goes in the record
+    // of what the assistant was allowed to do, beside the yeses and the changed settings.
+    if (options.force)
+      audit(this.store, this.owner, {
+        action: "skill.forced", actor: this.owner, subject: `${skill.name} version ${version}`,
+        reason: trial ? "The trial said the draft did worse, and it was switched on anyway."
+          : "It was switched on without being tried against any past task.",
+        source: "owner", outcome: "allowed",
+      });
     this.store.skills.activate(this.owner, skillId, { version, expectedRevision: skill.revision, acknowledge: true });
     this.store.save("settings", this.owner, this.key(skillId, version), { ...saved, decision: "accepted", decidedAt: new Date().toISOString() });
     return this.describe(skillId, version, { ...saved, decision: "accepted", decidedAt: new Date().toISOString() })!;

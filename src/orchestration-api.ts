@@ -74,7 +74,17 @@ async function deferredApi(
   return notFound();
 }
 
-const revisionBody = z.object({ skillId: z.string().uuid(), version: z.number().int().min(1).max(20), force: z.boolean().optional() }).strict();
+/**
+ * Switching a draft on without the trial needs the owner to say so in as many words. `force` on
+ * its own is not enough: the exact sentence below has to come with it, typed by the screen only
+ * when the person has pressed a second button that says what they are skipping. Nothing the model
+ * can reach passes this — these routes are the owner's own, and the model has no tool for them.
+ */
+export const skipTrialConfirmation = "I have not tried this draft and I want it anyway";
+const revisionBody = z.object({
+  skillId: z.string().uuid(), version: z.number().int().min(1).max(20),
+  force: z.boolean().optional(), confirm: z.string().max(200).optional(),
+}).strict();
 /** Drafted better versions of a skill: seeing the changed lines, trying them, and saying yes or no. */
 async function revisionsApi(
   app: Branch, request: IncomingMessage, path: string,
@@ -84,8 +94,13 @@ async function revisionsApi(
   if (request.method !== "POST") return notFound();
   const body = revisionBody.parse(await readBody(request));
   if (path === "/api/skill-revisions/try") return app.skillRevisions.tryOut(app.runtime, body.skillId, body.version);
-  if (path === "/api/skill-revisions/accept")
-    return app.skillRevisions.accept(body.skillId, body.version, body.force ? { force: true } : {});
+  if (path === "/api/skill-revisions/accept") {
+    if (!body.force) return app.skillRevisions.accept(body.skillId, body.version);
+    app.store.profiles.requireOwner("Switching on a drafted skill without trying it");
+    if (body.confirm !== skipTrialConfirmation)
+      throw new Error(`To switch this on without trying it, confirm it in the app. It is refused until the words "${skipTrialConfirmation}" come with the request.`);
+    return app.skillRevisions.accept(body.skillId, body.version, { force: true });
+  }
   if (path === "/api/skill-revisions/reject") return app.skillRevisions.reject(body.skillId, body.version);
   return notFound();
 }

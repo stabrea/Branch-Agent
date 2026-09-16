@@ -17,6 +17,14 @@ export const TriggerSchema = z
     sessionId: z.string().uuid().optional(),
     enabled: z.boolean().default(true),
     rateLimitPerMinute: z.number().int().min(1).max(100).default(30),
+    /**
+     * Refuses a request that does not carry a fresh `x-branch-timestamp` and an
+     * `x-branch-nonce` nobody has used before, so a request somebody copied off the wire cannot
+     * be sent again later. Off by default, because the sending service has to add both headers.
+     */
+    replayProtection: z.boolean().default(false),
+    /** How old a timestamp may be, and how long a nonce is remembered for. */
+    replayWindowSeconds: z.number().int().min(30).max(3600).default(300),
   })
   .strict();
 export type TriggerConfig = z.infer<typeof TriggerSchema>;
@@ -27,6 +35,8 @@ export interface TriggerState {
   sessionId?: string | undefined;
   enabled: boolean;
   rateLimitPerMinute: number;
+  replayProtection: boolean;
+  replayWindowSeconds: number;
   secret: string;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +97,33 @@ function extractField(payload: unknown, path: string): unknown {
 export class Triggers {
   private readonly rateLimitWindowMs = 60000;
   private readonly requestCounts = new Map<string, number[]>(); // trigger ID -> timestamps of recent fires
+  /** Nonces already used, with the moment they stop mattering, so one is never accepted twice. */
+  private readonly usedNonces = new Map<string, number>();
+  /** The clock, so a test can prove a stale timestamp is refused without waiting five minutes. */
+  now: () => number = Date.now;
+
+  /**
+   * Refuses a request whose timestamp is outside the window or whose nonce has been seen before.
+   * Only runs for a trigger the owner switched replay protection on for, so a service that cannot
+   * add the two headers keeps working exactly as it did.
+   */
+  checkFreshness(trigger: TriggerState, headers: Record<string, string | string[] | undefined>): { valid: boolean; error?: string } {
+    if (!trigger.replayProtection) return { valid: true };
+    const read = (name: string) => { const value = headers[name]; return String((Array.isArray(value) ? value[0] : value) ?? ""); };
+    const stamp = read("x-branch-timestamp"), nonce = read("x-branch-nonce");
+    if (!stamp || !nonce) return { valid: false, error: "Missing timestamp or nonce" };
+    if (nonce.length > 200) return { valid: false, error: "Nonce is too long" };
+    const sent = Number(stamp);
+    const seconds = !Number.isFinite(sent) ? NaN : sent > 1e11 ? sent / 1000 : sent;
+    const now = this.now();
+    if (!Number.isFinite(seconds) || Math.abs(now / 1000 - seconds) > trigger.replayWindowSeconds)
+      return { valid: false, error: "Timestamp is outside the allowed window" };
+    for (const [key, expires] of this.usedNonces) if (expires <= now) this.usedNonces.delete(key);
+    const key = `${trigger.id}:${nonce}`;
+    if (this.usedNonces.has(key)) return { valid: false, error: "That request has already been received" };
+    this.usedNonces.set(key, now + trigger.replayWindowSeconds * 1000);
+    return { valid: true };
+  }
 
   constructor(readonly store: Store, readonly runtime: Runtime) {}
 
@@ -104,6 +141,8 @@ export class Triggers {
       ...(definition.sessionId ? { sessionId: definition.sessionId } : {}),
       enabled: true,
       rateLimitPerMinute: definition.rateLimitPerMinute,
+      replayProtection: definition.replayProtection,
+      replayWindowSeconds: definition.replayWindowSeconds,
       secret: randomBytes(24).toString("hex"),
     });
     return this.get(context.owner, id)!;
@@ -324,6 +363,8 @@ function hydrate(record: SavedRecord): TriggerState {
     ...(data.sessionId ? { sessionId: data.sessionId } : {}),
     enabled: data.enabled !== false,
     rateLimitPerMinute: data.rateLimitPerMinute ?? 30,
+    replayProtection: data.replayProtection === true,
+    replayWindowSeconds: data.replayWindowSeconds ?? 300,
     secret: String(data.secret ?? ""),
     id: record.id,
     createdAt: record.createdAt,

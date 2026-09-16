@@ -899,6 +899,9 @@
             <h3>Messages still to send</h3>
             <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
             <div id="deliveries-list" class="card-list" aria-live="polite"></div>
+            <h3>Other chat services</h3>
+            <p class="subtle">These all work the same way: you paste in an address to send to, and the service sends what people write to an address of yours. Open one to see what it needs and what it can carry. Add it with <code>{"channels":[{"type":"chat","id":"work-chat","service":"&lt;the name in brackets&gt;"}]}</code> and the secrets it asks for.</p>
+            <div id="chat-services-list" class="card-list"></div>
             <h3>Add a way to reach your assistant</h3>
             <p class="subtle">Pick one below. Each needs two things: the sign-in details saved under <strong>Secrets</strong> in the default project, and one line added to the connections file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards and it appears in the list above. Whichever you choose, messages from a chat app can never run commands on this computer.</p>
             <details class="card-list">
@@ -1040,8 +1043,13 @@
               <div id="mcp-preflight" class="card-list"></div>
             </details>
             <h3>Other people's servers</h3>
-            <p class="subtle">Branch can also use somebody else's AI-tool server. A server you have set up in the connections file is opened when Branch starts. These settings are for servers opened only while a task needs them, which nothing uses yet, so this list is normally empty.</p>
+            <p class="subtle">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
             <div class="field-row">
+              <label for="mcp-connect-when">Start these servers</label>
+              <select id="mcp-connect-when">
+                <option value="startup">When Branch starts</option>
+                <option value="on-demand">Only when a task needs one</option>
+              </select>
               <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
               <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
               <label for="mcp-max-servers">Most servers connected at once</label>
@@ -1111,6 +1119,7 @@
               <p class="subtle">Your assistant can have far more tools than fit in one message. Each time it works, it carries the few it needs in full, keeps a short list of names for the rest, and looks the others up when a task calls for them.</p>
               <div id="tool-catalog-summary" aria-live="polite"></div>
               <div id="tool-catalog-lists"></div>
+              <div id="tool-catalog-meaning"></div>
               <button id="tool-catalog-forget" type="button">Forget what it has learned about tools</button>
               <p id="tool-catalog-status" class="subtle" role="status"></p>
             </details>
@@ -1240,6 +1249,10 @@
         <div id="context-receipts" class="context-rows"></div>
       </div>
       <div class="context-block">
+        <h2 class="context-head">Pages to open</h2>
+        <div id="context-apps" class="context-rows"></div>
+      </div>
+      <div class="context-block">
         <h2 class="context-head">Saved memory</h2>
         <div id="context-facts" class="context-rows"></div>
       </div>
@@ -1288,6 +1301,7 @@
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
+    <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>

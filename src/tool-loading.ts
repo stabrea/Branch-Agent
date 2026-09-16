@@ -1,7 +1,7 @@
 import type { ToolDescription } from "./contracts.js";
 import { estimateTokens } from "./contracts.js";
 import { expandToolName, inferToolGroup, unrecognisedOpenUpTo, type CatalogGroup, type CatalogStats } from "./catalog.js";
-import { ToolIndex, expandQuery, indexLine, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
+import { ToolIndex, expandQuery, indexLine, type ToolEmbedder, type ToolEntry, type ToolIndexOptions } from "./tool-index.js";
 
 /**
  * Deciding, every round, which tools travel with the request. Three tiers:
@@ -31,6 +31,27 @@ export const defaultMaxLoaded = 12;
 /** Tools loaded by name never fall below this many rounds of stickiness. */
 const searchedBonus = 400, expandedBonus = 60, recentBonus = 90, preloadBonus = 220, staleePenalty = 5;
 
+/**
+ * Finding tools by meaning as well as by words is off until the owner turns it on, because it
+ * sends something out of this computer. This is the sentence they are shown before they decide.
+ */
+export const meaningSearchExplanation = (
+  /** Who receives it, named: the connection that compares writing, as the owner set it up. */
+  receiver = "the model you have connected for comparing writing",
+): string =>
+  "Branch finds a tool by the words in your request. Turn this on and it will also compare "
+  + "what you asked for against what each tool says it does, which means sending your request, "
+  + `and one line about each tool, to ${receiver}. `
+  + "Nothing else about the request, and nothing you have saved, goes with it.";
+/** Where the choice is kept. False, and nothing about a request is ever sent for this. */
+export const meaningSearchSetting = "tool-meaning-search";
+/** Whether the owner has turned it on. Read fresh, so turning it off takes effect at once. */
+export function meaningSearchOn(
+  store: { get(kind: string, owner: string, id: string): { data: unknown } | undefined }, owner: string,
+): boolean {
+  return (store.get("settings", owner, meaningSearchSetting)?.data as { enabled?: unknown } | undefined)?.enabled === true;
+}
+
 export interface PreloadedTool { name: string; reason: string }
 export interface ToolLoaderOptions {
   /** Toolboxes open from the first round; their tools are strongly preferred. */
@@ -50,6 +71,8 @@ export interface ToolLoaderOptions {
   demoted?: readonly string[];
   /** The words of the task, used to score what is worth listing. */
   signals?: { prompt?: string; recent?: readonly string[]; project?: string };
+  /** Set only when the owner has switched meaning search on; otherwise searching is by words. */
+  embedder?: ToolEmbedder;
 }
 export interface LoaderStats extends CatalogStats {
   loaded: number;
@@ -100,6 +123,7 @@ export class ToolLoader {
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
     this.index = new ToolIndex(all, options);
+    if (options.embedder) this.index.embedder = options.embedder;
     this.take(all);
     for (const group of options.expanded ?? []) this.expandedGroups.add(group);
     this.preloaded = (options.preload ?? []).filter((entry) => this.byName.has(entry.name));
@@ -114,7 +138,9 @@ export class ToolLoader {
    */
   refresh(tools: readonly ToolDescription[], options: ToolIndexOptions = {}): void {
     this.all = tools;
+    const embedder = this.index.embedder;
     this.index = new ToolIndex(tools, { groupOf: this.groupOf, ...options });
+    if (embedder) this.index.embedder = embedder;
     this.take(tools);
     this.version++;
   }
@@ -164,8 +190,10 @@ export class ToolLoader {
    * in the index at all, so a narrowed task can never find one it is not permitted; every match
    * stays loaded for the rest of the conversation, as far as the budget allows.
    */
-  search(query: string, limit = 8): { matches: { name: string; purpose: string; use: string }[]; searched: string } {
-    const hits = this.index.search(query, Math.min(Math.max(1, limit), 20));
+  async search(query: string, limit = 8): Promise<{ matches: { name: string; purpose: string; use: string }[]; searched: string }> {
+    const wanted = Math.min(Math.max(1, limit), 20);
+    const hits = this.index.embedder
+      ? await this.index.searchByMeaning(query, wanted) : this.index.search(query, wanted);
     for (const hit of hits) this.asked.add(hit.entry.name);
     this.version++;
     return { searched: String(query).slice(0, 200), matches: hits.map((hit) => ({
