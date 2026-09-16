@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { createBranch, saveLanguageServerSettings, saveDebugSettings, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab, exportAgent, openAgent, importAgent } from "../dist/index.js";
+import { createBranch, saveLanguageServerSettings, saveDebugSettings, savePolicy, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab, exportAgent, openAgent, importAgent } from "../dist/index.js";
 import { registerGitHubProject } from "../dist/integrations/git-tools.js";
 import { GitRunner, locateGit } from "../dist/integrations/git-run.js";
 
@@ -179,8 +179,16 @@ test("code.rename asks before it writes, the way every multi-file change does", 
   const { app } = await withLanguageServer(t);
   const rename = app.registry.inventory().find((tool) => tool.name === "code.rename");
   assert.equal(rename.permission, "files.write", "it counts as a change, so the ask-before-changes policy covers it");
-  const target = app.registry.targetOf("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "x", dryRun: false }, app.runtime.context({}));
-  assert.match(target, /rename to x/, "the person is told what the change is before it happens");
+  // Under the owner's "ask before changes" setting the very reckoning a model's turn goes through
+  // stops on this call, and the question names the rename. Reading the code is still free.
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const context = app.runtime.context({});
+  const asked = app.runtime.checkPolicy("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "x" }, context);
+  assert.equal(asked.decision, "ask");
+  assert.equal(asked.readOnly, false);
+  assert.match(asked.target, /rename to x/, "the person is told what the change is before it happens");
+  const free = app.runtime.checkPolicy("code.diagnostics", { path: "src/sums.ts" }, context);
+  assert.equal(free.decision, "allow", "looking at the mistakes in a file changes nothing");
 });
 
 // ---------------------------------------------------------------- debugging
@@ -376,6 +384,28 @@ test("GitLab issues, releases and pipelines read through the same network rules"
   assert.match(pipelines.summary, /passed/);
   assert.ok(api.seen.every((call) => call.token === "glpat_fake_bbb"));
   assert.equal(app.registry.groupOf("gitlab.issues"), "git", "it files under version control, not the unrecognised box");
+});
+
+test("publishing a folder asks first and never writes a sign-in into the repository", { ...needsGit }, async (t) => {
+  const { app, run, context } = await repository(t);
+  const api = await fakeApi(t, {});
+  const policy = new NetworkPolicy({ allowPrivateAddresses: true });
+  const github = new GitHubAccess({ apiBase: api.base }, policy, async () => "ghp_fake_token_aaa");
+  registerGitHubProject(app.registry, github, app.git);
+  t.after(() => ["github.issues", "github.checks", "github.release", "github.publish_repo"].forEach((name) => app.registry.unregister(name)));
+
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const asked = app.runtime.checkPolicy("github.publish_repo", { folder: ".", name: "notes", remote: "origin" }, context);
+  assert.equal(asked.decision, "ask", "nothing leaves the computer until the owner says yes");
+  assert.match(asked.target, /publish \. to GitHub as notes/);
+
+  // The address the folder is pointed at carries no password, so none can end up in .git/config.
+  await assert.rejects(
+    app.git.publish({ folder: ".", url: "https://ghp_fake_token_aaa@github.com/me/notes.git", remote: "origin" }, AbortSignal.timeout(30000)),
+    /carries no sign-in details/,
+  );
+  const remotes = await run(["remote", "-v"]);
+  assert.equal(remotes.trim(), "", "and the refusal happened before any remote was written");
 });
 
 test("a GitLab address outside the allowed list is refused before anything is sent", async (t) => {

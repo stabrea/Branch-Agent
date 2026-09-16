@@ -17,16 +17,21 @@ async function call(path, body) {
   return data;
 }
 
-/** One line per program: a short name, the full address of the program, and what it handles. */
+/** The words that go after the program's address, the way a code editor would put them there. */
+const readArgs = (text) => (text || "").split(/\s+/).map((part) => part.trim()).filter(Boolean);
+
+/** One line per program: a short name, the full address, whatever goes after it, then extras. */
 function readRows(id, extra) {
   return $(id).value.split("\n").map((line) => line.trim()).filter(Boolean).reduce((out, line) => {
-    const [name, path, rest] = line.split("|").map((part) => (part || "").trim());
-    if (name && path) out[name] = { path, args: [], ...(extra ? extra(rest) : {}) };
+    const [name, path, args, rest] = line.split("|").map((part) => (part || "").trim());
+    if (name && path) out[name] = { path, args: readArgs(args), ...(extra ? extra(rest) : {}) };
     return out;
   }, {});
 }
 const writeRows = (rows, extra) =>
-  Object.entries(rows || {}).map(([name, entry]) => `${name} | ${entry.path}${extra ? ` | ${extra(entry)}` : ""}`).join("\n");
+  Object.entries(rows || {})
+    .map(([name, entry]) => [name, entry.path, (entry.args || []).join(" "), ...(extra ? [extra(entry)] : [])].join(" | "))
+    .join("\n");
 
 function status(id, text) {
   const node = $(id);
@@ -61,4 +66,8 @@ async function save() {
 }
 
 $("code-ide-save")?.addEventListener("click", save);
-void loadCodeIde();
+// Nothing is asked for until the section is opened, so a page nobody has signed in on stays quiet.
+let loaded = false;
+$("code-ide")?.addEventListener("toggle", () => {
+  if (!loaded && $("code-ide").open) { loaded = true; void loadCodeIde(); }
+});

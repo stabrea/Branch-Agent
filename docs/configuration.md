@@ -1002,7 +1002,7 @@ Sending work to the branch everyone shares (`main` or `master`) stops and asks y
 { "git": { "remote": true, "github": { "tokenSecret": "GITHUB_TOKEN" } } }
 ```
 
-That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.list_issues`, `github.create_issue`, `github.issues`, `github.checks` (whether the automatic checks passed on a branch or a saved version, said in plain words), `github.release` (the releases published, newest first) and `github.publish_repo`, all behind the `github.manage` permission. `github.publish_repo` makes the repository and sends a folder there in one step; it writes the address as a plain remote with no sign-in details in it, so the push uses the Git sign-in this computer already has and no token is ever written into the repository's settings. You are asked before anything leaves the computer.
+That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.create_issue`, `github.issues` (listing them), `github.checks` (whether the automatic checks passed on a branch or a saved version, said in plain words), `github.release` (the releases published, newest first) and `github.publish_repo`, all behind the `github.manage` permission. `github.publish_repo` makes the repository and sends a folder there in one step; it writes the address as a plain remote with no sign-in details in it, so the push uses the Git sign-in this computer already has and no token is ever written into the repository's settings. You are asked before anything leaves the computer.
 
 **GitLab** can be read in the same way, with its own token saved as `GITLAB_TOKEN`:
 
@@ -1094,7 +1094,8 @@ tools.from_openapi { name: "notion", file: "notion-openapi.json",
 ```
 
 Try it with `dryRun: true` first and you are shown exactly what you would get, with nothing
-registered. `http.request` is still there as the escape hatch for anything that has no description.
+registered. For a service with no description written down, the plain web tools (`web.fetch`, and an
+MCP server if the service ships one) are still the way in; nothing here takes that away.
 
 **Handing the assistant over.** `branch export-agent <file>` writes one file holding your
 specialists, your saved procedures, your installed skills, which model does what, and your approval

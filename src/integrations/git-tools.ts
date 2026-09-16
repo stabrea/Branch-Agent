@@ -216,12 +216,7 @@ export function registerGitHub(registry: ToolRegistry, github: GitHubAccess, git
     }).strict(),
     execute: (input) => openPullRequest(github, input),
   });
-  registry.register({
-    name: "github.list_issues", permission: "github.manage",
-    description: "List issues on a GitHub repository, newest first.",
-    parameters: z.object({ repo: repositoryPath, state: z.enum(["open", "closed", "all"]).default("open"), limit: z.number().int().min(1).max(50).default(20) }).strict(),
-    execute: (input) => github.listIssues(input),
-  });
+  // Listing issues is `github.issues`, registered above: there is one tool for it, not two.
   registry.register({
     name: "github.create_issue", permission: "github.manage",
     description: "Raise an issue on a GitHub repository.",

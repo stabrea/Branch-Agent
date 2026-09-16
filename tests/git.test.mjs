@@ -257,7 +257,7 @@ test('GitHub tools send the token in the header and never leak it', async (t) =>
   const policy = new NetworkPolicy({ allowPrivateAddresses: true, allowedHosts: ['127.0.0.1'] });
   const github = new GitHubAccess({ apiBase: fake.base }, policy, async () => TOKEN);
   registerGitHub(f.app.registry, github);
-  t.after(() => ['github.create_repo', 'github.open_pull_request', 'github.list_issues', 'github.create_issue'].forEach((name) => f.app.registry.unregister(name)));
+  t.after(() => ['github.create_repo', 'github.open_pull_request', 'github.issues', 'github.checks', 'github.release', 'github.create_issue'].forEach((name) => f.app.registry.unregister(name)));
 
   const context = f.app.runtime.context({ runId: 'github-run' });
   const repo = await f.app.registry.execute('github.create_repo', { name: 'notes' }, context);
@@ -268,7 +268,7 @@ test('GitHub tools send the token in the header and never leak it', async (t) =>
 
   const pull = await f.app.registry.execute('github.open_pull_request', { repo: 'acme/notes', title: 'Tidy the notes', base: 'main', head: 'tidy' }, context);
   assert.equal(pull.number, 7);
-  const issues = await f.app.registry.execute('github.list_issues', { repo: 'acme/notes' }, context);
+  const issues = await f.app.registry.execute('github.issues', { repo: 'acme/notes' }, context);
   assert.equal(issues.issues[0].number, 3);
   const raised = await f.app.registry.execute('github.create_issue', { repo: 'acme/notes', title: 'Please fix' }, context);
   assert.equal(raised.number, 4);
