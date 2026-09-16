@@ -434,7 +434,9 @@ test("A0648 a computer may only run the programs the owner allowed, and the card
   assert.equal(app.registry.targetOf("remote.run", { computer: "tower", program: "make", args: ["build"] }, context),
     "tower: make build");
   assert.equal(app.registry.targetOf("remote.files", { computer: "tower", path: "reports" }, context), "tower: reports");
-  assert.equal(app.registry.permissionOf("remote.run"), "shell.execute");
+  // Running a program on another computer is its own permission: allowing commands here must not
+  // quietly allow them there.
+  assert.equal(app.registry.permissionOf("remote.run"), "remote.execute");
   assert.equal(app.registry.permissionOf("remote.read"), "files.read");
 
   // Ssh's own wording is turned into something the owner can act on.

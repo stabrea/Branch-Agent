@@ -114,6 +114,9 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
     description: "Writing files in your workspace is fine. Running commands and clicking or typing on web pages wait for your yes, and a new website is checked with you once.",
     rules: [
       { tool: "shell.execute", decision: "ask", remember: "session" },
+      // Batch 26 (wave 8): a program on somebody else's computer always asks, whatever the rule
+      // for commands here says. It is a different computer.
+      { tool: "remote.run", decision: "ask", remember: "session" },
       { tool: "browser.click", decision: "ask", remember: "session" },
       { tool: "browser.fill", decision: "ask", remember: "session" },
       // Sending one of your own files to a website is always worth a question, whatever site it is.

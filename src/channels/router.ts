@@ -354,7 +354,7 @@ export class ChannelRouter {
         // A message from a chat app can read and change the local copy, but never publish it, and
         // never send to somebody else's chat: a paired person in one group must not be able to
         // make the assistant write to every chat it is linked to.
-        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
+        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,

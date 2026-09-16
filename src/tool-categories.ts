@@ -26,7 +26,7 @@ export const categoryLabels: Record<ToolCategory, { label: string; description: 
 const permissionCategories: Record<string, ToolCategory> = {
   "files.write": "files", "code.edit": "files", "history.write": "files",
   "git.write": "files", "git.remote": "files", "patch.write": "files",
-  "shell.execute": "commands", "terminal.write": "commands",
+  "shell.execute": "commands", "terminal.write": "commands", "remote.execute": "commands",
   "browser.write": "browse", "browser.act": "browse",
   "channels.send": "message", "email.send": "message", "github.manage": "message",
   "issues.write": "message",

@@ -274,7 +274,7 @@ export function registerRemoteWorkspaces(registry: ToolRegistry, remotes: Remote
     execute: (args, context: ToolContext) => remotes.read(args.computer, args.path, context.signal),
   });
   registry.register({
-    name: "remote.run", permission: "shell.execute", group: "remote",
+    name: "remote.run", permission: "remote.execute", group: "remote",
     description: "Run one of the programs the owner has allowed on one of their other computers. Anything not on that computer's own list is refused.",
     parameters: RemoteRunSchema,
     target: (args) => `${args.computer}: ${[args.program, ...args.args].join(" ")}`.slice(0, 300),

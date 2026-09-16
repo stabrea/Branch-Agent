@@ -3709,7 +3709,9 @@ computer can be used to reach an address the web rules refuse — but equally, t
 see inside that connection. That is the trade, said out loud.
 
 The tools are `remote.list`, `remote.files`, `remote.read` and `remote.run` (their own toolbox,
-`remote`, because everything in it is somewhere else). The screen is **Settings → Remote computers**:
+`remote`, because everything in it is somewhere else). `remote.run` has a permission of its own,
+`remote.execute`: allowing commands on *this* computer must never quietly allow them on another, and
+the "ask before changes" rules ask about it every time whatever the rule for commands here says. The screen is **Settings → Remote computers**:
 `GET /api/remotes` lists them, `POST /api/remotes` adds one, `POST /api/remotes/remove` takes one
 off. Each computer is `RemoteComputerSchema` (`src/remote/ssh-workspace.ts`): `alias` the short name
 from your SSH config, `root` the folder on that computer everything is kept inside, `label` a name

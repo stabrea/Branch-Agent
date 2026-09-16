@@ -292,6 +292,7 @@ async function staticFile(
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
+    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
