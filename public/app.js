@@ -150,6 +150,8 @@ function renderRuns() {
       );
       // Wave 6: the same task, opened as one readable screen instead of raw events.
       if (globalThis.branchInspector) node.append(globalThis.branchInspector.button(run.id));
+      // Wave 7: pick two tasks and see them side by side.
+      if (globalThis.branchCompare) node.append(globalThis.branchCompare.button(run.id));
       for (const change of run.changes || []) {
         const row = el("div", undefined, "file-change");
         row.append(el("span", `${change.existed ? "Changed" : "Created"} ${change.path} (+${change.added} −${change.removed})`));

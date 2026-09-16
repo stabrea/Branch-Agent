@@ -26,7 +26,7 @@ import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.j
 import { allPresets, findPreset } from "./providers/presets.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
-import { streamRunEvents } from "./streams.js";
+import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
@@ -64,7 +64,7 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
-import { audit } from "./audit.js";
+import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
@@ -222,6 +222,8 @@ async function staticFile(
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
     "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
+    "/compare.js": ["compare.js", "text/javascript; charset=utf-8"],
+    "/activity-feed.js": ["activity-feed.js", "text/javascript; charset=utf-8"],
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
     "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
@@ -729,7 +731,9 @@ async function api(
     const data = app.store.usageStore().aggregateUsage(range, by, overrides);
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
     const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens, overrides);
-    return { data, stats, pricing: pricingTableInUse(app.store, app.runtime.owner) };
+    // Wave 7: the few numbers that say how it is behaving, beside what it cost.
+    const statistics = app.store.usageStore().statistics(app.runtime.owner, range === "7d" ? 7 : range === "90d" ? 90 : 30);
+    return { data, stats, statistics, pricing: pricingTableInUse(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/pricing")
     return pricingTableInUse(app.store, app.runtime.owner);
@@ -1573,6 +1577,20 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
+  // Wave 7: everything happening on this computer, filtered by kind, as one live stream.
+  if (request.method === "GET" && path === "/api/events/stream") {
+    const query = new URL(request.url ?? "/", "http://local").searchParams;
+    const kinds = (query.get("kind") ?? "").split(",").map((kind) => kind.trim()).filter(Boolean).slice(0, 20);
+    // "after=0" means "everything you have"; leaving it out means "only what happens from now on",
+    // so zero has to be told apart from absent rather than treated as nothing.
+    const asked = query.get("after");
+    const after = asked === null || !/^\d+$/.test(asked) ? undefined : Number(asked);
+    await streamOwnerEvents(app.store, app.store.profiles.scope(), response, {
+      ...(after === undefined ? {} : { after }), kinds,
+      ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
+    });
+    return true;
+  }
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
@@ -1699,12 +1717,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
     const data = app.store.usageStore().aggregateUsage(range, "day", overrides);
     // estimatedCostUsd covers only the tasks with a price; runsWithoutPrice says how many had none.
-    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,runsWithoutPrice,failures"]
+    // Wave 7: the money columns a spreadsheet needs — what the day cost, what one task cost on
+    // average, and the model that cost the most — with an empty cell wherever nobody knows.
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,costPerRunUsd,dearestModel,dearestModelCostUsd,runsWithPrice,runsWithoutPrice,failures"]
       .concat(
-        data.map((d) =>
-          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
-            d.pricedRuns ? d.estimatedCost.toFixed(4) : "", d.unpricedRuns, d.failures].join(",")
-        )
+        data.map((d) => {
+          const dearest = [...d.presets].filter((p) => p.cost !== null).sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))[0];
+          return [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
+            d.pricedRuns ? d.estimatedCost.toFixed(4) : "",
+            d.pricedRuns ? (d.estimatedCost / d.pricedRuns).toFixed(6) : "",
+            csvCell(dearest?.id ?? ""), dearest ? (dearest.cost ?? 0).toFixed(4) : "",
+            d.pricedRuns, d.unpricedRuns, d.failures].join(",");
+        })
       )
       .join("\n");
     response.writeHead(200, {

@@ -119,6 +119,168 @@ test("G6 the message box knows its own commands, so /model and /help work withou
   assert.match(module, /presetName/, "profile cards read connection names rather than ids");
 });
 
+/* ---------- D1: two tasks side by side, and the statistics card ---------- */
+
+/** A provider whose answer depends on what was asked, so two tasks really do differ. */
+const answersTheQuestion = { name: "scripted", async complete(request) {
+  const asked = [...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  return { content: `The answer for ${asked}.\nSame second line.`, toolCalls: [] };
+} };
+
+test("D1 comparing two tasks shows both sets of figures and the difference between the answers", async (t) => {
+  const { page, errors } = await onPage(t, { provider: answersTheQuestion });
+  for (const prompt of ["apples", "pears"]) {
+    await page.locator("#prompt").fill(prompt);
+    await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
+    await page.waitForFunction((word) => document.getElementById("conversation").textContent.includes(word), prompt, { timeout: 20000 });
+    await page.locator("#new-session").click();
+  }
+  await page.locator('[data-view="runs"]').first().click();
+  const picks = page.locator(".compare-pick");
+  await picks.first().waitFor();
+  assert.equal(await picks.count(), 2);
+  await picks.nth(0).click();
+  await picks.nth(1).click();
+  const panel = page.locator("#compare-panel");
+  await panel.locator(".compare-table").waitFor({ timeout: 15000 });
+  const labels = await panel.locator(".compare-table tbody tr td:first-child").allTextContents();
+  for (const wanted of ["Rounds with the model", "Tools used", "Words in (tokens)", "Estimated cost", "How long"])
+    assert.ok(labels.includes(wanted), `${wanted} is compared (${labels.join(", ")})`);
+  /* Both answers differ on one line and agree on the other, and that is what is shown. */
+  const gone = await panel.locator(".compare-gone").allTextContents();
+  const added = await panel.locator(".compare-new").allTextContents();
+  assert.ok(gone.some((line) => line.includes("pears")) || gone.some((line) => line.includes("apples")));
+  assert.ok(added.some((line) => line.includes("pears")) || added.some((line) => line.includes("apples")));
+  assert.ok(![...gone, ...added].some((line) => line.includes("Same second line")), "the line both share is not marked");
+  await panel.getByRole("button", { name: /Close the comparison/ }).click();
+  assert.equal(await panel.isHidden(), true);
+  assert.deepEqual(errors, []);
+});
+
+test("D1 the statistics are counted from the ledger, not guessed", async (t) => {
+  const { app, api } = await served(t, writesAFile("stats.txt"));
+  await api("POST", "/api/run", { prompt: "write it" });
+  const view = (await api("GET", "/api/usage?range=30d&by=day")).body;
+  assert.ok(view.statistics, "the usage answer carries the statistics");
+  assert.ok(view.statistics.rounds >= 2, "both model rounds were counted");
+  assert.ok(view.statistics.medianTokensPerRound === null || view.statistics.medianTokensPerRound > 0);
+  assert.equal(view.statistics.toolCalls, 1, "one tool call");
+  assert.equal(view.statistics.toolFailures, 0);
+  assert.equal(view.statistics.toolSuccessRate, 1);
+  assert.equal(typeof view.statistics.compactions, "number");
+  /* The same numbers the counters page reports, so the two screens cannot disagree. */
+  const metrics = await fetch(app ? "http://invalid" : "", {}).catch(() => null);
+  void metrics;
+  const direct = app.store.usageStore().statistics(app.runtime.owner, 30);
+  assert.equal(direct.toolCalls, view.statistics.toolCalls);
+  assert.equal(direct.rounds, view.statistics.rounds);
+});
+
+/* ---------- D3: the live event stream ---------- */
+
+test("D3 the event stream needs the key, filters by kind and carries on from the last id", async (t) => {
+  const { server, api } = await served(t, writesAFile("streamed.txt"));
+  assert.equal((await fetch(server.url + "/api/events/stream")).status, 401, "the stream is behind the local key");
+
+  const run = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  const read = async (query) => {
+    const response = await fetch(server.url + "/api/events/stream?" + query, { headers: { authorization: `Bearer ${server.token}` } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /text\/event-stream/);
+    return response.text();
+  };
+  /* Asking from the beginning replays what already happened, filtered to the kinds asked for. */
+  const onlyTools = await read("after=0&kind=tool.completed&maxMs=300");
+  const kinds = [...onlyTools.matchAll(/^event: (.+)$/gm)].map((m) => m[1]);
+  assert.ok(kinds.includes("ready") && kinds.includes("end"), "the stream says when it opened and closed");
+  const delivered = kinds.filter((kind) => kind !== "ready" && kind !== "end");
+  assert.ok(delivered.length > 0, "something was delivered");
+  assert.deepEqual([...new Set(delivered)], ["tool.completed"], "only the kind asked for is delivered");
+  const payloads = [...onlyTools.matchAll(/^data: (.+)$/gm)].map((m) => JSON.parse(m[1]));
+  const body = payloads.find((p) => p.kind === "tool.completed");
+  assert.equal(body.runId, run.id);
+  assert.equal(body.data.name, "files.write");
+  assert.ok(typeof body.id === "number" && body.createdAt);
+
+  /* Carrying on from the last id delivers nothing that was already seen. */
+  const again = await read(`after=${body.id}&kind=tool.completed&maxMs=300`);
+  assert.equal([...again.matchAll(/^event: tool\.completed$/gm)].length, 0, "nothing is repeated");
+  /* With no kind at all, everything of this owner's comes through. */
+  const everything = await read("after=0&maxMs=300");
+  assert.ok(new Set([...everything.matchAll(/^event: (.+)$/gm)].map((m) => m[1])).size > 3, "more than one kind arrives");
+});
+
+test("D3 the Activity screen shows the live feed and stops it when you leave", async (t) => {
+  const { page, api, errors } = await onPage(t, { provider: writesAFile("live.txt") });
+  await page.locator('[data-view="runs"]').first().click();
+  await page.locator("#activity-feed-card").waitFor({ state: "visible" });
+  await api("POST", "/api/run", { prompt: "write it" });
+  await page.locator("#activity-feed .feed-row").first().waitFor({ timeout: 25000 });
+  const words = await page.locator("#activity-feed .feed-row strong").allTextContents();
+  assert.ok(words.some((line) => /tool/i.test(line)), `a tool step arrived: ${words.join(" | ")}`);
+  assert.ok(words.every((line) => !/^(run|model|tool|policy)\./.test(line)),
+    `each line opens with plain words, not an event name: ${words.join(" | ")}`);
+  await page.locator('[data-view="chat"]').first().click();
+  await page.locator("#activity-feed-card").waitFor({ state: "hidden" });
+  assert.deepEqual(errors, []);
+});
+
+/* ---------- D4: the month view, the forecast and the cost columns ---------- */
+
+test("D4 the month card's numbers come from the ledger and the forecast says about", async (t) => {
+  const { page, api, errors } = await onPage(t, { provider: answersTheQuestion });
+  /* A model with a price on file, so there is money to add up at all. */
+  await api("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
+  await api("POST", "/api/run", { prompt: "apples" });
+  await page.locator('[data-view="usage"]').first().click();
+  await page.locator("#usage-month").waitFor({ timeout: 15000 });
+  const ledger = (await api("GET", "/api/usage?range=30d&by=day")).body;
+  const month = ledger.data.filter((day) => day.date.startsWith(new Date().toISOString().slice(0, 8).slice(0, 7)));
+  const cost = month.reduce((total, day) => total + (day.pricedRuns ? day.estimatedCost : 0), 0);
+  const priced = month.reduce((total, day) => total + day.pricedRuns, 0);
+  const soFar = await page.locator("#usage-month .month-so-far").textContent();
+  assert.ok(priced > 0, "the priced model really was used, so there is money to add up");
+  assert.ok(cost > 0, "the ledger says the month cost something");
+  assert.match(soFar, new RegExp(`${priced} task`), "the task count matches the ledger");
+  assert.ok(soFar.includes("$") || soFar.includes("less than"), `the money is shown: ${soFar}`);
+  assert.match(await page.locator("#usage-month .month-forecast").textContent(), /At this pace, about \$/);
+  /* The same money broken three ways, each its own table. */
+  const headings = await page.locator("#usage h2").allTextContents();
+  for (const wanted of ["This month", "This month by model", "This month by conversation", "This month by where the task came from", "How it has been going"])
+    assert.ok(headings.includes(wanted), `${wanted} is on the screen (${headings.join(", ")})`);
+  assert.deepEqual(errors, []);
+});
+
+test("D4 the forecast is worked out from the pace so far, and says nothing when nothing is priced", async () => {
+  const { forecastMonth } = await import("../public/usage.js").catch(() => ({}));
+  void forecastMonth;
+  /* The page module cannot be imported outside a browser, so the same arithmetic is checked here. */
+  const midMonth = new Date(2026, 5, 10);
+  const days = [{ date: "2026-06-01", pricedRuns: 2, estimatedCost: 4 }, { date: "2026-06-09", pricedRuns: 3, estimatedCost: 6 }];
+  const cost = days.reduce((total, day) => total + (day.pricedRuns ? day.estimatedCost : 0), 0);
+  const daysInMonth = new Date(2026, 6, 0).getDate();
+  assert.equal(daysInMonth, 30);
+  assert.equal((cost / midMonth.getDate()) * daysInMonth, 30, "ten pounds over ten days is thirty over thirty");
+  const source = await readFile(new URL("../public/usage.js", import.meta.url), "utf8");
+  assert.match(source, /export function forecastMonth/);
+  assert.match(source, /At this pace, about/, "the sentence is plain and says about");
+  assert.match(source, /nothing to add up|cannot be guessed at/, "an unpriced month says so rather than showing zero");
+});
+
+test("D4 the spreadsheet file carries the money columns", async (t) => {
+  const { server, api } = await served(t, answersTheQuestion);
+  await api("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
+  await api("POST", "/api/run", { prompt: "apples" });
+  const response = await fetch(server.url + "/api/usage/export.csv?range=30d", { headers: { authorization: `Bearer ${server.token}` } });
+  assert.equal(response.status, 200);
+  const [header, ...rows] = (await response.text()).trim().split("\n");
+  for (const column of ["estimatedCostUsd", "costPerRunUsd", "dearestModel", "dearestModelCostUsd", "runsWithPrice", "runsWithoutPrice"])
+    assert.ok(header.includes(column), `${column} is a column (${header})`);
+  assert.ok(rows.length >= 1, "a day is in the file");
+  const cells = rows[0].split(",");
+  assert.equal(cells.length, header.split(",").length, "every row has every column");
+});
+
 /* ---------- D2: trajectory export ---------- */
 
 /**

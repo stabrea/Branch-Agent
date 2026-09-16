@@ -36,6 +36,76 @@ let days = [];
 let stats = null;
 let budget = null;
 let pricing = null;
+let statistics = null;
+
+/* ---------- Wave 7: this month, and what it is heading for ---------- */
+
+/** The days of the calendar month that `when` falls in. */
+function monthDays(when = new Date()) {
+  const prefix = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, "0")}-`;
+  return days.filter((day) => day.date.startsWith(prefix));
+}
+/**
+ * What this month has cost so far and, at the same daily pace, what the whole month would come to.
+ * A month with no priced task returns null rather than a made-up number.
+ */
+export function forecastMonth(month, today = new Date()) {
+  const cost = month.reduce((total, day) => total + (day.pricedRuns ? day.estimatedCost : 0), 0);
+  const priced = month.reduce((total, day) => total + day.pricedRuns, 0);
+  const dayOfMonth = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  if (!priced || dayOfMonth < 1) return { cost, priced, projected: null, daysInMonth };
+  return { cost, priced, projected: (cost / dayOfMonth) * daysInMonth, daysInMonth };
+}
+
+/** The month card: what it has cost, what it is heading for, and the same money broken three ways. */
+function renderMonth(view) {
+  const month = monthDays();
+  const card = el("article", undefined, "table-card month-card");
+  card.id = "usage-month";
+  card.append(el("h2", "This month"));
+  const { cost, priced, projected } = forecastMonth(month);
+  card.append(el("p", priced
+    ? `So far this month: ${money(cost)} across ${priced} task(s) with a price on file.`
+    : "No task this month used a model with a price on file, so there is nothing to add up.", "month-so-far"));
+  /* The plain sentence a person can act on. It says "about", because it is a guess from the pace. */
+  card.append(el("p", projected === null
+    ? "There is no price on file for the models used, so this month cannot be guessed at."
+    : `At this pace, about ${money(projected)} this month.`, "month-forecast"));
+  view.append(card);
+  const only = (pick, key) => rollUpOver(month, pick, key);
+  table(view, "This month by model", ["Model", "Tasks", "Tokens", "Estimated cost"],
+    only((d) => d.presets, "id").map((p) => [p.id, p.runs, (p.tokens.input + p.tokens.output).toLocaleString(), money(p.cost)]));
+  table(view, "This month by conversation", ["Conversation", "Tasks", "Tokens", "Estimated cost"],
+    only((d) => d.byConversation, "sessionId").slice(0, 20)
+      .map((c) => [c.sessionId.slice(0, 8), c.runs, (c.tokens.input + c.tokens.output).toLocaleString(), money(c.cost)]));
+  table(view, "This month by where the task came from", ["From", "Tasks", "Estimated cost"],
+    only((d) => d.byChannel, "source").map((s) => [s.source, s.runs, money(s.cost)]));
+}
+
+/** How this copy of Branch is behaving, rather than what it cost. */
+function renderStatistics(view) {
+  if (!statistics) return;
+  const card = el("article", undefined, "table-card");
+  card.id = "usage-statistics";
+  card.append(el("h2", "How it has been going"));
+  const rate = statistics.toolSuccessRate;
+  const rows = [
+    ["Middle round size", statistics.medianTokensPerRound === null
+      ? "no rounds yet" : `${statistics.medianTokensPerRound.toLocaleString()} tokens`],
+    ["Rounds counted", statistics.rounds.toLocaleString()],
+    ["Tools that worked", rate === null ? "no tools used yet" : `${Math.round(rate * 100)}% of ${statistics.toolCalls.toLocaleString()}`],
+    ["Conversations shortened to make room", statistics.compactions.toLocaleString()],
+  ];
+  const node = document.createElement("table");
+  const body = node.createTBody();
+  for (const [label, value] of rows) {
+    const line = body.insertRow();
+    line.append(el("th", label), el("td", value));
+  }
+  card.append(node);
+  view.append(card);
+}
 
 function summaryCards(view) {
   const totals = days.reduce(
@@ -84,9 +154,11 @@ function table(view, heading, columns, rows) {
 }
 
 /** Adds up one grouping across every day in the range. */
-function rollUp(pick, key) {
+const rollUp = (pick, key) => rollUpOver(days, pick, key);
+/** The same, over whichever days you hand it, so the month card can use it too. */
+function rollUpOver(list, pick, key) {
   const totals = new Map();
-  for (const day of days)
+  for (const day of list)
     for (const entry of pick(day)) {
       const existing = totals.get(entry[key]);
       if (!existing) { totals.set(entry[key], { ...entry, tokens: { ...(entry.tokens ?? { input: 0, output: 0 }) } }); continue; }
@@ -186,6 +258,18 @@ function renderExport(view) {
     link.click();
   });
   card.append(save);
+  /* Wave 7: the same tasks as trajectories, one a line, for an evaluation tool to read. */
+  card.append(el("p", "Every task's full record, one per line, for feeding an evaluation run."));
+  const lines = el("button", "Save the tasks as one file per line");
+  lines.type = "button";
+  lines.id = "save-trajectories";
+  lines.addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = "/api/runs/trajectories.jsonl?limit=100";
+    link.download = "branch-trajectories.jsonl";
+    link.click();
+  });
+  card.append(lines);
   view.append(card);
 }
 
@@ -197,11 +281,15 @@ async function render() {
     const response = await api("usage?range=30d&by=day");
     days = response.data ?? [];
     stats = response.stats ?? null;
+    statistics = response.statistics ?? null;
     pricing = response.pricing ?? null;
     budget = (await api("usage/budget")).budget;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
   view.replaceChildren();
   summaryCards(view);
+  // Batch 19 (wave 7): this month first, because that is the question people actually ask.
+  renderMonth(view);
+  renderStatistics(view);
   renderTables(view);
   renderBudget(view);
   renderPricing(view);

@@ -345,6 +345,46 @@ export class UsageStore {
     };
   }
 
+  /**
+   * The few numbers that say how this copy of Branch is behaving, rather than what it cost: the
+   * middle round's size (the middle, not the average, so one enormous task does not colour it),
+   * how often a tool worked, and how many times a conversation had to be shortened.
+   */
+  statistics(owner: string, sinceDays = 30): {
+    medianTokensPerRound: number | null; rounds: number;
+    toolCalls: number; toolFailures: number; toolSuccessRate: number | null; compactions: number;
+  } {
+    const cutoff = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString();
+    const rows = this.db.prepare(
+      `SELECT e.data AS data FROM events e JOIN tasks t ON t.id = e.run_id
+       WHERE t.owner = ? AND e.created_at >= ? AND e.kind = 'model.completed'`
+    ).all(owner, cutoff) as Array<{ data: string }>;
+    const sizes: number[] = [];
+    for (const row of rows) {
+      const data = JSON.parse(row.data) as { reported?: { input?: number; output?: number }; estimatedInput?: number; estimatedOutput?: number };
+      const size = (data.reported?.input ?? data.estimatedInput ?? 0) + (data.reported?.output ?? data.estimatedOutput ?? 0);
+      if (size > 0) sizes.push(size);
+    }
+    sizes.sort((a, b) => a - b);
+    const middle = sizes.length ? sizes[Math.floor((sizes.length - 1) / 2)]! : null;
+    const count = (kinds: string) => Number((this.db.prepare(
+      `SELECT COUNT(*) AS n FROM events e JOIN tasks t ON t.id = e.run_id
+       WHERE t.owner = ? AND e.created_at >= ? AND e.kind IN (${kinds})`
+    ).get(owner, cutoff) as { n: number }).n);
+    const done = count("'tool.completed'"), failed = count("'tool.failed','tool.stalled'");
+    let compactions = 0;
+    try {
+      compactions = Number((this.db.prepare(`SELECT COUNT(*) AS n FROM compactions WHERE created_at >= ?`)
+        .get(cutoff) as { n: number }).n);
+    } catch { /* an older install has no compactions table yet, which counts as none */ }
+    return {
+      medianTokensPerRound: middle, rounds: sizes.length,
+      toolCalls: done + failed, toolFailures: failed,
+      toolSuccessRate: done + failed > 0 ? done / (done + failed) : null,
+      compactions,
+    };
+  }
+
   updateCache(date: string, aggregate: UsageAggregate, lastEventId: number): void {
     const now = new Date().toISOString();
     this.db

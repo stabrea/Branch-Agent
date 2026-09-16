@@ -114,7 +114,7 @@ function toEntry(row: Record<string, unknown>): AuditEntry {
  * One cell. A leading `=`, `+`, `-` or `@` would make a spreadsheet treat the text as a formula,
  * so such a cell is prefixed with a single quote and stays plain text wherever it is opened.
  */
-const csvCell = (value: unknown): string => {
+export const csvCell = (value: unknown): string => {
   const text = String(value ?? "");
   const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
   return `"${safe.replace(/"/g, '""')}"`;

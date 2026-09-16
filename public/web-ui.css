@@ -172,6 +172,22 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 .live-ask-choice { display: grid; gap: 0.2rem; justify-items: start; max-width: 15rem; }
 .live-ask-grant { font-size: 0.72rem; color: var(--faint); line-height: 1.4; }
 
+/* ---- Wave 7: two tasks side by side, and the live feed on the Activity screen ---- */
+.compare-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+.compare-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+.compare-table th,
+.compare-table td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+.compare-table td:first-child { color: var(--muted); }
+.compare-differs td { background: var(--accent-soft); }
+.compare-diff { display: grid; gap: 0.1rem; overflow-x: auto; }
+.compare-diff p { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.compare-gone { color: var(--muted); }
+.compare-new { color: var(--text); }
+.compare-pick[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.feed-row { display: grid; gap: 1px; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+.feed-row strong { font-size: 0.85rem; font-weight: 550; }
+.feed-row .meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--faint); }
+
 /* ---- The quiet context meter under the composer ---- */
 .meter-row { position: relative; display: flex; justify-content: center; padding: 0.15rem 0 0.1rem; }
 .meter-row[hidden] { display: none; }
