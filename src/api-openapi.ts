@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { RunInputSchema } from "./contracts.js";
-import { BranchSessionSchema } from "./sessions.js";
 import { PolicyInputSchema } from "./policy.js";
 import { WorkflowSchema } from "./workflows.js";
 import { ProjectSchema } from "./projects.js";
@@ -36,9 +35,9 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/runs/{runId}/inspect", summary: "Look inside a task: rounds, tool calls, plan and verdicts.", tag: "runs" },
   { method: "get", path: "/api/activity", summary: "Tasks working now and the conversations they belong to.", tag: "runs" },
   { method: "get", path: "/api/sessions/{sessionId}", summary: "One conversation with its messages.", tag: "sessions" },
-  { method: "post", path: "/api/sessions/branch", summary: "Start a separate conversation from a message in this one.", tag: "sessions", body: BranchSessionSchema },
   { method: "get", path: "/api/sessions/{sessionId}/tree", summary: "This conversation and everything branched from it.", tag: "sessions" },
-  { method: "get", path: "/api/memory/list", summary: "What the assistant has been asked to remember.", tag: "memory" },
+  { method: "post", path: "/api/sessions/{sessionId}/merge-note", summary: "Carry this branch's last answer back into the conversation it came off.", tag: "sessions" },
+  { method: "get", path: "/api/memory/export", summary: "Everything the assistant has been asked to remember.", tag: "memory" },
   { method: "post", path: "/api/memory/search", summary: "Search the saved facts.", tag: "memory", bodyNote: "A search: { query, limit }." },
   { method: "get", path: "/api/state", summary: "One snapshot of everything the app's own screen shows.", tag: "app" },
   { method: "get", path: "/api/health", summary: "Whether the app, its database and its model connection are well.", tag: "app" },

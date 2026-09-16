@@ -19,13 +19,13 @@ Version 0.15.0. The machine-readable description is at `GET /api/openapi.json`.
 | Method | Address | What it is for |
 | --- | --- | --- |
 | `GET` | `/api/sessions/{sessionId}` | One conversation with its messages. |
-| `POST` | `/api/sessions/branch` | Start a separate conversation from a message in this one. |
 | `GET` | `/api/sessions/{sessionId}/tree` | This conversation and everything branched from it. |
+| `POST` | `/api/sessions/{sessionId}/merge-note` | Carry this branch's last answer back into the conversation it came off. |
 ## memory
 
 | Method | Address | What it is for |
 | --- | --- | --- |
-| `GET` | `/api/memory/list` | What the assistant has been asked to remember. |
+| `GET` | `/api/memory/export` | Everything the assistant has been asked to remember. |
 | `POST` | `/api/memory/search` | Search the saved facts. |
 ## app
 

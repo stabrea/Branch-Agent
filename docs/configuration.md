@@ -2736,8 +2736,12 @@ programs could read.
   with, so the description cannot drift from what the app will actually accept.
 - `node scripts/write-api-docs.mjs` writes the readable version to [docs/api.md](api.md). Run it
   after `npm run build`.
+- Every operation in it says the session key is required and what a missing or wrong one gets back;
+  the API is not open to anything that has not been given the key the app printed when it started.
 - The description is the only thing under this heading anybody with the session key may simply read;
   everything else here belongs to the owner.
+- A test asserts that every route the description names is really answered by the server, so it
+  cannot promise a route that does not exist.
 
 The routes themselves are listed in `src/api-openapi.ts`. Routes that only the app's own screens use,
 and the ones that write their own answer (a backup file, a spreadsheet), are left out on purpose.
@@ -2753,12 +2757,19 @@ leaves this computer and nothing is charged.
 - `POST /api/request-cache` with `{ "enabled": true, "ttlMinutes": 60, "maxEntries": 500 }`.
 - `POST /api/request-cache/clear` throws every kept answer away.
 
-Two rules keep it honest. **An answer that asks for a tool is never kept**, because replaying it
-would replay whatever that tool does — only plain text answers are. And the kept answers are the
-owner's, like the locker and the projects, so nobody else on this computer reads one back out.
+Three rules keep it honest. **An answer that asks for a tool is never kept**, because replaying it
+would replay whatever that tool does — only plain text answers are. **Nothing that carried a picture
+or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
+the app, so a second person in the household never reads one of the owner's answers back out.
+
+A request is only the same request when everything the model was shown is the same: the messages
+(your instructions among them), the model, the effort, and every tool by name *and* by the words
+describing it. Change any of those and the question is asked afresh.
 
 On the "Look inside" screen a round answered this way is marked `cached`, its cost shows as nothing,
-and the reason is written beside it.
+and the reason is written beside it. The kept answer is looked for before anything is charged, so the
+figures per project agree with the inspector: a round that never reached the provider counts nothing
+in either place.
 
 ### A whole set of questions at once (A1351, A1352)
 
@@ -2791,7 +2802,14 @@ Turning the setting on today changes nothing except the sentence you get back.
 
 Turning it on makes **every tool wait for your yes**, and switches off running programs on this
 computer, using your screen and keyboard, borrowing your browser, sending messages out, and telling
-other programs what happened.
+other programs what happened. It also ends every "yes, just for this conversation" you gave earlier,
+so nothing that was already said yes to carries on unasked, and it empties the list of programs
+allowed to be left running, so `process.start` refuses by name. Only the owner can turn it on or off:
+under someone else's profile the route refuses. It is kept in the database, so it is still on after
+the app is closed and opened again.
+
+What it does **not** stop: a server for another AI tool that is already set up stays reachable, but
+every tool call through it waits for your yes like any other.
 
 Turning it off puts back **exactly** the settings that were there before — they are copied, untouched,
 before anything is changed, and a switch that had never been saved at all is left unsaved rather than

@@ -4,9 +4,11 @@ import { audit } from "./audit.js";
 
 /**
  * One switch that shuts everything down at once. Turning Lockdown on makes every tool wait for the
- * owner's yes, and switches off the four things that reach past this app on their own: running
- * programs on this computer, using the screen and keyboard, borrowing the owner's browser, and
- * sending anything out — messages and notes to other programs.
+ * owner's yes — the yeses already given for a conversation are ended too, by the route that sets it,
+ * or an answer given earlier would keep standing in for the question — and switches off the things
+ * that reach past this app on their own: running a script, leaving a program running, using the
+ * screen and keyboard, borrowing the owner's browser, and sending anything out, which is both
+ * messages and notes to other programs.
  *
  * What made it possible to turn back on again is the exact settings that were there before. They
  * are copied, untouched, into one kept record; turning Lockdown off writes those same settings back
@@ -19,6 +21,8 @@ const guarded: readonly { key: string; locked: Record<string, unknown> }[] = [
   // Every tool, on anything, waits for a yes. The first matching rule wins, so one rule is enough.
   { key: "policy", locked: { preset: "custom", rules: [{ tool: "*", match: "*", applies: "any", decision: "ask", remember: "never" }], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } } },
   { key: "code-run", locked: { enabled: false } },
+  // Programs the owner allows to be left running: with the list empty, process.start refuses by name.
+  { key: "background-processes", locked: { programs: {} } },
   { key: "desktop-control", locked: { enabled: false } },
   { key: "browser-attach", locked: { enabled: false, runId: "", grantedAt: "" } },
 ];
@@ -34,6 +38,7 @@ export interface LockdownState {
 }
 export const lockdownEffects = [
   "Every tool waits for your yes.",
+  "Anything you already said yes to has to be asked again.",
   "Running programs on this computer is off.",
   "Using your screen and keyboard is off.",
   "Borrowing your browser is off.",

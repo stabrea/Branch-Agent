@@ -34,9 +34,7 @@ export async function otherApi(
   if (path === "/api/openapi.json")
     return request.method === "GET" ? openApiDocument(app.version) : notFound();
   app.store.profiles.requireOwner("Lockdown, kept answers and what each project has cost");
-  if (path === "/api/lockdown")
-    return request.method === "POST"
-      ? setLockdown(app.store, owner, await readBody(request)) : lockdownState(app.store, owner);
+  if (path === "/api/lockdown") return lockdownApi(app, request, owner, readBody);
   if (path === "/api/request-cache") return cacheApi(app, request, owner, readBody);
   if (path === "/api/request-cache/clear")
     return request.method === "POST" ? app.runtime.requestCache.clear() : notFound();
@@ -44,6 +42,21 @@ export async function otherApi(
   if (path === "/api/batch/run") return batchRunApi(app, request, owner, readBody);
   if (path === "/api/projects/costs") return costsApi(app, request, owner);
   return notFound();
+}
+
+/**
+ * Turning Lockdown on also ends every "yes, just for this conversation" given earlier. Without that,
+ * a tool already said yes to would keep going without asking, because an answer given earlier stands
+ * in for the question — and the whole point of the switch is that nothing goes ahead unasked.
+ */
+async function lockdownApi(
+  app: Branch, request: IncomingMessage, owner: string,
+  readBody: (request: IncomingMessage) => Promise<unknown>,
+): Promise<unknown> {
+  if (request.method !== "POST") return lockdownState(app.store, owner);
+  const state = setLockdown(app.store, owner, await readBody(request));
+  if (state.on) app.runtime.approvals.forgetAll();
+  return state;
 }
 
 async function cacheApi(

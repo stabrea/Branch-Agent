@@ -1242,8 +1242,18 @@ export class Runtime {
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
     if (input > contextLimit) throw new BudgetError(tooLong);
+    // The same question asked twice. The kept answer is looked for before anything is charged or
+    // written down as an attempt, so a round that never reached the provider really does cost
+    // nothing — in the inspector and in the figures alike. The step count still applies, so a task
+    // cannot go round for ever on kept answers.
+    const maxTokens = Math.min(2048, Math.max(0, context.budget.remaining() - input));
+    const cacheKey: CacheKeyParts = {
+      provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
+      messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
+    };
+    const kept = this.requestCache.look(cacheKey);
+    if (kept) return this.answeredFromCache(run, preset, kept);
     context.budget.charge(input);
-    const maxTokens = Math.min(2048, context.budget.remaining());
     if (maxTokens < 1) throw new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, preset.model)}`);
     this.store.beginUsage(run.id, input);
     this.store.event(run.id, "model.started", {
@@ -1258,22 +1268,6 @@ export class Runtime {
       "gen_ai.system": preset.provider.name, "gen_ai.request.model": preset.model,
       "branch.preset": preset.id, "branch.tokens.estimated_input": input,
     });
-    // The same question asked twice. A kept answer costs nothing and never leaves this computer,
-    // so the round is recorded as finished with no tokens and the reason written beside it.
-    const cacheKey: CacheKeyParts = {
-      provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
-      messages, tools: tools.map((tool) => ({ name: tool.name })),
-    };
-    const kept = this.requestCache.look(cacheKey);
-    if (kept) {
-      this.store.event(run.id, "model.completed", {
-        toolCalls: 0, estimatedInput: 0, estimatedOutput: 0, reported: null, cachedInput: null,
-        preset: preset.id, provider: preset.provider.name, model: preset.model,
-        cached: true, cacheReason: "The same request was answered before, so nothing was sent or charged.",
-      });
-      span?.end("ok", "", { "branch.model.cached": true });
-      return CompletionSchema.parse({ ...kept, toolCalls: [] });
-    }
     try {
       const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
       const raw = onTextDelta
@@ -1308,6 +1302,22 @@ export class Runtime {
       span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
+  }
+  /**
+   * A round answered from the kept answers. The provider was never asked, so the round is written
+   * down as finished with no tokens at all and priced at nothing, with the reason beside it; an
+   * answer that asks for a tool is never kept, so there is never one to replay here.
+   */
+  private answeredFromCache(run: Run, preset: ModelPreset, kept: Completion): Completion {
+    this.store.event(run.id, "model.completed", {
+      toolCalls: 0, estimatedInput: 0, estimatedOutput: 0, reported: null, cachedInput: null,
+      preset: preset.id, provider: preset.provider.name, model: preset.model,
+      cached: true, cacheReason: "The same request was answered before, so nothing was sent or charged.",
+    });
+    this.tracer.start(run.id, "model", `model ${preset.model}`, {
+      "gen_ai.system": preset.provider.name, "gen_ai.request.model": preset.model, "branch.preset": preset.id,
+    })?.end("ok", "", { "branch.model.cached": true });
+    return CompletionSchema.parse({ ...kept, toolCalls: [] });
   }
   private recordCompletion(
     run: Run,

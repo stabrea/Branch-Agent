@@ -62,8 +62,16 @@ test("the OpenAPI description is well formed and lists the run, conversation and
   assert.deepEqual(body.servers.map((s) => s.url), ["http://127.0.0.1:3210"]);
   assert.ok(body.components.securitySchemes.sessionKey, "the session key is described");
 
-  for (const wanted of ["/api/run", "/api/sessions/{sessionId}", "/api/sessions/branch", "/api/memory/list", "/api/memory/search"])
+  for (const wanted of ["/api/run", "/api/sessions/{sessionId}", "/api/sessions/{sessionId}/tree", "/api/memory/export", "/api/memory/search"])
     assert.ok(body.paths[wanted], `${wanted} is described`);
+
+  // Every operation says the session key is needed, and says what a missing one gets back.
+  assert.deepEqual(body.security, [{ sessionKey: [] }]);
+  for (const methods of Object.values(body.paths))
+    for (const [method, operation] of Object.entries(methods)) {
+      assert.deepEqual(operation.security, [{ sessionKey: [] }], `${method} says the session key is needed`);
+      assert.ok(operation.responses["401"], `${method} says what a wrong key gets back`);
+    }
 
   // Every operation carries the parts another program needs to call it.
   for (const [path, methods] of Object.entries(body.paths))
@@ -80,6 +88,20 @@ test("the OpenAPI description is well formed and lists the run, conversation and
   assert.ok(runBody.properties.prompt, "the prompt is described");
   assert.deepEqual(runBody.required, ["prompt"]);
   assert.equal(runBody.$schema, undefined, "the JSON-Schema marker is taken off for OpenAPI");
+});
+
+test("every route the description promises is really served", async (t) => {
+  const { app, call } = await served(t);
+  const run = await app.runtime.run({ prompt: "hello" });
+  const flowId = "00000000-0000-4000-8000-000000000000";
+  const missing = [];
+  for (const route of apiRoutes) {
+    const path = route.path.replace("{runId}", run.id).replace("{sessionId}", run.sessionId).replace("{flowId}", flowId);
+    const { status, body } = await call(path, route.method === "get" ? undefined : {}, route.method.toUpperCase());
+    // A described route may refuse the empty body this sends; what it may never do is not exist.
+    if (status === 404 && /not found/i.test(String(body?.error ?? ""))) missing.push(`${route.method} ${route.path}`);
+  }
+  assert.deepEqual(missing, [], "the description must not promise a route the app does not answer");
 });
 
 test("the readable version of the API page is written from the same description", async () => {
@@ -114,10 +136,58 @@ test("a kept answer skips the provider, costs nothing, and says so in the inspec
   assert.equal(seen[0].cost.amount, 0, "a kept answer is counted as costing nothing");
   assert.match(seen[0].cacheReason, /answered before/);
   assert.equal(app.store.usage(second.id).estimatedOutput, 0, "no tokens were charged for it");
+  assert.equal(app.store.usage(second.id).estimatedInput, 0, "nor were any counted going in");
+  assert.equal(app.store.usage(second.id).incompleteCalls, 0, "the round is not left looking unfinished");
+
+  // The figures a person reads must say the same thing as the inspector: the second task cost nothing.
+  const ledger = costByProject(app.store, app.runtime.owner, 30);
+  const tokens = ledger.reduce((total, entry) => total + entry.tokens.input + entry.tokens.output, 0);
+  const firstUsage = app.store.usage(first.id);
+  assert.equal(tokens, firstUsage.estimatedInput + firstUsage.estimatedOutput,
+    "only the task that really reached the provider is counted");
 
   // A different question is a different request.
   await app.runtime.run({ prompt: "What is the capital of Spain?" });
   assert.equal(provider.requests.length, 2);
+});
+
+test("a request carrying a picture or the name of a saved secret is never kept", async (t) => {
+  const { app } = await fixture(t, [{ content: "Same answer.", toolCalls: [] }]);
+  const owner = app.runtime.owner;
+  saveCacheSettings(app.store, owner, { enabled: true });
+  const cache = app.runtime.requestCache;
+  const base = { provider: "p", model: "m", reasoning: null, maxTokens: 100, tools: [] };
+  const answer = { content: "Same answer.", toolCalls: [] };
+
+  const withPicture = { ...base, messages: [{ role: "user", content: "what is this", images: [{ data: "AAAA", mediaType: "image/png" }] }] };
+  assert.equal(cache.keep(withPicture, answer), false, "a picture is never kept");
+  assert.equal(cache.look(withPicture), null);
+
+  const withSecret = { ...base, messages: [{ role: "user", content: "use secret://default/API_KEY" }] };
+  assert.equal(cache.keep(withSecret, answer), false, "the name of a saved secret is never kept");
+  assert.equal(cache.look(withSecret), null);
+
+  // Plain text still is, and the words describing a tool are part of what makes a request the same.
+  const plain = { ...base, messages: [{ role: "user", content: "hello" }], tools: [{ name: "files.list", description: "List files." }] };
+  assert.equal(cache.keep(plain, answer), true);
+  assert.equal(cache.look(plain)?.content, "Same answer.");
+  assert.equal(cache.look({ ...plain, tools: [{ name: "files.list", description: "List everything, everywhere." }] }), null,
+    "a tool whose description changed is a different request");
+});
+
+test("one person in the household never reads another's kept answers", async (t) => {
+  const { app } = await fixture(t, [{ content: "Paris.", toolCalls: [] }]);
+  const owner = app.runtime.owner;
+  saveCacheSettings(app.store, owner, { enabled: true });
+  const parts = { provider: "p", model: "m", reasoning: null, maxTokens: 100, tools: [],
+    messages: [{ role: "user", content: "What is the capital of France?" }] };
+  assert.equal(app.runtime.requestCache.keep(parts, { content: "Paris.", toolCalls: [] }), true);
+
+  const profile = app.store.profiles.create({ name: "Sam", pin: "4321" });
+  app.store.profiles.switch({ profileId: profile.id, pin: "4321" });
+  assert.equal(app.runtime.requestCache.look(parts), null, "the other person's answer is not theirs to read");
+  app.store.profiles.switch({ profileId: null });
+  assert.equal(app.runtime.requestCache.look(parts)?.content, "Paris.", "the owner's own answer is still there");
 });
 
 test("an answer that asks for a tool is never kept, and the hash follows the request", async (t) => {
@@ -342,7 +412,11 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   // Something set before Lockdown, and something that was never set at all.
   store.save("settings", owner, "code-run", { enabled: true, python: "", network: true, timeoutMs: 15000, maxMemoryMb: 512, maxCpuSeconds: 20, maxOutputBytes: 8192 });
   store.save("settings", owner, "policy", { preset: "workspace", rules: [{ tool: "files.write", match: "*", applies: "any", decision: "allow", remember: "session" }], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } });
+  store.save("settings", owner, "background-processes", { programs: { site: { path: "C:/x/node.exe", args: [] } }, maxRunning: 3, maxMinutes: 120, maxMemoryMb: 2048, maxCpuSeconds: 1800, bufferBytes: 16384 });
   assert.equal(store.get("settings", owner, "desktop-control"), undefined, "the screen switch was never saved");
+  const processesBefore = JSON.stringify(store.get("settings", owner, "background-processes").data);
+  // A "yes, for this conversation" given before Lockdown must not still be standing afterwards.
+  app.runtime.approvals.remember("session-1", "files.write", "notes.txt", "allow");
   const policyBefore = JSON.stringify(store.get("settings", owner, "policy").data);
   const codeRunBefore = JSON.stringify(store.get("settings", owner, "code-run").data);
 
@@ -360,6 +434,10 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   assert.equal(store.get("settings", owner, "code-run").data.enabled, false);
   assert.equal(store.get("settings", owner, "desktop-control").data.enabled, false);
   assert.equal(store.get("settings", owner, "browser-attach").data.enabled, false);
+  assert.deepEqual(store.get("settings", owner, "background-processes").data.programs, {},
+    "no program may be left running while it is on");
+  assert.equal(app.runtime.approvals.answer("session-1", "files.write", "notes.txt"), undefined,
+    "a yes given earlier no longer stands in for the question");
   const locked = store.get("settings", owner, "policy").data;
   assert.equal(locked.preset, "custom");
   assert.deepEqual(locked.rules, [{ tool: "*", match: "*", applies: "any", decision: "ask", remember: "never" }]);
@@ -388,6 +466,7 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   // Exactly what was there before, and nothing invented for what was never set.
   assert.equal(JSON.stringify(store.get("settings", owner, "policy").data), policyBefore);
   assert.equal(JSON.stringify(store.get("settings", owner, "code-run").data), codeRunBefore);
+  assert.equal(JSON.stringify(store.get("settings", owner, "background-processes").data), processesBefore);
   assert.equal(store.get("settings", owner, "desktop-control"), undefined, "a switch never set stays unset");
   assert.equal(store.audit.list(owner, { limit: 50 }).filter((e) => e.subject === "Lockdown off").length, 1);
 
