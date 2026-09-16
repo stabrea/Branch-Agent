@@ -172,6 +172,62 @@ test("the extra refused websites are saved and read back through the browser set
 });
 
 // ---------------------------------------------------------------------------
+// 6. A service the owner turned into tools is still there after a restart, and
+//    "forget this service" really forgets it. Nothing is fetched on the way back.
+// ---------------------------------------------------------------------------
+
+/** The smallest OpenAPI description that yields one tool, so nothing has to be reached. */
+const tinyService = (base) => JSON.stringify({
+  openapi: "3.0.0", info: { title: "Tiny", version: "1" }, servers: [{ url: base }],
+  paths: { "/things/{id}": { get: { operationId: "getThing", summary: "Get one thing",
+    parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+    responses: { "200": { description: "ok" } } } } },
+});
+
+test("a service turned into tools comes back after a restart, without fetching anything", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-openapi-restart-"));
+  const where = { workspace: join(root, "workspace"), dataDir: join(root, "data") };
+  const provider = { name: "scripted", async complete() { return say("done"); } };
+  // One app at a time over the same data, each closed before the next opens, and the folder taken
+  // away only once every one of them has let go of the database.
+  const open = [];
+  t.after(async () => {
+    for (const app of open) await app.close().catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  });
+  const first = await createBranch({ ...where, provider });
+  open.push(first);
+  // A loopback address, and nothing listening on it: adding the service reads the description from
+  // the workspace and never calls the service itself.
+  first.web.policy.configure({ allowPrivateAddresses: true });
+  await first.files.write("tiny.json", tinyService("http://127.0.0.1:9/v1"), AbortSignal.timeout(5000));
+  const made = await first.runtime.executeTool("tools.from_openapi", {
+    name: "tiny", file: "tiny.json", allowlist: ["getThing"], secret: "TINY_KEY", auth: "bearer",
+  });
+  assert.deepEqual(made.registered, ["api.tiny.get_thing"]);
+  await first.close();
+
+  // A fresh app over the same data: the tools are back, with their shapes, and no key was stored.
+  const second = await createBranch({ ...where, provider });
+  open.push(second);
+  assert.ok(second.registry.names().includes("api.tiny.get_thing"), "the service's tools survive a restart");
+  assert.equal(second.registry.groupOf("api.tiny.get_thing"), "services");
+  assert.deepEqual(second.openApiTools.list().map((service) => service.name), ["tiny"]);
+  const saved = second.store.get("settings", second.runtime.owner, "openapi-service:tiny").data;
+  assert.equal(saved.secret, "TINY_KEY", "the name of the secret is kept");
+  assert.equal(JSON.stringify(saved).includes("tiny-key-value"), false, "the key itself never leaves the locker");
+
+  // Forgetting it takes the tools out and stops them coming back next time.
+  await second.runtime.executeTool("tools.forget_service", { name: "tiny" });
+  assert.equal(second.registry.names().includes("api.tiny.get_thing"), false);
+  assert.ok(!second.store.get("settings", second.runtime.owner, "openapi-service:tiny"));
+  await second.close();
+  const third = await createBranch({ ...where, provider });
+  open.push(third);
+  assert.equal(third.registry.names().includes("api.tiny.get_thing"), false, "a forgotten service stays forgotten");
+});
+
+// ---------------------------------------------------------------------------
 // 10. The tool checks really call the tools, so they run somewhere of their own
 //     and leave the owner's folder and the owner's memory exactly as they were.
 // ---------------------------------------------------------------------------

@@ -51,17 +51,70 @@ export interface OpenApiHost {
 /** One service the owner turned into tools, so it can be listed and taken away again. */
 export interface RegisteredService { name: string; base: string; tools: string[]; title: string }
 
+/**
+ * What is written down about a service so its tools come back after a restart. The description
+ * itself is kept beside the rest, because a service whose address is unreachable — the owner is
+ * offline, the service is down, the file has moved — must still give back its tools rather than
+ * quietly go missing. **No key is here**: the key stays in the locker and is fetched at the moment
+ * of each call, exactly as it was before.
+ */
+const SavedServiceSchema = z.object({
+  name: groupName,
+  allowlist: z.array(z.string().min(1).max(120)).min(1).max(50),
+  baseUrl: z.string().url().max(500).optional(),
+  secret: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+  auth: z.enum(["bearer", "header", "none"]).default("none"),
+  header: z.string().regex(/^[A-Za-z][A-Za-z0-9-]{0,39}$/).default("Authorization"),
+  /** Where it came from, for the card; never fetched again on the way back. */
+  from: z.string().max(2000).default(""),
+  /** The description as it was read, so the tools are rebuilt without reaching anywhere. */
+  document: z.string().min(2).max(4 * 1024 * 1024),
+}).strict();
+type SavedService = z.infer<typeof SavedServiceSchema>;
+const savedKey = (name: string): string => `openapi-service:${name}`;
+
 export class OpenApiTools {
   private readonly services = new Map<string, RegisteredService>();
   constructor(private readonly registry: ToolRegistry, private readonly host: OpenApiHost) {}
   list(): RegisteredService[] { return [...this.services.values()]; }
-  /** Takes one service's tools back out of the catalog. */
-  remove(name: string): boolean {
+  /** Takes one service's tools back out of the catalog, and forgets it for the next start too. */
+  remove(name: string, owner?: string): boolean {
+    if (owner) this.host.store.delete("settings", owner, savedKey(name));
     const service = this.services.get(name);
     if (!service) return false;
     for (const tool of service.tools) this.registry.unregister(tool);
     this.services.delete(name);
     return true;
+  }
+
+  /**
+   * Builds every service the owner added back into tools when the app starts. Nothing is fetched:
+   * each description was written down as it was read, so this works with no network at all, and a
+   * service that has become unreadable is skipped rather than allowed to stop the app starting.
+   */
+  restore(owner: string): string[] {
+    const back: string[] = [];
+    for (const record of this.host.store.list("settings", owner)) {
+      if (!record.id.startsWith("openapi-service:")) continue;
+      const parsed = SavedServiceSchema.safeParse(record.data);
+      if (!parsed.success) continue;
+      try { back.push(this.rebuild(parsed.data)); } catch { /* one bad service never stops the rest */ }
+    }
+    return back;
+  }
+  private rebuild(saved: SavedService): string {
+    const source = parseOpenApiText(saved.document);
+    const document = readOpenApi(source);
+    const wanted = new Set(saved.allowlist);
+    const chosen = document.operations.filter((operation) => wanted.has(operation.id));
+    const input: FromOpenApiInput = { name: saved.name, allowlist: saved.allowlist, auth: saved.auth,
+      header: saved.header, dryRun: false, ...(saved.baseUrl ? { baseUrl: saved.baseUrl } : {}),
+      ...(saved.secret ? { secret: saved.secret } : {}) };
+    const base = this.baseFor(input, document.servers);
+    this.remove(saved.name);
+    const names = chosen.map((operation) => this.registerOne(input, source, operation, base));
+    this.services.set(saved.name, { name: saved.name, base, tools: names, title: document.title });
+    return saved.name;
   }
 
   /** Reads the description and registers a tool for each allowed operation. */
@@ -82,6 +135,13 @@ export class OpenApiTools {
     this.remove(input.name);
     const names = chosen.map((operation) => this.registerOne(input, source, operation, base));
     this.services.set(input.name, { name: input.name, base, tools: names, title: document.title });
+    // Written down so the tools are there again after a restart. The key is not part of this: it
+    // stays in the locker and is fetched at the moment of each call, exactly as before.
+    this.host.store.save("settings", context.owner, savedKey(input.name), SavedServiceSchema.parse({
+      name: input.name, allowlist: input.allowlist, auth: input.auth, header: input.header,
+      from: input.url ?? input.file ?? "", document: text,
+      ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.secret ? { secret: input.secret } : {}),
+    }));
     if (context.runId) this.host.store.event(context.runId, "tools.from_openapi", { service: input.name, base, tools: names.length });
     return { service: document.title, base, registered: names, tools: preview, missing };
   }
@@ -204,6 +264,6 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     description: "Take one service's tools back out, leaving everything else alone.",
     parameters: z.object({ name: groupName }).strict(),
     target: (args) => `forget api.${args.name}`,
-    execute: async (args) => ({ name: args.name, removed: tools.remove(args.name) }),
+    execute: async (args, context) => ({ name: args.name, removed: tools.remove(args.name, context.owner) }),
   });
 }

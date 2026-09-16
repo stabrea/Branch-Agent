@@ -1565,8 +1565,15 @@ scrubbed back out of the answer. Descriptions written in the document are capped
 the same filter a web page gets, so a document cannot talk the assistant into anything.
 `tools.services` shows what is registered and `tools.forget_service` takes one back out. Every tool
 a service brings is filed in its own **services** toolbox, so one large document can never crowd out
-the built-in tools. Registered services last as long as the app is running; add them again after a
-restart. Notion is the worked example:
+the built-in tools. **A service you add stays added.** What you told Branch — the name, the
+operations you allowed, the address to call, which saved secret holds the key, and the description
+exactly as it was read — is written down with the rest of your settings, and the tools are built
+back from it when Branch next starts. Nothing is fetched on the way back, so a service that is down,
+or a description you have since moved, still gives you its tools; the address is checked against
+your network rules when a call is actually made, as it always was. **The key is not part of what is
+written down**: it stays in the locker and is fetched at the moment of each call. `tools.forget_service`
+takes the tools out and forgets the service for good, so it does not come back next time. Notion is
+the worked example:
 
 ```
 tools.from_openapi { name: "notion", file: "notion-openapi.json",

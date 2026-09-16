@@ -271,6 +271,10 @@ export async function createBranch(options: {
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
   const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
   registerOpenApiTools(registry, openApiTools);
+  // Batch 20 (wave 8): the services the owner turned into tools are built back from what was
+  // written down, so they survive a restart. Nothing is fetched; each key still comes from the
+  // locker at the moment of the call.
+  openApiTools.restore(runtime.owner);
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
