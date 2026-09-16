@@ -367,7 +367,8 @@ class Tui {
     const decision = choice === "n" ? "deny" : "allow";
     const remember = choice === "a" ? "always" : choice === "s" ? "session" : choice === "n" ? "session" : waiting.remember;
     try {
-      const answered = this.runtime.approve(waiting.sessionId, decision, remember);
+      // Bound to the exact request the person was shown, the same as the app's own card.
+      const answered = this.runtime.approve(waiting.sessionId, decision, remember, waiting.fingerprint);
       this.emit(`[noted: ${answered.decision === "allow" ? "go ahead" : "do not do that"} for ${answered.tool}${answered.target ? " on " + answered.target : ""}]`);
     } catch (error) {
       this.emit(`[${error instanceof Error ? error.message : String(error)}]`);

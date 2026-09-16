@@ -48,7 +48,7 @@ async function auditApi(app: Branch, request: IncomingMessage, path: string, own
 /** The filters a web address can carry, in the shape the record understands. */
 function filterFrom(query: URLSearchParams): unknown {
   const value: Record<string, unknown> = {};
-  for (const name of ["action", "source", "from", "to"]) {
+  for (const name of ["action", "source", "origin", "from", "to"]) {
     const found = query.get(name);
     if (found) value[name] = found;
   }

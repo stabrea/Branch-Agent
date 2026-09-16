@@ -130,12 +130,28 @@ class OllamaEmbeddings implements Embeddings {
   }
 }
 
-/** The right adapter for a connection, or nothing when the address or key will not do. */
+/**
+ * Which fetch an embedding call is made with. Everything that leaves this computer goes through the
+ * owner's network rules, exactly as every other call to a provider does: `call` is the app's
+ * guarded fetch. A reader running on this computer is reached with the plain one, because those
+ * rules refuse private and local addresses on purpose and a model on this machine is the single
+ * case where that would be the wrong answer; its floor is the loopback-or-HTTPS check in
+ * `assertProviderEndpoint`, which every one of these adapters already makes.
+ */
+export const embeddingFetch = (endpoint: string, call: typeof fetch): typeof fetch =>
+  onThisComputer(endpoint) ? globalThis.fetch : call;
+
+/**
+ * The right adapter for a connection, or nothing when the address or key will not do. `call` is the
+ * app's guarded fetch; pass it and every passage sent off this computer is checked against the
+ * owner's network rules first.
+ */
 export function embeddingsFor(connection: EmbeddingConnection, call: typeof fetch = globalThis.fetch): Embeddings | null {
+  const reach = embeddingFetch(connection.endpoint, call);
   try {
-    if (connection.shape === "gemini") return new GeminiEmbeddings(connection, connection.local, call);
-    if (connection.shape === "ollama") return new OllamaEmbeddings(connection, connection.model, call);
-    return new OpenAIEmbeddings(connection, connection.local, call);
+    if (connection.shape === "gemini") return new GeminiEmbeddings(connection, connection.local, reach);
+    if (connection.shape === "ollama") return new OllamaEmbeddings(connection, connection.model, reach);
+    return new OpenAIEmbeddings(connection, connection.local, reach);
   } catch { return null; }
 }
 /** An older-style passage reader seen through the fuller interface, for wrapping it in the cache. */

@@ -22,11 +22,27 @@ export const auditActions = [
   "skill.forced",
   // Batch 26 (wave 8): one of the owner's own checks stopped a tool call, or held it for a yes.
   "hook.blocked",
+  // Wave 8: a connection that stays open — a live voice conversation — reaches outside this
+  // computer for as long as it lasts, so every one is written down: which host, and how it ended.
+  "network.connected",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
-/** Where the moment came from: the owner's own app, a schedule, a trigger, or another AI tool. */
-export const auditSources = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system"] as const;
+/**
+ * Where a task can start: the owner's own app, a schedule, a trigger, or another AI tool. This is
+ * what the "started by" column holds, and it is the older, shorter of the two lists below.
+ */
+export const auditOrigins = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system"] as const;
+export type AuditOrigin = (typeof auditOrigins)[number];
+/**
+ * Where the moment itself happened. Everywhere a task can start, and also every chat app an answer
+ * can be pressed in: a yes given on a phone is a yes given on Telegram, and the record should say
+ * so in the column a person filters on rather than buried in the sentence beside it. What the task
+ * itself came from is kept too, in `origin`, because "answered on WhatsApp" and "started by the
+ * schedule" are two different facts and both matter.
+ */
+export const auditSources = [...auditOrigins,
+  "telegram", "discord", "slack", "whatsapp", "email", "chat"] as const;
 export type AuditSource = (typeof auditSources)[number];
 
 export const AuditEntrySchema = z.object({
@@ -38,6 +54,8 @@ export const AuditEntrySchema = z.object({
   /** Why, in plain language, for the person reading this later. */
   reason: z.string().trim().max(500).default(""),
   source: z.enum(auditSources).default("owner"),
+  /** What the task itself came from, when that is not where the moment happened. */
+  origin: z.enum(auditOrigins).optional(),
   runId: z.string().max(64).nullable().default(null),
   /** How it ended: "allowed", "refused", "saved", "failed" — one short word. */
   outcome: z.string().trim().min(1).max(60).default("done"),
@@ -45,11 +63,13 @@ export const AuditEntrySchema = z.object({
 export type AuditEntryInput = z.input<typeof AuditEntrySchema>;
 export interface AuditEntry {
   id: number; owner: string; at: string; action: AuditAction; actor: string;
-  subject: string; reason: string; source: AuditSource; runId: string | null; outcome: string;
+  subject: string; reason: string; source: AuditSource; origin: AuditOrigin;
+  runId: string | null; outcome: string;
 }
 export const AuditQuerySchema = z.object({
   action: z.enum(auditActions).optional(),
   source: z.enum(auditSources).optional(),
+  origin: z.enum(auditOrigins).optional(),
   /** ISO moments; entries outside the pair are left out. */
   from: z.string().max(40).optional(),
   to: z.string().max(40).optional(),
@@ -70,6 +90,7 @@ const actionLabels: Record<AuditAction, string> = {
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
   "hook.blocked": "One of your own checks stopped something, or asked you about it first",
+  "network.connected": "A connection that stays open was made to a service outside this computer",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 
@@ -83,16 +104,28 @@ export class AuditLog {
         BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be changed'); END;
       CREATE TRIGGER IF NOT EXISTS audit_is_append_only_delete BEFORE DELETE ON audit
         BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be removed'); END;`);
+    // Batch 20 (wave 8): "where the moment happened" and "what the task came from" became two
+    // columns. Rows written before that have no origin of their own; adding the column is the only
+    // change that can be made, because the two rules above refuse any edit to a row that exists —
+    // so an older row's origin is read back as its source, which is what it always meant.
+    this.addOriginColumn();
+  }
+  private addOriginColumn(): void {
+    const has = this.db.prepare("PRAGMA table_info(audit)").all()
+      .some((row) => String(row.name) === "origin");
+    if (!has) this.db.exec("ALTER TABLE audit ADD COLUMN origin TEXT NOT NULL DEFAULT ''");
   }
   /** Writes one moment down. Nothing here may fail a task, so an unreadable entry is dropped. */
   record(owner: string, input: AuditEntryInput): AuditEntry | null {
     const parsed = AuditEntrySchema.safeParse(input);
     if (!parsed.success) return null;
     const value = parsed.data, at = new Date().toISOString();
-    const row = this.db.prepare(`INSERT INTO audit(owner,at,action,actor,subject,reason,source,run_id,outcome)
-      VALUES(?,?,?,?,?,?,?,?,?) RETURNING id`)
-      .get(owner, at, value.action, value.actor, value.subject, value.reason, value.source, value.runId, value.outcome);
-    return { id: Number(row?.id ?? 0), owner, at, ...value };
+    // With nothing said, the moment happened where the task came from, which is the older meaning.
+    const origin: AuditOrigin = value.origin ?? (auditOrigins.includes(value.source as AuditOrigin) ? value.source as AuditOrigin : "owner");
+    const row = this.db.prepare(`INSERT INTO audit(owner,at,action,actor,subject,reason,source,origin,run_id,outcome)
+      VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id`)
+      .get(owner, at, value.action, value.actor, value.subject, value.reason, value.source, origin, value.runId, value.outcome);
+    return { id: Number(row?.id ?? 0), owner, at, ...value, origin };
   }
   /** Entries newest first, narrowed by what happened, where it came from and when. */
   list(owner: string, input: unknown = {}): AuditEntry[] {
@@ -101,6 +134,8 @@ export class AuditLog {
     const values: (string | number)[] = [owner];
     if (query.action) { where.push("action=?"); values.push(query.action); }
     if (query.source) { where.push("source=?"); values.push(query.source); }
+    // An older row has no origin of its own, and its source is what it meant, so both are matched.
+    if (query.origin) { where.push("(origin=? OR (origin='' AND source=?))"); values.push(query.origin, query.origin); }
     if (query.from) { where.push("at>=?"); values.push(query.from); }
     if (query.to) { where.push("at<=?"); values.push(query.to); }
     return this.db.prepare(`SELECT * FROM audit WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
@@ -114,10 +149,13 @@ export class AuditLog {
   }
 }
 function toEntry(row: Record<string, unknown>): AuditEntry {
+  const source = String(row.source) as AuditSource;
   return {
     id: Number(row.id), owner: String(row.owner), at: String(row.at), action: String(row.action) as AuditAction,
-    actor: String(row.actor), subject: String(row.subject), reason: String(row.reason),
-    source: String(row.source) as AuditSource, runId: row.run_id === null ? null : String(row.run_id),
+    actor: String(row.actor), subject: String(row.subject), reason: String(row.reason), source,
+    // A row written before the two columns were told apart means its source, which is what it was.
+    origin: (String(row.origin ?? "") || source) as AuditOrigin,
+    runId: row.run_id === null ? null : String(row.run_id),
     outcome: String(row.outcome),
   };
 }
@@ -132,10 +170,10 @@ export const csvCell = (value: unknown): string => {
 };
 /** The same entries as a spreadsheet file the owner can open anywhere. */
 export function auditCsv(entries: AuditEntry[]): string {
-  return ["at,action,what it means,who,about,why,came from,task,outcome"]
+  return ["at,action,what it means,who,about,why,where it happened,what started the task,task,outcome"]
     .concat(entries.map((entry) => [
       entry.at, entry.action, auditLabel(entry.action), entry.actor, entry.subject,
-      entry.reason, entry.source, entry.runId ?? "", entry.outcome,
+      entry.reason, entry.source, entry.origin, entry.runId ?? "", entry.outcome,
     ].map(csvCell).join(",")))
     .join("\n");
 }

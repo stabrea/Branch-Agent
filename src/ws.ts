@@ -16,10 +16,16 @@ export function acceptKey(key: string): string {
   return createHash("sha1").update(key + magic).digest("base64");
 }
 export function frame(text: string): Buffer {
-  const payload = Buffer.from(text, "utf8");
-  const head = payload.length < 126 ? Buffer.from([0x81, payload.length])
-    : payload.length < 65536 ? Buffer.concat([Buffer.from([0x81, 126]), (() => { const b = Buffer.alloc(2); b.writeUInt16BE(payload.length); return b; })()])
-    : Buffer.concat([Buffer.from([0x81, 127]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64BE(BigInt(payload.length)); return b; })()]);
+  return frameOf(Buffer.from(text, "utf8"), 0x81);
+}
+/** The same frame with the binary opcode, for sound travelling either way. */
+export function binaryFrame(payload: Buffer): Buffer {
+  return frameOf(payload, 0x82);
+}
+function frameOf(payload: Buffer, opcode: number): Buffer {
+  const head = payload.length < 126 ? Buffer.from([opcode, payload.length])
+    : payload.length < 65536 ? Buffer.concat([Buffer.from([opcode, 126]), (() => { const b = Buffer.alloc(2); b.writeUInt16BE(payload.length); return b; })()])
+    : Buffer.concat([Buffer.from([opcode, 127]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64BE(BigInt(payload.length)); return b; })()]);
   return Buffer.concat([head, payload]);
 }
 /** Decodes one frame if complete; returns whether it is final, its opcode and payload, or null when more bytes are needed. */
@@ -43,31 +49,69 @@ export function tokenFromProtocol(request: IncomingMessage, token: string): bool
   return supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
 }
 
+/**
+ * What something on the server side of a run socket may write down it. Sound never goes through
+ * the event log on its way to the browser: the event log is read by a poll and is kept on disk,
+ * and a live conversation's audio is neither slow enough for one nor meant to be kept at all.
+ */
+export interface RunSocketWriter {
+  text(value: string): void;
+  binary(payload: Buffer): void;
+  open(): boolean;
+}
+/** Hooks for a run socket that carries more than events, so a live voice conversation can use it. */
+export interface RunSocketHooks {
+  /** Every frame the browser sends up. Binary frames are microphone sound. */
+  onClientFrame?(payload: Buffer, binary: boolean, reply: RunSocketWriter): void;
+  onOpen?(reply: RunSocketWriter): void;
+  onClose?(): void;
+  /**
+   * True while a live conversation is still going. A task's socket otherwise gives up after a
+   * couple of minutes, which is shorter than a conversation is allowed to last; a live one is held
+   * open instead, and its own limits on minutes and money are what end it.
+   */
+  liveOpen?(): boolean;
+}
+
 /** Completes the handshake and streams the run's events; ends with an "end" message when the run is over. */
-export async function serveRunSocket(store: Store, runId: string, request: IncomingMessage, socket: Duplex, options: { pollMs?: number; maxMs?: number } = {}): Promise<void> {
+export async function serveRunSocket(store: Store, runId: string, request: IncomingMessage, socket: Duplex, options: { pollMs?: number; maxMs?: number } & RunSocketHooks = {}): Promise<void> {
   const key = String(request.headers["sec-websocket-key"] ?? "");
   socket.write(["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade", `Sec-WebSocket-Accept: ${acceptKey(key)}`, "Sec-WebSocket-Protocol: bearer", "", ""].join("\r\n"));
   let open = true, pending = Buffer.alloc(0);
+  const reply: RunSocketWriter = {
+    text: (value) => { if (open) socket.write(frame(value)); },
+    binary: (payload) => { if (open) socket.write(binaryFrame(payload)); },
+    open: () => open,
+  };
   socket.on("data", (chunk: Buffer) => {
     pending = Buffer.concat([pending, chunk]);
     for (let decoded = readFrame(pending); decoded; decoded = readFrame(pending)) {
       pending = pending.subarray(decoded.consumed);
       if (decoded.opcode === 0x8) { open = false; socket.end(Buffer.from([0x88, 0x00])); }
       else if (decoded.opcode === 0x9) socket.write(Buffer.concat([Buffer.from([0x8a, decoded.payload.length]), decoded.payload]));
+      // A text or binary frame from the browser: a live conversation's sound, or a line typed while
+      // it is talking. Nothing here reads them itself; whoever asked for the hook does.
+      else if (decoded.opcode === 0x1 || decoded.opcode === 0x2)
+        try { options.onClientFrame?.(decoded.payload, decoded.opcode === 0x2, reply); } catch { /* one bad frame does not end the socket */ }
     }
   });
-  socket.on("close", () => { open = false; });
-  socket.on("error", () => { open = false; });
+  const shut = (): void => { if (!open) return; open = false; try { options.onClose?.(); } catch { /* closing */ } };
+  socket.on("close", shut);
+  socket.on("error", shut);
+  options.onOpen?.(reply);
   const deadline = Date.now() + (options.maxMs ?? 150000);
   let last = 0;
-  while (open && Date.now() < deadline) {
+  while (open && (Date.now() < deadline || options.liveOpen?.() === true)) {
     for (const event of store.events(runId).filter((e) => e.id > last)) {
       socket.write(frame(JSON.stringify({ id: event.id, kind: event.kind, data: event.data, createdAt: event.createdAt })));
       last = event.id;
     }
     const run = store.run(runId);
-    if (!run || run.status !== "running") { socket.write(frame(JSON.stringify({ kind: "end", status: run?.status ?? "unknown" }))); break; }
+    if ((!run || run.status !== "running") && options.liveOpen?.() !== true) {
+      socket.write(frame(JSON.stringify({ kind: "end", status: run?.status ?? "unknown" })));
+      break;
+    }
     await delay(options.pollMs ?? 250);
   }
-  if (open) socket.end(Buffer.from([0x88, 0x00]));
+  if (open) { shut(); socket.end(Buffer.from([0x88, 0x00])); }
 }

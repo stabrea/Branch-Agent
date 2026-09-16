@@ -397,6 +397,8 @@ test("a study over a benchmark prepares a folder per task and marks it with the 
     ["seventeen multiplied by twenty-three", [say("Final answer: 391")]],
   ], root);
   removeLast(t, root);
+  // A benchmark outside the workspace is only read once the owner has named its folder.
+  app.studies.configure({ benchmarksFolder: fixtures });
   app.studies.save({ id: "gaia-sample", name: "GAIA sample", presets: ["fast"], source: { kind: "benchmark", benchmark: "gaia", directory: join(fixtures, "gaia") } });
   const result = await app.studies.run("gaia-sample");
   assert.equal(result.cells.length, 2);
@@ -510,6 +512,7 @@ test("a benchmark that runs the tests it ships waits for the owner's switch", as
   const root = await mkdtemp(join(tmpdir(), "branch-switch-"));
   const { app } = await studyFixture(t, [["adds two numbers", [say("done")]]], root);
   removeLast(t, root);
+  app.studies.configure({ benchmarksFolder: fixtures });
   app.studies.save({
     id: "code-sample", name: "Code sample", presets: ["fast"],
     source: { kind: "benchmark", benchmark: "code-tasks", directory: join(fixtures, "code-tasks") },

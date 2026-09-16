@@ -96,6 +96,11 @@ export class KnowledgeBases {
     private readonly models?: ModelRouter,
     private readonly ledger?: EmbeddingLedger,
     backend?: VectorBackend,
+    /**
+     * The app's guarded fetch. Every passage sent to a provider off this computer is checked
+     * against the owner's network rules first; a reader on this computer is reached directly.
+     */
+    readonly embeddingCall: typeof fetch = globalThis.fetch,
   ) {
     this.db = store.sqlite;
     this.cache = new EmbeddingCache(this.db);
@@ -144,7 +149,7 @@ export class KnowledgeBases {
   embeddings(owner: string): CachedEmbeddings | null {
     const connection = embeddingConnection(this.models, owner);
     if (!connection) return null;
-    const adapter = embeddingsFor(connection);
+    const adapter = embeddingsFor(connection, this.embeddingCall);
     return adapter ? new CachedEmbeddings(adapter, this.cache, this.ledger) : null;
   }
   meaningSearchReady(owner: string): boolean { return this.embeddings(owner) !== null; }

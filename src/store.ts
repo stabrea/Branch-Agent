@@ -325,6 +325,9 @@ export class Store {
     this.db
       .prepare("UPDATE tasks SET status=?,output=?,updated_at=? WHERE id=?")
       .run(status, output, new Date().toISOString(), id);
+    // A task waiting on the owner's answer is not over, so nothing it started is taken away yet.
+    if (status !== "needs_input" && status !== "running")
+      for (const listener of this.runFinishedListeners) try { listener(id, status); } catch { /* never fails a finish */ }
     return this.run(id)!;
   }
   message(sessionId: string, message: Message, sourceId?: number): void {
@@ -397,6 +400,17 @@ export class Store {
   onSessionClosed(listener: (sessionId: string) => void): () => void {
     this.sessionClosedListeners.add(listener);
     return () => { this.sessionClosedListeners.delete(listener); };
+  }
+  private readonly runFinishedListeners = new Set<(runId: string, status: RunStatus) => void>();
+  /**
+   * Called when a task is over for good, so anything it started and nobody asked to keep — a
+   * language server, a program being debugged — goes with it. A task that has only stopped to ask
+   * the owner something is not over, so this is not called for it. Listeners must not throw and are
+   * never awaited.
+   */
+  onRunFinished(listener: (runId: string, status: RunStatus) => void): () => void {
+    this.runFinishedListeners.add(listener);
+    return () => { this.runFinishedListeners.delete(listener); };
   }
   private readonly eventListeners = new Set<(runId: string, kind: string, data: Record<string, unknown>) => void>();
   /** Called after every stored event; listeners must not throw and are never awaited. */

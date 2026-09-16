@@ -6,6 +6,7 @@ import type { Knowledge } from "./knowledge.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
+import { argumentFingerprint } from "./runtime.js";
 import type { PolicyRemember, RunSource } from "./policy.js";
 
 /**
@@ -73,6 +74,11 @@ export interface WorkflowView {
  */
 export interface WorkflowApproval {
   tool: string; target: string; label: string; source: RunSource; remember: PolicyRemember;
+  /**
+   * The fingerprint of the exact arguments the step wanted to use. The owner's yes is bound to it,
+   * so a step someone edited while the workflow was waiting is asked about again.
+   */
+  fingerprint?: string;
 }
 /** Where a workflow's remembered answers are kept, since a workflow is not a conversation. */
 const approvalKeyFor = (id: string): string => `workflow:${id}`;
@@ -281,6 +287,7 @@ export class Workflows {
     this.writeStep(owner, id, index, step, { status: "waiting", attempts, output: asked.message });
     const pendingApproval: WorkflowApproval = {
       tool: asked.tool, target: asked.target, label: asked.label, source, remember: asked.remember,
+      ...(asked.fingerprint === undefined ? {} : { fingerprint: asked.fingerprint }),
     };
     return { halt: true, cursor: index, patch: { status: "waiting_approval", question: asked.message, pendingApproval } };
   }
@@ -296,9 +303,12 @@ export class Workflows {
     if (step.kind === "tool") {
       // A saved step uses its tool under the owner's approval settings, exactly as the assistant
       // does mid-conversation: allowed, asked about, or refused in the same words.
-      const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context);
+      // The exact bytes of this step's arguments. Everything downstream — the question the owner
+      // sees, the yes they give, the retry after it — is bound to this one fingerprint.
+      const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context, fingerprint);
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
-      if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember);
+      if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember, fingerprint);
       const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };
     }

@@ -32,6 +32,20 @@ export const VoiceSettingsSchema = z
     localSpeechKind: z.enum(["whisper-cpp", "faster-whisper"]).default("whisper-cpp"),
     /** Answer a voice note on a chat app with a voice note back. Off until the owner turns it on. */
     replyWithVoiceOnChannels: z.boolean().default(false),
+    // Wave 8: a live conversation, where sound goes up while it is being spoken. Everything here
+    // is a limit rather than a feature: how long one may last, what it may cost, and whether any
+    // of the sound is written down afterwards.
+    /** A live conversation stops itself after this many minutes. */
+    liveMaxMinutes: z.number().min(1).max(120).default(10),
+    /** A live conversation stops itself once it has cost this much. */
+    liveMaxDollars: z.number().min(0.1).max(100).default(1),
+    /** Let the service decide when you have stopped speaking, rather than pressing the button. */
+    liveVoiceDetection: z.boolean().default(true),
+    /**
+     * Write down how much sound a live conversation carried, piece by piece. The sound itself is
+     * never kept, on or off; this only adds the size of each piece to the task's record.
+     */
+    keepLiveRecordings: z.boolean().default(false),
   })
   .strict();
 export type VoiceSettings = z.infer<typeof VoiceSettingsSchema>;

@@ -154,7 +154,14 @@ const fields = [
   ["voice-local-exe", "localSpeechExecutable", "value"],
   ["voice-local-model", "localSpeechModel", "value"],
   ["voice-reply-audio", "replyWithVoiceOnChannels", "checked"],
+  // Wave 8: the limits a live conversation runs under, and whether any of its sound is kept.
+  ["voice-live-minutes", "liveMaxMinutes", "value"],
+  ["voice-live-dollars", "liveMaxDollars", "value"],
+  ["voice-live-vad", "liveVoiceDetection", "checked"],
+  ["voice-live-record", "keepLiveRecordings", "checked"],
 ];
+/** The two limits are numbers on the way back out; everything else on this form is text or a tick. */
+const numberFields = new Set(["liveMaxMinutes", "liveMaxDollars"]);
 
 async function loadVoicePlan() {
   if (!$("voice-keep-local")) return;
@@ -182,7 +189,7 @@ async function saveVoicePlan() {
   const body = {};
   for (const [id, key, kind] of fields) {
     const node = $(id);
-    if (node) body[key] = node[kind];
+    if (node) body[key] = numberFields.has(key) ? Number.parseFloat(node[kind]) : node[kind];
   }
   // The older settings on this same card are saved together, so one form means one record.
   body.autoReadAloud = $("auto-read-aloud")?.checked ?? false;

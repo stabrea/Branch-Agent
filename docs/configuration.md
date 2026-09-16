@@ -98,7 +98,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key |
 | Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
 | GitHub Models | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key |
 | Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses |
 | Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key |
 | Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key |
@@ -111,7 +111,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key |
 | Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
 | Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key |
-| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out | just a key |
+| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out, live conversation | just a key |
 | OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key |
 | OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
 | Perplexity | in the cloud | OpenAI | conversation, as it types | just a key |
@@ -399,7 +399,7 @@ WhatsApp pushes messages to a web address rather than holding a connection open,
 { "channels": [{ "type": "whatsapp", "phoneNumberId": "123456789012345", "pairing": true, "allowlist": [] }] }
 ```
 
-Point Meta's webhook at `/webhooks/whatsapp/<channel id>` (`/webhooks/whatsapp/whatsapp` by default) and give it the same verify word. **The reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address** (`127.0.0.1:<port>`), exactly as the schedule hook routes need: the server refuses any request whose `Host` is not its own, which is what stops a web page from reaching it through your browser. That route carries no session token, like the trigger routes: `GET` answers Meta's one-off `hub.challenge` as plain text when `hub.verify_token` matches, and `POST` is refused with 401 unless `X-Hub-Signature-256` is an HMAC-SHA256 of the exact bytes under the app secret. Text messages only; `allowlist` and `chatId` hold WhatsApp numbers in `wa_id` form. WhatsApp only allows a free-form reply within 24 hours of the person's last message: a later send is refused with "Outside WhatsApp's 24-hour reply window", so the delivery ledger holds it, retries it for about two and a half minutes, then parks it under **Messages still to send** for the owner to retry once the person writes again. When each person last wrote is remembered only while Branch is running, so after a restart the first reply to someone is attempted rather than held back.
+Point Meta's webhook at `/webhooks/whatsapp/<channel id>/<the word on your Connections card>` (the word is the same unguessable one every other chat address now carries, and the same one-release grace applies) and give it the same verify word. **The reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address** (`127.0.0.1:<port>`), exactly as the schedule hook routes need: the server refuses any request whose `Host` is not its own, which is what stops a web page from reaching it through your browser. That route carries no session token, like the trigger routes: `GET` answers Meta's one-off `hub.challenge` as plain text when `hub.verify_token` matches, and `POST` is refused with 401 unless `X-Hub-Signature-256` is an HMAC-SHA256 of the exact bytes under the app secret. Text messages only; `allowlist` and `chatId` hold WhatsApp numbers in `wa_id` form. WhatsApp only allows a free-form reply within 24 hours of the person's last message: a later send is refused with "Outside WhatsApp's 24-hour reply window", so the delivery ledger holds it, retries it for about two and a half minutes, then parks it under **Messages still to send** for the owner to retry once the person writes again. When each person last wrote is remembered only while Branch is running, so after a restart the first reply to someone is attempted rather than held back.
 
 ### Channels (email)
 
@@ -458,7 +458,7 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>`. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -494,7 +494,7 @@ Facebook Messenger and Instagram direct messages use the same Meta webhook and s
   "tokenSecret": "META_PAGE_TOKEN", "verifyTokenSecret": "META_VERIFY_TOKEN", "appSecretSecret": "META_APP_SECRET" }] }
 ```
 
-Use `"type": "instagram"` for Instagram, with the professional account's id as `pageId`. Point Meta's webhook at `/webhooks/chat/<channel id>`; `GET` answers the `hub.challenge` check and `POST` is refused with 401 unless the signature matches.
+Use `"type": "instagram"` for Instagram, with the professional account's id as `pageId`. Point Meta's webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`; `GET` answers the `hub.challenge` check and `POST` is refused with 401 unless the signature matches.
 
 **Meta must review your app before anybody outside your own team can write to it.** Until that review passes, only people with a role on the app can message the page, which is enough to try it out and not enough to use it. Branch says so in the channel's health line rather than leaving you to discover it.
 
@@ -536,7 +536,27 @@ Costs are estimated the same honest way as everything else: published per-minute
 
 Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
 
-**Not built: live two-way voice calls** (the OpenAI Realtime WebSocket, audit A1212 and A2293). Branch checks every outbound address against its network policy before each request, and that policy has no hook for a WebSocket; a realtime session would either skip the check or need a new dependency, and this build refuses both. Hold-to-talk does the same job over the ordinary routes. There is no wake word and nothing listens unless you are holding the button.
+### Live conversation (wave 8)
+
+A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
+
+**What is sent.** While a live conversation is open, the sound of your microphone goes to the model service you are connected to, continuously, and its answer comes back as sound. Both sides are also written out in words, and those words go into the conversation on screen as ordinary messages, so afterwards you can read what was said. **The sound itself is not kept anywhere** — not in the database, not in a file, and there is no setting that changes that. It is sent, played and forgotten. The one setting near it, *Note in the task's record how much sound a live conversation carried*, writes down the size of each piece of sound and nothing else, so you can see how much went back and forth; switch it on only if you want that detail.
+
+**You need a connection that offers it.** Only OpenAI and Google Gemini offer this today, and only those two lines of the connections table are marked *live conversation*. On any other connection the **Talk live** button does not appear at all, and the Voice screen says so in a sentence. Hold-to-talk still works on everything.
+
+**"Keep sound on this computer" refuses it outright.** A live conversation is sound leaving this computer by definition, so with that setting on Branch will not start one, and says why. There is no way round it: the refusal is in the service, before anything is opened.
+
+**How to interrupt.** Press **Talk live** again while it is talking. The sound stops instantly on your side, the answer is cancelled at the service, whatever it had heard of you so far is thrown away, and it is listening again. You can also just **type** while it is talking: what you type is sent straight into the same conversation and answered out loud, without waiting for it to finish.
+
+**What it costs.** A live conversation is charged by the minute, and it is more expensive than typing — roughly $0.30 a minute for OpenAI and $0.15 for Gemini on published prices read on 2026-09-16. Branch counts the usage each service reports and writes it into the task's record as it goes. Two limits stop it running away, both in **Settings → Voice**: **how many minutes** one conversation may last (10 by default) and **how much** it may cost ($1.00 by default). When either is reached, Branch says one sentence out loud telling you it is stopping and why, and then stops — it never just goes silent.
+
+**Tools still need your permission.** If the model asks for a tool mid-conversation, it goes through exactly the same approval settings as a tool call in a typed conversation. Something allowed runs; something refused comes back as a refusal; something that needs your yes **does not run** — the question appears on screen as the usual card, and the model is told it is waiting for you and says so out loud. It cannot talk its way past the gate.
+
+**What is written down.** Every connection that stays open is recorded once in *What the assistant was allowed to do* as **A connection that stays open was made to a service outside this computer**, and leaves a span in the trace, naming only the host and the path — never the whole address, because Gemini takes its key in the address.
+
+**Honest limits.** Branch has been tested against local stand-ins speaking OpenAI's and Gemini's documented live message shapes. It has **not** been tested against the real services with real sound; treat "Branch speaks the right language" as what is proved, not "this has been heard working".
+
+Routes: `POST /api/voice/live` (opens a task for a live conversation and answers with whether one is possible); the conversation itself runs on the task's existing socket `/api/runs/<id>/ws`, with your microphone going up as binary frames and the answer coming back as binary frames numbered so they play in order. `GET /api/voice/plan` reports under `live` whether the connection in use can hold one, and the limits it would run under.
 
 ### Which model does what (wave 7)
 
@@ -892,9 +912,30 @@ A study is saved with `POST /api/studies`:
 ```
 
 `source` can instead be `{ "kind": "suite", "suite": "everyday" }`. `concurrency` is how many tasks
-run at once, from 1 to 4. The whole app allows eight pieces of work at once; a running study holds
-one of those eight for as long as it lasts and its own tasks do not take places of their own, so the
-cap is set at half to keep a study plus ordinary work under that ceiling. `bestOfN` runs each task that
+run at once, from 1 to 4. The whole app allows eight pieces of work at once, and **every task a study
+runs takes one of those eight**, so a study can never quietly put four more on top of what everything
+else is doing. A study also holds the place the request that started it took, and it runs its first
+task on that one: that is what makes several studies at once safe. Each of them can always get on
+with something using a place it already has, whatever the others are doing, so none waits on another
+and none is starved. A task that wants a second or third place waits for one to come free, for up to
+thirty seconds, and then lets its turn go rather than holding anything up; the study finishes either
+way, more slowly when the computer is busy.
+
+**Where a benchmark may be read from.** `directory` is confined the same way every other path in
+Branch is: it must be inside your workspace, or inside the one benchmarks folder you have named.
+`GET /api/studies/settings` shows that folder and `POST /api/studies/settings {"benchmarksFolder":
+"C:/datasets"}` sets it; empty, which is where it starts, means the workspace and nothing else. A
+study pointing anywhere else is refused in one sentence when it is saved and again if it is run, so
+an older study cannot become a way to read a folder you never allowed.
+
+**Grading costs money too.** A task graded by a model (`rubric`) sends a second model call, and what
+that call costs is now charged to the cell that asked for it, so a study's tokens and its dollars
+are what it really spent rather than what the tasks alone spent. The `budget` scorer is answered
+last, whatever order the task listed its scorers in, so "did it stay inside its budget" is asked
+once the grader has spent rather than before — a task that only fits its limit by not counting the
+grader is not a task that fitted its limit.
+
+`bestOfN` runs each task that
 many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
 stops the study when it has spent that much, and says so.
 
@@ -1524,6 +1565,16 @@ lines you name. `debug.step` moves it on, `debug.variables` shows what every nam
 stopped, and `debug.stop` ends it. Starting one asks you exactly as running any other program does,
 only one debugging session runs at a time, and what the program prints is kept in a rolling buffer.
 
+**Neither is left running.** A language server or a program being debugged that a task started
+stops again when that task is done, the same way a program `process.start` left running in a
+conversation stops when the conversation does — so nothing you did not ask for is sitting there
+using the machine afterwards. A task that has only stopped to ask you something is not done, so
+what it started is still there when you answer. Two switches keep them up instead, **Keep a
+language server running between tasks** and **Keep a program being debugged running between
+tasks** (`keepRunning` in each of the two settings), which makes the next task that needs one start
+sooner. Pressing one of these tools' own buttons yourself is one short task per press, so a press
+is left alone — otherwise the debugger would stop between "start it" and "what is this name".
+
 **Trying something risky on a copy (plan branches).** `plans.try` makes a parallel copy of the
 repository on a line of work named after the plan, inside `.branch-worktrees`. Work happens there,
 `plans.diff` shows exactly what it changed compared with where it started, and only `plans.merge`
@@ -1551,8 +1602,15 @@ scrubbed back out of the answer. Descriptions written in the document are capped
 the same filter a web page gets, so a document cannot talk the assistant into anything.
 `tools.services` shows what is registered and `tools.forget_service` takes one back out. Every tool
 a service brings is filed in its own **services** toolbox, so one large document can never crowd out
-the built-in tools. Registered services last as long as the app is running; add them again after a
-restart. Notion is the worked example:
+the built-in tools. **A service you add stays added.** What you told Branch — the name, the
+operations you allowed, the address to call, which saved secret holds the key, and the description
+exactly as it was read — is written down with the rest of your settings, and the tools are built
+back from it when Branch next starts. Nothing is fetched on the way back, so a service that is down,
+or a description you have since moved, still gives you its tools; the address is checked against
+your network rules when a call is actually made, as it always was. **The key is not part of what is
+written down**: it stays in the locker and is fetched at the moment of each call. `tools.forget_service`
+takes the tools out and forgets the service for good, so it does not come back next time. Notion is
+the worked example:
 
 ```
 tools.from_openapi { name: "notion", file: "notion-openapi.json",
@@ -1922,8 +1980,19 @@ connected or disconnected, something exported, and a switch to another project o
 practice workspace. The table is append-only, enforced by the database itself: two SQLite triggers
 refuse any attempt to change or remove a row, so nothing — not even Branch — can quietly rewrite
 what happened.
-`GET /api/audit` lists it newest first and accepts `action`, `source`, `from`, `to` and `limit`.
-`GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file. The
+**Where it happened, and what started the task, are two different things.** `source` is where the
+moment actually happened: this app, a schedule, a trigger, another AI tool — and now also the chat
+app a button was pressed in, one of `telegram`, `discord`, `slack`, `whatsapp`, `email` or `chat`
+(anything else a plugin brought). `origin` is what the task itself came from, which for an answer
+given on a phone is usually not the same thing at all: a schedule can start a task whose question
+you answer on Telegram, and the record says both. Rows written before the two were told apart carry
+no origin of their own; they read back, and filter, as their source, which is what that column
+always meant, and nothing is rewritten — the two rules on the table refuse any edit to a row that
+already exists.
+
+`GET /api/audit` lists it newest first and accepts `action`, `source`, `origin`, `from`, `to` and
+`limit`. `GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file,
+with **where it happened** and **what started the task** as two columns. The
 diagnostics folder carries it as `allowed.json`, scrubbed the same way everything else there is.
 The foot of the Usage screen shows it in plain language, with a count of each kind.
 ### Deciding approvals a kind of thing at a time
@@ -2171,6 +2240,19 @@ it, exactly like a model answer. Background reading has no task to charge, so it
 `knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
 reading it has been charged for, shown on its card.
 
+**Which calls go through the network rules, and why.** One convention covers the whole provider
+layer, reading passages included. Every call that leaves this computer — a model answer, a picture,
+speech, a content check, and every reading of a passage for a document, a knowledge base, a saved
+fact or the assistant's search for its own tools — is made through the fetch the network rules
+guard, so **Where it may go** in Settings decides it: a blocked website, or one outside your allowed
+list, is refused before a single word of yours is sent. A reader **running on this computer** is the
+one exception, and deliberately so: those rules refuse private and local addresses, which is exactly
+what you want for the open web and exactly the wrong answer for a model on your own machine. Its
+floor is the check every provider address makes anyway — HTTPS, or plain HTTP only on this
+computer's own loopback address (`localhost`, `127.0.0.1`, `[::1]`), never an address with a
+password written into it. That is the floor, not the ceiling: everything reachable from outside this
+machine is held to the full rules on top of it.
+
 **What is never read.** A knowledge base can only point at folders and files inside your workspace,
 and the same guard that protects every other file tool applies: anything that looks like a secret —
 `.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,
@@ -2328,6 +2410,31 @@ with a plain message.
 The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
 carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
 the socket sees what the app sees and can answer under the same binding.
+
+**More than one question at a time.** A conversation can genuinely stop on two things at once — a
+second task started in the same conversation while the first was waiting, or one AI-tool connection
+making two calls — so the questions are kept as a list, oldest first, and the second never takes the
+first's place. `GET /api/policy` returns all of them; the approval card shows each with its own
+exact words. Answering with a fingerprint answers that exact request, whichever of them it is;
+answering without one answers the one that has been waiting longest, which is the only one when
+only one is waiting. Asking the very same request again is the same question, not a second copy. A
+conversation holds at most **eight** waiting questions; at a ninth the one that has been waiting
+longest is let go and its task is stopped with a plain sentence saying so, rather than being left
+waiting on an answer that can no longer arrive. That also goes into the record of what the assistant
+was allowed to do, filed under the same heading as every yes and no with the outcome "let go
+unanswered", so a question that went away is not a thing only the failed task remembers. An AI-tool
+connection may hold the same eight.
+
+**One rule, everywhere.** Every way of answering binds the answer to that fingerprint, and there is
+no route that does not: the approval card in the app, the buttons and the `reply y / a / n` in a
+chat app, `branch approve <task id> yes` on the command line, the question Branch holds open for
+another AI tool over its own server, the terminal display, an editor over ACP, and the resume of a
+saved workflow or flow — a workflow's step carries the fingerprint of its own arguments, so a step
+edited while the workflow sat waiting is asked about again rather than let past on the old yes. The
+one thing a fingerprint does not bind is a **rule**: "yes, always" and anything in **Ask first**
+are standing decisions about a tool and a target, not answers to one request, and they are meant to
+cover every later call that matches. `branch approve` writes such a rule, because the program run
+that asked the question has already ended by the time you answer.
 ### Wrong keys are counted
 Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
 message saying so and a line in the record of what the assistant was allowed to do, filed under
