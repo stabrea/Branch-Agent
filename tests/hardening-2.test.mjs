@@ -694,6 +694,36 @@ test("a post from outside never leaves a webhook address behind for a name nobod
   assert.equal(webhookAddressSettings(app.store, owner).oldAddressesEndOn, "");
 });
 
+test("an answer that names a request never lands on a different one, nor on a nameless one", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  const sessionId = app.store.createRun(owner, "two things at once").sessionId;
+  const ask = (n, fingerprint) => app.runtime.approvals.ask({ runId: app.store.createRun(owner, `step-${n}`, sessionId).id,
+    sessionId, tool: "files.write", target: `note-${n}.txt`, label: `write note-${n}.txt`,
+    question: `May I write note-${n}.txt?`, source: "owner", remember: "session",
+    askedAt: new Date().toISOString(), ...(fingerprint === undefined ? {} : { fingerprint }) });
+
+  // Two questions at once, and the answer to the second must not settle the first.
+  ask(1, "1".repeat(32));
+  ask(2, "2".repeat(32));
+  assert.equal(app.runtime.approve(sessionId, "allow", "session", "2".repeat(32)).target, "note-2.txt",
+    "naming a request answers that one, not whichever came first");
+  assert.equal(app.runtime.approvals.waiting(sessionId).map((entry) => entry.target).join(), "note-1.txt");
+  // A name nothing is waiting on is refused rather than quietly used on what is.
+  assert.throws(() => app.runtime.approve(sessionId, "allow", "session", "9".repeat(32)),
+    /That answer was for a different request/);
+  assert.equal(app.runtime.approvals.waiting(sessionId).length, 1, "and the question it missed is still waiting");
+
+  // A question put before names were carried has none of its own. An answer that names one was
+  // certainly not given for it, so it is refused too rather than let through on the fall-back.
+  app.runtime.approvals.resolve(sessionId);
+  ask(3, undefined);
+  assert.throws(() => app.runtime.approve(sessionId, "allow", "session", "3".repeat(32)),
+    /That answer was for a different request/);
+  // Answering it without naming anything still works, which is every older way of answering.
+  assert.equal(app.runtime.approve(sessionId, "allow", "session").target, "note-3.txt");
+});
+
 test("an older database whose record has only the one column is brought forward with its rows", async (t) => {
   const { DatabaseSync } = await import("node:sqlite");
   const { AuditLog, auditCsv } = await import("../dist/audit.js");

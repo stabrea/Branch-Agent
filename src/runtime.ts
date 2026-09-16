@@ -1541,7 +1541,11 @@ export class Runtime {
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (fingerprint !== undefined && waiting.fingerprint !== undefined && fingerprint !== waiting.fingerprint)
+    // An answer that names a request must land on that request and no other. The only way to get
+    // here having named one is through the fall-back above, which means nothing waiting carries
+    // that name — including a question that carries no name at all, which an answer naming one was
+    // certainly not given for.
+    if (fingerprint !== undefined && waiting.fingerprint !== fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
     this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
