@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, mkdir, readdir, lstat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, lstat, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -43,7 +43,10 @@ export class WorkspaceHistory {
     db.exec(`CREATE TABLE IF NOT EXISTS file_versions(id TEXT PRIMARY KEY, owner TEXT NOT NULL, path TEXT NOT NULL, snapshot_id TEXT,
       content TEXT NOT NULL, bytes INTEGER NOT NULL, existed INTEGER NOT NULL, run_id TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS file_versions_path ON file_versions(owner, path, created_at);
-      CREATE TABLE IF NOT EXISTS workspace_snapshots(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, files INTEGER NOT NULL, bytes INTEGER NOT NULL, created_at TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS workspace_snapshots(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, files INTEGER NOT NULL, bytes INTEGER NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workspace_undo(id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL,
+        version_id TEXT NOT NULL, path TEXT NOT NULL, redo_version_id TEXT NOT NULL, redone INTEGER NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS workspace_undo_session ON workspace_undo(owner, session_id, redone, created_at);`);
   }
   private async current(path: string): Promise<Buffer | null> {
     try { return await readFile(await this.files.checked(path)); } catch (error) {
@@ -115,6 +118,85 @@ export class WorkspaceHistory {
     }
     return { id, restored };
   }
+  /**
+   * A named point in one conversation: the exact bytes, right now, of every file the assistant has
+   * changed since the conversation began. It is a snapshot like any other, so putting the whole
+   * thing back is the same operation, but it holds only what was actually touched rather than the
+   * whole workspace — which is what makes it cheap enough to take before every risky step.
+   */
+  async checkpoint(sessionId: string, label: string): Promise<Snapshot> {
+    const paths = this.changedIn(sessionId);
+    if (!paths.length) throw new Error("Nothing has been changed in this conversation yet, so there is nothing to keep.");
+    const id = randomUUID();
+    let files = 0, bytes = 0;
+    for (const path of paths.slice(0, snapshotLimits.files)) {
+      const content = await this.current(path);
+      if (!content || content.length > snapshotLimits.fileBytes) continue;
+      this.insert(path, content, "", "checkpoint", id);
+      files++; bytes += content.length;
+    }
+    const snapshot: Snapshot = { id, label, files, bytes, createdAt: new Date().toISOString() };
+    this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, files, bytes, snapshot.createdAt);
+    return snapshot;
+  }
+  /** The files the assistant changed in one conversation, the most recently changed first. */
+  changedIn(sessionId: string): string[] {
+    const rows = this.db.prepare(`SELECT DISTINCT path FROM file_versions WHERE owner=? AND reason='before write'
+      AND run_id IN (SELECT id FROM tasks WHERE session_id=?) ORDER BY created_at DESC`).all(this.owner, sessionId);
+    return rows.map((row) => String(row.path));
+  }
+
+  /** The change that would be undone next in this conversation, with what putting it back would do. */
+  async undoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
+    const row = this.db.prepare(`SELECT id, path FROM file_versions WHERE owner=? AND reason='before write'
+      AND run_id IN (SELECT id FROM tasks WHERE session_id=?)
+      AND id NOT IN (SELECT version_id FROM workspace_undo WHERE owner=? AND redone=0)
+      ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId, this.owner);
+    return row ? this.planFor(String(row.id), String(row.path)) : null;
+  }
+  /** The undo that would be put back next in this conversation. */
+  async redoPlan(sessionId: string): Promise<(FileChange & { versionId: string }) | null> {
+    const row = this.db.prepare(`SELECT redo_version_id AS id, path FROM workspace_undo
+      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+    return row ? this.planFor(String(row.id), String(row.path)) : null;
+  }
+  /** What writing one kept version back would do to the file as it stands now. */
+  private async planFor(versionId: string, path: string): Promise<FileChange & { versionId: string }> {
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId)!;
+    const wanted = Number(row.existed) ? Buffer.from(String(row.content), "base64").toString("utf8") : "";
+    const now = (await this.current(path))?.toString("utf8") ?? "";
+    return { path, versionId, existed: Number(row.existed) === 1, ...lineDiff(now, wanted) };
+  }
+  /** Puts the last change in this conversation back, keeping what was there so it can be redone. */
+  async undo(sessionId: string): Promise<FileChange & { undone: true }> {
+    const plan = await this.undoPlan(sessionId);
+    if (!plan) throw new Error("There is nothing to undo in this conversation.");
+    const kept = this.insert(plan.path, await this.current(plan.path), "", "before undo", null);
+    await this.writeVersion(plan.versionId, plan.path);
+    this.db.prepare("INSERT INTO workspace_undo VALUES(?,?,?,?,?,?,?,?)")
+      .run(randomUUID(), this.owner, sessionId, plan.versionId, plan.path, kept.id, 0, new Date().toISOString());
+    return { ...plan, undone: true };
+  }
+  /** Puts the last undone change back again. */
+  async redo(sessionId: string): Promise<FileChange & { redone: true }> {
+    const row = this.db.prepare(`SELECT id, redo_version_id, path FROM workspace_undo
+      WHERE owner=? AND session_id=? AND redone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(this.owner, sessionId);
+    if (!row) throw new Error("There is nothing to put back in this conversation.");
+    const plan = await this.planFor(String(row.redo_version_id), String(row.path));
+    await this.writeVersion(String(row.redo_version_id), String(row.path));
+    this.db.prepare("UPDATE workspace_undo SET redone=1 WHERE id=?").run(String(row.id));
+    return { ...plan, redone: true };
+  }
+  /** Writes one kept version's exact bytes; a version of a file that did not exist removes it. */
+  private async writeVersion(versionId: string, path: string): Promise<void> {
+    const row = this.db.prepare("SELECT content, existed FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    if (!row) throw new Error("That earlier version is not kept");
+    const target = await this.files.checked(path);
+    if (!Number(row.existed)) { await rm(target, { force: true }); return; }
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, Buffer.from(String(row.content), "base64"), { mode: 0o600 });
+  }
+
   private async walk(dir = this.files.root, out: string[] = []): Promise<string[]> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name), rel = relative(this.files.root, full).split("\\").join("/");

@@ -1179,7 +1179,7 @@ The assistant can use the copy of **Git** already installed on this computer to 
 These tools come in three groups so you can allow them separately.
 
 - `git.read` — `git.status` (what changed, which line of work, ahead or behind), `git.diff` (the changed lines, capped, either in the working folder or between two points such as `main..mine`), `git.log` (recent saved versions, bounded).
-- `git.write` — `git.branch` (list, start or switch a line of work), `git.commit` (save a version; a message is required, it saves everything that changed unless you name paths, it refuses when nothing has changed, and it never rewrites a version you already saved), `git.worktree` (a parallel copy for an experiment, only ever inside `.branch-worktrees` in the repository, so experiments cannot spread elsewhere). Both groups are available as soon as Branch starts.
+- `git.write` — `git.branch` (list, start or switch a line of work), `git.commit` (save a version; a message is required, it saves everything that changed unless you name paths, it refuses when nothing has changed, and it never rewrites a version you already saved), `git.worktree_add` and `git.worktree_remove` (a parallel copy for an experiment, only ever inside `.branch-worktrees` in the repository, so experiments cannot spread elsewhere; `git.worktree_list` reads them and needs only `git.read`). Both groups are available as soon as Branch starts.
 - `git.remote` — `git.push` and `git.pull`. **These are off until you turn them on.** Add a `git` block to the integrations file:
 
 ```json
@@ -1194,11 +1194,111 @@ Sending work to the branch everyone shares (`main` or `master`) stops and asks y
 { "git": { "remote": true, "github": { "tokenSecret": "GITHUB_TOKEN" } } }
 ```
 
-That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.list_issues` and `github.create_issue`, all behind the `github.manage` permission. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
+That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.create_issue`, `github.issues` (listing them), `github.checks` (whether the automatic checks passed on a branch or a saved version, said in plain words), `github.release` (the releases published, newest first) and `github.publish_repo`, all behind the `github.manage` permission. `github.publish_repo` makes the repository and sends a folder there in one step; it writes the address as a plain remote with no sign-in details in it, so the push uses the Git sign-in this computer already has and no token is ever written into the repository's settings. You are asked before anything leaves the computer.
+
+**GitLab** can be read in the same way, with its own token saved as `GITLAB_TOKEN`:
+
+```json
+{ "git": { "gitlab": { "tokenSecret": "GITLAB_TOKEN" } } }
+```
+
+That registers `gitlab.issues`, `gitlab.releases` and `gitlab.pipelines` behind `gitlab.read`. Reading only: GitLab's endpoints for changing things are shaped differently enough from GitHub's that offering half of them would mislead you about what Branch can actually do. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
 
 **Hiding files from the assistant: `.branchignore`.** Put a file called `.branchignore` in the workspace root and list anything you would rather the assistant did not read, using the same syntax as `.gitignore` (one pattern per line, `#` for a comment, a trailing `/` for folders only, `!` to un-hide, `*` and `?` inside one name, `**` across folders). Files it hides disappear from `files.read`, `files.list` and `files.search`, a hidden folder can no longer be used as the working folder of a host command, and the Git tools respect it too: hidden files are left out of `git.status`, out of `git.diff`, and are never staged by `git.commit`.
 
 Precedence, in order: the fixed secret patterns come first and cannot be overridden — `.env` files, `.ssh`, `.aws`, `.git`, anything named like credentials or secrets, and key files (`.pem`, `.key`, `.p12`, `.pfx`) are always refused, and a `!` line in `.branchignore` does **not** bring them back. `.branchignore` then hides more on top of that. Nothing inside a hidden folder can be un-hidden. The file is re-read whenever you change it, so there is nothing to restart.
+
+## For coders
+
+Everything in this section is for people who write software. None of it is switched on by default,
+and none of it downloads anything: where a program is needed, it is one you already have.
+
+**A map of the project (`code.map`).** Ask for the map and you get every file Branch may read, its
+size, what kind of file it is, the names it declares, and which other files it pulls in.
+TypeScript, JavaScript, Python, Go, Rust, Java, C# and Markdown headings each have a reader of
+their own, and relative TypeScript, JavaScript and Python imports are resolved into real paths, so
+the map carries a picture of how the project hangs together and not just a list.
+
+Say plainly what this is: **the names are found by pattern, not by a parser.** Each reader is a
+small regular expression that looks at what a line looks like. A name written inside a comment or a
+string can be picked up, and something spread over several lines can be missed. That is the trade
+for needing no build step and no extra program. When you need certainty rather than a map, use a
+language server (below).
+
+Give `code.map` a `request` — what you are actually looking for, in your own words — and the answer
+comes back ordered: the files whose path or declared names match come first, and a file those files
+pull in (or that pulls them in) is lifted alongside, because the answer is very often next door.
+The coder specialist style is told to start there, so it reads two files rather than twenty. The map
+is built once and then kept up to date file by file: a file whose size and time of last change have
+not moved is never read again. `.branchignore` and `.gitignore` are respected, as everywhere else.
+
+**Language servers (Settings → Developer → Help with code).** A language server is the program a
+code editor uses to underline mistakes, jump to where something is defined, and rename a name
+everywhere at once. If you have one installed — `typescript-language-server`, `pyright`, `pylsp`,
+`gopls`, `rust-analyzer` — name it here and Branch will talk to it. Give the short name you want to
+call it, the **full address of the program** (a `.cmd` or `.bat` wrapper is refused; name the real
+program), and the kinds of file it handles. Nothing is downloaded and nothing starts until you tick
+the switch. That turns on `code.diagnostics`, `code.definition`, `code.references`, `code.hover` and
+`code.rename`. The first four only look at things. `code.rename` works out the whole change across
+every file first and then goes through the same gate as any other multi-file change: you are shown
+which files it touches, they all change or none of them do, and each keeps its previous bytes so a
+rename can be put back. Each server runs under the same limits as every other program Branch
+starts, and all of them stop when the app closes.
+
+**Debuggers.** Same screen, same rules. Name a debug adapter you already have — Python's `debugpy`
+is the usual one — and `debug.start` will run a file in your workspace under it, stopping on the
+lines you name. `debug.step` moves it on, `debug.variables` shows what every name holds where it
+stopped, and `debug.stop` ends it. Starting one asks you exactly as running any other program does,
+only one debugging session runs at a time, and what the program prints is kept in a rolling buffer.
+
+**Trying something risky on a copy (plan branches).** `plans.try` makes a parallel copy of the
+repository on a line of work named after the plan, inside `.branch-worktrees`. Work happens there,
+`plans.diff` shows exactly what it changed compared with where it started, and only `plans.merge`
+brings it back — which asks you first and then puts the copy away. Until that merge, what you are
+working on is untouched.
+
+**Points to come back to.** `workspace.checkpoint` keeps the exact bytes of every file changed in
+this conversation, under a name you give it. `workspace.undo` puts the last change in this
+conversation back and `workspace.redo` puts it forward again; ask either with `preview` first and
+you are told which file and what would change, without anything being touched. Another
+conversation's changes are never in reach. Checkpoints appear in **Settings → Workspace snapshots**
+alongside whole-workspace snapshots, each with a button that puts the whole point back.
+
+**Keeping what a build produced.** `artifacts.keep` files a picture, a zip or a built program beside
+the run artifacts under a name you choose; keeping the same name again makes the next version
+rather than replacing the last, and each version records its size and its sha256 checksum.
+`artifacts.list` reads that back, so "is this the same build I had yesterday?" has an answer.
+
+**Tools from a service's own description (`tools.from_openapi`).** Point it at an OpenAPI 3
+document — an address, or a file in your workspace — list the operations you are willing to allow,
+and each one becomes a tool called `api.<service>.<operation>`. Nothing you did not list is
+registered. The shapes come from the document itself, the address goes through the same network
+rules as everything else, and the key comes out of your locker at the moment of a call and is
+scrubbed back out of the answer. Descriptions written in the document are capped and put through
+the same filter a web page gets, so a document cannot talk the assistant into anything.
+`tools.services` shows what is registered and `tools.forget_service` takes one back out. Every tool
+a service brings is filed in its own **services** toolbox, so one large document can never crowd out
+the built-in tools. Registered services last as long as the app is running; add them again after a
+restart. Notion is the worked example:
+
+```
+tools.from_openapi { name: "notion", file: "notion-openapi.json",
+                     allowlist: ["retrievePage", "updatePage"],
+                     secret: "NOTION_TOKEN", auth: "bearer" }
+```
+
+Try it with `dryRun: true` first and you are shown exactly what you would get, with nothing
+registered. For a service with no description written down, the plain web tools (`web.fetch`, and an
+MCP server if the service ships one) are still the way in; nothing here takes that away.
+
+**Handing the assistant over.** `branch export-agent <file>` writes one file holding your
+specialists, your saved procedures, your installed skills, which model does what, and your approval
+rules. Add `--memory` to include what it remembers and `--redact` to mask personal details on the
+way out. **No secret is ever inside**: the locker is not opened at all, and everything written goes
+through the same scrubber that keeps unlocked passwords out of the record. `branch import-agent
+<file>` always prints what is inside first and brings in nothing until you say which parts you want
+with `--sections specialists,routing`; every part is checked against its fingerprint before a byte
+is written, and a skill arrives as its own document so it is installed and scanned the ordinary way.
 
 ## When to check with me: approval rules, practice runs and pace limits
 Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until

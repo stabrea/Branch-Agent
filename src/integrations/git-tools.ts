@@ -53,11 +53,64 @@ export function registerGit(registry: ToolRegistry, git: GitTools): void {
     parameters: z.object({ folder, message: z.string().trim().min(1).max(2000), paths: z.array(filePath).max(50).optional() }).strict(),
     execute: (input, context: ToolContext) => git.commit(input, context.signal),
   });
+  registerWorktrees(registry, git);
+  registerPlanBranches(registry, git);
+}
+
+/**
+ * Parallel copies, one tool per thing you might want to do, because "add", "list" and "remove"
+ * behind one name is a step the model has to work out rather than read. Copies live only in
+ * .branch-worktrees inside the workspace, so an experiment never spreads elsewhere.
+ */
+function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
   registry.register({
-    name: "git.worktree", permission: "git.write",
-    description: "Keep a parallel copy of the repository for an experiment. Copies live only in the .branch-worktrees folder inside the workspace, so they never spread elsewhere.",
-    parameters: z.object({ folder, action: z.enum(["add", "remove", "list"]).default("list"), name: copyName.optional(), branch: branchName.optional() }).strict(),
-    execute: (input, context: ToolContext) => git.worktree(input, context.signal),
+    name: "git.worktree_add", permission: "git.write",
+    description: "Make a parallel copy of the repository for an experiment, in .branch-worktrees.",
+    parameters: z.object({ folder, name: copyName, branch: branchName.optional() }).strict(),
+    target: (args) => `parallel copy ${args.name}`,
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "add" }, context.signal),
+  });
+  registry.register({
+    name: "git.worktree_list", permission: "git.read",
+    description: "The parallel copies of a repository that exist right now.",
+    parameters: z.object({ folder }).strict(),
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "list" }, context.signal),
+  });
+  registry.register({
+    name: "git.worktree_remove", permission: "git.write",
+    description: "Remove a parallel copy of the repository and everything left in it.",
+    parameters: z.object({ folder, name: copyName }).strict(),
+    target: (args) => `remove parallel copy ${args.name}`,
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "remove" }, context.signal),
+  });
+}
+
+/**
+ * Plan branches: try something risky in a parallel copy, look at exactly what it changed, and only
+ * then bring it back. These sit with plans and procedures rather than with everyday version
+ * control, because that is what they are for — and because the everyday version-control box should
+ * not grow every time a way of trying something is added to it.
+ */
+function registerPlanBranches(registry: ToolRegistry, git: GitTools): void {
+  registry.register({
+    name: "plans.try", permission: "git.write",
+    description: "Try a plan in a parallel copy of the repository, on a line of work named after it.",
+    parameters: z.object({ folder, name: copyName, from: branchName.optional() }).strict(),
+    target: (args) => `try "${args.name}" in a parallel copy`,
+    execute: (input, context: ToolContext) => git.planStart(input, context.signal),
+  });
+  registry.register({
+    name: "plans.diff", permission: "git.read",
+    description: "What trying a plan changed, compared with where it started. Read this before merging.",
+    parameters: z.object({ folder, name: copyName, against: branchName.optional() }).strict(),
+    execute: (input, context: ToolContext) => git.planDiff(input, context.signal),
+  });
+  registry.register({
+    name: "plans.merge", permission: "git.write",
+    description: "Bring a plan's work back onto the line of work you are on and put the copy away.",
+    parameters: z.object({ folder, name: copyName, message: z.string().trim().max(200).optional(), remove: z.boolean().default(true) }).strict(),
+    target: (args) => `merge "${args.name}" back into the current line of work`,
+    execute: (input, context: ToolContext) => git.planMerge(input, context.signal),
   });
 }
 
@@ -96,8 +149,55 @@ async function openPullRequest(
   return github.openPullRequest({ ...rest, body });
 }
 
+/**
+ * Reading how a project on GitHub is doing, and putting a folder on GitHub for the first time.
+ * Publishing creates the repository and then sends the work with the Git sign-in this computer
+ * already has: no token is written into the repository's settings, and the person is asked first.
+ * A GitHub App is deliberately not built — these tools use the owner's own personal access token.
+ */
+export function registerGitHubProject(registry: ToolRegistry, github: GitHubAccess, git?: GitTools): void {
+  registry.register({
+    name: "github.issues", permission: "github.manage",
+    description: "List the issues on a GitHub repository, newest first, saying which of them are really pull requests.",
+    parameters: z.object({ repo: repositoryPath, state: z.enum(["open", "closed", "all"]).default("open"), limit: z.number().int().min(1).max(50).default(20) }).strict(),
+    execute: (input) => github.listIssues(input),
+  });
+  registry.register({
+    name: "github.checks", permission: "github.manage",
+    description: "Whether the automatic checks passed on a branch or a saved version, and which ones did not.",
+    parameters: z.object({ repo: repositoryPath, ref: revisionRange }).strict(),
+    execute: (input) => github.checks(input),
+  });
+  registry.register({
+    name: "github.release", permission: "github.manage",
+    description: "The releases published for a GitHub repository, newest first, with their notes.",
+    parameters: z.object({ repo: repositoryPath, limit: z.number().int().min(1).max(30).default(10) }).strict(),
+    execute: (input) => github.releases(input),
+  });
+  if (git) registerPublish(registry, github, git);
+}
+
+function registerPublish(registry: ToolRegistry, github: GitHubAccess, git: GitTools): void {
+  registry.register({
+    name: "github.publish_repo", permission: "github.manage",
+    description: "Put a folder on GitHub for the first time: make the repository (private unless you say otherwise) and send the work there. The person is asked before anything leaves this computer.",
+    parameters: z.object({
+      folder, name: repositoryName, description: z.string().max(350).optional(),
+      private: z.boolean().default(true), branch: branchName.optional(), remote: remoteName,
+    }).strict(),
+    target: (args) => `publish ${args.folder} to GitHub as ${args.name} (${args.private === false ? "public" : "private"}), sending it to the remote "${args.remote ?? "origin"}"`,
+    execute: async (input, context: ToolContext) => {
+      const created = (await github.createRepo(input)) as { repository?: string; address?: string; private?: boolean };
+      const url = `https://github.com/${String(created.repository ?? input.name)}.git`;
+      const sent = await git.publish({ folder: input.folder, url, remote: input.remote, branch: input.branch }, context.signal);
+      return { ...created, ...sent };
+    },
+  });
+}
+
 /** GitHub; registered only when the owner has set it up with a saved token. */
-export function registerGitHub(registry: ToolRegistry, github: GitHubAccess): void {
+export function registerGitHub(registry: ToolRegistry, github: GitHubAccess, git?: GitTools): void {
+  registerGitHubProject(registry, github, git);
   registry.register({
     name: "github.create_repo", permission: "github.manage",
     description: "Create a repository on GitHub under the owner's account. It is private unless you say otherwise.",
@@ -116,12 +216,7 @@ export function registerGitHub(registry: ToolRegistry, github: GitHubAccess): vo
     }).strict(),
     execute: (input) => openPullRequest(github, input),
   });
-  registry.register({
-    name: "github.list_issues", permission: "github.manage",
-    description: "List issues on a GitHub repository, newest first.",
-    parameters: z.object({ repo: repositoryPath, state: z.enum(["open", "closed", "all"]).default("open"), limit: z.number().int().min(1).max(50).default(20) }).strict(),
-    execute: (input) => github.listIssues(input),
-  });
+  // Listing issues is `github.issues`, registered above: there is one tool for it, not two.
   registry.register({
     name: "github.create_issue", permission: "github.manage",
     description: "Raise an issue on a GitHub repository.",

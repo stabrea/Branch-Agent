@@ -1477,6 +1477,43 @@ tools in registration order, where the tiered and toolbox-only catalogs are with
 each other; three new tools registered early flipped it, so it now measures the product's whole
 catalog.
 
+## Batch 26 (wave 7) — a coder's toolbox: maps, language servers, debuggers, plan branches
+Backend-first, one `<details>` of UI in Settings → Developer, and no new dependency. **The project
+map** (`src/code-map.ts`, `src/code-scanners.ts`) reuses `WorkspaceSearch.walk` so confinement and
+the ignore rules are the existing ones, and adds one small regular expression per language
+(TypeScript, JavaScript, Python, Go, Rust, Java, C#, Markdown) plus relative import resolution for
+TS/JS and Python. `code.map` keeps entries by `mtime:bytes`, so a second call reads nothing; with a
+`request` it ranks by word matches and then spreads a third of each match's score to its neighbours
+in the import graph, which is what makes "the answer is next door" work. The documentation says
+plainly that this is regex, not a parser. **One stdio layer** (`src/stdio-rpc.ts`) does the framing
+both LSP and DAP share, so `src/language-server.ts` and `src/debug-adapter.ts` are protocol logic
+only; both spawn under `jobWithin` with the same caps as every other child and stop in
+`createBranch().close()`. They are **not** under `BackgroundProcesses`, which spawns with
+`stdio: ["ignore","pipe","pipe"]` and so cannot speak to a server at all. `code.rename` turns the
+server's `WorkspaceEdit` into whole new files (ranges applied back to front) and hands them to a new
+public `CodeChanges.applyPlanned`, so approval, the file history and the project check are the
+existing ones rather than a second path. **Plan branches** extend `GitTools` with
+`planStart`/`planDiff`/`planMerge` over the confined `.branch-worktrees` folder — `.branch/worktrees`
+as the brief wrote it is not buildable, because `^\.branch$` is in the secret-name regex in
+`files.ts` and `checked()` tests every segment. **Checkpoints** live in `WorkspaceHistory` because
+they are snapshots of the rows it already keeps; undo/redo is a `workspace_undo` stack keyed by
+conversation, where undo consumes a `before write` version and redo releases it, so the two are
+exact inverses. **Catalog cost** was the real constraint: the new tools pushed
+`tests/catalog-diet.test.mjs` past its 2500-token guard, so `git.worktree` was replaced by the three
+split tools (convention: replace, do not deprecate), the plan tools were named `plans.*` where they
+belong, and listing and restoring a kept point became owner actions on the existing
+`/api/history/snapshots` routes instead of tools. `github.list_issues` went the same way, replaced by
+`github.issues`, which did the same thing. `tests/code-ide.test.mjs` (29) drives the LSP and
+DAP clients against stand-in servers written as two small Node scripts, and the GitHub, GitLab and
+OpenAPI work against `node:http` fakes. What is **not** proved here: nothing has been run against a
+real language server or debug adapter, only the two stand-ins, so the minimal `initialize`
+capabilities and the fixed wait in `code.diagnostics` are the likely first things to need work;
+debugging speaks DAP over stdio only, with no bridge to Chrome DevTools Protocol, so Node's
+`--inspect` is not reachable this way; and `github.publish_repo` is covered only as far as the
+refusal of an address carrying sign-in details and the approval question — the push itself has no
+fake. Audit ids: A0537 (project map), A0008 (language servers), A0192 (debug adapters), A0542 (plan
+branches), A1183 (kept build outputs), A2059 (workspace checkpoints, the undo/redo half). A0435 and
+A2333 were already done in batch 5 and the ignore rules here are the same matcher.
 
 ## Next work (local until a checkpoint worth publishing)
 

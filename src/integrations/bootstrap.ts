@@ -22,6 +22,7 @@ import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
 import { GitHubAccess, GitHubConfigSchema } from './github.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
+import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
 
@@ -112,6 +113,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
 export const GitConfigSchema = z.object({
   remote: z.boolean().default(false),
   github: GitHubConfigSchema.partial().optional(),
+  /** Reading issues, releases and pipelines from GitLab; needs its own saved token. */
+  gitlab: GitLabConfigSchema.partial().optional(),
 }).strict();
 
 /** Where the person's issues live. Each tracker is off until it is named here with a saved key. */
@@ -249,12 +252,24 @@ async function buildEmail(channel: Extract<ChannelConfig, { type: 'email' }>, en
 function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchema>, host: ChannelHost | undefined, policy: NetworkPolicy | undefined): void {
   if (!host?.git) throw new Error('Version control settings are configured but this launch cannot host them');
   if (config.remote) registerGitRemote(registry, host.git);
+  if (config.gitlab) enableGitLab(registry, config.gitlab, host, policy);
   if (!config.github) return;
   if (!policy || !host.activeSecret) throw new Error('GitHub needs the network settings and the secrets locker');
   const secret = host.activeSecret, name = GitHubConfigSchema.parse(config.github).tokenSecret;
   registerGitHub(registry, new GitHubAccess(config.github, policy, async () => {
     const value = await secret(name).catch(() => '');
     if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
+    return value;
+  }), host.git);
+}
+
+/** Reading from GitLab; the token comes out of the active project's secrets at the moment of a call. */
+function enableGitLab(registry: ToolRegistry, settings: unknown, host: ChannelHost, policy: NetworkPolicy | undefined): void {
+  if (!policy || !host.activeSecret) throw new Error('GitLab needs the network settings and the secrets locker');
+  const secret = host.activeSecret, name = GitLabConfigSchema.parse(settings).tokenSecret;
+  registerGitLab(registry, new GitLabAccess(settings, policy, async () => {
+    const value = await secret(name).catch(() => '');
+    if (!value) throw new Error(`Connect GitLab first: save a secret called ${name} in the active project holding a GitLab personal access token.`);
     return value;
   }));
 }
