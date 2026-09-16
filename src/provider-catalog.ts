@@ -24,7 +24,7 @@ export const authStyles = ["bearer", "x-api-key", "api-key", "google-key", "quer
 export type AuthStyle = (typeof authStyles)[number];
 
 /** The things a service can do. Planning refuses to send work to a model that lacks what it needs. */
-export const capabilities = ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "audio", "images"] as const;
+export const capabilities = ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "audio", "images", "realtime"] as const;
 export type Capability = (typeof capabilities)[number];
 
 const ExtraSchema = z.object({
@@ -52,7 +52,7 @@ export const CatalogEntrySchema = z.object({
   auth: z.enum(authStyles),
   /** Where the service lists its models, relative to the address, or null when it offers no list. */
   modelsPath: z.string().max(200).nullable(),
-  capabilities: z.array(z.enum(capabilities)).max(8),
+  capabilities: z.array(z.enum(capabilities)).max(9),
   defaultModel: z.string().min(1).max(256),
   recommendedModels: z.array(z.string().min(1).max(256)).max(20),
   /** Where the service publishes what it charges, so a person can check Branch's figures. */
@@ -112,6 +112,7 @@ const plainWords: Record<Capability, string> = {
   embeddings: "compare passages",
   audio: "handle speech",
   images: "make pictures",
+  realtime: "hold a spoken conversation as it happens",
 };
 export function plainCapability(capability: Capability): string {
   return plainWords[capability];

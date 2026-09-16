@@ -1476,10 +1476,24 @@ globalThis.branchRunSpoken = async (text) => {
     await new Promise((done) => setTimeout(done, 500));
   return lastReply;
 };
+/* Wave 8: a live conversation belongs to the conversation on screen, and what was said on either
+   side goes into it as an ordinary message. public/voice-live.js calls these two. */
+globalThis.branchSessionId = () => sessionId;
+globalThis.branchAdoptSession = (id) => { if (!sessionId && id) { sessionId = id; $("temporary-toggle").disabled = true; } };
+globalThis.branchAddSpokenMessage = (role, text) => { if (text) message(role, text); };
+
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const typed = $("prompt").value.trim();
-  if (!typed || conversationBusy) return;
+  if (!typed) return;
+  /* Wave 8: typing while it is talking sends the line straight into the live conversation, which
+     answers out loud without you waiting for it to finish what it was saying. */
+  if (globalThis.branchLiveState?.() !== "idle" && globalThis.branchSayLive?.(typed)) {
+    message("user", typed);
+    $("prompt").value = "";
+    return;
+  }
+  if (conversationBusy) return;
   /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
   if (await runSlashCommand(typed)) { $("prompt").value = ""; return; }
   /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */

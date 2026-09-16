@@ -1734,7 +1734,6 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
-<<<<<<< HEAD
 (Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
 adds the figures up a project at a time.)
 
@@ -1780,8 +1779,6 @@ changes, settling a burst of saves into one run and never running twice at once.
 Tests: `tests/other-2.test.mjs` (11). No new dependency. The remaining ids of #60 are decided in
 docs/configuration.md under "The long tail…": covered elsewhere, or deliberately not built with the
 reason written down.
-||||||| 4da2910
-=======
 
 ## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
 
@@ -1862,4 +1859,34 @@ the owner and their own app; `channels.broadcast` and `channels.digest` are refu
 `needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
 are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
 against a fake of its documented shape, not against the real service.
->>>>>>> wave2/integration
+
+## Batch 26 (wave 8) — realtime voice: talking, and being cut off, over a connection that stays open
+
+The thing wave 7 wrote down as *not built*. The blocker was real and is fixed first: the network
+policy checked HTTP addresses per request and had no hook for a socket, so `NetworkPolicy.connect`
+now exists (`src/network-policy.ts`). It does not widen `assertAllowed` — it builds the `https:`/
+`http:` twin of a `wss:`/`ws:` address and hands *that* to the untouched check, so the allowed list,
+the blocked list, the refusal of addresses carrying a password and the private-address lookup all
+apply by construction rather than being written twice. The check is awaited *before* the socket is
+constructed, so a refused address never has a byte sent to it. Sockets are counted (eight at once),
+closed together on Lock, on the end of a task and on shutdown, and each one leaves a span and a line
+in the record of what the assistant was allowed to do — host and path only, never the whole address,
+because Gemini takes its key in the query string.
+
+On top of that: one `RealtimeSession` interface (`src/realtime.ts`) with two adapters —
+OpenAI Realtime (`src/realtime-openai.ts`: `session.update`, `input_audio_buffer.append`/`commit`,
+`response.create`, `response.cancel`) and Gemini Live (`src/realtime-gemini.ts`: `setup`,
+`realtimeInput`, `clientContent`, `toolResponse`). Which connections may is read from the provider
+catalog, where `realtime` is a new capability on the OpenAI and Gemini lines only; anything else gets
+a plain sentence and hold-to-talk. `src/realtime-voice.ts` holds one conversation: transcripts become
+ordinary messages, sound goes straight out to the screen and is written down nowhere unless the owner
+switches recordings on, usage becomes cost, and minutes and dollars caps close it with a spoken
+sentence rather than silence. A tool the model asks for mid-conversation goes through
+`runtime.checkPolicy` and the same `ApprovalGate`: allowed runs, refused refuses, and one that needs
+a yes is not run at all — the usual card appears and the model is told, in as many words, that it is
+waiting. The run WebSocket (`src/ws.ts`) grew binary frames and a client-frame hook, which is the
+spine for both the microphone going up and a line typed while it is talking (A1193); `public/voice-live.js`
+is the composer's live variant, and it only appears when the connection in use can hold one.
+
+Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
+tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.

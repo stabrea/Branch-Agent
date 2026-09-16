@@ -77,6 +77,7 @@ import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
+import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
@@ -297,6 +298,23 @@ export async function createBranch(options: {
   // Wave 7: one place that turns speech into words and words into speech, whichever service does
   // the work, plus switching model in one conversation. Voice notes on chat apps come through here.
   const voice = new VoiceService(store, runtime.models, web.policy, web.policy.guard(globalThis.fetch));
+  // Wave 8: live conversations. Every connection that stays open leaves a span and a line in the
+  // record of what the assistant was allowed to do — the host and the path only, never the whole
+  // address, because a key can travel in the query string.
+  const live = new LiveConversations({ store, runtime, models: runtime.models, policy: web.policy, owner: runtime.owner });
+  // A live conversation belongs to one task. When that task finishes for any reason, the
+  // conversation and the socket it holds finish with it rather than being left open.
+  registry.onRunFinished(async (context) => { if (context.runId) live.stop(context.runId, "The task ended"); });
+  web.policy.watchSockets = (record, outcome, reason) => {
+    const span = runtime.tracer.start(record.runId ?? "", "delivery", `live connection to ${record.host}`, {
+      host: record.host, path: record.pathname, what: record.what, outcome,
+    });
+    span?.end(outcome === "refused" ? "error" : "ok", reason);
+    audit(store, runtime.owner, {
+      action: "network.connected", actor: runtime.owner, subject: `${record.host}${record.pathname}`,
+      reason: record.what, source: "owner", runId: record.runId, outcome,
+    });
+  };
   registerVoice(registry, voice, store);
   registerModelSwitch(registry, store, runtime.models);
   media.voice = voice;
@@ -336,6 +354,9 @@ export async function createBranch(options: {
   const releaseOnLock: (() => Promise<unknown>)[] = [];
   sessionLock.onLock = () => {
     runtime.approvals.forgetAll();
+    // Wave 8: a connection that stays open would otherwise outlive the lock. Every live
+    // conversation ends, and every outbound socket with it.
+    live.closeAll("Branch was locked");
     for (const release of releaseOnLock) void release().catch(() => undefined);
   };
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
@@ -545,6 +566,8 @@ export async function createBranch(options: {
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
     voice,
+    /** Wave 8: live conversations — talking and being cut off, over a connection that stays open. */
+    live,
     /** Finding, tidying and moving saved facts. */
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
@@ -696,6 +719,8 @@ export async function createBranch(options: {
     traceExport,
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
+      // Wave 8: a connection that stays open must not outlive the app either.
+      live.closeAll("Branch closed");
       plugins.stop();
       skillPackages.stop();
       mcpServer.close();
@@ -903,6 +928,11 @@ export * from "./voice-stt.js";
 export * from "./voice-tts.js";
 export * from "./voice-talk.js";
 export * from "./voice-service.js";
+export * from "./realtime.js";
+export * from "./realtime-openai.js";
+export * from "./realtime-gemini.js";
+export * from "./realtime-voice.js";
+export * from "./realtime-socket.js";
 export * from "./voice-api.js";
 export * from "./model-profiles.js";
 export * from "./model-switch.js";
