@@ -19,6 +19,7 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
+import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -208,6 +209,8 @@ function state(app: Branch): unknown {
       .map((run) => ({ ...run, usage: app.store.usage(run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
     background: app.runtime.backgroundResults,
+    hooks: app.hooks.list(),
+    network: app.web.policy.settings(),
     memoryProposals: app.store.review.proposals(owner),
     memoryCheckpoints: app.store.review.checkpoints(owner),
     snapshots: app.store.workspaceHistory.snapshots(),
@@ -278,6 +281,9 @@ async function api(
   if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
+  if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
+  const hookEnable = /^\/api\/hooks\/([a-z][a-z0-9_-]{0,39})\/enable$/.exec(path);
+  if (hookEnable && request.method === "POST") return app.hooks.enable(hookEnable[1]!);
   const template = /^\/api\/templates\/(specialist|procedure)\/([a-f0-9-]{36})$/.exec(path);
   if (template && request.method === "GET") return exportTemplate(app.store, app.runtime.owner, template[1] as "specialist" | "procedure", template[2]!);
   if (request.method === "POST" && path === "/api/templates/import") return importTemplate(app.knowledge, app.runtime.context(), await readBody(request, 256 * 1024));
@@ -473,6 +479,10 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   const retry = /^\/api\/channels\/deliveries\/([^/]{1,220})\/retry$/.exec(path);
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/channels/test") {
+    const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
+    return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
+  }
   if (request.method === "POST" && path === "/api/channels/pairings/remove") return app.channels.remove(owner, await readBody(request));
   throw new HttpError(404, "Endpoint not found");
 }
@@ -574,6 +584,19 @@ export async function startServer(
         });
       else response.end();
     }
+  });
+  server.on("upgrade", (request, socket) => {
+    void (async () => {
+      const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
+      const run = match && app.store.run(match[1]!);
+      const sameHost = request.headers.host === new URL(url).host && (!request.headers.origin || request.headers.origin === url);
+      if (!match || !run || run.owner !== app.runtime.owner || !sameHost || !tokenFromProtocol(request, token)) {
+        socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      await serveRunSocket(app.store, run.id, request, socket);
+    })().catch(() => socket.destroy());
   });
   configureLimits(server);
   await new Promise<void>((resolve, reject) => {

@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 85 implemented, 20 partial, 1 external and 63 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 90 implemented, 16 partial, 1 external and 62 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -79,7 +79,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Parameterized recipes and requirements (`extensions.recipes`) | implemented | Covered by the listed local fixtures. |
 | JSON Schema outputs (`extensions.structured`) | implemented | Covered by the listed local fixtures. |
 | Generate capability-limited WASM tools (`extensions.tool-building`) | missing | Build a requested WASM tool and execute it with only declared host capabilities. |
-| Lifecycle event hooks with failure isolation (`extensions.lifecycle-hooks`) | missing | Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold. |
+| Lifecycle event hooks with failure isolation (`extensions.lifecycle-hooks`) | implemented | Covered by the listed local fixtures. |
 | Connect external hosted agent platforms (`extensions.platform-bridge`) | missing | Invoke a configured external agent-platform workflow and return its correlated result through the assistant. |
 | Visual branching workflow editor (`extensions.visual-workflows`) | missing | Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch. |
 
@@ -172,8 +172,8 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Platform-specific OS sandboxes (`security.os`) | partial | Add actual supported OS sandbox backends and enforcement fixtures. |
 | Capability-limited WASM (`security.wasm`) | missing | Run a WASM tool and reject a host operation absent from its capability manifest. |
 | Host-side credential injection (`security.credentials`) | partial | Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output. |
-| Host/path allowlists and rate limits (`security.network`) | partial | Path-level rules and the same policy for MCP HTTP and browser requests. |
-| CPU memory and execution limits (`security.resources`) | partial | Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes. |
+| Host/path allowlists and rate limits (`security.network`) | implemented | Covered by the listed local fixtures. |
+| CPU memory and execution limits (`security.resources`) | implemented | Covered by the listed local fixtures. |
 | Encrypted credential store and hidden prompts (`security.secrets`) | implemented | Covered by the listed local fixtures. |
 | Untrusted-output wrapping and detection (`security.content`) | implemented | Covered by the listed local fixtures. |
 | Execution audit and authenticated successful-call receipts (`security.audit`) | implemented | Covered by the listed local fixtures. |
@@ -191,7 +191,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | --- | --- | --- |
 | OpenAI-compatible API (`interop.openai`) | implemented | Covered by the listed local fixtures. |
 | Embedding SDK (`interop.sdk`) | implemented | Covered by the listed local fixtures. |
-| REST WebSocket and SSE (`interop.streaming`) | partial | WebSocket transport (no dependency-free server in Node). |
+| REST WebSocket and SSE (`interop.streaming`) | implemented | Covered by the listed local fixtures. |
 | ACP integration (`interop.acp`) | missing | Complete a task through a supported ACP client or agent adapter using its documented subset. |
 | Agent-to-agent surface (`interop.a2a`) | missing | Exchange a task and result with a compatible A2A peer using declared capabilities. |
 | Remote tool skill and inference discovery (`interop.node-discovery`) | missing | Discover tools, skills and inference advertised by a node and identify their owning host. |
@@ -201,7 +201,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Guided provider and channel setup (`operations.setup`) | partial | Add a channel test call once messaging channels exist (routing.channels). |
+| Guided provider and channel setup (`operations.setup`) | implemented | Covered by the listed local fixtures. |
 | Background gateway and foreground modes (`operations.daemon`) | partial | Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop. |
 | Single-binary constrained deployment (`operations.portable`) | missing | Launch a packaged binary on a declared supported target and report measured gateway resource usage. |
 | Serverless idle suspension (`operations.hibernation`) | missing | Suspend the configured serverless environment and resume an operation with its persisted workspace intact. |

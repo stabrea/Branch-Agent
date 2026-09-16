@@ -23,7 +23,7 @@ function credential(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
-export function makeTransport(config: McpConfig, env: NodeJS.ProcessEnv) {
+export function makeTransport(config: McpConfig, env: NodeJS.ProcessEnv, policy?: { guard(base: typeof fetch): typeof fetch }) {
   if (config.transport === 'stdio') {
     const selected = Object.fromEntries(config.envKeys.map(key => [key, credential(env, key)]));
     const transport = new StdioClientTransport({ command: config.command, args: config.args,
@@ -40,7 +40,7 @@ export function makeTransport(config: McpConfig, env: NodeJS.ProcessEnv) {
     throw new Error('MCP URL must not contain credentials, query, or fragment');
   const secret = config.bearerEnv ? credential(env, config.bearerEnv) : undefined;
   const transport = new StreamableHTTPClientTransport(url, {
-    fetch: boundedFetch,
+    fetch: policy ? policy.guard(boundedFetch) : boundedFetch,
     requestInit: { redirect: 'error', ...(secret ? { headers: { authorization: `Bearer ${secret}` } } : {}) },
   });
   return { transport, secrets: secret ? [secret] : [] };

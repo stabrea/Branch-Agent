@@ -73,9 +73,12 @@ export class BranchBrowser {
     try { return await this.session(context).use(context, action); }
     finally { if (context.signal.aborted) await this.closeRun(context); }
   }
+  /** Shared network policy; when set, navigation is checked against it as well as the origin list. */
+  policy: { assertAllowed(target: URL, what?: string): Promise<void> } | undefined;
   async navigate(url: string, context: ToolContext) {
     if (!this.allowed(url) || new URL(url).username || new URL(url).password)
       throw new Error('Browser destination is not an allowed origin');
+    await this.policy?.assertAllowed(new URL(url), 'browser address');
     return this.operation(context, async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       return { url: page.url(), title: await page.title() };

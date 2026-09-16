@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T01:16:33.739103+00:00",
+  "assessment_date": "2026-09-16T01:58:27.974006+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -1111,18 +1111,23 @@
       "family": "extensions",
       "name": "Lifecycle event hooks with failure isolation",
       "acceptance_criterion": "Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/registry.ts",
+          "src/hooks.ts",
+          "src/store.ts",
+          "src/index.ts",
           "src/integrations/bootstrap.ts",
-          "src/integrations/mcp.ts"
+          "src/server.ts",
+          "public/app.js",
+          "tests/guardrails.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "lifecycle hooks run on events and switch themselves off after repeated failures; the owner can switch them back on"
+        ],
+        "detail": "Hooks in the integrations file name an event (run.finished, file.changed, tool.failed, ...) and a shell executable alias; they run on every stored event of that kind with the event as JSON, count failures, and are switched off at failureThreshold (hook.disabled event, Settings \u2192 Hooks shows it) until the owner presses Switch back on (POST /api/hooks/:id/enable)."
       },
-      "remaining": "Invoke a registered lifecycle hook and disable or isolate it after the configured repeated-failure threshold."
+      "remaining": ""
     },
     {
       "id": "extensions.platform-bridge",
@@ -2412,41 +2417,43 @@
       "family": "security",
       "name": "Host/path allowlists and rate limits",
       "acceptance_criterion": "Permit an allowlisted endpoint and reject a disallowed host or path before sending a request.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/network-policy.ts",
           "src/integrations/web.ts",
+          "src/integrations/browser.ts",
+          "src/integrations/mcp.ts",
+          "src/integrations/mcp-config.ts",
           "src/integrations/bootstrap.ts",
-          "src/index.ts",
-          "tests/web-pin-hygiene.test.mjs"
+          "tests/guardrails.test.mjs"
         ],
         "tests": [
-          "the network guard refuses loopback, private, link-local and blocked hosts before any request, and honours an allowlist"
+          "one network policy with host and path rules is applied by web reading, the browser and MCP requests"
         ],
-        "detail": "Host allowlist and blocklist (with subdomains) for web reading, enforced before sending."
+        "detail": "One NetworkPolicy (allowed/blocked hosts, allowed/blocked host/path-prefix rules, private-address refusal) is shared by web.fetch/web.search on every hop, by browser navigation, and by MCP HTTP transports through a guarded fetch that checks every request; configured under the integrations file's web section."
       },
-      "remaining": "Path-level rules and the same policy for MCP HTTP and browser requests."
+      "remaining": ""
     },
     {
       "id": "security.resources",
       "family": "security",
       "name": "CPU memory and execution limits",
       "acceptance_criterion": "Terminate a tool that exceeds its configured CPU, memory or execution-time allowance.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/contracts.ts",
-          "src/runtime.ts",
-          "src/registry.ts",
-          "src/integrations/bounded-fetch.ts"
+          "src/integrations/process-usage.ts",
+          "src/integrations/shell-process.ts",
+          "src/integrations/shell-config.ts",
+          "tests/guardrails.test.mjs"
         ],
         "tests": [
-          "cancellation and exhausted shared budget stop runs",
-          "MCP HTTP byte cap rejects oversized bodies before JSON parsing"
+          "a command that eats memory or spins the processor is stopped by the sampled limits"
         ],
-        "detail": "Step/token/output budgets and cooperative abort/timeouts exist; arbitrary tool promises can ignore signals."
+        "detail": "Host commands are sampled about once a second (PowerShell CIM on Windows, ps on POSIX) for working-set memory and processor time; exceeding maxMemoryMb (default 1024) or maxCpuSeconds (default 60) stops the process tree with reason memory_limit or cpu_limit, alongside the existing hard time limit and output cap; results carry peak usage. This is a poll, not a kernel cap, and the limitation is stated in the result."
       },
-      "remaining": "Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes."
+      "remaining": ""
     },
     {
       "id": "security.secrets",
@@ -2697,20 +2704,22 @@
       "family": "interop",
       "name": "REST WebSocket and SSE",
       "acceptance_criterion": "Observe ordered task activity through the declared REST, WebSocket and SSE surfaces.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/ws.ts",
           "src/streams.ts",
           "src/server.ts",
-          "src/openai-compat.ts",
+          "tests/guardrails.test.mjs",
           "tests/interop.test.mjs"
         ],
         "tests": [
+          "a run's events stream in order over a WebSocket and a channel can send a test message",
           "run events stream in order over SSE until the run ends, resuming after a given id"
         ],
-        "detail": "REST returns persisted ordered events; GET /api/runs/:id/stream sends them in id order over Server-Sent Events until the run ends, resuming after ?after=<id>; the OpenAI endpoint streams deltas the same way."
+        "detail": "Ordered run events are available over REST (GET /api/runs/:id), Server-Sent Events (GET /api/runs/:id/stream) and a dependency-free WebSocket (GET /api/runs/:id/ws with the token as the bearer subprotocol); all end with an end message carrying the run's final status."
       },
-      "remaining": "WebSocket transport (no dependency-free server in Node)."
+      "remaining": ""
     },
     {
       "id": "interop.acp",
@@ -2789,20 +2798,20 @@
       "family": "operations",
       "name": "Guided provider and channel setup",
       "acceptance_criterion": "Complete localhost-first onboarding and verify a configured model and channel with actual test calls.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "src/server.ts",
           "public/app.js",
-          "public/index.html",
-          "tests/onboarding.test.mjs"
+          "src/channels/router.ts",
+          "tests/guardrails.test.mjs"
         ],
         "tests": [
-          "setup ends with a real test call and a remembered completion"
+          "a run's events stream in order over a WebSocket and a channel can send a test message"
         ],
-        "detail": "First-run panel offers ChatGPT plan sign-in, API key or offline demonstration; 'Test the connection' makes a real completion through the chosen preset and reports the reply and time; completion is remembered. Verified in the desktop app by driving the flow."
+        "detail": "First run offers ChatGPT sign-in, an API key or the offline demonstration with a real test call; Settings \u2192 Channels can send a test message to any known chat through the delivery ledger (POST /api/channels/test)."
       },
-      "remaining": "Add a channel test call once messaging channels exist (routing.channels)."
+      "remaining": ""
     },
     {
       "id": "operations.daemon",

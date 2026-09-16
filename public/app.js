@@ -528,8 +528,19 @@ async function renderChannels() {
     const node = el("div", undefined, "record");
     node.append(el("strong", `${channel.kind}${channel.botName ? " · @" + channel.botName : ""}`),
       el("p", `${channel.activation === "always" ? "Answers every group message" : "Answers when mentioned or replied to"} · ${channel.pairing ? "new people pair with a code" : "only listed people"}`, "meta"));
+    for (const chat of summary.chats.filter((c) => c.channel === channel.id))
+      node.append(button(`Send a test message to ${chat.title}`, async () => {
+        try { const r = await api("channels/test", { channel: chat.channel, chatId: chat.chatId }); toast(r.messageId ? "Test message sent." : "Test message queued; it goes out when the channel is reachable."); }
+        catch (e) { toast(e.message); }
+      }));
     return node;
   }, "No channel connected in this launch.");
+  list("hooks-list", state.hooks || [], (hook) => {
+    const node = el("div", undefined, "record");
+    node.append(el("strong", `${hook.id} · when ${hook.event.replace(".", " ")}`), el("p", `${hook.enabled ? "On" : "Switched off after " + hook.failures + " failures"}${hook.lastError ? " · last problem: " + hook.lastError : ""}`, "meta"));
+    if (!hook.enabled) node.append(button("Switch back on", async () => { await api(`hooks/${hook.id}/enable`, {}); await refresh(); await renderChannels(); }));
+    return node;
+  }, "No hooks are set up. Hooks are small commands that run when something happens, set in the integrations file.");
   const people = [...summary.pending.map((p) => ({ ...p, label: `${p.name} is waiting · code ${p.code}` })),
     ...summary.approved.map((p) => ({ ...p, label: `${p.name} · approved` }))];
   list("pairings-list", people, (person) => {

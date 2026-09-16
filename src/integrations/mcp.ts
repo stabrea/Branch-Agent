@@ -67,10 +67,10 @@ function definition(client: Client, config: McpConfig, tool: Tool, secrets: stri
     } };
 }
 
-export async function connectMcp(registry: ToolRegistry, input: unknown, env = process.env) {
+export async function connectMcp(registry: ToolRegistry, input: unknown, env = process.env, policy?: { guard(base: typeof fetch): typeof fetch }) {
   const config = McpConfigSchema.parse(input);
   if (new Set(config.tools).size !== config.tools.length) throw new Error('Duplicate MCP tool allowlist entry');
-  const { transport, secrets } = makeTransport(config, env);
+  const { transport, secrets } = makeTransport(config, env, policy);
   const client = new Client({ name: 'branch', version: '0.1.0' });
   try {
     // SDK 1.x transport declarations disagree on optional sessionId under exact optional types.
