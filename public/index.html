@@ -994,6 +994,16 @@
             <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
             <p id="browser-status" class="subtle" role="status"></p>
             <div id="browser-profiles" class="card-list"></div>
+            <hr />
+            <h3>Letting Branch use the browser you already have open</h3>
+            <p>Instead of its own fresh browser, Branch can work in the browser <em>you</em> are already using, so every website you are signed in to already knows you. <strong>Be careful with this one.</strong> While it is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. It is only on for one task, it turns itself off after fifteen minutes, and banks and password websites are always refused. Branch works in a new tab of its own and closes only that tab; your own tabs are never touched, and it still never types a password.</p>
+            <p class="subtle">To use this, start Chrome or Edge yourself with its debugging door open — close it first, then start it with <code>--remote-debugging-port=9222</code> — and put that same number below.</p>
+            <label for="browser-attach-port">Debugging door number</label>
+            <input id="browser-attach-port" type="number" min="1024" max="65535" step="1" value="9222" />
+            <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
+            <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
+            <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
+            <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
@@ -1071,6 +1081,19 @@
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
+            </details>
+            <!-- Wave 7: help with code. Every program named here is one you already have. -->
+            <details id="code-ide">
+              <summary>Help with code</summary>
+              <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
+              <label class="check-row"><input type="checkbox" id="ls-enabled" /> Let Branch use my language servers</label>
+              <label for="ls-list">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
+              <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Users\me\AppData\Roaming\npm\node_modules\typescript-language-server\lib\cli.mjs | --stdio | TypeScript, JavaScript"></textarea>
+              <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
+              <label for="dbg-list">One per line: a short name, the full address of the program, and anything that goes after it</label>
+              <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
+              <button id="code-ide-save" type="button">Save</button>
+              <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
@@ -1283,5 +1306,6 @@
     <script src="/flows.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
+    <script src="/code-ide.js" type="module"></script>
   </body>
 </html>

@@ -56,21 +56,26 @@ const tiered = (app, tools, expanded, prompt) =>
 
 test("a thousand tools cost no more than a dozen, and every round is smaller than with groups alone", async (t) => {
   const { app, provider } = await fixture(t, [say("Noted.")]);
-  const ninety = app.registry.descriptions(new Set(app.registry.permissions())).slice(0, 90);
+  // The product's own tools, all of them. An arbitrary slice of the list would make this
+  // measurement turn on which tools happen to be registered first, and the two ways of writing a
+  // catalog are within a few tokens of each other until there are enough tools to leave out.
+  const product = app.registry.descriptions(new Set(app.registry.permissions()));
   const everything = fillRegistry(app, 1000);
   assert.ok(everything.length >= 1000, `${everything.length} tools registered`);
   const expanded = ["core", "files", "data"], prompt = "chart the rows in the spreadsheet";
   const measured = {
-    ninetyGroups: groupsOnly(app, ninety, expanded), ninetyTiered: tiered(app, ninety, expanded, prompt),
+    productTools: product.length,
+    productGroups: groupsOnly(app, product, expanded), productTiered: tiered(app, product, expanded, prompt),
     thousandGroups: groupsOnly(app, everything, expanded), thousandTiered: tiered(app, everything, expanded, prompt),
   };
   console.log("tool section, estimated tokens:", JSON.stringify(measured));
-  assert.ok(measured.ninetyTiered < measured.ninetyGroups, `90 tools: ${measured.ninetyTiered} vs ${measured.ninetyGroups}`);
+  assert.ok(measured.productTiered < measured.productGroups,
+    `${product.length} tools: ${measured.productTiered} vs ${measured.productGroups}`);
   assert.ok(measured.thousandTiered < measured.thousandGroups, `1000 tools: ${measured.thousandTiered} vs ${measured.thousandGroups}`);
   assert.ok(measured.thousandTiered < defaultToolBudgetTokens, `1000 tools cost ${measured.thousandTiered}`);
   // The groups-only catalog grows with the product; the tiered one hardly notices.
-  const grewTiered = measured.thousandTiered - measured.ninetyTiered;
-  const grewGroups = measured.thousandGroups - measured.ninetyGroups;
+  const grewTiered = measured.thousandTiered - measured.productTiered;
+  const grewGroups = measured.thousandGroups - measured.productGroups;
   assert.ok(grewTiered * 5 < grewGroups, `ten times the tools cost ${grewTiered} more, against ${grewGroups} with groups alone`);
 
   const filler = "we talked about the move and the boxes in the hallway ".repeat(120);

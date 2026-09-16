@@ -210,6 +210,29 @@ SDK callers can pass `retryPolicy` to `createBranch`: `maxRetries` accepts 0–2
 
 `GET /api/tools` lists the tools that exist right now with their permission and readiness; closing an integration removes its tools from the list.
 
+### Where "search the web" actually goes
+
+`web.search` goes to whichever service the `web.search` block names. Whatever is chosen, the request still goes through the same network settings every other outbound call goes through.
+
+| `backend` | Needs | Honest note |
+| --- | --- | --- |
+| `duckduckgo` (default) | nothing | A scrape of a public results page. No promises attached, rate-limited by whoever runs it, and on a busy day it returns nothing at all. Fine for the occasional look; not for work that depends on search. |
+| `searxng` | `searxngUrl` | Your own SearXNG, on your own machine or network. Nothing is shared with anyone else. |
+| `brave` | `keySecret` | Brave Search. |
+| `tavily` | `keySecret` | Tavily, built for assistants. |
+| `exa` | `keySecret` | Exa, good at finding pages by meaning. |
+| `serper` | `keySecret` | Serper, which fetches Google results. |
+
+`keySecret` names a secret in the locker — the key itself never goes into the settings file. A paid service chosen without its key refuses with a sentence saying which secret to save.
+
+The free fallback reads a public results page rather than an interface meant for programs, which is something DuckDuckGo's terms of service do not invite. Branch asks for one page per search, identifies itself honestly in its user agent, and follows no link from the results by itself — but scraping is still their call, not ours, and they may stop answering at any time. If search matters to your work, pay for one of the services above or run a SearXNG of your own. Nothing here overrides a site's `robots.txt`: `web.fetch` and the browser only ever open an address a person or a task has asked for by name.
+
+```json
+{ "web": { "search": { "backend": "tavily", "keySecret": "TAVILY_API_KEY" } } }
+```
+
+`searchEndpoint` still sets the address the free fallback uses, so anything already set up keeps working.
+
 ### Pinned skills and memory retention
 
 Above the composer, **Pinned skill** keeps one enabled skill's full instructions in every turn of that conversation until unpinned (`GET|POST /api/sessions/:id/skill`). `POST /api/memory/hygiene {olderThanDays, action: "preview"|"archive"|"purge"}` reports or removes facts not updated within the period; archived facts are listed by `GET /api/memory/archive` and restored with `POST /api/memory/archive/:id/restore`.
@@ -269,6 +292,70 @@ A task asks for one by name with `browser.profile { action: "use", name }`, whic
 Routes: `GET /api/browser/profiles`, `POST /api/browser/profiles` with `{ "name": "my-bank" }`, `POST /api/browser/profiles/remove`, `POST /api/browser/signin` with `{ "name": "my-bank", "url": "https://example.com/login" }`.
 
 Under the "Just do it inside my workspace" approval preset, `browser.upload` asks first, alongside clicking, typing and opening a new website; taking a picture, waiting and pulling out rows count as reading and are never held up.
+
+### Numbering the things on a page
+
+Guessing at selectors is how browser tasks go wrong. `browser.annotate { draw?, limit? }` numbers everything on the page you can press or type into, draws a small red label beside each one, and hands back a short list such as `[3] button "Save"`. The assistant can then say "press 3".
+
+A number belongs to the *thing*, not to its place. It is worked out from what the thing is, what it is called, and the kinds of boxes it sits inside — never from its position — so a page that throws its contents away and draws them again keeps its numbers, and a genuinely new thing gets a new one. The numbers last for one task and are forgotten when the task ends.
+
+The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
+
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
+
+### Data in the shape you asked for
+
+`browser.shape { rows?, fields, limit? }` reads the page into an exact shape. Each field says where to read it (`selector`, or `attribute` for something like a link's address), and what kind of thing it is: `text`, `number`, `boolean`, `date` or `url`. `rows` names the repeated block — a table row, a card — and without it the page is read once.
+
+What comes back has already been checked. A field marked `required` that is missing, or a number that is really words, makes the whole call a refusal that names the failing field, so the assistant fixes its request instead of acting on a guess. A field not marked required comes back as `null` rather than invented.
+
+### Actions that heal themselves
+
+Websites are rewritten constantly and remembered selectors rot. `browser.act { action: click | fill | check, selector?, name?, mark?, value? }` tries up to four ways in order: the exact selector, the thing's name as a button, the words showing on it, then its number from `browser.annotate`. The result says which way worked (`foundBy`) and how many were tried, and the same goes into the task's trace with `healed: true` when it was not the selector — so a step that keeps healing shows up and can be fixed properly.
+
+It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. Typing into a password box is refused here as everywhere else.
+
+### Using the browser you already have open
+
+Branch normally uses a fresh browser that no website knows you in. **Settings → Websites you stay signed in to → Letting Branch use the browser you already have open** lets it work in *your* browser instead, so everything you are signed in to already knows you.
+
+**The plain risk:** while this is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. Three things hold it back, and you should read all three before turning it on:
+
+- It is on for **one task**, named by its task number, and it **turns itself off after fifteen minutes**. A different task has to ask again. Leaving the task number empty does not open it to everything: the first task that borrows takes the switch for itself, and the next one has to ask again. Locking Branch gives the browser back straight away.
+- Banks, brokers, password managers and webmail are **always refused** — email is on the list because a mailbox is how every other account is taken back. The refusal applies not only when Branch is asked to open one, but on **every single request its tab makes**, so a link followed inside the page is refused too. The list sits beside the one the screen-and-keyboard control uses for windows; that one matches window titles, which a website name would never trip, so a list of website names was added next to it. Anything whose name contains "bank", "vault" or "password" is refused as well.
+- Branch opens **a new tab of its own** and closes only that tab. Your own tabs are never watched, never redirected and never closed; when the task ends Branch stops listening rather than shutting anything down. Your cookies are never copied into a saved sign-in.
+
+To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
+
+Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`.
+
+**The honest limits:** this only works with Chrome or Edge, only on this computer, and only when you started the browser with that door open — Branch never starts it for you and never opens one you can see. A browser started the ordinary way cannot be borrowed.
+
+### Keeping a recording of a task
+
+`browser.recording { action: "start" }` then `{ action: "keep" }` writes a Playwright trace beside the task's other files. Open it in Playwright's trace viewer to watch what happened step by step.
+
+What goes in: the steps taken and a picture of the window at each one. What deliberately does not: **a copy of the page's own markup**. A password box carries its contents in the markup even when it looks blacked out on screen, so markup snapshots are switched off outright. On top of that, password boxes are **emptied before every step** while a recording is being made, because the recorder writes down a description of whatever a step points at and that description would otherwise carry the contents with it. So if a website had already filled a password box on the page, a recording clears it.
+
+This is checked by unpacking the recording and searching the readable text inside — searching the packed file would prove nothing, because everything inside it is squashed.
+
+A recording photographs **every tab in the window it is made in**, so a recording and borrowing your own browser are never on at the same time: whichever you ask for second is refused with a sentence saying why. A recording is only ever made in a browser of Branch's own.
+
+### One way of saying "look at this, press that"
+
+`computer.look`, `computer.press` and `computer.type` take `at: "page"` or `at: "window"` and hand the work to the browser tools or to the screen-and-keyboard tools. Both underlying sets stay exactly as they are; this is a shorter way of saying the common thing, not a replacement.
+
+Nothing is bypassed: each one goes through the very method the underlying tool uses, so the same limits are counted and the same refusals apply. Reaching a window needs the screen permission **as well**, checked separately, so a task allowed to browse cannot reach your windows through the short way. Whichever half is not configured in this launch says so plainly when it is asked for.
+
+### Browser skills that come with Branch
+
+Three ready-made skills are shipped as ordinary skill packages: **search and summarise the top results**, **fill a form from a document**, and **watch a page for a change** (which tells the assistant to use the existing watcher rather than browse in a loop). They are instructions and nothing else — no web calls, no recipes — and arrive switched off like any other skill.
+
+`GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
+
+### Not built
+
+Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer. There is no Python `browser-use` runtime and no sandboxed remote computer either.
 
 ## Channels (Telegram)
 
@@ -1094,7 +1181,7 @@ The assistant can use the copy of **Git** already installed on this computer to 
 These tools come in three groups so you can allow them separately.
 
 - `git.read` — `git.status` (what changed, which line of work, ahead or behind), `git.diff` (the changed lines, capped, either in the working folder or between two points such as `main..mine`), `git.log` (recent saved versions, bounded).
-- `git.write` — `git.branch` (list, start or switch a line of work), `git.commit` (save a version; a message is required, it saves everything that changed unless you name paths, it refuses when nothing has changed, and it never rewrites a version you already saved), `git.worktree` (a parallel copy for an experiment, only ever inside `.branch-worktrees` in the repository, so experiments cannot spread elsewhere). Both groups are available as soon as Branch starts.
+- `git.write` — `git.branch` (list, start or switch a line of work), `git.commit` (save a version; a message is required, it saves everything that changed unless you name paths, it refuses when nothing has changed, and it never rewrites a version you already saved), `git.worktree_add` and `git.worktree_remove` (a parallel copy for an experiment, only ever inside `.branch-worktrees` in the repository, so experiments cannot spread elsewhere; `git.worktree_list` reads them and needs only `git.read`). Both groups are available as soon as Branch starts.
 - `git.remote` — `git.push` and `git.pull`. **These are off until you turn them on.** Add a `git` block to the integrations file:
 
 ```json
@@ -1109,11 +1196,111 @@ Sending work to the branch everyone shares (`main` or `master`) stops and asks y
 { "git": { "remote": true, "github": { "tokenSecret": "GITHUB_TOKEN" } } }
 ```
 
-That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.list_issues` and `github.create_issue`, all behind the `github.manage` permission. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
+That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.create_issue`, `github.issues` (listing them), `github.checks` (whether the automatic checks passed on a branch or a saved version, said in plain words), `github.release` (the releases published, newest first) and `github.publish_repo`, all behind the `github.manage` permission. `github.publish_repo` makes the repository and sends a folder there in one step; it writes the address as a plain remote with no sign-in details in it, so the push uses the Git sign-in this computer already has and no token is ever written into the repository's settings. You are asked before anything leaves the computer.
+
+**GitLab** can be read in the same way, with its own token saved as `GITLAB_TOKEN`:
+
+```json
+{ "git": { "gitlab": { "tokenSecret": "GITLAB_TOKEN" } } }
+```
+
+That registers `gitlab.issues`, `gitlab.releases` and `gitlab.pipelines` behind `gitlab.read`. Reading only: GitLab's endpoints for changing things are shaped differently enough from GitHub's that offering half of them would mislead you about what Branch can actually do. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
 
 **Hiding files from the assistant: `.branchignore`.** Put a file called `.branchignore` in the workspace root and list anything you would rather the assistant did not read, using the same syntax as `.gitignore` (one pattern per line, `#` for a comment, a trailing `/` for folders only, `!` to un-hide, `*` and `?` inside one name, `**` across folders). Files it hides disappear from `files.read`, `files.list` and `files.search`, a hidden folder can no longer be used as the working folder of a host command, and the Git tools respect it too: hidden files are left out of `git.status`, out of `git.diff`, and are never staged by `git.commit`.
 
 Precedence, in order: the fixed secret patterns come first and cannot be overridden — `.env` files, `.ssh`, `.aws`, `.git`, anything named like credentials or secrets, and key files (`.pem`, `.key`, `.p12`, `.pfx`) are always refused, and a `!` line in `.branchignore` does **not** bring them back. `.branchignore` then hides more on top of that. Nothing inside a hidden folder can be un-hidden. The file is re-read whenever you change it, so there is nothing to restart.
+
+## For coders
+
+Everything in this section is for people who write software. None of it is switched on by default,
+and none of it downloads anything: where a program is needed, it is one you already have.
+
+**A map of the project (`code.map`).** Ask for the map and you get every file Branch may read, its
+size, what kind of file it is, the names it declares, and which other files it pulls in.
+TypeScript, JavaScript, Python, Go, Rust, Java, C# and Markdown headings each have a reader of
+their own, and relative TypeScript, JavaScript and Python imports are resolved into real paths, so
+the map carries a picture of how the project hangs together and not just a list.
+
+Say plainly what this is: **the names are found by pattern, not by a parser.** Each reader is a
+small regular expression that looks at what a line looks like. A name written inside a comment or a
+string can be picked up, and something spread over several lines can be missed. That is the trade
+for needing no build step and no extra program. When you need certainty rather than a map, use a
+language server (below).
+
+Give `code.map` a `request` — what you are actually looking for, in your own words — and the answer
+comes back ordered: the files whose path or declared names match come first, and a file those files
+pull in (or that pulls them in) is lifted alongside, because the answer is very often next door.
+The coder specialist style is told to start there, so it reads two files rather than twenty. The map
+is built once and then kept up to date file by file: a file whose size and time of last change have
+not moved is never read again. `.branchignore` and `.gitignore` are respected, as everywhere else.
+
+**Language servers (Settings → Developer → Help with code).** A language server is the program a
+code editor uses to underline mistakes, jump to where something is defined, and rename a name
+everywhere at once. If you have one installed — `typescript-language-server`, `pyright`, `pylsp`,
+`gopls`, `rust-analyzer` — name it here and Branch will talk to it. Give the short name you want to
+call it, the **full address of the program** (a `.cmd` or `.bat` wrapper is refused; name the real
+program), and the kinds of file it handles. Nothing is downloaded and nothing starts until you tick
+the switch. That turns on `code.diagnostics`, `code.definition`, `code.references`, `code.hover` and
+`code.rename`. The first four only look at things. `code.rename` works out the whole change across
+every file first and then goes through the same gate as any other multi-file change: you are shown
+which files it touches, they all change or none of them do, and each keeps its previous bytes so a
+rename can be put back. Each server runs under the same limits as every other program Branch
+starts, and all of them stop when the app closes.
+
+**Debuggers.** Same screen, same rules. Name a debug adapter you already have — Python's `debugpy`
+is the usual one — and `debug.start` will run a file in your workspace under it, stopping on the
+lines you name. `debug.step` moves it on, `debug.variables` shows what every name holds where it
+stopped, and `debug.stop` ends it. Starting one asks you exactly as running any other program does,
+only one debugging session runs at a time, and what the program prints is kept in a rolling buffer.
+
+**Trying something risky on a copy (plan branches).** `plans.try` makes a parallel copy of the
+repository on a line of work named after the plan, inside `.branch-worktrees`. Work happens there,
+`plans.diff` shows exactly what it changed compared with where it started, and only `plans.merge`
+brings it back — which asks you first and then puts the copy away. Until that merge, what you are
+working on is untouched.
+
+**Points to come back to.** `workspace.checkpoint` keeps the exact bytes of every file changed in
+this conversation, under a name you give it. `workspace.undo` puts the last change in this
+conversation back and `workspace.redo` puts it forward again; ask either with `preview` first and
+you are told which file and what would change, without anything being touched. Another
+conversation's changes are never in reach. Checkpoints appear in **Settings → Workspace snapshots**
+alongside whole-workspace snapshots, each with a button that puts the whole point back.
+
+**Keeping what a build produced.** `artifacts.keep` files a picture, a zip or a built program beside
+the run artifacts under a name you choose; keeping the same name again makes the next version
+rather than replacing the last, and each version records its size and its sha256 checksum.
+`artifacts.list` reads that back, so "is this the same build I had yesterday?" has an answer.
+
+**Tools from a service's own description (`tools.from_openapi`).** Point it at an OpenAPI 3
+document — an address, or a file in your workspace — list the operations you are willing to allow,
+and each one becomes a tool called `api.<service>.<operation>`. Nothing you did not list is
+registered. The shapes come from the document itself, the address goes through the same network
+rules as everything else, and the key comes out of your locker at the moment of a call and is
+scrubbed back out of the answer. Descriptions written in the document are capped and put through
+the same filter a web page gets, so a document cannot talk the assistant into anything.
+`tools.services` shows what is registered and `tools.forget_service` takes one back out. Every tool
+a service brings is filed in its own **services** toolbox, so one large document can never crowd out
+the built-in tools. Registered services last as long as the app is running; add them again after a
+restart. Notion is the worked example:
+
+```
+tools.from_openapi { name: "notion", file: "notion-openapi.json",
+                     allowlist: ["retrievePage", "updatePage"],
+                     secret: "NOTION_TOKEN", auth: "bearer" }
+```
+
+Try it with `dryRun: true` first and you are shown exactly what you would get, with nothing
+registered. For a service with no description written down, the plain web tools (`web.fetch`, and an
+MCP server if the service ships one) are still the way in; nothing here takes that away.
+
+**Handing the assistant over.** `branch export-agent <file>` writes one file holding your
+specialists, your saved procedures, your installed skills, which model does what, and your approval
+rules. Add `--memory` to include what it remembers and `--redact` to mask personal details on the
+way out. **No secret is ever inside**: the locker is not opened at all, and everything written goes
+through the same scrubber that keeps unlocked passwords out of the record. `branch import-agent
+<file>` always prints what is inside first and brings in nothing until you say which parts you want
+with `--sections specialists,routing`; every part is checked against its fingerprint before a byte
+is written, and a skill arrives as its own document so it is installed and scanned the ordinary way.
 
 ## When to check with me: approval rules, practice runs and pace limits
 Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until

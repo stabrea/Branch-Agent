@@ -41,7 +41,7 @@ export function describeToolCall(name: string, args: unknown): string {
     case "process.stop": return "Stopping a running program";
     case "files.edit": return `Changing some text in ${short(a.path)}`;
     case "files.validate": return `Checking ${short(a.path)} still reads correctly`;
-    case "workspace.map": return "Mapping the workspace";
+    case "workspace.map": case "code.map": return "Mapping the workspace";
     case "web.search": return `Searching the web for “${short(a.query)}”`;
     case "web.fetch": return `Reading ${host(a.url)}`;
     case "shell.execute": return "Running a command";
@@ -50,7 +50,7 @@ export function describeToolCall(name: string, args: unknown): string {
     case "git.log": return "Looking back through saved versions";
     case "git.branch": return "Working with lines of work";
     case "git.commit": return "Saving a version";
-    case "git.worktree": return "Setting up a parallel copy";
+    case "git.worktree_add": case "git.worktree_remove": case "plans.try": return "Setting up a parallel copy";
     case "git.push": return "Sending work to the server";
     case "git.pull": return "Bringing down work from the server";
     case "user.ask": return "Asking you a question";

@@ -409,6 +409,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.14.0 (2026-09-17)
+
+Deferred tool loading, the provider catalog, MCP mode, orchestration pass 2 and the observability pass. Published from `release/0.14.0` (PR #100); the in-app update from 0.13.0 was rehearsed on a staged copy in 47 seconds with no console window and the previous copy kept.
+
 ## Released 0.13.0 (2026-09-17)
 
 Knowledge bases, talk mode and voice notes, installer and background running, phone access over Tailscale, screen control (off by default), traces and metrics, permission rules with resources, shareable pages, labels, durable workflows, queue, holidays, household profiles, terminal UI, SDK, audit record, web UI extras, toolboxes, figures and research. Published from `release/0.13.0` (PR #99); the in-app update from 0.12.0 was rehearsed on a staged copy in 42 seconds with no console window and the previous copy kept.
@@ -1430,6 +1434,90 @@ local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a
 (reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
 source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
 plugin-and-extension-system (#70) leftovers.
+## Batch 20 (wave 7) — browser automation, second pass: marks, shapes, healing, your own browser
+
+Everything a page offers is now numbered (`src/integrations/browser-marks.ts`): a "set of marks"
+overlay plus a text map such as `[3] button "Save"`, with numbers derived from role, accessible
+name and an index-free ancestor path, kept in a per-run `MarkRegistry`, so a re-render keeps them.
+`browser.shape` (`browser-schema.ts`) reads a page into a zod shape built from the caller's field
+list and refuses off-schema rows by field name rather than guessing. `browser.act`
+(`browser-heal.ts`) resolves by selector → role → text → mark id, at most four ways, recording
+`foundBy`/`attempts`/`healed` on a span through a new optional `BranchBrowser.tracer`.
+`browser.borrow` (`browser-attach.ts`) attaches to the owner's own Chrome/Edge over CDP and works
+in `browser.contexts()[0]` — a fresh context would know nobody — with routing applied per-page so
+their tabs are untouched, `detach()` disconnecting rather than closing, storage-state export
+refused, and a `refusedHosts` list exported beside `refusedTitles` in `desktop-config.ts` (the
+window list matches titles, which a hostname would never trip). The switch is per-run and expires
+in fifteen minutes (`/api/browser/attach`, settings card in the existing browser card).
+`browser.recording` (`browser-trace.ts`) writes a Playwright trace with `snapshots:false` — a
+snapshot resource carries `value="…"` of a password box — and empties password values before every
+step, because Playwright's action log records `locator resolved to <input … value="…">`. Proven by
+inflating the zip with a local central-directory reader, never by grepping compressed bytes. A
+recording traces every page in its context, so recording and borrowing refuse each other; the
+borrow refusal also runs in the borrowed tab's per-page route, not only in `navigate`, and the test
+puts a bank on `allowedOrigins` so the refusal proved is the borrowing one.
+`computer.look|press|type` (`computer.ts`) routes to page or window through the same methods that
+count the caps, and re-checks `desktop.view`/`desktop.control` so the browser permission is not a
+way round the screen one. `web.search` gained pluggable backends (`web-search.ts`: SearXNG, Brave,
+Tavily, Exa, Serper, DuckDuckGo fallback) as pure request/parse functions — note the type-only
+import back into `web.ts`, which would otherwise be a cycle. Three skill packages ship as string
+constants in `src/browser-skills.ts` (`/api/skills/browser`). `tests/browser-2.test.mjs` covers it
+in 14 tests against local fixtures and a headless Chromium the test itself starts with a debugging
+port. Pre-existing and left alone: `browser.upload` already confined paths through `files.checked`
+(A1639) and `browser.screenshot` already returned the `RunArtifacts.imageIn` shape the runtime
+shows the model, selector included (A2129). Not built: remote/cloud browsers, Python `browser-use`.
+Covers browser-automation (#62).
+
+Fixed while merging: a mark number is no longer something a page can claim for itself — the mark
+attributes are stripped from the document before any number is handed out, a place claimed by two
+elements is stamped on neither, and `browser.act {mark}` insists on a single match instead of
+taking the first, with a fixture that plants a decoy to prove it. Locking Branch now gives back a
+borrowed browser, through a new `onLock` hook on `ChannelHost` and `BranchBrowser.releaseBorrowed()`
+(run end and app close already let go). A switch turned on with no task number is taken by the first
+task that borrows, so the next has to ask again. `web.searchKey` was never wired, so every paid
+search backend refused; it now resolves from the active project's locker with an audit line. Webmail
+joined `refusedHosts`. `tests/tool-loading.test.mjs` measured its small-scale case over the first 90
+tools in registration order, where the tiered and toolbox-only catalogs are within a few tokens of
+each other; three new tools registered early flipped it, so it now measures the product's whole
+catalog.
+
+## Batch 26 (wave 7) — a coder's toolbox: maps, language servers, debuggers, plan branches
+Backend-first, one `<details>` of UI in Settings → Developer, and no new dependency. **The project
+map** (`src/code-map.ts`, `src/code-scanners.ts`) reuses `WorkspaceSearch.walk` so confinement and
+the ignore rules are the existing ones, and adds one small regular expression per language
+(TypeScript, JavaScript, Python, Go, Rust, Java, C#, Markdown) plus relative import resolution for
+TS/JS and Python. `code.map` keeps entries by `mtime:bytes`, so a second call reads nothing; with a
+`request` it ranks by word matches and then spreads a third of each match's score to its neighbours
+in the import graph, which is what makes "the answer is next door" work. The documentation says
+plainly that this is regex, not a parser. **One stdio layer** (`src/stdio-rpc.ts`) does the framing
+both LSP and DAP share, so `src/language-server.ts` and `src/debug-adapter.ts` are protocol logic
+only; both spawn under `jobWithin` with the same caps as every other child and stop in
+`createBranch().close()`. They are **not** under `BackgroundProcesses`, which spawns with
+`stdio: ["ignore","pipe","pipe"]` and so cannot speak to a server at all. `code.rename` turns the
+server's `WorkspaceEdit` into whole new files (ranges applied back to front) and hands them to a new
+public `CodeChanges.applyPlanned`, so approval, the file history and the project check are the
+existing ones rather than a second path. **Plan branches** extend `GitTools` with
+`planStart`/`planDiff`/`planMerge` over the confined `.branch-worktrees` folder — `.branch/worktrees`
+as the brief wrote it is not buildable, because `^\.branch$` is in the secret-name regex in
+`files.ts` and `checked()` tests every segment. **Checkpoints** live in `WorkspaceHistory` because
+they are snapshots of the rows it already keeps; undo/redo is a `workspace_undo` stack keyed by
+conversation, where undo consumes a `before write` version and redo releases it, so the two are
+exact inverses. **Catalog cost** was the real constraint: the new tools pushed
+`tests/catalog-diet.test.mjs` past its 2500-token guard, so `git.worktree` was replaced by the three
+split tools (convention: replace, do not deprecate), the plan tools were named `plans.*` where they
+belong, and listing and restoring a kept point became owner actions on the existing
+`/api/history/snapshots` routes instead of tools. `github.list_issues` went the same way, replaced by
+`github.issues`, which did the same thing. `tests/code-ide.test.mjs` (29) drives the LSP and
+DAP clients against stand-in servers written as two small Node scripts, and the GitHub, GitLab and
+OpenAPI work against `node:http` fakes. What is **not** proved here: nothing has been run against a
+real language server or debug adapter, only the two stand-ins, so the minimal `initialize`
+capabilities and the fixed wait in `code.diagnostics` are the likely first things to need work;
+debugging speaks DAP over stdio only, with no bridge to Chrome DevTools Protocol, so Node's
+`--inspect` is not reachable this way; and `github.publish_repo` is covered only as far as the
+refusal of an address carrying sign-in details and the approval question — the push itself has no
+fake. Audit ids: A0537 (project map), A0008 (language servers), A0192 (debug adapters), A0542 (plan
+branches), A1183 (kept build outputs), A2059 (workspace checkpoints, the undo/redo half). A0435 and
+A2333 were already done in batch 5 and the ignore rules here are the same matcher.
 
 ## Next work (local until a checkpoint worth publishing)
 
