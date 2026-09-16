@@ -60,10 +60,24 @@ globalThis.branchSlashCommand = async function branchSlashCommand(typed, session
 
 /* ---------- Settings: your named profiles ---------- */
 
+/**
+ * Connection id to the name a person gave it, so the profile cards read "Work laptop → Fast one"
+ * rather than a row of ids. An id with no connection left keeps its id, which is the honest answer.
+ */
+let presetNames = new Map();
+async function loadPresetNames() {
+  try {
+    const { choices } = await request("/api/models/switch");
+    presetNames = new Map(choices.map((choice) => [choice.id, choice.name]));
+  } catch { /* the cards fall back to ids, which still say which connection is meant */ }
+}
+const presetName = (id) => presetNames.get(id) ?? id;
+
 async function loadProfiles() {
   const select = $("model-profile-active");
   if (!select) return;
   try {
+    await loadPresetNames();
     const settings = await request("/api/models/profiles");
     select.replaceChildren(option("", "None — use my usual choice"),
       ...settings.profiles.map((profile) => option(profile.id, profile.name)));
@@ -85,7 +99,7 @@ function option(value, label) {
 function order(profile) {
   const chosen = profile.fallback;
   if (!chosen) return "Nothing is set up for this profile yet.";
-  return `Tries in order: ${[chosen.preset, ...chosen.fallbacks].join(" → ")}`;
+  return `Tries in order: ${[chosen.preset, ...chosen.fallbacks].map(presetName).join(" → ")}`;
 }
 
 /** The one sentence that says why a model would answer the next ordinary message. */
@@ -126,11 +140,52 @@ async function probeConnections() {
   }
 }
 
+/* ---------- Settings: signing in with Google for Gemini ---------- */
+
+/**
+ * The Gemini card. Signing in with Google is offered, and what is honestly true about it is on
+ * the card before you press anything: it only works against your own Google Cloud project. If
+ * Google refuses the sign-in, the check says so in those words and the key flow stays.
+ */
+async function loadGemini() {
+  const note = $("gemini-signin-note");
+  if (!note) return;
+  try {
+    const state = await request("/api/models/gemini-signin");
+    note.textContent = state.note;
+    $("gemini-client-id").value = state.settings.clientId || "";
+    $("gemini-signin-model").value = state.settings.model || "";
+    if (state.connected) $("gemini-signin-status").textContent = "Signed in with Google for Gemini.";
+  } catch (error) { note.textContent = error.message; }
+}
+
+async function signInWithGoogle() {
+  const status = $("gemini-signin-status");
+  status.textContent = "Signing in…";
+  try {
+    await request("/api/models/gemini-signin", {
+      clientId: $("gemini-client-id").value.trim(),
+      model: $("gemini-signin-model").value.trim() || "gemini-2.5-flash",
+    });
+    status.textContent = "Signed in. Checking whether Google will actually take it…";
+    await checkGemini(status);
+  } catch (error) { status.textContent = error.message; }
+}
+
+/** Asks the signed-in connection what models it has, and repeats Google's answer in plain words. */
+async function checkGemini(status) {
+  try {
+    const { connection } = await request("/api/models/probe", { id: "google-gemini" });
+    status.textContent = [connection.summary, connection.fix].filter(Boolean).join(" ");
+  } catch (error) { status.textContent = error.message; }
+}
+
 function start() {
   $("model-profile-save")?.addEventListener("click", () => void saveProfiles());
   $("model-profile-active")?.addEventListener("change", () => void showWhy());
   $("model-probe-run")?.addEventListener("click", () => void probeConnections());
-  if (connected()) void loadProfiles();
+  $("gemini-signin")?.addEventListener("click", () => void signInWithGoogle());
+  if (connected()) { void loadProfiles(); void loadGemini(); }
 }
 /** app.js calls this once you have connected, which is the first moment settings can be read. */
 const waiting = globalThis.branchVoiceReady;

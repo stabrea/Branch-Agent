@@ -748,6 +748,17 @@
             <button type="button" id="model-probe-run">Check every connection</button>
             <div id="model-probe-list"></div>
           </section>
+          <!-- Wave 7: signing in with Google for Gemini, beside the ordinary key flow. -->
+          <section id="gemini-signin-card" class="card">
+            <h2>Gemini</h2>
+            <p id="gemini-signin-note" class="subtle"></p>
+            <label for="gemini-client-id">Your Google sign-in client id</label>
+            <input id="gemini-client-id" maxlength="300" placeholder="From your own Google Cloud project" />
+            <label for="gemini-signin-model">Gemini model</label>
+            <input id="gemini-signin-model" maxlength="200" placeholder="gemini-2.5-flash" />
+            <button type="button" id="gemini-signin">Sign in with Google</button>
+            <p id="gemini-signin-status" class="subtle" role="status"></p>
+          </section>
           <form id="media-form" class="card">
             <h2>Pictures and sound</h2>
             <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>

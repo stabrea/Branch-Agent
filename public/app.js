@@ -1380,6 +1380,49 @@ $("prompt").addEventListener("keydown", (event) => {
   if (!conversationBusy) $("chat-form").requestSubmit();
 });
 /**
+ * Wave 7: lines you type that are commands rather than messages. The message box knows which lines
+ * are commands on its own, so "/model" and "/help" still work when public/model-profiles.js has
+ * not loaded; when it has, it handles "/model" itself. Returns true when the line was a command,
+ * so nothing is sent to the model.
+ */
+export const SLASH_COMMANDS = [
+  ["/model", "Change the model for this conversation. On its own it lists what you can choose."],
+  ["/help", "Show these commands."],
+];
+export function parseSlashCommand(line) {
+  const match = /^\/([a-z]+)(?:\s+([\s\S]*))?$/i.exec(String(line ?? "").trim());
+  if (!match) return null;
+  const name = "/" + match[1].toLowerCase();
+  if (!SLASH_COMMANDS.some(([known]) => known === name)) return null;
+  return { name, rest: (match[2] ?? "").trim() };
+}
+async function runSlashCommand(typed) {
+  const command = parseSlashCommand(typed);
+  if (!command) return false;
+  if (command.name === "/help") {
+    toast("Commands you can type here:\n" + SLASH_COMMANDS.map(([name, what]) => `${name} — ${what}`).join("\n"));
+    return true;
+  }
+  /* The models module is the handler when it is there; otherwise the message box does the work. */
+  if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
+  await switchModelWithoutModule(command.rest);
+  return true;
+}
+/** The plain fallback for "/model": list the choices, or change this conversation's model. */
+async function switchModelWithoutModule(wanted) {
+  try {
+    if (!wanted || wanted === "?") {
+      const { active, choices } = await api("models/switch");
+      toast("Type /model followed by a name:\n" + choices
+        .map((choice) => `${choice.id === active ? "→ " : "  "}${choice.name} (${choice.model})`).join("\n"));
+      return;
+    }
+    if (!sessionId) { toast("Start a conversation first, then /model changes the model for it."); return; }
+    toast((await api("models/switch", { sessionId, model: wanted })).message);
+    await globalThis.branchRefreshSessionModel?.();
+  } catch (error) { toast(error.message); }
+}
+/**
  * Wave 7: talk mode. The words that were spoken are sent the ordinary way, and the reply comes
  * back so it can be read aloud. Nothing here bypasses the message box: you see what was heard.
  */
@@ -1401,7 +1444,7 @@ $("chat-form").addEventListener("submit", async (event) => {
   const typed = $("prompt").value.trim();
   if (!typed || conversationBusy) return;
   /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
-  if (await (globalThis.branchSlashCommand?.(typed, sessionId) ?? false)) { $("prompt").value = ""; return; }
+  if (await runSlashCommand(typed)) { $("prompt").value = ""; return; }
   /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */
   const prompt = $("ask-first-toggle")?.checked
     ? await (window.branchMisc?.askBeforeStarting(typed) ?? Promise.resolve(typed))

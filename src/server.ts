@@ -559,7 +559,8 @@ async function api(
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
-      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe"
+      || path === "/api/models/gemini-signin")
     return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
@@ -1773,6 +1774,8 @@ function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,
     voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+    // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
+    oauth: app.oauth,
   };
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
