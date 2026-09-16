@@ -82,9 +82,7 @@ test("a tool in a closed group is found and called through tools.expand, and per
   assert.ok(result.tools.length >= 30, `${result.tools.length} tools were opened at once`);
   assert.deepEqual(Object.keys(result.tools[0]).sort(), ["description", "name"], "names and purposes only");
   // Comfortably inside the 12,000-character tool-result limit, so it is never clipped mid-JSON.
-  // The three widest boxes grow as tools are added, so the check guards the real margin against
-  // 12,000 rather than a number that has to be revisited every time one tool joins a box.
-  assert.ok(JSON.stringify(result).length < 10000, `the answer is ${JSON.stringify(result).length} characters`);
+  assert.ok(JSON.stringify(result).length < 8000, `the answer is ${JSON.stringify(result).length} characters`);
 
   const { app: narrow, provider: narrowProvider } = await fixture(t, [
     call(expandToolName, { groups: ["schedules", "nonsense"] }),

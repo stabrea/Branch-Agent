@@ -2397,8 +2397,13 @@ the same ordering the Memory screen shows.
 disagrees with an older one, facts not touched in 180 days, facts never drawn on, and notes left over
 from a job. It shows everything in one screen and **removes nothing** — each finding becomes a
 suggestion you accept or reject under "What it learns", and accepting one sets the fact aside in the
-archive where it can be brought back. It also ships as a recipe called **Tidy my memory**, which
-arrives as a proposal like any other so you can see what it would do and check it works first.
+archive where it can be brought back. A leftover note from a job has a **Keep this** button beside
+it, so you can keep one for good instead of setting it aside.
+
+It also ships as a recipe called **Tidy my memory**, so the steps are written down where you can read
+them. That recipe stays a proposal on purpose: the recipe checker compares a step's whole result
+against a fixed expectation, and a tidy report says what it found, which differs every time — so it
+cannot be certified that way. Run tidying from the Memory screen, or by calling `memory.tidy`.
 
 **Counts you can see.** `GET /api/memory/health` gives counts only — how
 many of each kind and layer, how many are notes from a job, how many have never been used, how many

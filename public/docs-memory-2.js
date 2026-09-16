@@ -58,13 +58,18 @@ async function tidyEverything(stage) {
       ["A newer fact disagrees with an older one", report.contradictions.map((pair) => `${short(pair.newer.text, 60)} — was: ${short(pair.older.text, 60)}`)],
       ["Not touched in a long time", report.stale.map((entry) => `${short(entry.text)} — ${entry.reason}`)],
       ["Never used since it was saved", report.neverUsed.map((entry) => short(entry.text))],
-      ["Notes left over from a job", report.leftoverScratch.map((entry) => short(entry.text))],
+      // The one group the owner can act on here: a leftover note can be kept instead of set aside.
+      ["Notes left over from a job", report.leftoverScratch.map((entry) => short(entry.text)), report.leftoverScratch],
     ];
-    for (const [title, lines] of groups) {
+    for (const [title, lines, keepable] of groups) {
       if (!lines.length) continue;
       const card = el("div", undefined, "card");
       card.append(el("strong", `${title} (${lines.length})`));
-      for (const line of lines) card.append(el("p", line, "meta"));
+      lines.forEach((line, index) => {
+        const row = el("p", line, "meta");
+        if (keepable?.[index]) row.append(" ", keepButton(keepable[index].id, row));
+        card.append(row);
+      });
       out.append(card);
     }
     if (!out.childElementCount) out.append(el("p", "Nothing to tidy up. Your saved facts look fine.", "meta"));
@@ -74,6 +79,21 @@ async function tidyEverything(stage) {
         ? `Added ${report.staged.length} suggestion(s). Accept or reject them under “What it learns”. Nothing was removed.`
         : "Nothing new to suggest.", "meta"));
   } catch (error) { out.textContent = error.message; }
+}
+/** Keeps one note made during a job for good, so finishing a job no longer clears it. */
+function keepButton(id, row) {
+  const button = el("button", "Keep this", "small");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await api(`memory/${id}/keep`, {});
+      button.replaceWith(el("span", " Kept for good.", "subtle"));
+    } catch (error) {
+      button.disabled = false;
+      row.append(el("span", ` ${error.message}`, "subtle"));
+    }
+  });
+  return button;
 }
 /** One sentence about how the saved facts are made up: counts only, never their wording. */
 function healthLine(health) {

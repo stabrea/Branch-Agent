@@ -8,6 +8,7 @@ import { createBranch } from "../dist/index.js";
 import { readDocument, tryReadDocument, picturesMessage, readableTypes } from "../dist/document-readers.js";
 import { pdfText, readContent, parseCmap, unescapeLiteral } from "../dist/document-pdf.js";
 import { documentType } from "../dist/document-text.js";
+import { DocumentAnalysis } from "../dist/document-analysis.js";
 import { chooseForInjection, factKindOf, layerOf } from "../dist/memory-layers.js";
 import { tidyProcedureId, tidyProcedureName } from "../dist/memory-tidy.js";
 import { loadMemorySet, runMemoryEvaluation } from "../dist/memory-evaluation.js";
@@ -361,6 +362,12 @@ test("comparing two documents says what was added, taken out and reworded", asyn
   const identical = await app.runtime.executeTool("documents.compare", { file: "before.md", against: "same.md" });
   assert.deepEqual(identical.changes, []);
   assert.match(identical.summary, /say the same thing/);
+
+  // With no model connected at all the comparison still has to be readable on its own.
+  const offline = await new DocumentAnalysis(app.files).compare("local", { file: "before.md", against: "after.md" });
+  assert.match(offline.summary, /Section "Terms › Notice" was changed/);
+  assert.match(offline.summary, /Section "Terms › Renewal" was added/);
+  assert.equal(offline.changes.length, result.changes.length);
 });
 
 // ---------------------------------------------------------------- cards from a conversation
@@ -497,6 +504,19 @@ test("the shipped tidying recipe is in the owner's list, as a proposal like any 
   assert.equal(saved.data.definition.name, tidyProcedureName);
   assert.equal(saved.data.status, "proposed", "it is not marked as checked until it has been");
   assert.equal(saved.data.definition.steps[0].tool, "memory.tidy");
+
+  assert.equal(saved.data.definition.steps[0].args.stage, false, "checking the recipe only looks");
+
+  // It stays a proposal on purpose: the recipe checker wants a step's whole result to match a fixed
+  // expectation, and a tidy report says what it found, which differs every time. So checking it
+  // stops — and because the step only looks, stopping leaves nothing behind.
+  const context = app.runtime.context();
+  await assert.rejects(app.registry.execute("procedures.replay", { id: tidyProcedureId }, context),
+    /Only verified procedures can replay/);
+  await assert.rejects(app.registry.execute("procedures.verify", { id: tidyProcedureId }, context),
+    /expected output mismatch for memory\.tidy/);
+  assert.deepEqual(app.store.review.proposals("local", "pending"), [], "checking it staged nothing");
+  assert.equal(app.store.get("procedures", "local", tidyProcedureId).data.status, "proposed");
 });
 
 test("the memory evaluation reports a hit rate before and after the nightly pass", async (t) => {

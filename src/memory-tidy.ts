@@ -96,9 +96,12 @@ export class MemoryTidy {
 export const tidyProcedureId = "0b9a1d7e-5c41-4f2a-9e3b-6d2f8a71d905";
 export const tidyProcedureName = "Tidy my memory";
 /**
- * Puts the shipped procedure in the owner's list if it is not already there. It arrives as a
- * proposal like any other recipe, so the owner can look at what it would do and check it works
- * before it is trusted; nothing here marks it verified on its own.
+ * Puts the shipped procedure in the owner's list if it is not already there. It is written down so
+ * the owner can see exactly what tidying does, and it stays a proposal: the recipe checker compares
+ * a step's whole result against a fixed expectation, and a tidy report says what it found, which is
+ * different every time. So this one cannot be certified that way and is run from the Memory screen
+ * or by calling `memory.tidy` — which is also why its step only looks, and stages nothing: checking
+ * the recipe must never leave a pile of suggestions behind.
  */
 export function shipTidyProcedure(store: Store, owner: string): void {
   if (store.get("procedures", owner, tidyProcedureId)) return;
@@ -106,7 +109,7 @@ export function shipTidyProcedure(store: Store, owner: string): void {
     version: 1, status: "proposed", history: [],
     definition: {
       id: tidyProcedureId, name: tidyProcedureName, preconditions: [], parameters: {},
-      steps: [{ tool: "memory.tidy", args: { stage: true }, expected: { deleted: 0 } }],
+      steps: [{ tool: "memory.tidy", args: { stage: false }, expected: { deleted: 0 } }],
     },
   });
 }

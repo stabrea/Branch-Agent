@@ -370,7 +370,7 @@ export interface FactSearch {
     Promise<{ record: MemoryRecord; score: number; importance: number; matched: string }[]>;
 }
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch): void {
-  registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp. Give entity and attribute when the fact is about someone or something and may change later (a newer fact ends the earlier one). Scope shared makes it visible to specialists.",
+  registry.register({ name: "memory.put", description: "Save one clear fact with its source. Give entity and attribute when it may change later, so a newer fact ends the earlier one.",
     permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
       const sessionId = store.run(context.runId)?.sessionId;
@@ -386,17 +386,17 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
   registry.register({ name: "memory.keep", description: "Keep a note from this job for good, so ending the job does not clear it.",
     permission: "memory.write", parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => store.promoteMemory(context.owner, value.id) });
-  registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment (default now), for details that change over time.",
+  registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment, now by default.",
     permission: "memory.read", parameters: AtMemorySchema,
     execute: async (value, context) => store.memoryAt(context.owner, value, context.agent) });
-  registry.register({ name: "memory.timeline", description: "Every saved fact about an entity in the order it became true, including ones that have ended.",
+  registry.register({ name: "memory.timeline", description: "Every saved fact about an entity in order, including ones that have ended.",
     permission: "memory.read", parameters: z.object({ entity: z.string().trim().min(1).max(120) }).strict(),
     execute: async (value, context) => store.memoryTimeline(context.owner, value.entity, context.agent) });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
       ?? store.updateMemory(context.owner, value, context.runId) });
-  registry.register({ name: "memory.search", description: "Search this owner's facts. Matches by words and, where the provider allows it, by meaning; the most useful facts come first.",
+  registry.register({ name: "memory.search", description: "Search this owner's facts by words and, where the provider allows it, by meaning.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => {
       if (!retrieval) return store.searchMemory(context.owner, value.query, context.agent);
