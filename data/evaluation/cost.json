@@ -1,0 +1,20 @@
+{
+  "id": "cost",
+  "name": "The same work, two models",
+  "description": "Two small questions that change nothing on this computer, so the same work can be put to two different models side by side and compared on right answers, speed and money.",
+  "readOnly": true,
+  "tasks": [
+    {
+      "id": "arithmetic",
+      "prompt": "What is 17 multiplied by 23? Reply with the number only.",
+      "checks": { "mustMatch": "\\b391\\b" },
+      "tags": ["cost"]
+    },
+    {
+      "id": "plain-fact",
+      "prompt": "In one short sentence, what is the capital city of France?",
+      "checks": { "mustMention": ["Paris"] },
+      "tags": ["cost"]
+    }
+  ]
+}

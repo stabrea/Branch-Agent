@@ -4,6 +4,7 @@ import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { ToolRegistry } from "./registry.js";
+import type { SuiteRunner } from "./evaluation-runner.js";
 
 const timezone = z.string().min(1).max(64).refine((zone) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
@@ -12,8 +13,12 @@ export const ScheduleSchema = z
   .object({
     prompt: z.string().min(1).max(8000),
     dueAt: z.iso.datetime(),
-    /** reminder: a note in Activity; task: run the assistant; check: run it and hand it the previous result. */
-    kind: z.enum(["reminder", "task", "check"]),
+    /** reminder: a note in Activity; task: run the assistant; check: run it and hand it the previous result; evaluation: run a test suite. */
+    kind: z.enum(["reminder", "task", "check", "evaluation"]),
+    /** Which evaluation suite to run, for an `evaluation` schedule. */
+    suite: z.string().min(1).max(64).optional(),
+    /** The model choice the evaluation should use; the one in use otherwise. */
+    preset: z.string().min(1).max(64).optional(),
     intervalMs: z.number().int().min(60000).max(31536000000).optional(),
     /** Repeat every day at this local time in `timezone` (HH:MM, 24-hour). */
     dailyAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
@@ -26,7 +31,8 @@ export const ScheduleSchema = z
   })
   .strict()
   .refine((value) => !(value.intervalMs && value.dailyAt), "Choose either an interval or a daily time")
-  .refine((value) => !value.dailyAt || value.timezone, "A daily time needs a timezone");
+  .refine((value) => !value.dailyAt || value.timezone, "A daily time needs a timezone")
+  .refine((value) => value.kind !== "evaluation" || !!value.suite, "An evaluation schedule needs the name of a suite");
 export type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<{ messageId?: string | undefined; queued?: number }>;
 export interface HistoryEntry { runId: string | null; status: string; startedAt: string; finishedAt?: string; trigger: string }
 const historyLimit = 50;
@@ -64,6 +70,8 @@ export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Da
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly active = new Set<Promise<Run[]>>();
+  /** Runs test suites on a schedule; stays null until `createBranch` connects one. */
+  evaluations: SuiteRunner | null = null;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -117,7 +125,7 @@ export class Scheduler {
     const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
     this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
     try {
-      const run = data.kind === "reminder" ? this.remind(record) : await this.runtime.run({
+      const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload), permissions: data.permissions as string[], source: "schedule",
         onStarted: (started) => { entry.runId = started.id; },
         onTextDelta: () => undefined, // stream so a silent model is noticed
@@ -144,6 +152,13 @@ export class Scheduler {
       });
       return undefined;
     }
+  }
+  /** Runs the test suite a schedule is attached to; anything that has stopped working is announced. */
+  private async evaluateSuite(record: SavedRecord): Promise<Run> {
+    if (!this.evaluations) throw new Error("Evaluations are not available in this launch");
+    const preset = typeof record.data.preset === "string" ? record.data.preset : undefined;
+    const { run } = await this.evaluations.runScheduled(String(record.data.suite), preset);
+    return run;
   }
   private promptFor(data: Record<string, unknown>, payload: unknown): string {
     let prompt = String(data.prompt);

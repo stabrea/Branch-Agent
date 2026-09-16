@@ -345,6 +345,47 @@ A task marked interrupted (the app stopped while it was working) shows **Continu
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.
 
+## Test suites, their history, and comparing two models
+
+Suites are plain JSON files in `data/evaluation/`, so you can read one and copy it. Five ship:
+**everyday** (remember something, write a file and prove it, sum up a note, follow a procedure),
+**tool-use** (search inside files, change a file with a patch, read a page in the browser),
+**safety** (text copied from a page must not be able to give orders; a secret you hand over must not
+come back out), **reliability** (a task is stopped after its first step on purpose and continued —
+the stop is staged by the program, not a real crash) and **cost** (two questions that change
+nothing, meant for comparing models). A task holds a `prompt`, `checks` that anyone can repeat,
+`deny` (phrases the answer must not contain and files it must not create), an optional
+`judge: { rubric, pass }`, `expected` (a reference answer shown to the judge), `requires` (tools that
+must be installed, or the task is skipped rather than failed), `tags`, `timeoutMs` and `mode`.
+Checks that can be settled without a model always decide the result; a judge is asked only when a
+task has none, and what a task forbids is fatal either way.
+
+`GET /api/evaluation/suites` lists them; `POST /api/evaluation/suites` saves one of your own and
+`POST /api/evaluation/suites/remove { id }` deletes it. `POST /api/evaluation/suites/from-run
+{ runId, suite, taskId?, checks? }` turns a task you already ran into a test — without checks of your
+own, the answer it gave becomes the reference and its first line must show up again.
+`POST /api/evaluation/run { suite, preset?, readOnly?, maxSteps?, maxTokens? }` runs one and records
+per-task right/wrong, time, tokens, money from the price table, the model choice and the app version.
+`GET /api/evaluation/history?suite=` returns every stored run newest first plus a trend series. A
+task that passed in each of the three runs before this one and has just failed is listed under
+`regressions`; fewer than three earlier runs never flags anything.
+`POST /api/evaluation/compare { suite, presets: [a, b], allowChanges? }` runs the same suite against
+each model choice and returns one table of accuracy, mean time and cost. A comparison only offers
+the tools that change nothing unless you pass `allowChanges`, and every run stays inside the step
+and token budget you give it. Money is never invented: a model with no price on file reports no
+amount, and energy is always reported unavailable. One thing the figures leave out: a task graded by
+a judge asks the model a second question, and those tokens are not added to the task's own, so a
+judged suite costs roughly twice what its summary shows.
+
+A suite can run on a schedule: `schedules.create` accepts `kind: "evaluation"` with `suite` and an
+optional `preset`, alongside the usual `dailyAt`/`timezone`. The result is recorded as an ordinary
+finished task, and a regression is announced to any webhook listening for `evaluation.regression`.
+
+On the command line: `branch eval --suite <id> [--preset <id>] [--json]` prints a table of tasks and
+exits non-zero when one fails; `branch eval --suite <id> --compare a,b` prints the comparison table.
+`branch eval` with no suite still runs the original three-task standard suite.
+The Usage screen has a card for picking a suite and running it.
+
 ## Skill governance and consolidation
 
 `GET|POST /api/governance` holds `excludeAfterFailures`, `windowMinutes`, `recoveryAfterMinutes` and `demoteAfterFailures`. A skill with a repeating failure pattern is set aside (`skill.set_aside`, `skill.excluded` on later runs), gets one recovery trial after the cool-off (`skill.recovery_trial`, `skill.recovered`), and is demoted when failures pile up (`skill.demoted`); `POST /api/governance/set-aside/:skillId/restore` lets it back in. `POST /api/skills/:id/benchmark { baselineVersion, candidateVersion, tasks, seed }` records per-task outcomes and costs; `POST /api/skills/:id/draft { runId }` saves an inactive draft version from a task. `consolidateDaily` in the learning settings (or `POST /api/memory/consolidate`) digests completed tasks since a cursor into memory suggestions.

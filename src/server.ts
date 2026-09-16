@@ -27,6 +27,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
+import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -143,6 +144,7 @@ async function staticFile(
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
+    "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -474,6 +476,25 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
+  // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
+  if (request.method === "GET" && path === "/api/evaluation/suites")
+    return { suites: allSuites(app.store, app.runtime.owner) };
+  if (request.method === "POST" && path === "/api/evaluation/suites")
+    return saveSuite(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/suites/from-run")
+    return suiteFromRun(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/suites/remove") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request));
+    return removeSuite(app.store, app.runtime.owner, id);
+  }
+  if (request.method === "POST" && path === "/api/evaluation/run")
+    return app.evaluationSuites.run(await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/compare")
+    return app.evaluationSuites.compare(await readBody(request));
+  if (request.method === "GET" && path === "/api/evaluation/history") {
+    const suite = new URL(request.url ?? "/", "http://local").searchParams.get("suite") ?? undefined;
+    return { runs: app.evaluationSuites.history(suite), trend: app.evaluationSuites.trend(suite) };
+  }
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
