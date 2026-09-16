@@ -120,7 +120,7 @@ const readme = (facts: number, notes: number): string =>
 export function registerMemoryMirror(registry: ToolRegistry, mirror: MemoryMirror): void {
   registry.register({
     name: "memory.mirror", group: "memory", permission: "files.write",
-    description: `Write what the assistant remembers into the workspace "${mirrorFolder}" folder as Markdown, one note per kind of fact. The notes are rewritten from scratch; they are read-only to the assistant.`,
+    description: `Write what is remembered into the workspace "${mirrorFolder}" folder as Markdown, one note per kind of fact. Rewritten each time; read-only to the assistant.`,
     parameters: MirrorSchema,
     execute: async (input, context) => mirror.regenerate(context.owner, input),
   });

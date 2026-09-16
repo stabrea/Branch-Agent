@@ -67,19 +67,19 @@ export async function refreshFromConversations(
 export function registerKnowledgeExtras(registry: ToolRegistry, parts: KnowledgeParts, store: Store): void {
   registry.register({
     name: "knowledge.summarise", group: "documents", permission: "documents.read",
-    description: "Write a summary of a whole knowledge base, or of one subject in it, with a numbered source for every point. The answer is kept and costs nothing to ask for again until the files change.",
+    description: "Sum up a whole knowledge base, or one subject in it, with a numbered source under every point. Kept until the files change.",
     parameters: SummariseSchema,
     execute: async (input, context) => parts.summaries.summarise(context.owner, input, context.signal),
   });
   registry.register({
     name: "knowledge.graph", group: "documents", permission: "documents.read",
-    description: "Everything a knowledge base links to one name — people, places, organisations and things mentioned with it — with the passage each link came from.",
+    description: "Everything a knowledge base links to one name, with the passage each link came from. Build the map first with knowledge.map.",
     parameters: GraphSchema,
     execute: async (input, context) => parts.graph.neighbourhood(context.owner, input),
   });
   registry.register({
     name: "knowledge.map", group: "documents", permission: "documents.write",
-    description: "Build or rebuild the map of names and links for a knowledge base from the passages it already holds.",
+    description: "Build the map of names and links for a knowledge base from the passages it holds.",
     parameters: z.object({
       collection: z.string().trim().min(1).max(120),
       useModel: z.boolean().default(false),
@@ -88,13 +88,13 @@ export function registerKnowledgeExtras(registry: ToolRegistry, parts: Knowledge
   });
   registry.register({
     name: "knowledge.pictures", group: "documents", permission: "documents.write",
-    description: "Describe the pictures in a knowledge base with a model that can see, and index each description beside its picture. Each picture is described once; ask with estimateOnly first to see what it would cost.",
+    description: "Describe a knowledge base's pictures with a model that can see and index each description. Each is described once; estimateOnly says what it would cost.",
     parameters: PicturesSchema,
     execute: async (input, context) => parts.pictures.describe(context.owner, input, context.signal),
   });
   registry.register({
     name: "knowledge.manage", group: "documents", permission: "documents.write",
-    description: "Housekeeping for a knowledge base: rename it, merge one into another, or split one folder out into a knowledge base of its own.",
+    description: "Rename a knowledge base, merge one into another, or split one folder out into its own.",
     parameters: z.object({
       rename: RenameSchema.optional(), merge: MergeSchema.optional(), split: SplitSchema.optional(),
     }).strict(),
@@ -102,7 +102,7 @@ export function registerKnowledgeExtras(registry: ToolRegistry, parts: Knowledge
   });
   registry.register({
     name: "knowledge.refresh", group: "documents", permission: "documents.write",
-    description: "Read the last few conversations and suggest fact cards for a knowledge base. Suggestions only; the owner accepts them in the Memory screen.",
+    description: "Suggest fact cards for a knowledge base from the last few conversations. Suggestions only; the owner accepts them.",
     parameters: RefreshSchema,
     execute: async (input, context) => refreshFromConversations(parts, store, context.owner, input, context.signal),
   });

@@ -3043,3 +3043,147 @@ These rows of the audit are done, by a feature that exists under another name.
   (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
+
+## Writing documents, and a knowledge base that knows what is in it (batch 27, wave 8)
+
+Branch could already read a Word file, a spreadsheet, a slide deck, a PDF and an e-book. This batch
+is the other half of that: writing them, changing them, and knowing what a whole knowledge base
+holds rather than only which passage answers one question. Nothing new was installed to do any of
+it — an Office file is a folder of XML inside a zip, and Node already packs and unpacks zips.
+
+### Writing a document (A2145, A2263)
+
+`documents.write` saves a file into your workspace: `.docx` for Word, `.xlsx` for a spreadsheet,
+`.pptx` for slides, or `.md` and `.html` for a note and a web page. You describe what goes in it in
+pieces — a heading, a paragraph, a list, a table; sheets of figures for a spreadsheet; a title and
+bullet points for a slide, with a picture the assistant made earlier able to take a slide of its
+own. Figures in a spreadsheet stay figures, so you can add them up, and a cell the assistant worked
+out is written as the sum it stands for with the answer beside it, so the spreadsheet recalculates
+the moment you change a figure. Columns can be shown as plain numbers, money, a percentage or a
+date. A sheet can be filled straight from a table the task already opened with `data.load`.
+
+`documents.edit` changes a Word or spreadsheet file that already exists: replace some wording, add a
+section at the end, replace a table, or add or replace a sheet. The promise it keeps is narrow and
+worth stating: every part of the file the change did not touch comes back as the very same bytes,
+not as a re-saved copy that happens to say the same thing. A Word file with your company template, a
+footer and a picture in it still has all of those, untouched, after one sentence in it is changed.
+The one case that cannot be silent is a phrase spread across differently formatted pieces — half of
+it bold, say: that paragraph is rewritten as one piece and the answer says so, so you can look.
+
+Both are under the same permission as any other change to your files, and both go through the same
+before-and-after the ordinary file tools use, so a document the assistant wrote can be undone like
+anything else it did.
+
+**What this is not.** There is no live document that two people type in at once. Branch writes a
+file, or changes one, and hands it back. It does not know what anybody else is doing in that file
+while it is open in front of them, and it says so in every answer it gives.
+
+### Pictures as documents (A0946)
+
+A photograph of a meter, a screenshot of an error, a scan of a receipt: these used to be listed as
+files that could not be read, because there are no words in them to lift out. `knowledge.pictures`
+asks a model that can see to describe each one in plain words — including any words, numbers and
+readings visible in it, which is what makes a screenshot or a scan worth having — and indexes that
+description beside the picture, so a search finds it and the answer cites the picture itself.
+
+Each picture is described once and once only: the description is kept against a fingerprint of the
+picture's own bytes, so the same picture in two knowledge bases, or the same folder read again next
+month, costs nothing. Ask with `estimateOnly` first and it says how many pictures would be sent and
+to which model, and sends nothing. When none of your connected models can look at a picture it says
+so in one sentence and sends nothing at all.
+
+### Summing up a knowledge base (A1668, A2362)
+
+`knowledge.summarise` writes a short account of everything in one knowledge base, or of one subject
+in it. A knowledge base does not fit in one request, so each batch of passages is summarised on its
+own and the batches are then drawn together; every point carries the number of the passage it came
+from, and the sources are listed underneath. The answer is kept against a fingerprint of the
+collection's passages, so asking twice costs nothing and one changed file is enough to make it be
+written again. With nothing connected, or when the model cannot be reached, it still answers — with
+the opening of each passage and its number — and says why it reads as it does.
+
+### Looking after a knowledge base (A1867, A2036)
+
+`knowledge.manage` renames one, merges one into another, or splits one folder out into a knowledge
+base of its own. The passages move; nothing is read again and nothing is charged. The Documents
+panel can save a whole knowledge base out as a plain zip of Markdown with a small list of facts
+beside it, and bring one back from that zip as a new knowledge base — which is a backup, and also
+how you move one between computers. The panel shows what each holds and what reading it has cost.
+
+`knowledge.refresh` reads your last few conversations and suggests fact cards for one knowledge
+base. It adds nothing: each card waits in the Memory screen until you accept it, exactly as with
+everything else the assistant proposes to remember. Accepting one indexes it like a passage from a
+file, so a search finds it and can cite it.
+
+### A light map of what a knowledge base mentions (A0994)
+
+`knowledge.map` builds a map of the names a knowledge base talks about and which of them are
+mentioned together; `knowledge.graph` answers for one name with everything linked to it, one or two
+hops out. It answers the question a passage search is bad at — "everything you know about this
+supplier", where the answer is spread over eight files that never use the same words twice — and one
+hop through it is another way of finding passages, beside words and meaning. The Documents panel
+draws the neighbourhood as a simple read-only picture with the file behind each link named under it.
+
+**The limits, said plainly.** The map is built from names as they are written in the files, not from
+understanding. Two spellings of one company are two entries. A name that is also an ordinary word
+shows up as both. With nothing connected, "mentioned together in the same passage" is the only link
+it can find, and that does not say how the two are related — which the answer states every time.
+Where a model is connected and you allow it, the model names the relations properly instead. Either
+way, every link carries the passage it came from, so nothing here has to be taken on trust.
+
+### Age and size limits for knowledge
+
+You can set how long a knowledge base may keep files and how large it may get. Nothing is removed by
+a limit: each knowledge base over one becomes a suggestion in the Memory screen that says to save it
+out first. A knowledge base built over months should never quietly shrink because a number was
+crossed while nobody was looking. These are the same two figures the conversation-retention setting
+uses — how long, and how much — so there is one idea in the product rather than two; that setting had
+not landed when this was written, so this keeps the minimal shape and will read from it when it does.
+
+### What the assistant remembers, as Markdown in your workspace (A2185)
+
+`memory.mirror` writes everything the assistant remembers into a `memory/` folder in your workspace
+as ordinary Markdown: one note per kind of fact, rewritten from scratch each time. The database
+stays the real store; this is a window onto it, which makes what the assistant knows readable in any
+editor, searchable with any tool, and — because it is a folder of Markdown — usable by a notes app
+such as Obsidian pointed at the same workspace. (The Obsidian bridge itself is on another branch and
+had not landed when this was written; nothing here depends on it.)
+
+The folder is read-only to the assistant's own file tools. A change made in it would be undone the
+next time the mirror is written, and a change nobody can keep is worse than a plain refusal, so
+`files.write` refuses it in one sentence that says where to change the fact instead.
+
+### Text pasted in for one job (A1117)
+
+`scratch.text.add` holds a piece of pasted text for one job only: it is cut into passages,
+searchable while the job runs, and dropped the moment the job ends. Nothing is written to the
+database and nothing is sent anywhere to be compared by meaning. It is for the three pages of a
+contract you want to ask four questions about and then be done with — which does not belong in the
+document library, where it would sit for good, nor in the conversation, where it would fill the
+space in front of every later turn with text that stopped mattering an hour ago.
+
+### Routes
+
+`POST /api/knowledge/summarise`, `/api/knowledge/graph`, `/api/knowledge/map`,
+`/api/knowledge/pictures`, `/api/knowledge/manage`, `/api/knowledge/refresh`,
+`/api/knowledge/export`, `/api/knowledge/import`, `/api/knowledge/retention`,
+`/api/knowledge/retention/check`, and `GET /api/knowledge/extras` for the panel.
+
+### Already covered, and not applicable
+
+- **A1013 pluggable storage domains** — VERIFIED as already built: `src/vector-store.ts` defines the
+  `VectorBackend` contract and `src/memory-backend.ts` the memory one, both with the shipped SQLite
+  backend behind them, and `src/retrieval.ts` puts every way of finding passages behind one
+  `Retriever` interface that this batch adds two more to.
+- **A2264 PDF processing** — VERIFIED as already built in wave 7: `src/document-pdf.ts` lifts text
+  out of a PDF, marks its pages, and says plainly when a PDF is pictures of text rather than text.
+  This batch adds the other half of that sentence: pictures can now be described.
+- **A1144 worked examples of finding the right passage** — this section, with the examples above.
+- **A1426 RAGFlow knowledge search** and **A2343 embedded knowledge base** — not applicable: both are
+  external services to run alongside. The knowledge bases here do the same job on the SQLite file
+  that is already there, with nothing else to install or keep running.
+- **A2168 long-term memory with QMD retrieval** — not applicable, for the same reason: it needs an
+  external retrieval service. Memory here is searched by words, by meaning and now through the map,
+  all on this computer.
+- **A1425 pluggable memory backends** and **A1475 pluggable session storage** — already documented;
+  the contracts exist and one backend is shipped.
