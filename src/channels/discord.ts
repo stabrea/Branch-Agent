@@ -182,6 +182,39 @@ export class DiscordAdapter implements ChannelAdapter {
     const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
     return parsed.success ? parsed.data.id : undefined;
   }
+  /**
+   * A question with buttons. Discord calls them message components: one action row (type 1) of
+   * buttons (type 2), each carrying a `custom_id` that comes back when it is pressed. "No" is
+   * styled as the danger button (4) and the yeses as the ordinary one (1), so the refusal reads as
+   * the refusal at a glance.
+   */
+  static components(buttons: { label: string; value: string }[]): unknown[] {
+    return [{
+      type: 1,
+      components: buttons.slice(0, 5).map((button) => ({
+        type: 2,
+        style: button.value.startsWith("n") ? 4 : 1,
+        label: button.label.slice(0, 80),
+        custom_id: button.value.slice(0, 100),
+      })),
+    }];
+  }
+  async sendButtons(chatId: string, text: string, buttons: { label: string; value: string }[], replyToMessageId?: string): Promise<string | undefined> {
+    const wait = this.readyAt - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 10000)));
+    const body = JSON.stringify({
+      content: text.slice(0, this.maxTextLength),
+      components: DiscordAdapter.components(buttons),
+      ...(replyToMessageId ? { message_reference: { message_id: replyToMessageId, fail_if_not_exists: false } } : {}),
+    });
+    const response = await this.fetch(`${this.base}/channels/${encodeURIComponent(chatId)}/messages`, {
+      method: "POST", headers: { ...this.headers(), "content-type": "application/json" }, body, signal: AbortSignal.timeout(20000),
+    });
+    this.noteLimits(response);
+    if (!response.ok) throw new Error(`Discord refused the question (${response.status})`);
+    const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
+    return parsed.success ? parsed.data.id : undefined;
+  }
   /** Records how long Discord wants us to wait before the next call on this route. */
   private noteLimits(response: { status: number; headers: Headers }): void {
     const remaining = response.headers.get("x-ratelimit-remaining");

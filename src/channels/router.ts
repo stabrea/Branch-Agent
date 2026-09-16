@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "../store.js";
 import type { Runtime } from "../runtime.js";
+import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
 import { audit } from "../audit.js";
 
@@ -48,8 +49,43 @@ export interface ChannelAdapter {
   send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
   /** Sends a spoken reply, on the channels that accept one. Absent means this channel cannot. */
   sendVoice?(chatId: string, audio: Uint8Array, mediaType: string, replyToMessageId?: string): Promise<string | undefined>;
+  /**
+   * Sends a question with buttons to press, on the channels that have them. Absent means this
+   * channel has none, and the question goes out as words with "reply y / a / n" instead.
+   */
+  sendButtons?(chatId: string, text: string, buttons: ApprovalButton[], replyToMessageId?: string): Promise<string | undefined>;
   stop(): Promise<void>;
 }
+
+/** One answer on an approval question, as a button. `value` is what comes back when it is pressed. */
+export interface ApprovalButton {
+  label: string;
+  value: string;
+}
+
+/**
+ * The three answers an approval question offers in a chat app, and the letters that stand for them
+ * where there are no buttons. "Yes always" is only offered for a task the owner started themselves,
+ * the same rule the app's own approval card follows.
+ */
+export function approvalButtons(fingerprint: string, canAlways: boolean): ApprovalButton[] {
+  const answers: [string, string][] = [["Yes", "y"], ...(canAlways ? [["Yes always", "a"] as [string, string]] : []), ["No", "n"]];
+  // A button carries its answer and the fingerprint of the exact request, so a yes cannot be
+  // replayed against a different one. Telegram allows 64 bytes here and this is at most 34.
+  return answers.map(([label, letter]) => ({ label, value: `${letter}:${fingerprint.slice(0, 32)}` }));
+}
+
+/** Reads a pressed button, or a typed letter, back into a decision. */
+export function readApprovalAnswer(value: string): { decision: "allow" | "deny"; remember: PolicyRemember; fingerprint: string } | null {
+  const [letter, fingerprint = ""] = String(value ?? "").trim().toLowerCase().split(":");
+  if (letter === "y") return { decision: "allow", remember: "session", fingerprint };
+  if (letter === "a") return { decision: "allow", remember: "always", fingerprint };
+  if (letter === "n") return { decision: "deny", remember: "session", fingerprint };
+  return null;
+}
+
+/** The words that go out with the buttons, and on their own where a channel has no buttons. */
+export const approvalFallbackNote = "Reply y for yes, a for yes always, or n for no.";
 export const ChannelPolicySchema = z.object({
   activation: z.enum(["mention", "always"]).default("mention"),
   pairing: z.boolean().default(true),
@@ -207,10 +243,66 @@ export class ChannelRouter {
     if (!spoken) return;
     await adapter.sendVoice(message.chatId, spoken.bytes, spoken.mediaType, message.messageId);
   }
+  /** The conversation this chat is carrying on, when there is one. */
+  private sessionFor(channel: string, chatId: string): string | undefined {
+    const owner = this.runtime.owner;
+    const saved = this.store.get("settings", owner, `channel-session:${channel}:${chatId}`)?.data as { sessionId?: string } | undefined;
+    return saved?.sessionId && this.store.ownsSession(owner, saved.sessionId) ? saved.sessionId : undefined;
+  }
+
+  /**
+   * Answers the question a paused task in this chat's conversation stopped on. It is the same
+   * approval route the app uses, bound to the same exact-bytes fingerprint, and the record of what
+   * the assistant was allowed to do says which chat app the answer came from.
+   *
+   * Returns null when this chat has nothing waiting, so an ordinary message that happens to be the
+   * single letter "n" is still an ordinary message.
+   */
+  async answerApproval(channel: string, chatId: string, value: string): Promise<{ decision: string; tool: string } | null> {
+    const read = readApprovalAnswer(value);
+    if (!read) return null;
+    const sessionId = this.sessionFor(channel, chatId);
+    if (!sessionId || !this.runtime.waitingApprovals(sessionId).length) return null;
+    const result = this.runtime.approve(sessionId, read.decision, read.remember,
+      read.fingerprint || undefined, channel);
+    return { decision: result.decision, tool: result.tool };
+  }
+
+  /**
+   * Puts a paused task's question to the chat, with buttons where the channel has them and the
+   * words "reply y / a / n" where it has not. Sent directly rather than through the waiting line,
+   * because the waiting line only knows how to send plain words.
+   */
+  private async askInChat(message: InboundMessage, question: string, sessionId: string): Promise<void> {
+    const adapter = this.adapters.get(message.channel)?.adapter;
+    if (!adapter) return;
+    const waiting = this.runtime.waitingApprovals(sessionId).at(-1);
+    const checked = await this.outboundGuard(question);
+    if (checked.blocked) return;
+    const canAlways = waiting?.source === "owner";
+    const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways);
+    if (adapter.sendButtons) {
+      await adapter.sendButtons(message.chatId, checked.text, buttons, message.messageId).catch(() => undefined);
+      return;
+    }
+    await this.deliver(message.channel, message.chatId, `${checked.text}\n\n${approvalFallbackNote}`,
+      `ask:${waiting?.runId ?? message.messageId}`, message.messageId).catch(() => undefined);
+  }
+
   private async answer(message: InboundMessage): Promise<Outcome> {
     const owner = this.runtime.owner, key = `channel-session:${message.channel}:${message.chatId}`;
-    const saved = this.store.get("settings", owner, key)?.data as { sessionId?: string } | undefined;
-    const sessionId = saved?.sessionId && this.store.ownsSession(owner, saved.sessionId) ? saved.sessionId : undefined;
+    const sessionId = this.sessionFor(message.channel, message.chatId);
+    // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
+    // starting a new task. Anything longer is an ordinary message, whatever it happens to say.
+    const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim()).catch(() => null);
+    if (answered) {
+      await this.deliver(message.channel, message.chatId,
+        answered.decision === "allow"
+          ? `Noted. Send your next message and I will carry on.`
+          : `Noted. I will not do that.`,
+        `answered:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "replied";
+    }
     let heard: string;
     try {
       heard = await this.spoken(message);
@@ -232,6 +324,11 @@ export class ChannelRouter {
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
         title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });
       const text = run.status === "completed" ? run.output || "(no reply)" : run.status === "needs_input" ? run.output : `I could not finish that (${run.status}).`;
+      // A task that stopped to ask goes out as a question with buttons, not as words to read.
+      if (run.status === "needs_input" && this.runtime.waitingApprovals(run.sessionId).length) {
+        await this.askInChat(message, quoted + text, run.sessionId);
+        return "replied";
+      }
       await this.deliver(message.channel, message.chatId, quoted + text, `reply:${run.id}`, message.messageId).catch(() => undefined);
       if (message.voice) await this.voiceReply(message, text).catch(() => undefined);
       return run.status === "completed" || run.status === "needs_input" ? "replied" : "failed";

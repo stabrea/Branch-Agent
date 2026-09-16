@@ -3,6 +3,8 @@
    the memory it can draw on. No marketing copy. */
 import { api } from "/app.js";
 import { setActivityCount } from "/shell.js";
+/* Wave 7: what this conversation is allowed to do right now, with a way to take it back. */
+import { drawAllowed } from "/allowed.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -34,6 +36,9 @@ function row(title, meta) {
   return node;
 }
 const session = () => $("conversation").dataset.sessionId || null;
+/** Which model answered, as the name a person gave it rather than the whole record. */
+const modelName = (model) =>
+  (model && (model.presetName || model.presetId || model.model)) || "this model";
 
 /** Tasks the assistant is working on right now, with the step it has reached. */
 function drawTasks(running) {
@@ -63,7 +68,8 @@ async function drawReceipts(state) {
     for (const item of view.items.slice(-3))
       items.push(row(item.name || item.kind, OUTCOMES[item.outcome] ?? item.outcome));
     if (view.cost?.amount !== null && view.cost?.amount !== undefined)
-      items.push(row(view.cost.display, `${run.model || "this model"} · one task`));
+      /* `run.model` is a record, not a name, so naming it directly printed "[object Object]". */
+      items.push(row(view.cost.display, `${modelName(run.model)} · one task`));
   }
   rows("context-receipts", items.slice(0, 6), here ? "No tool work in this conversation yet." : "Open a conversation to see its receipts.");
 }
@@ -105,6 +111,7 @@ async function draw() {
     const state = await api("state");
     await drawWorking();
     drawTasks(running);
+    await drawAllowed($("context-allowed"), session());
     await drawReceipts(state);
     drawFacts(state);
   } catch {
