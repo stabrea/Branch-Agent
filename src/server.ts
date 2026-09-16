@@ -27,9 +27,13 @@ import { allPresets, findPreset } from "./providers/presets.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
 import { streamRunEvents } from "./streams.js";
+// Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
+import { inspectRun } from "./inspect.js";
+import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
+import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
@@ -42,11 +46,30 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
-import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
+import { voiceSettings, saveVoiceSettings } from "./voice.js";
+import { voiceApi } from "./voice-api.js";
+import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+// Wave 5 (deployment): installing, background running and reaching Branch from a phone.
+import { RemoteAccess } from "./remote/remote-access.js";
+import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { clearRunning, writeRunning } from "./install/running.js";
+import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
+import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
+import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+// Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
+import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
+import { audit } from "./audit.js";
+import { askFirstSettings } from "./ask-first.js";
+import { decisionsFromRules } from "./tool-categories.js";
+// Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
+// the waiting line for tasks, days off and quiet hours, and the household's profiles.
+import { collabApi, collabState, notCollab, runForCurrentPerson } from "./collab-server.js";
+import { shareHtml, RedactionSchema } from "./conversation-share.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -116,20 +139,40 @@ async function sessionToken(dataDir: string): Promise<string> {
   await writeFile(path, token, { mode: 0o600, flag: "wx" });
   return token;
 }
-function authorize(request: IncomingMessage, url: string, token: string): void {
-  const expected = new URL(url);
-  if (request.headers.host !== expected.host)
+/**
+ * Which addresses a request may claim it was sent to. Normally only this computer's own loopback
+ * address; while "reach Branch from my phone" is on, also the private Tailscale address and name.
+ * Everything else is refused, which is what stops a web page elsewhere talking to Branch.
+ */
+export function hostAllowed(
+  host: string | undefined, origin: string | undefined, url: string, extra: readonly string[] = [],
+): boolean {
+  const hosts = [new URL(url).host, ...extra];
+  if (!host || !hosts.includes(host)) return false;
+  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+}
+function authorize(
+  request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
+  /** Batch 19 (wave 7): counts wrong keys per place, so the key cannot be guessed at speed. */
+  limits?: { limiter: AuthLimiter; onFailure: (source: string) => void },
+): void {
+  if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
-  if (request.headers.origin && request.headers.origin !== url)
+  if (!hostAllowed(request.headers.host, request.headers.origin, url, extra))
     throw new HttpError(403, "Origin rejected");
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
-  if (
-    supplied.length !== token.length ||
-    !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
-  )
-    throw new HttpError(401, "Local session token required");
+  const correct =
+    supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
+  const from = requestSource(request.socket?.remoteAddress);
+  // The right key is checked first and clears the count at once, so the owner's own app can never
+  // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
+  if (correct) { limits?.limiter.succeed(from); return; }
+  const waiting = limits?.limiter.refusal(from, "key");
+  if (waiting) throw new HttpError(429, waiting);
+  limits?.onFailure(from);
+  throw new HttpError(401, "Local session token required");
 }
 async function staticFile(
   path: string,
@@ -142,19 +185,32 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
+    // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
+    "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
     "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
+    "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
+    "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
+    "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
+    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
+    "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -163,6 +219,22 @@ async function staticFile(
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
+    // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
+    "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
+    "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
+    "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
+    "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
+    "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
+    "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
+    "/web-ui.css": ["web-ui.css", "text/css; charset=utf-8"],
+    "/locales/en.json": ["locales/en.json", "application/json; charset=utf-8"],
+    "/locales/fr.json": ["locales/fr.json", "application/json; charset=utf-8"],
+    "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
+    "/service-worker.js": ["service-worker.js", "text/javascript; charset=utf-8"],
+    "/assets/icon-192.png": ["assets/icon-192.png", "image/png"],
+    "/assets/icon-512.png": ["assets/icon-512.png", "image/png"],
+    "/assets/icon.svg": ["assets/icon.svg", "image/svg+xml"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],
     "/fonts/geist-mono.woff2": ["fonts/geist-mono.woff2", "font/woff2"],
@@ -178,7 +250,8 @@ async function staticFile(
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "content-security-policy":
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      // worker-src and manifest-src let the installable web app register its service worker.
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   });
   response.end(body);
   return true;
@@ -342,7 +415,10 @@ function attention(app: Branch) {
 }
 function state(app: Branch): unknown {
   const owner = app.runtime.owner;
+  // Wave 6: conversations and saved facts are read under whoever's profile is switched on.
+  const scope = app.store.profiles.scope();
   return {
+    collab: collabState(app),
     provider: app.runtime.provider.name,
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
@@ -354,9 +430,17 @@ function state(app: Branch): unknown {
     identity: assistantIdentity(app.store, owner),
     workspace: app.runtime.workspace,
     runs: app.store
-      .runs(owner)
+      .runs(scope)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    // Batch 19 (wave 6)
+    allowed: { counts: app.store.audit.counts(owner), recent: app.store.audit.list(owner, { limit: 20 }) },
+    approvalCategories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules),
+    askFirst: askFirstSettings(app.store, owner),
+    practice: app.practice.state(owner),
+    reranking: app.retrieval.view(owner),
+    providerPlugins: app.providerPlugins.list(),
+    issueTrackers: app.issues?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
@@ -367,8 +451,8 @@ function state(app: Branch): unknown {
     memoryCheckpoints: app.store.review.checkpoints(owner),
     snapshots: app.store.workspaceHistory.snapshots(),
     models: app.runtime.models.summary(owner),
-    memory: app.store.list("memory", owner),
-    memoryCapacity: app.store.memoryCapacity(owner),
+    memory: app.store.list("memory", scope),
+    memoryCapacity: app.store.memoryCapacity(scope),
     skills: app.store.skills.list(owner),
     skillPolicy: app.store.skills.policy(owner),
     specialists: app.store.list("specialists", owner),
@@ -376,7 +460,8 @@ function state(app: Branch): unknown {
     schedules: app.store.list("schedules", owner),
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
-    tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    // The app's own tool list is for a person to read, so it keeps the full description.
+    tools: app.registry.descriptions(new Set(app.registry.permissions()), { diet: false }),
     lock: app.sessionLock.state(),
     privacy: app.privacy.settings(),
     secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
@@ -388,8 +473,31 @@ async function api(
   path: string,
   dataDir: string,
 ): Promise<unknown> {
+  // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
+  // the practice workspace, how passages are ordered, plugin model connections, issue context.
+  if (handlesMiscPath(path))
+    return miscApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Batch 19 (wave 7): spans, sending traces out, and the approval rules read as sentences.
+  if (handlesTracingPath(path))
+    return tracingApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
+  // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
+  const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
+  if (collab !== notCollab) return collab;
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
+  // The developer playground: the form for every tool, and running one by hand through the gate.
+  if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
+  if (request.method === "POST" && path === "/api/tools/try")
+    // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
+    // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
+    return app.runtime.hideSecrets(
+      await tryTool(app.registry, app.store, app.runtime.owner,
+        app.runtime.context({ signal: AbortSignal.timeout(120000) }),
+        TryToolSchema.parse(await readBody(request))));
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -410,6 +518,15 @@ async function api(
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
+  if (path.startsWith("/api/knowledge")) {
+    const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    throw new HttpError(404, "Not found");
+  }
+  if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
+    return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
@@ -439,8 +556,11 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
-  if (request.method === "POST" && path === "/api/voice/settings")
-    return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
+  // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
+  // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
+  if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+    return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
@@ -451,10 +571,15 @@ async function api(
     const kept = await app.artifacts.list();
     return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
   }
+  // Using this computer's screen and keyboard: off until the owner turns it on here.
+  if (request.method === "GET" && path === "/api/desktop/settings")
+    return readDesktopSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/desktop/settings")
+    return saveDesktopSettings(app.store, app.runtime.owner, await readBody(request));
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
-    if (!run || run.owner !== app.runtime.owner)
+    if (!run || run.owner !== app.store.profiles.scope())
       throw new HttpError(404, "Run not found");
     if (request.method === "POST" && match[2] === "cancel")
       return { cancelled: app.runtime.cancel(run.id) };
@@ -489,7 +614,11 @@ async function api(
     return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
-  if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
+  if (request.method === "GET" && path === "/api/backup") {
+    audit(app.store, app.runtime.owner, { action: "data.exported", actor: app.runtime.owner, subject: "a full backup",
+      reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
+    return app.store.backup(app.version);
+  }
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
@@ -549,8 +678,10 @@ async function api(
     return { policy: savePolicy(app.store, app.runtime.owner, await readBody(request)) };
   if (request.method === "POST" && path === "/api/policy/approve") {
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
-      remember: PolicyRememberSchema.default("session") }).strict().parse(await readBody(request));
-    return app.runtime.approve(input.sessionId, input.decision, input.remember);
+      remember: PolicyRememberSchema.default("session"),
+      // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+    return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
@@ -568,7 +699,8 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
-    return app.runtime.run({
+    // Wave 6: a task started while somebody's profile is switched on is filed under their name.
+    return runForCurrentPerson(app, {
       prompt: input.prompt,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.temporary ? { temporary: true } : {}),
@@ -609,14 +741,33 @@ async function api(
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
     const run = app.store.run(traceMatch[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return buildTraceDocument(app.store, run.id, app.version);
+  }
+  // "Look inside" a task: rounds, tool calls, plan, verdicts and steering in one answer.
+  const inspectMatch = /^\/api\/runs\/([a-f0-9-]{36})\/inspect$/.exec(path);
+  if (request.method === "GET" && inspectMatch) {
+    const run = app.store.run(inspectMatch[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    const receipts = await receiptsView(app, run.id);
+    const { overrides } = pricingSettings(app.store, app.runtime.owner);
+    // A tool call's raw arguments are read back off the assistant message, which the runtime never
+    // scrubbed; nothing leaves here carrying a saved password or key.
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
+      receipts, version: app.version, cost: receipts.cost,
+      timeline: app.store.usageStore().getRunTimeline(run.id),
+      /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
+      price: (model, tokens) => {
+        const estimate = estimateCost(model, tokens, overrides);
+        return { amount: estimate.amount, display: formatCost(estimate) };
+      },
+    }));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
     if (!match) throw new HttpError(400, "Invalid run ID");
     const run = app.store.run(match[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return { timeline: app.store.usageStore().getRunTimeline(run.id) };
   }
   if (request.method === "GET" && path === "/api/usage/budget") {
@@ -631,7 +782,8 @@ async function api(
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner;
+  // Wave 6: conversations belong to whoever's profile is switched on, not always to the owner.
+  const owner = app.store.profiles.scope();
   if (request.method === "POST" && path === "/api/sessions/search")
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
@@ -680,8 +832,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
       return { ...app.runtime.models.session(owner, match[1]!), effective: app.runtime.models.plan(owner, match[1]!).choice };
     }
   }
-  if (match && request.method === "GET" && match[2] === "export")
+  if (match && request.method === "GET" && match[2] === "export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: `conversation ${match[1]!.slice(0, 8)}`,
+      reason: "One conversation was written out as a file", outcome: "saved" });
     return app.store.exportSession(owner, match[1]!);
+  }
   if (match && request.method === "POST" && match[2] === "discard") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.discardSession(owner, match[1]!);
@@ -705,8 +860,13 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
   throw new HttpError(404, "Endpoint not found");
 }
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner;
-  if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
+  // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
+  const owner = app.store.profiles.scope();
+  if (request.method === "GET" && path === "/api/memory/export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
+      reason: "The facts the assistant remembers were written out", outcome: "saved" });
+    return app.store.exportMemory(owner);
+  }
   if (request.method === "POST" && path === "/api/memory/import") {
     const body = await readBody(request, maximumMemoryArchiveBytes);
     // Facts arrive either as the whole-archive file or as JSON Lines; the second kind is deduplicated.
@@ -766,6 +926,7 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   throw new HttpError(404, "Endpoint not found");
 }
 async function projectsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  app.store.profiles.requireOwner("Projects"); // Wave 6: projects stay with the owner.
   const owner = app.runtime.owner, projects = app.store.projects;
   if (request.method === "GET" && path === "/api/projects") return { active: projects.active(owner), all: projects.list(owner) };
   if (request.method === "POST" && path === "/api/projects") {
@@ -786,6 +947,7 @@ async function projectsApi(app: Branch, request: IncomingMessage, path: string):
 }
 /** Secret values go in and never come out; only names, dates and who used them are listed. */
 async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  app.store.profiles.requireOwner("The secrets locker"); // Wave 6: secrets stay with the owner.
   const owner = app.runtime.owner, secrets = app.store.secrets;
   const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
   if (request.method === "GET" && path === "/api/secrets/audit")
@@ -1123,6 +1285,23 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * The reports the assistant has written, the watches that are running, and the morning brief.
+ * These are the routes only; no screen in the app calls them yet.
+ */
+async function researchApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/research") return { reports: app.research.list(owner) };
+  if (request.method === "GET" && path === "/api/monitors") return { monitors: app.monitors.list(owner) };
+  if (request.method === "POST" && path === "/api/monitors") return app.monitors.create(owner, await readBody(request));
+  const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
+  if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
+  if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
+  if (request.method === "GET" && path === "/api/brief") return app.brief.preview(owner);
+  if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
+  throw new HttpError(404, "Endpoint not found");
+}
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (path === "/api/mcp/settings") {
     const mcp = app.mcpServer;
@@ -1248,19 +1427,44 @@ function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: s
     },
   };
 }
+/** The pairing door, open only on the phone's listener and only for the invitation on offer. */
+export async function pairingRequest(
+  remote: RemoteAccess, request: IncomingMessage, response: ServerResponse, path: string,
+): Promise<boolean> {
+  if (request.method !== "POST" || path !== "/api/pair") return false;
+  const body = z.object({ id: z.string().max(64), code: z.string().max(16) }).strict()
+    .parse(await readBody(request, 1024));
+  send(response, 200, remote.pairing.redeem(body.id, body.code));
+  return true;
+}
 export async function startServer(
   app: Branch,
-  options: { dataDir: string; port?: number },
+  options: {
+    dataDir: string; port?: number;
+    /** The installed program file and folder, when Branch runs from an install rather than source. */
+    executable?: string | null; installRoot?: string | null;
+    /** Announce this engine to other launches, so a second window joins it instead of starting again. */
+    presence?: "app" | "daemon";
+    /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
+    authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
+  },
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
-  let executions = 0;
-  const server = createServer(async (request, response) => {
+  // The same count the waiting line uses, so the two together never run more than this computer is
+  // meant to handle.
+  const executions = app.executions;
+  const remote = new RemoteAccess(token);
+  // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
+  // place is made to wait, with a line written into the record of what the assistant was allowed to do.
+  const authLimiter = new AuthLimiter(options.authLimits);
+  const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
-      if (request.headers.host !== new URL(url).host)
+      if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
+      if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -1268,25 +1472,34 @@ export async function startServer(
         return;
       }
       if (await whatsAppWebhook(app, request, response, path)) return;
+      // Wave 6: a read-only shared conversation carries its own code instead of the session key.
+      if (await sharePage(app, request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
-      authorize(request, url, token);
+      authorize(request, url, token, remote.allowedHosts(), {
+        limiter: authLimiter,
+        onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
+      });
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
-      if (executes && executions >= 8)
+      const place = executes ? executions.take() : null;
+      if (executes && !place)
         throw new HttpError(429, "Too many active executions");
-      if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
+        if (path.startsWith("/api/deployment")) {
+          const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
+          if (result !== undefined) { send(response, 200, result); return; }
+        }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
-        if (executes) executions--;
+        place?.();
       }
     } catch (e) {
       if (!response.headersSent)
@@ -1296,14 +1509,21 @@ export async function startServer(
         });
       else response.end();
     }
+  };
+  const server = createServer((request, response) => void handle(request, response, false));
+  const remoteHandler = (request: IncomingMessage, response: ServerResponse) =>
+    void handle(request, response, true);
+  const deployment = (): DeploymentContext => ({
+    dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
+    executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
   server.on("upgrade", (request, socket) => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
-      const sameHost = request.headers.host === new URL(url).host && (!request.headers.origin || request.headers.origin === url);
-      if (!match || !run || run.owner !== app.runtime.owner || !sameHost || !tokenFromProtocol(request, token)) {
+      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
+      if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
@@ -1323,21 +1543,37 @@ export async function startServer(
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  if (options.presence) {
+    await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
+    await noteFirstStart(app, options.dataDir).catch(() => undefined);
+  }
   return {
     url,
     token,
-    close: () => stopServer(app, server),
+    remote,
+    close: async () => {
+      await remote.disable().catch(() => undefined);
+      if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
+      await stopServer(app, server);
+    },
   };
+}
+/** Records whether a version that has just replaced another one came up healthy the first time. */
+async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
+  if ((await readFirstStart(dataDir))?.version === app.version) return;
+  await recordFirstStart(dataDir, app.version, (await healthReport(app)).ok);
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
+  if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
-    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
     return true;
@@ -1373,13 +1609,15 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     }
     const audio = new Uint8Array(Buffer.concat(chunks));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
+      // One service decides which route writes this out, and refuses outright when the owner has
+      // said audio must stay on this computer. The length comes from the recorder, for the cost.
+      const seconds = Number(new URL(request.url ?? "/", "http://local").searchParams.get("seconds"));
+      const written = await app.voice.transcribe(app.runtime.owner, {
+        bytes: audio, mediaType: (contentType.split(";")[0] ?? "audio/webm").trim(), name: "recording",
+        ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
+      });
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ text }));
+      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1387,15 +1625,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/speak") {
-    const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
+    const body = z.object({
+      text: z.string().max(4000), voice: z.string().max(80).optional(), speed: z.number().min(0.5).max(2).optional(),
+    }).strict().parse(await readBody(request));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
-      response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
-      response.end(Buffer.from(audio));
+      const spoken = await app.voice.speak(app.runtime.owner, {
+        text: body.text, voice: body.voice ?? "", speed: body.speed ?? 1,
+      });
+      response.writeHead(200, {
+        "content-type": spoken.mediaType, "cache-control": "no-store",
+        "x-voice-route": spoken.route, "x-voice-name": encodeURIComponent(spoken.voice),
+      });
+      response.end(Buffer.from(spoken.bytes));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1411,6 +1652,26 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       "cache-control": "no-store",
     });
     response.end(jsonl);
+    return true;
+  }
+  // Wave 6: one conversation as a single page, with keys blanked out, ready to keep or send on.
+  const htmlExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
+  if (htmlExport && request.method === "GET"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "html") {
+    const sessionId = htmlExport[1]!, query = new URL(request.url ?? "/", "http://local").searchParams;
+    if (!app.store.ownsSession(app.store.profiles.scope(), sessionId)) throw new HttpError(404, "Conversation not found");
+    const redact = RedactionSchema.parse({ secrets: query.get("secrets") !== "0",
+      contactDetails: query.get("contactDetails") === "1", toolResults: query.get("toolResults") === "0" });
+    const view = app.store.sessionView(app.store.profiles.scope(), sessionId) as { createdAt?: string; title?: string };
+    const page = shareHtml({ sessionId, ...(view.createdAt ? { createdAt: view.createdAt } : {}),
+      ...(view.title ? { title: view.title } : {}) }, app.store.messages(sessionId), redact);
+    response.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-disposition": `attachment; filename="conversation-${sessionId.slice(0, 8)}.html"`,
+      "cache-control": "no-store", "x-content-type-options": "nosniff",
+      "x-branch-share-receipt": JSON.stringify(page.receipt),
+    });
+    response.end(page.html);
     return true;
   }
   const sessionExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
@@ -1451,6 +1712,10 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(csv);
     return true;
   }
+  if (request.method === "GET" && path === "/api/audit/export.csv") {
+    auditCsvResponse(app, request, response);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -1477,9 +1742,42 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Not found");
 }
+/**
+ * Wave 6: a shared conversation page. It needs the code the owner was shown, works once, and stops
+ * at its expiry. It is served by this app on this computer, so it needs no session key of its own;
+ * nothing is published anywhere.
+ */
+async function sharePage(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  const match = /^\/share\/([a-f0-9-]{36})$/.exec(path);
+  if (!match) return false;
+  if (request.method !== "GET") throw new HttpError(404, "Endpoint not found");
+  const code = new URL(request.url ?? "/", "http://local").searchParams.get("code") ?? "";
+  let body: string, status = 200;
+  try { body = app.store.shares.open(match[1]!, code); }
+  catch (error) {
+    status = 403;
+    body = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Not available</title></head>`
+      + `<body style="font:16px system-ui;margin:3rem auto;max-width:32rem"><h1>This link is not available</h1>`
+      + `<p>${errorText(error).replace(/[<>&"]/g, "")}</p></body></html>`;
+  }
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+    "x-content-type-options": "nosniff", "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  });
+  response.end(body);
+  return true;
+}
+/** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+function voiceDeps(app: Branch) {
+  return {
+    store: app.store, models: app.runtime.models, owner: app.runtime.owner,
+    voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+  };
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

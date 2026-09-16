@@ -587,3 +587,12 @@ summary {
 .attachment button:hover { color: var(--text); }
 .composer.dropping { outline: 2px dashed var(--copper); outline-offset: 2px; }
 .made-thumb { display: block; width: 100%; max-width: 14rem; height: auto; border-radius: 0.4rem; margin-bottom: 0.4rem; }
+
+/* Wave 5: how Branch runs on this computer, and the two switches on the first-run checklist. */
+#deployment-card label { display: block; margin: 0.6rem 0; }
+#deployment-card h3 { margin: 1.2rem 0 0.4rem; }
+#deployment-card canvas { display: block; margin: 0.8rem 0; background: #fff; border-radius: 0.4rem; padding: 0.5rem; max-width: 100%; height: auto; }
+#deployment-card pre { margin: 0.5rem 0 0; padding: 0.5rem; border-radius: 0.4rem; background: var(--well); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+#deployment-card .bad, .first-run-extras .bad { color: var(--rust, #c2553c); }
+.first-run-extras { margin-top: 1rem; display: grid; gap: 0.4rem; }
+.first-run-extras label { font-size: 0.9rem; }

@@ -11,6 +11,27 @@ export const VoiceSettingsSchema = z
     voiceId: z.string().max(200).default("default"),
     speechRate: z.number().min(0.5).max(2).default(1),
     useProviderVoice: z.boolean().default(false),
+    // Wave 7: which service writes speech out and which reads it aloud, and the one setting that
+    // overrules both. "auto" means "whatever the connected model offers"; every other value is a
+    // deliberate choice by the owner and is never quietly swapped for something else.
+    /** Where recordings are written out: the connected model, Gemini, or a program on this computer. */
+    sttRoute: z.enum(["auto", "openai", "gemini", "local"]).default("auto"),
+    /** Which service reads replies aloud. "windows" is the voice that comes with Windows. */
+    ttsRoute: z.enum(["auto", "openai", "gemini", "windows"]).default("auto"),
+    /** The transcription model to ask for; empty means each route's usual one. */
+    sttModel: z.string().trim().max(200).default(""),
+    /** The speech model to ask for; empty means each route's usual one. */
+    ttsModel: z.string().trim().max(200).default(""),
+    /** A language code such as "en" to force, or empty to let the service work it out itself. */
+    language: z.string().trim().max(20).default(""),
+    /** Nothing containing sound may leave this computer; the cloud routes refuse rather than send. */
+    keepAudioOnThisComputer: z.boolean().default(false),
+    /** A speech program already installed here, for writing out recordings without the internet. */
+    localSpeechExecutable: z.string().trim().max(400).default(""),
+    localSpeechModel: z.string().trim().max(400).default(""),
+    localSpeechKind: z.enum(["whisper-cpp", "faster-whisper"]).default("whisper-cpp"),
+    /** Answer a voice note on a chat app with a voice note back. Off until the owner turns it on. */
+    replyWithVoiceOnChannels: z.boolean().default(false),
   })
   .strict();
 export type VoiceSettings = z.infer<typeof VoiceSettingsSchema>;

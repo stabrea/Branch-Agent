@@ -27,6 +27,8 @@ export const ScheduleSchema = z
     deliverTo: z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().optional(),
     /** Allow an authenticated webhook to trigger this schedule with a payload. */
     webhook: z.boolean().optional(),
+    /** Wave 6: what to do when the due moment lands on a holiday, a weekend or a day off. */
+    daysOff: z.enum(["run", "skip", "shift"]).default("run"),
     permissions: z.array(z.string().max(100)).max(50).optional(),
   })
   .strict()
@@ -67,11 +69,19 @@ export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Da
   return new Date(candidate);
 }
 
+/** What the scheduler needs to know about days off; the calendar settings supply it. */
+export interface DayOffAdvice {
+  decide(owner: string, at: Date, mode: "run" | "skip" | "shift"): { action: "run" | "skip" | "shift"; reason: string | null; moveTo?: string };
+}
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
+  /** Holidays, weekends and the owner's own days off; nothing is held back until this is connected. */
+  calendar: DayOffAdvice | undefined;
   private readonly active = new Set<Promise<Run[]>>();
   /** Runs test suites on a schedule; stays null until `createBranch` connects one. */
   evaluations: SuiteRunner | null = null;
+  /** Extra work that runs on every beat alongside the saved schedules: watches, the morning brief. */
+  readonly onTick = new Set<(now: Date) => Promise<void>>();
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -102,12 +112,39 @@ export class Scheduler {
     const results: Run[] = [];
     if (this.store.review.dreamDue(this.runtime.owner, now)) await this.store.review.consolidate(this.runtime, this.runtime.owner).catch(() => undefined);
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
+      if (this.deferredForDayOff(candidate, now)) continue;
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
       if (!claimed) continue;
       const run = await this.execute(claimed, now, "schedule", undefined, true);
       if (run) results.push(run);
     }
+    // Last, so that work the person actually asked for is never left waiting behind a watch
+    // that is slow to answer. A beat that overlaps the one before it is normal here.
+    for (const listener of this.onTick) await listener(now).catch(() => undefined);
     return results;
+  }
+  /**
+   * Holds a schedule back when its moment lands on a day off. "Skip" moves a repeating one on to
+   * its next turn and closes a one-off; "shift" moves it to the next working day. Nothing runs.
+   */
+  private deferredForDayOff(record: SavedRecord, now: Date): boolean {
+    const mode = record.data.daysOff;
+    if (mode !== "skip" && mode !== "shift") return false;
+    const decision = this.calendar?.decide(record.owner, now, mode);
+    if (!decision || decision.action === "run") return false;
+    const data = record.data;
+    const repeats = typeof data.intervalMs === "number" || typeof data.dailyAt === "string";
+    const nextTurn = typeof data.dailyAt === "string"
+      ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
+      : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
+    const movedTo = decision.action === "shift" ? decision.moveTo! : repeats ? nextTurn : String(data.dueAt);
+    this.store.save("schedules", record.owner, record.id, {
+      ...data, dueAt: movedTo,
+      status: decision.action === "skip" && !repeats ? "skipped" : "pending",
+      lastDayOff: { at: now.toISOString(), action: decision.action, reason: decision.reason, movedTo },
+    });
+    this.runtime.notifyEvent("schedule.day_off", { scheduleId: record.id, action: decision.action, reason: decision.reason, movedTo });
+    return true;
   }
   /** Runs a saved schedule now (webhook or local script) without moving its next due time. */
   async trigger(owner: string, id: string, payload: unknown, trigger: "webhook" | "local"): Promise<Run> {

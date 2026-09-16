@@ -21,6 +21,17 @@ export interface UpdaterOptions {
   scratchDir: string;
   fetch?: typeof fetch;
   extract?: (archive: string, into: string) => Promise<void>;
+  /**
+   * Takes a safety copy of the person's saved work before the new files are put in place. When it
+   * fails the update stops, because an update without something to go back to is not worth the risk.
+   */
+  backup?: () => Promise<void>;
+  /**
+   * Closes the engine that keeps working with the window closed, so the old program files are not
+   * held open while they are replaced. Answers with the process id that was closed, or null when
+   * nothing was working in the background.
+   */
+  stopDaemon?: () => Promise<number | null>;
 }
 export interface ReleaseInfo {
   currentVersion: string;
@@ -104,13 +115,35 @@ export class Updater {
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
-      const script = await this.writeScript(stagedDir);
+      await this.safetyCopy();
+      const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
       return { script, stagedDir };
     } catch (error) {
       this.set("error", error instanceof Error ? error.message : String(error), null, release);
       throw error;
     } finally { this.busy = false; }
+  }
+  /** The safety copy taken just before the files are swapped; three are kept by the caller. */
+  private async safetyCopy(): Promise<void> {
+    if (!this.options.backup) return;
+    this.set("unpacking", "Making a safety copy of your work before the update…", null, this.status.release);
+    try {
+      await this.options.backup();
+    } catch (error) {
+      const why = (error instanceof Error ? error.message : String(error)).replace(/\.?$/, ".");
+      throw new Error(`The safety copy could not be made, so the update was stopped: ${why} Free some space on this drive, or move Branch's data folder somewhere it can write, then try the update again.`);
+    }
+  }
+  /**
+   * Closes the engine working in the background before the files are swapped, and answers with its
+   * process id so the hand-over waits for it as well. A refusal never stops the update: the hand-over
+   * script ends that process itself if it has to.
+   */
+  private async stopBackground(): Promise<number | null> {
+    if (!this.options.stopDaemon) return null;
+    this.set("unpacking", "Closing the part of Branch that keeps working with the window closed…", null, this.status.release);
+    try { return await this.options.stopDaemon(); } catch { return null; }
   }
   private async latestRelease(): Promise<ReleaseInfo> {
     const response = await this.fetch(`https://api.github.com/repos/${this.options.repo}/releases/latest`, {
@@ -166,7 +199,7 @@ export class Updater {
     await this.extract(archive, into);
     return findExecutableDir(into, this.options.executableName);
   }
-  private async writeScript(stagedDir: string): Promise<string> {
+  private async writeScript(stagedDir: string, daemonPid: number | null = null): Promise<string> {
     const script = join(this.options.scratchDir, "apply-update.cmd");
     const install = this.options.installDir!, image = this.options.executableName;
     const exe = join(install, image), previous = `${install}.previous`, log = join(this.options.scratchDir, "apply-update.log");
@@ -177,13 +210,19 @@ export class Updater {
     const running = `${sys}tasklist.exe /NH /FO CSV 2>NUL | ${sys}find.exe /I "${image}" >NUL`;
     // `ping` is used as a sleep because `timeout` exits at once when standard input is not a console.
     const sleep = (seconds: number) => `${sys}ping.exe -n ${seconds + 1} 127.0.0.1 >NUL`;
+    const waitFor = (pid: string, label: string, counter: string, what: string) => [
+      `set ${counter}=0`, `:${label}`, `${sys}tasklist.exe /FI "PID eq ${pid}" /NH /FO CSV 2>NUL | ${sys}find.exe ",""${pid}""," >NUL`,
+      `if not errorlevel 1 if %${counter}% lss 60 ( set /a ${counter}+=1 & ${sleep(1)} & goto ${label} )`,
+      `if not errorlevel 1 ( echo [%time%] ${what} still open after %${counter}% waits; ending it >>"${log}" & ${sys}taskkill.exe /PID ${pid} /T /F >NUL 2>&1 & ${sleep(2)} )`,
+      `echo [%time%] ${what} closed >>"${log}"`,
+    ];
     await writeFile(script, [
       "@echo off", "setlocal", 'set "PID=%~1"', "set TRIES=0", `echo [%date% %time%] update started for pid %PID% >>"${log}"`,
       // The app asked itself to close; if it has not gone within about two minutes, end it so the update still lands.
-      "set WAITED=0", ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`,
-      `if not errorlevel 1 if %WAITED% lss 60 ( set /a WAITED+=1 & ${sleep(1)} & goto wait )`,
-      `if not errorlevel 1 ( echo [%time%] app still open after %WAITED% waits; ending it >>"${log}" & ${sys}taskkill.exe /PID %PID% /T /F >NUL 2>&1 & ${sleep(2)} )`,
-      `echo [%time%] app closed >>"${log}"`,
+      ...waitFor("%PID%", "wait", "WAITED", "app"),
+      // The engine that keeps working with the window closed holds the same files open, so it is
+      // waited for too; it was already asked to close before this script was started.
+      ...(daemonPid ? waitFor(String(daemonPid), "engine", "EWAITED", "background engine") : []),
       "set DRAIN=0", ":drain", running, `if not errorlevel 1 if %DRAIN% lss 15 ( set /a DRAIN+=1 & ${sleep(1)} & goto drain )`, sleep(2),
       `echo [%time%] keeping previous version >>"${log}"`, mirror(install, previous), "if errorlevel 8 exit /b 1",
       ":copy", "set /a TRIES+=1", `echo [%time%] copying new version, attempt %TRIES% >>"${log}"`, mirror(stagedDir, install),

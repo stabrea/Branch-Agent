@@ -9,7 +9,8 @@ export const SkillScanPolicySchema = z.object({ policy: z.enum(["block", "review
 export type SkillScanPolicy = z.infer<typeof SkillScanPolicySchema>["policy"];
 export interface SkillFinding { kind: "secret" | "exfiltration" | "override"; line: number; excerpt: string; reason: string }
 
-const secretPatterns: [RegExp, string][] = [
+/** Shared with the conversation share export, which blanks these out before anything leaves the app. */
+export const secretPatterns: [RegExp, string][] = [
   [/\bAKIA[0-9A-Z]{16}\b/, "looks like an AWS access key"],
   [/\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}\b/, "looks like an API key"],
   [/\bgh[pousr]_[A-Za-z0-9]{30,}\b/, "looks like a GitHub token"],

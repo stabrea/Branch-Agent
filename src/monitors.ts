@@ -1,0 +1,196 @@
+import { createHash, randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import { errorText } from "./contracts.js";
+import type { Store } from "./store.js";
+import type { ToolRegistry } from "./registry.js";
+import type { WebAccess } from "./integrations/web.js";
+import { applyContentPolicy, detectInjection } from "./content-guard.js";
+import type { DeliveryHandler } from "./scheduler.js";
+
+/**
+ * Keeping an eye on a page or a search for the person. Each watch remembers what it saw last time;
+ * when the words change the difference is described in plain language and sent wherever they asked
+ * — a messaging chat, or the activity list in the app. Nothing is fetched outside the network
+ * policy, and the remembered copy is bounded so a watch cannot grow without limit.
+ */
+const notifySchema = z.union([
+  z.literal("activity"),
+  z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict(),
+]);
+export const MonitorSchema = z.object({
+  url: z.string().url().max(2048).optional(),
+  query: z.string().trim().min(2).max(300).optional(),
+  /** How often to look: minutes, or a short phrase such as "30m", "6h" or "1d". At least 5 minutes. */
+  every: z.union([z.number().int().min(5).max(43200), z.string().trim().regex(/^\d+\s*(m|h|d|min|mins|minutes?|hours?|days?)?$/i)]),
+  notifyVia: notifySchema.default("activity"),
+  label: z.string().trim().max(120).optional(),
+}).strict().refine((value) => !!value.url !== !!value.query, "Watch either an address or a search, not both");
+export type MonitorInput = z.infer<typeof MonitorSchema>;
+export interface MonitorRecord {
+  id: string; kind: "page" | "search"; target: string; label: string; everyMinutes: number;
+  notifyVia: "activity" | { channel: string; chatId: string };
+  lastCheckedAt: string | null; nextAt: string; changes: number;
+}
+export interface MonitorCheck { id: string; changed: boolean; summary: string; delivered: string | null }
+const snapshotChars = 20000;
+
+/** "90", "90m", "6 hours", "1d" all become a number of minutes. */
+export function everyMinutes(value: number | string): number {
+  if (typeof value === "number") return value;
+  const match = /^(\d+)\s*([a-z]*)$/i.exec(value.trim());
+  if (!match) throw new Error("Say how often as minutes, or like \"30m\", \"6h\" or \"1d\"");
+  const amount = Number(match[1]), unit = (match[2] ?? "").toLowerCase();
+  const minutes = unit.startsWith("d") ? amount * 1440 : unit.startsWith("h") ? amount * 60 : amount;
+  if (minutes < 5) throw new Error("A watch can run at most once every five minutes");
+  return Math.min(minutes, 43200);
+}
+
+export class Monitors {
+  private readonly db: DatabaseSync;
+  /** Watches being looked at right now: a beat that overlaps the last one must not look again. */
+  private readonly inFlight = new Set<string>();
+  constructor(private readonly store: Store, private readonly web: WebAccess, private readonly deliver?: DeliveryHandler) {
+    this.db = store.sqlite;
+    this.db.exec(`CREATE TABLE IF NOT EXISTS monitors(id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL,
+      target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', every_minutes INTEGER NOT NULL, notify TEXT NOT NULL,
+      hash TEXT, snapshot TEXT, checked_at TEXT, next_at TEXT NOT NULL, changes INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS monitors_owner ON monitors(owner);`);
+  }
+  list(owner: string): MonitorRecord[] {
+    return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner).map(toRecord);
+  }
+  remove(owner: string, id: string): { removed: string } {
+    if (!this.db.prepare("DELETE FROM monitors WHERE owner=? AND id=?").run(owner, id).changes) throw new Error("There is no watch with that number");
+    return { removed: id };
+  }
+  /** Starts a watch and takes the first look right away, so the next change is a real change. */
+  async create(owner: string, input: unknown, signal?: AbortSignal): Promise<MonitorRecord> {
+    const value = MonitorSchema.parse(input);
+    const minutes = everyMinutes(value.every), id = randomUUID(), now = new Date();
+    const kind = value.url ? "page" : "search", target = value.url ?? value.query!;
+    this.db.prepare("INSERT INTO monitors VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+      id, owner, kind, target, value.label ?? target.slice(0, 120), minutes, JSON.stringify(value.notifyVia),
+      null, null, null, new Date(now.getTime() + minutes * 60000).toISOString(), 0, now.toISOString());
+    const text = await this.observe(kind, target, signal).catch((error) => `Could not be read: ${errorText(error)}`);
+    this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=? WHERE id=?")
+      .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), id);
+    return this.one(owner, id);
+  }
+  private one(owner: string, id: string): MonitorRecord {
+    const row = this.db.prepare("SELECT * FROM monitors WHERE owner=? AND id=?").get(owner, id);
+    if (!row) throw new Error("There is no watch with that number");
+    return toRecord(row);
+  }
+  /** What the watch is looking at right now, as plain text. */
+  private async observe(kind: string, target: string, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
+    // A search only ever yields titles and addresses, so only a page's own words need the owner's
+    // injection policy applied: the same one `web.read` uses, before any of it is quoted at them.
+    if (kind === "page") {
+      const text = (await this.web.fetchPage(target, snapshotChars)).text;
+      return applyContentPolicy(text, detectInjection(text), this.web.injectionPolicy).text;
+    }
+    return (await this.web.search(target, 8)).map((result) => `${result.title} — ${result.url}`).join("\n");
+  }
+
+  /** Looks again, describes anything that changed, and sends it on. */
+  async check(owner: string, id: string, now = new Date(), signal?: AbortSignal): Promise<MonitorCheck> {
+    const row = this.db.prepare("SELECT * FROM monitors WHERE owner=? AND id=?").get(owner, id);
+    if (!row) throw new Error("There is no watch with that number");
+    const record = toRecord(row);
+    const next = new Date(now.getTime() + record.everyMinutes * 60000).toISOString();
+    this.inFlight.add(id);
+    try {
+      const text = await this.observe(record.kind, record.target, signal);
+      const changed = digest(text) !== String(row.hash ?? "");
+      const summary = changed ? describeChange(record, String(row.snapshot ?? ""), text) : `No change at ${record.label}.`;
+      // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
+      // place, so the same change is noticed again next time instead of being lost silently.
+      const delivered = changed ? await this.announce(owner, record, summary) : null;
+      this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
+        .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
+      return { id, changed, summary, delivered };
+    } finally { this.inFlight.delete(id); }
+  }
+  /** Every watch that is due; each one's own failure is recorded and does not stop the others. */
+  async tick(owner: string, now = new Date(), signal?: AbortSignal): Promise<MonitorCheck[]> {
+    const due = this.db.prepare("SELECT id FROM monitors WHERE owner=? AND next_at<=? LIMIT 20").all(owner, now.toISOString());
+    const results: MonitorCheck[] = [];
+    for (const row of due) {
+      const id = String(row.id);
+      // A watch whose last look has not come back yet is left alone: a beat every few seconds
+      // must not fetch the same page over and over, nor announce one change several times.
+      if (this.inFlight.has(id)) continue;
+      try { results.push(await this.check(owner, id, now, signal)); }
+      catch (error) {
+        this.db.prepare("UPDATE monitors SET next_at=? WHERE id=?").run(new Date(now.getTime() + 3600000).toISOString(), id);
+        results.push({ id, changed: false, summary: `That watch could not be checked: ${errorText(error)}`, delivered: null });
+      }
+    }
+    return results;
+  }
+  /** Sends the summary to the chosen chat, or puts it in the activity list when none was chosen. */
+  private async announce(owner: string, record: MonitorRecord, summary: string): Promise<string | null> {
+    if (record.notifyVia === "activity" || !this.deliver) {
+      const run = this.store.createRun(owner, `Watch: ${record.label}`);
+      this.store.message(run.sessionId, { role: "assistant", content: summary });
+      this.store.event(run.id, "monitor.changed", { monitorId: record.id, target: record.target });
+      this.store.finish(run.id, "completed", summary);
+      return "activity";
+    }
+    const { channel, chatId } = record.notifyVia;
+    await this.deliver(channel, chatId, summary, `monitor:${record.id}:${Date.now()}`);
+    return `${channel}:${chatId}`;
+  }
+}
+const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+function toRecord(row: Record<string, unknown>): MonitorRecord {
+  return {
+    id: String(row.id), kind: String(row.kind) as MonitorRecord["kind"], target: String(row.target),
+    label: String(row.label ?? ""), everyMinutes: Number(row.every_minutes),
+    notifyVia: JSON.parse(String(row.notify)) as MonitorRecord["notifyVia"],
+    lastCheckedAt: row.checked_at === null ? null : String(row.checked_at),
+    nextAt: String(row.next_at), changes: Number(row.changes ?? 0),
+  };
+}
+/** What changed, in sentences: how many lines came and went, with a few of each. */
+export function describeChange(record: MonitorRecord, before: string, after: string): string {
+  const oldLines = new Set(before.split("\n").map((line) => line.trim()).filter(Boolean));
+  const newLines = new Set(after.split("\n").map((line) => line.trim()).filter(Boolean));
+  const added = [...newLines].filter((line) => !oldLines.has(line));
+  const removed = [...oldLines].filter((line) => !newLines.has(line));
+  const what = record.kind === "page" ? `the page at ${record.target}` : `the search for “${record.target}”`;
+  const parts = [`Something changed on ${what}.`];
+  if (added.length) parts.push(`${added.length} new line${added.length === 1 ? "" : "s"}:`, ...added.slice(0, 5).map((line) => `- ${line.slice(0, 200)}`));
+  if (removed.length) parts.push(`${removed.length} line${removed.length === 1 ? "" : "s"} gone:`, ...removed.slice(0, 5).map((line) => `- ${line.slice(0, 200)}`));
+  if (!added.length && !removed.length) parts.push("The wording is the same but something small moved.");
+  return parts.join("\n");
+}
+
+export function registerMonitors(registry: ToolRegistry, monitors: Monitors): void {
+  registry.register({
+    name: "monitor.create", permission: "monitors.manage",
+    description: "Watch a web page or a web search and say what changed. Give an address or a search, how often to look (for example \"6h\"), and where to send the news — a chat, or the activity list.",
+    parameters: MonitorSchema,
+    execute: async (input, context) => monitors.create(context.owner, input, context.signal),
+  });
+  registry.register({
+    name: "monitor.list", permission: "monitors.read",
+    description: "List the watches that are running, what each is looking at, when it was last checked and how often it has changed.",
+    parameters: z.object({}).strict(),
+    execute: async (_input, context) => ({ monitors: monitors.list(context.owner) }),
+  });
+  registry.register({
+    name: "monitor.check", permission: "monitors.manage",
+    description: "Look at one watch right now instead of waiting for its next turn, and report what changed.",
+    parameters: z.object({ id: z.string().uuid() }).strict(),
+    execute: async ({ id }, context) => monitors.check(context.owner, id, new Date(), context.signal),
+  });
+  registry.register({
+    name: "monitor.remove", permission: "monitors.manage",
+    description: "Stop a watch and forget what it had seen.",
+    parameters: z.object({ id: z.string().uuid() }).strict(),
+    execute: async ({ id }, context) => monitors.remove(context.owner, id),
+  });
+}

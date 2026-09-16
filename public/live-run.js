@@ -1,0 +1,198 @@
+/**
+ * While your assistant is working, this is the row that tells you so — what step it has reached,
+ * how long it has been going, how much context it has used — and lets you step in: hold it, tell it
+ * something, or stop it. When it stops to ask whether it may go ahead, the question appears right
+ * here as a card with the four honest answers.
+ *
+ * Live steps arrive over the same WebSocket the rest of the app uses; if the socket cannot be
+ * opened it falls back to asking the activity route every second.
+ */
+import { t, formatNumber } from "/i18n.js";
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, text, className) => {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = String(text);
+  if (className) node.className = className;
+  return node;
+};
+const token = () => sessionStorage.getItem("branch-token") || "";
+async function api(path, body) {
+  const response = await fetch("/api/" + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: "Bearer " + token(), ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+let watching = null;
+
+function button(label, className, handler) {
+  const node = el("button", label, className);
+  node.type = "button";
+  node.addEventListener("click", handler);
+  return node;
+}
+/** The one row of controls: hold, tell it something, stop. */
+function controls(runId) {
+  const row = el("div", undefined, "live-controls");
+  /* Holding and letting go are both notes to a task that is still working: a run is only ever
+     "resumed" after it has stopped, so neither of these touches the resume route. */
+  const pause = button(t("live.pause"), "text-button", async () => {
+    const holding = pause.dataset.holding === "1";
+    try {
+      await api(`runs/${runId}/steer`, {
+        text: holding
+          ? "Carry on with what you were doing."
+          : "Hold here and wait for me before doing anything else.",
+      });
+      pause.dataset.holding = holding ? "0" : "1";
+      pause.textContent = holding ? t("live.pause") : t("live.resume");
+      status(holding ? t("live.resumed") : t("live.paused"));
+    } catch (error) { status(error.message); }
+  });
+  pause.id = "live-pause";
+  const steer = button(t("live.steer"), "text-button", () => {
+    const box = $("live-steer-box");
+    box.hidden = !box.hidden;
+    if (!box.hidden) $("live-steer-text").focus();
+  });
+  steer.id = "live-steer";
+  const stop = button(t("live.stop"), "text-button danger", async () => {
+    try { await api(`runs/${runId}/cancel`, {}); status(t("live.stopped")); }
+    catch (error) { status(error.message); }
+  });
+  stop.id = "live-stop";
+  row.append(pause, steer, stop);
+  return row;
+}
+const status = (message) => { $("live-status").textContent = message; };
+
+/** The question a paused task stopped on, answered without leaving the conversation. */
+function askCard(question) {
+  const card = el("div", undefined, "live-ask");
+  card.id = "live-ask";
+  card.append(el("strong", t("live.askTitle")), el("p", question.question));
+  const answers = [
+    [t("live.yesOnce"), "allow", "never"], [t("live.yesSession"), "allow", "session"],
+    [t("live.yesAlways"), "allow", "always"], [t("live.no"), "deny", "session"],
+  ];
+  for (const [label, decision, remember] of answers) {
+    if (remember === "always" && question.source !== "owner") continue;
+    card.append(button(label, decision === "deny" ? "danger" : "", async () => {
+      try {
+        await api("policy/approve", { sessionId: question.sessionId, decision, remember });
+        card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
+      } catch (error) { status(error.message); }
+    }));
+  }
+  return card;
+}
+/** Draws the live row from one activity item plus whatever the socket last reported. */
+function paint(item, since, tokens) {
+  const box = $("live-row");
+  const line = $("live-line");
+  line.replaceChildren(
+    el("strong", item?.current || t("live.working")),
+    el("span", [t("live.elapsed", { seconds: formatNumber(Math.round((Date.now() - since) / 1000)) }),
+      tokens ? t("live.tokens", { tokens: formatNumber(tokens) }) : ""].filter(Boolean).join(" · "), "meta"),
+  );
+  box.hidden = false;
+}
+
+/** The socket that reports every step of one task as it happens, once its id is known. */
+function follow(runId, since, seen) {
+  try {
+    const socket = new WebSocket(new URL(`/api/runs/${runId}/ws`, location.href).href.replace(/^http/, "ws"), ["bearer", token()]);
+    socket.addEventListener("message", (event) => {
+      const payload = JSON.parse(event.data);
+      const data = payload.data ?? {};
+      if (typeof data.inputTokens === "number") seen.tokens += data.inputTokens + (data.outputTokens ?? 0);
+      paint({ current: labelOf(payload.kind, data) }, since, seen.tokens);
+    });
+    return socket;
+  } catch { return null; }
+}
+/**
+ * Follows the task this conversation is running until it ends. The id only exists once the task has
+ * started, so the row appears first and attaches its socket and controls as soon as it knows which
+ * task it is looking at. A conversation with no id yet is matched on the message you sent.
+ */
+export function watchRun(sessionId, prompt) {
+  stopWatching();
+  const since = Date.now(), seen = { tokens: 0 };
+  let socket = null;
+  $("live-row").dataset.runId = "";
+  $("live-controls-slot").replaceChildren();
+  $("live-ask-slot").replaceChildren();
+  $("live-steer-box").hidden = true;
+  status("");
+  paint(null, since, 0);
+  const timer = setInterval(async () => {
+    try {
+      const running = await api("activity");
+      const mine = running.find((item) => (sessionId ? item.sessionId === sessionId : item.prompt === prompt)) ?? null;
+      if (mine) {
+        paint(mine, since, seen.tokens);
+        watching.sessionId = mine.sessionId;
+        if ($("live-row").dataset.runId !== mine.runId) {
+          $("live-row").dataset.runId = mine.runId;
+          $("live-controls-slot").replaceChildren(controls(mine.runId));
+          socket = follow(mine.runId, since, seen);
+        }
+      }
+      await showQuestion(watching?.sessionId ?? sessionId);
+    } catch { /* the next tick tries again */ }
+  }, 1000);
+  watching = { timer, sessionId, get socket() { return socket; } };
+}
+/** Puts the question a task stopped on into the conversation, if there is one waiting. */
+async function showQuestion(sessionId) {
+  const slot = $("live-ask-slot");
+  if (!sessionId || slot.firstChild) return false;
+  const waiting = (await api("policy")).waiting.filter((question) => question.sessionId === sessionId);
+  if (!waiting.length) return false;
+  slot.replaceChildren(askCard(waiting.at(-1)));
+  $("live-row").hidden = false;
+  return true;
+}
+/** Plain words for the event kinds the socket reports. */
+function labelOf(kind, data) {
+  if (kind === "tool.started") return `Using ${String(data.name ?? "a tool")}`;
+  if (kind === "tool.completed") return `Finished ${String(data.name ?? "a tool")}`;
+  if (kind === "model.started") return "Thinking";
+  if (kind === "policy.ask") return "Waiting for your answer";
+  return t("live.working");
+}
+/**
+ * Stops following. A question the task stopped on stays on the screen — the task ends the moment it
+ * asks, and taking the question away with it would leave you nothing to answer.
+ */
+export function stopWatching(session) {
+  if (!watching) return;
+  const sessionId = session ?? watching.sessionId;
+  clearInterval(watching.timer);
+  try { watching.socket?.close(); } catch { /* already gone */ }
+  watching = null;
+  $("live-controls-slot").replaceChildren();
+  $("live-steer-box").hidden = true;
+  $("live-line").replaceChildren();
+  $("live-row").hidden = !$("live-ask-slot").firstChild;
+  /* A task that stopped to ask ends the moment it asks, often before the next poll came round. */
+  void showQuestion(sessionId).catch(() => {});
+}
+$("live-steer-send").addEventListener("click", async () => {
+  const text = $("live-steer-text").value.trim();
+  const runId = $("live-row").dataset.runId || "";
+  if (!text || !runId) return;
+  try {
+    await api(`runs/${runId}/steer`, { text });
+    $("live-steer-text").value = "";
+    $("live-steer-box").hidden = true;
+    status(t("live.steered"));
+  } catch (error) { status(error.message); }
+});
+globalThis.branchLiveRun = { watch: watchRun, stop: stopWatching };

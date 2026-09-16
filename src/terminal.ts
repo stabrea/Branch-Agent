@@ -217,7 +217,8 @@ class TerminalConversation {
   }
 }
 
-function progressLine(event: Event): string | undefined {
+/** One plain line describing a stored event, or nothing for events not worth showing a person. */
+export function progressLine(event: Event): string | undefined {
   if (event.kind === "model.retry_scheduled") {
     const { attempt, maxRetries, delayMs } = event.data;
     if ([attempt, maxRetries, delayMs].every((value) => Number.isSafeInteger(value) && Number(value) >= 0))

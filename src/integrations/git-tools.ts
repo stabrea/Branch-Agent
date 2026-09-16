@@ -3,6 +3,8 @@ import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { GitTools } from "./git.js";
 import { repositoryName, repositoryPath, type GitHubAccess } from "./github.js";
+import { pullRequestTemplate } from "./issue-context.js";
+import { referenceToLink } from "./issue-tools.js";
 
 /**
  * The version-control tools, in three groups so the owner can allow them separately: reading
@@ -75,6 +77,25 @@ export function registerGitRemote(registry: ToolRegistry, git: GitTools): void {
   });
 }
 
+/**
+ * Opening a pull request. When the task names the issue it settles, the description is written
+ * from the shared template so the issue is linked and closes itself when the work is merged; the
+ * issue is read first, so its title goes in the description and a wrong reference is caught here
+ * rather than after the pull request exists.
+ */
+async function openPullRequest(
+  github: GitHubAccess,
+  input: { repo: string; title: string; body?: string | undefined; base: string; head: string; issue?: string | undefined; changes?: string[] | undefined },
+): Promise<unknown> {
+  const { issue: reference, changes, ...rest } = input;
+  if (!reference) return github.openPullRequest(rest);
+  const link = referenceToLink(reference);
+  if (link.tracker !== "github") throw new Error("A GitHub pull request can only close a GitHub issue; mention a Linear issue in the description instead");
+  const issue = await github.getIssue({ repo: link.repo, number: link.number });
+  const body = pullRequestTemplate({ issue, summary: input.body ?? input.title, ...(changes ? { changes } : {}) });
+  return github.openPullRequest({ ...rest, body });
+}
+
 /** GitHub; registered only when the owner has set it up with a saved token. */
 export function registerGitHub(registry: ToolRegistry, github: GitHubAccess): void {
   registry.register({
@@ -85,9 +106,15 @@ export function registerGitHub(registry: ToolRegistry, github: GitHubAccess): vo
   });
   registry.register({
     name: "github.open_pull_request", permission: "github.manage",
-    description: "Open a pull request on GitHub so someone can review one line of work before it joins the shared branch.",
-    parameters: z.object({ repo: repositoryPath, title, body: z.string().max(8000).optional(), base: branchName, head: branchName }).strict(),
-    execute: (input) => github.openPullRequest(input),
+    description: "Open a pull request on GitHub so someone can review one line of work before it joins the shared branch. Name the issue it settles and the description is written from a template that links it, so the issue closes when the work is merged.",
+    parameters: z.object({
+      repo: repositoryPath, title, body: z.string().max(8000).optional(), base: branchName, head: branchName,
+      /** The issue this settles: its web address, owner/name#12, or a Linear reference such as ENG-214. */
+      issue: z.string().trim().min(1).max(500).optional(),
+      /** One line per thing that changed, for the template's list. */
+      changes: z.array(z.string().max(300)).max(20).optional(),
+    }).strict(),
+    execute: (input) => openPullRequest(github, input),
   });
   registry.register({
     name: "github.list_issues", permission: "github.manage",

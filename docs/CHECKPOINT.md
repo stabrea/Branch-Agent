@@ -1,5 +1,21 @@
 # Branch Agent checkpoint — 2026-09-15 (late evening)
 
+## Batch 19 (wave 7) — traces you can export, and permission rules you can read
+
+`src/tracing.ts` holds the live tracer: a `spans` table beside the events (`SpanStore`, with `begin`/`finish`/`forRun`/`forTrace`/`recent`/`since`/`prune`), W3C ids (`newTraceId`, `newSpanId`, `formatTraceparent`, `parseTraceparent` — a malformed or all-zero header is ignored rather than trusted), and a `Tracer` that opens a task's own span and hangs a model round, a tool call or a sub-task off it. `Runtime` owns one: `execute()` opens the run span (adopting an inbound `traceparent`, or the parent run's trace for a delegated task, so a sub-task is a `child` span inside the same trace), the model round and the tool call each open one, and every attribute goes through `runtime.hideSecrets` — spans are written straight to their table rather than through `store.event`, so the scrubber is put in front of them explicitly in `createBranch`. `recordUncaughtErrors` watches with `uncaughtExceptionMonitor`, which observes without taking the failure over, so Node still exits as it would have; the stack is scrubbed and clipped to 300 characters. Unhandled promise rejections are **not** captured, because the only listener for them suppresses Node's own handling.
+
+`src/tracing-shapes.ts` turns one span model into the three bodies: OTLP (`spansToOtlp`, producing the `TraceDocument` type `src/trace.ts` already defines, so the file export and the network export are the same shape), `metricsToOtlp`, `spansToLangfuse` (a `trace-create` for the top span plus a `span-create` per span) and `spansToLangsmith` (runs with `parent_run_id`, span ids padded into UUIDs). `src/tracing-export.ts` (`TraceExporter`) batches, retries with a growing pause, checks the address rules before *every* try, and writes one audit row per send — successful or not. Header values may be `secret://project/NAME`; they are filled from the locker at the moment of the call, and a failure message keeps only the shape of the error, never the request. Export is off out of the box and turning it on without an address is refused. `Runtime.exportSpans` is a hook `createBranch` fills in, so a finished task sends its own spans on its own once sending is on (and `includeErrors` adds the recorded crashes) — the send goes through `track()`, whose refusal while the runtime is shutting down is swallowed, so nothing here can reach a task's result.
+
+`src/metrics.ts` counts from the database and renders Prometheus text: task counts by state, tokens, this month's estimated cost, tool calls and failures, compactions, spans, and a `branch_tool_duration_seconds` histogram built by pairing `tool.started` with its end event. **Queue depth is deliberately absent** — there is no single queue to count, and a made-up number would be worse than none. `GET /api/metrics` answers through `rawApi` (text, not JSON), behind the same local key.
+
+Permissions: `PolicyRuleSchema` gained an optional `resource` (`{kind: path|host|channel|command, pattern}`) — optional, with no default, so a rule saved before this still deep-equals its old shape. `evaluatePolicy` now evaluates resource-bearing rules first, keeping the owner's order inside each group, so an older rule list decides exactly as it did. `src/policy-resources.ts` holds the matching (a folder rule covers what is inside it, a website rule covers subdomains, a command rule matches the program being run) and `ruleSentence()`, which renders a rule as "Ask before writing files under finance". `globMatches` moved there and is re-exported from `policy.ts`, so every existing import still works. `resourceOf()` classifies by the **target**, not the arguments — a bare host name is a website, anything else is a path — because a tool that reports what it touches through its own `target()` (`media.image`, `media.speak`) has no top-level `path`, and matching on arguments would make a `{kind:"path"}` rule silently never fire for it: the same trap the wave-5 checkpoint recorded. Browser clicking/typing/uploading already carry a host target, so they pass through these rules without a second mechanism.
+
+`ApprovalGate` answers are now `SessionGrant`s with an expiry (an hour), listed by `grants(sessionId)` and ended wholesale by `forgetAll()` — which `SessionLock.onLock` calls, so locking Branch ends every standing yes. A grant is bound to `argumentFingerprint(call.arguments)` (sha-256 of the exact bytes), so a changed command is asked about again; `POST /api/policy/approve` takes an optional `fingerprint` and refuses an answer meant for a different request. The `policy.ask` event carries the question, the scrubbed bytes and the fingerprint, so the run socket delivers to a phone exactly what the app shows — the discriminating test is `files.write` on the *same* path with different contents, where the `(tool, target)` grant key is identical and only the fingerprint separates the two calls. `src/auth-limits.ts` counts wrong local keys per source: five in a row and that place waits five minutes, with a plain message and an `auth.refused` audit row of its own. The right key is checked **first** and clears the count, so a stale token in the owner's own browser (which polls `/api/state` every three seconds) can never lock them out of their own app.
+
+Routes live in `src/tracing-api.ts` (`/api/tracing/settings|spans|test`, `/api/rules`, `/api/rules/add|remove|test|allowed`), so `server.ts` gained three additive lines. UI is `public/tracing.js`: rule sentences with add/remove, a "Try a decision out" box, and a **Health** card appended to Usage. The diagnostics folder gained `spans.json` (scrubbed) and its README now says plainly that there is no telemetry and no opt-out to find, because nothing is collected.
+
+No new dependency: OTLP, Langfuse and LangSmith are plain JSON over HTTP. Tests: `tests/tracing-policy.test.mjs`.
+
 ## Batch 23 (wave 5) — pictures, sound and what a video says about itself
 
 `src/media-images.ts` holds the picture clients and the one refusal that matters: `providerImages(provider)` asks a connection whether it has a picture-making route, and a connection that does not gets a plain sentence (`noImageEndpoint`) instead of a stack trace. `OpenAIProvider.images()` and `GeminiProvider.images()` return `{kind, endpoint, apiKey, defaultModel}`; `AnthropicProvider.images()` returns null. The OpenAI shape is asked at `/images/generations` (JSON, `response_format: "b64_json"`) and `/images/edits` (multipart, the source picture and an optional mask as files); Gemini is asked at `/v1beta/models/<model>:generateContent` with `responseModalities: ["IMAGE"]` and the source picture riding along as `inlineData`. Addresses are joined the way `src/providers.ts` joins them (`endpoint.replace(/\/$/,"") + path`), so a provider address that carries a path still works, and every one goes through the shared `NetworkPolicy` first. A provider that answers with a link rather than the picture is refused rather than followed.
@@ -15,6 +31,10 @@ Settings and routes: `src/media-settings.ts` stores the picture model, the works
 UI: a new `public/media.js` adds a picture button and drag-and-drop to the message box. Pictures become removable chips and ride on the next `POST /api/run` as `images` (the existing field; `RunInputSchema` is unchanged); a dropped sound file is written out through `POST /api/voice/transcribe` and the words are put in the message box so the person can read them before sending. `public/app.js` gained five lines: four to pass the chips along and clear them, and one to switch the picture button off while a task is working, because a message sent then becomes a follow-up and a follow-up carries words only — a chip that could never travel would be worse than no chip. The Documents panel gained a "Made by the assistant" card and Settings a "Pictures and sound" card. `public/shell.css` and `public/shell.js` were not touched; the small amount of new CSS is appended to `public/style.css`. There is no open-in-folder, because no such bridge exists and desktop code is out of scope for this branch — the full path is shown with a copy button instead.
 
 Tests: `tests/media.test.mjs` (11) run `node:http` fakes and assert the generate request's route, body, size and `b64_json`; the edit request's multipart content-type and field names; Gemini's route and `responseModalities`; the refusal when the connection has no picture service; that describing sends a real image part and that a text-only model refuses before any file is read; that a WAV trim produces a valid RIFF file of exactly the right byte length and that an MP3 is turned down; that a synthetic MP4 built box by box reports six seconds, two tracks and the `isom` brand; that a picture posted to `/api/run` reaches the provider as an image part and that the gallery routes list and serve it while refusing anything outside the artifacts folder; that each media tool hands the approval rules a real target; that a headless page turns an attached picture into a removable chip the next message would carry; and that the settings route saves and validates. Items done: A1996, A2025, A2083, A2106, A2184, A2294, A2321, A2368, A0888, A1995, A1893, A1894, A2173.
+
+## Batch 23 (wave 5) — using this computer's screen and keyboard
+
+`src/integrations/desktop-config.ts` holds the settings (`desktop-control`: `enabled` false out of the box, `maxActionsPerRun` 40), every zod input shape, the refusal lists and the two small translators: `refusalFor()` matches a window's *resolved* title and program name against password managers and the Windows sign-in surfaces, `keyChord()` turns "ctrl+shift+f5" into SendKeys form from a closed list of keys and refuses anything else, and `secretReferenceIn()` refuses text that still holds a `{{placeholder}}` or an environment-variable reference. `src/integrations/desktop-script.ts` carries one Windows PowerShell script as a string; `DesktopScriptRunner` writes it once into a private `mkdtemp` folder, calls it with `-File` and a base64 payload argument (so nothing the model writes ever reaches a command line) through the existing `ShellProcess` runner, and reads back one line of JSON. The script loads `UIAutomationClient`, `System.Drawing` and `System.Windows.Forms` and adds a small `user32` P/Invoke class; window pictures use `PrintWindow` with a `CopyFromScreen` fallback, reading a window walks the UI Automation control view breadth-first, clicking prefers Invoke then Toggle then SelectionItem then ExpandCollapse and only then a real mouse click, and typing prefers `ValuePattern.SetValue` — verified working against Windows 11's Notepad — falling back to `SendKeys` only after checking the target really is the foreground window. `src/integrations/desktop-banner.ts` runs a second, long-lived PowerShell process showing an always-on-top 460×52 WinForms notice titled "Branch is using your screen" with a red **Stop** button; pressing Stop ends that process, and its exit is what Branch hears. `src/integrations/desktop.ts` (`DesktopControl`) is the gate: it re-reads the switch before every action, keeps a per-run action count cleared through `registry.onRunFinished`, raises the notice, combines `context.signal` with its own controller so both `POST /api/runs/:id/cancel` and Stop cut the child process off, resolves a window by title (refusing an ambiguous match and any restricted one), retries once when a program rebuilds its window mid-action, refuses a whole-screen picture while a password window is showing, writes a `desktop.action` event naming the window for every action, and keeps screenshots as ordinary run artifacts so the runtime shows them to models that accept pictures. `src/integrations/desktop-tools.ts` registers eight tools under `desktop.view`, `desktop.control` and `desktop.clipboard` — none added to `readOnlyPermissions`, so "Ask before changes" asks about every one of them with no change to `policy.ts`. Tools are registered whether or not the switch is on, so the assistant is told why rather than silently losing them. Routes `GET`/`POST /api/desktop/settings`; `public/desktop.js` and a Settings card drive them. No new dependency. Tests: `tests/screen-control.test.mjs` (9) — the switch is off by default and all eight tools refuse with the same sentence; switching it off part way through a task stops the next action too, proving the setting is re-read rather than cached; "Ask before changes" stops a real run for a `desktop.view` tool and again for a `desktop.control` one, each with a `policy.ask` event naming the tool and no screen contact; a Notepad window the test opened itself is listed, read (its `Document` control found by name), typed into through UI Automation and read back, photographed as a real PNG artifact and closed; the notice is listed and photographed, and Stop makes every later action refuse; the per-run cap bites on the third action; a window the test created wearing the name "Bitwarden" is refused for pictures, typing and clicking, and refuses the whole-screen picture with it; a headless-browser check that the Settings card opens unticked and that ticking it is what writes the setting; the refusal lists, key names and placeholder checks are unit-tested. Every window the tests touch is one they opened, and each is closed in `t.after`. Items done: A0230, A1450, A2043, A2311, and A1465/A2278 for the permission switch. Named deviation: the file is `tests/screen-control.test.mjs`, not `desktop-automation`, because `tests/desktop*.test.mjs` is the Electron suite that must not run.
 
 ## Batch 19 (wave 2) — version control and GitHub
 
@@ -389,6 +409,10 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Released 0.12.0 (2026-09-16)
+
+Secrets vault and session lock, models on this computer, pictures and sound, shareable skills and plugins, A2A/ACP interop, evaluation suites with history. Published from `release/0.12.0` (PR #98); the in-app update from 0.11.0 was rehearsed on a staged copy with no console window and the previous copy kept.
+
 ## Batch 23 (wave 4) — talking to assistants other people built
 
 Branch could be used by other AI tools over MCP; now it can also be one agent among several.
@@ -454,6 +478,96 @@ task prompts against skills the owner has switched off and registry listings the
 this computer, with no model call. CLI: `branch skill pack|install` and
 `branch plugin list|enable|disable`. UI: `public/skills-extra.js` adds the sharing, updates,
 suggestions and plugins cards to the Skills screen. Tests: `tests/skills-plugins.test.mjs`.
+## Batch 23 (wave 5) — figures, looking things up properly, watches and the morning brief
+
+Four things a person actually asks an assistant for, all built on what was already here. **Tables**
+(`src/data-table.ts`, `src/data-chart.ts`, `src/data-tools.ts`): `data.load` opens a comma, tab,
+JSON or spreadsheet file — from the workspace, an address under the network policy, or pasted text —
+into a bounded in-memory table (5000 rows, 64 columns, 500 characters a cell) that lives only for
+that task and is dropped through `registry.onRunFinished`. `data.describe` gives per-column counts
+and spreads, `data.query` runs one read-only `SELECT`/`WITH` against a private `node:sqlite`
+in-memory copy, and both hand back a `markdown` field the message column already renders. `data.chart`
+writes a bar, line or pie as SVG through `RunArtifacts`, and `data.export` writes `.csv` or `.xlsx`
+using Node's own `zlib` — the spreadsheet it writes is read back by the existing `xlsxText`, which is
+what the round-trip test asserts. **Research** (`src/research.ts`, `src/research-claims.ts`):
+`research.run` plans sub-questions, searches, reads up to twelve pages, keeps the sentences that speak
+to the question with their address and title, and from `standard` upwards groups sentences from
+different pages by their shared words — two sources stating the same figures become an agreement, a
+third stating different figures becomes a reported disagreement rather than a silent choice. The
+report goes to `research/<slug>.md` with a numbered Sources list; state is saved after every page, so
+a run that hits its budget stops cleanly, writes the partial report and says why, and asking the same
+question again carries on. **Watches** (`src/monitors.ts`): `monitor.create` snapshots a page or a
+search, later checks diff the lines and describe the change in plain words, and the news goes to a
+channel chat or into the conversation list; they run on a new additive `Scheduler.onTick` hook, and one
+that fails is retried in an hour without stopping the rest. **Morning brief** (`src/brief.ts`):
+schedules due, unfinished tasks, new documents, watches that changed and reminders, assembled through
+the existing recipe `substitute()` into an editable template and sent at a chosen local time.
+**Citations** (`src/citations.ts`) are shared: research reports and the passages the runtime puts in
+front of a task from the document library now carry the same `[1]` numbering and Sources list.
+Three silent-failure paths were closed on the way: a watch sends its news *before* it keeps the new
+copy, so a delivery that fails leaves the change to be noticed again instead of losing it; a brief
+template is checked against the names it can actually fill in when it is saved, because otherwise one
+typo would throw on every scheduler beat where nobody could see it; and reports and exports go through
+the same write observer the ordinary file tools use, so both keep their previous bytes and have an
+Undo. The spreadsheet writer is verified against this app's own reader only — opening one in Excel is
+untested. New routes: `GET /api/research`, `GET|POST /api/monitors`, `POST /api/monitors/{id}/check`,
+`DELETE /api/monitors/{id}`, `GET|POST /api/brief`, `POST /api/brief/send`. Tests:
+`tests/data-research.test.mjs`. One shared change was unavoidable: with fourteen more tools the tool
+catalog is about 9.5k estimated tokens, so the old `compactionThreshold` of 11000 left barely 1.5k for
+the conversation and a compacted context could never get back under it — it was raised to 14000 and
+exported, and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a
+literal. (Batch 24 removed the need for that: the catalog no longer counts towards the figure at all,
+so `compactionThreshold` went back to meaning the 11000 floor and the live figure is derived each
+round. The test was left alone because it still asserts against the exported name.)
+Not done: no Firecrawl or Scrapling integration (A0742, A0743) — both need dependencies. Covers A0931
+and the research-pipeline and data families listed for those themes.
+
+## Batch 19 (wave 6) — the client library, issue context, and the record of what it was allowed to do
+
+Eight smaller pieces that had no home in the other themes. **A TypeScript client**
+(`packages/sdk/`, no publish step, no dependency): one file of plain JavaScript covering runs
+(start, stream over SSE, watch over a socket, steer, cancel, resume, approve), sessions, memory,
+documents, schedules, policy and the new routes below. Its types are not written by hand —
+`scripts/generate-sdk-types.mjs` reads the app's own zod schemas out of `dist/`, turns each into
+JSON Schema and emits `packages/sdk/types.d.ts`, so what the types promise cannot drift from what
+the app accepts. `packages/sdk/test/sdk.test.mjs` proves every call against a real `startServer`.
+**Issue-tracker context** (`src/integrations/issue-context.ts`, `linear.ts`, `issue-tools.ts`):
+`issues.search/get/comment` over GitHub REST and Linear GraphQL behind one interface, each with its
+own token in the locker and scrubbed out of every reply; pasting an issue address pulls the title,
+body and comments into the task as a document-style passage with a citation and a line saying it is
+other people's words; `github.open_pull_request` gained `issue` and `changes`, which build the
+description from a template that closes the issue. **The record** (`src/audit.ts`): an append-only
+`audit` table — two SQLite triggers refuse any UPDATE or DELETE — written for approvals, secrets
+handed to a command (by name, never by value), policy changes, channel pairing, exports and project
+switches; `GET /api/audit` with filters, `/api/audit/export.csv`, `allowed.json` in the diagnostics
+folder, and a plain-language section at the foot of Usage. **Approval kinds**
+(`src/tool-categories.ts`): tools sorted into seven kinds from their permission with a small
+override map, so one choice covers a kind rather than a tool; saving expands to one rule per tool
+and merges — only the kinds named in the request are rewritten, so a kind decided earlier, a
+hand-edited rule and a standing yes from an answered approval all survive, and the rule cap rose
+from 100 to 300 because one kind can be dozens of tools.
+**Ask me questions first** (`src/ask-first.ts`): up to five short questions with suggested answers
+before a task starts, skipped for short plain requests by the same `looksMultiPart` judgement
+auto-plan uses; the answers are written underneath the request. **The practice workspace**
+(`src/practice-workspace.ts`): a project whose folder holds four made-up files and a demo
+conversation, one click each way, with the files left behind when you leave. **Retrieval and
+reordering** (`src/retrieval.ts`): documents and saved facts behind one `Retriever` interface, with
+a second pass that is a deterministic word count by default and one model request (top 20 → top 5)
+when the owner turns it on; `DocumentLibrary.contextFor` uses it. **Provider plugins**
+(`src/provider-plugins.ts`): `plugin.provider.<id>` adapters a plugin can bring, handed the network
+check to call rather than trusted to make their own requests, and taken back out with their model
+presets when the plugin is switched off. Routes live in `src/misc-api.ts` so `src/server.ts` gained
+one dispatch line. Tests: `tests/sdk-misc.test.mjs`, `packages/sdk/test/sdk.test.mjs`. No new
+dependency. Covers A0308, A0174, A0395, A0591, A0434, A0370, A0326, A0817, A0995, A0575 and A0300.
+Joined up while merging: `BranchPlugin` now carries `providers?: BranchPluginProvider[]`, and
+`Plugins.enable`/`disable` hand them to `ProviderPlugins.register`/`forget`, so switching a plugin
+on in the app brings its model connections and switching it off takes them away. Also while
+merging: an issue's words go through the same check a web page does (`detectInjection` and the
+owner's warn/redact/block setting) before the assistant sees them; the fetch a plugin's provider is
+handed checks the address against the network settings itself, so a plugin that forgets to ask is
+still held to them; and a spreadsheet cell that would start with `=`, `+`, `-` or `@` is kept as
+plain text. `npm test` now also runs `packages/sdk/test`.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
@@ -676,6 +790,38 @@ A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deli
 retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`
 when approval is off, `forget`, and the delete-then-restore inside `restoreCheckpoint`) still remove
 without a suggestion — R1 holds for the paths added here, not for those.
+## Batch 23 (wave 5) — installing, background running, reaching Branch from a phone
+`src/install/*` and `src/remote/*` make Branch something a non-technical owner can install, keep
+running and reach from a phone, all without a code-signing certificate. **Installer:** the release
+ships `Install Branch Agent.cmd` (generated by `bootstrapperScript()` and written by
+`scripts/package-desktop.mjs`) beside the zip. It unpacks with the Windows `tar.exe` and then runs
+`dist/install/install-cli.js` from inside the unpacked app through `ELECTRON_RUN_AS_NODE`, so the
+real work is ordinary tested TypeScript, not script text: copy to `%LOCALAPPDATA%\Programs\Branch
+Agent`, keep `.previous`, `WScript.Shell` shortcuts, an HKCU Uninstall key with a quiet uninstall
+script, and a one-time copy of saved work from older folder layouts. `portable.txt` beside the exe
+moves state and workspace next to the program. **Background:** `branch daemon install|uninstall|
+status` registers a `/SC ONLOGON /RL LIMITED` task that runs the engine through `wscript.exe` with
+window style 0 (reusing `hiddenRunner`, extracted from `hand-over.ts` without changing its
+behaviour); `running.json` plus the session-token file let a later window join the running engine
+instead of starting a second one. A HKCU Run value handles "start with Windows" and
+`--start-minimized` opens straight to the tray. **Phone:** off by default; `RemoteAccess` opens a
+*second* listener bound only to the Tailscale address (`100.64.0.0/10` enforced, never `0.0.0.0`),
+and one shared `hostAllowed()` now backs all three Host/Origin checks in `server.ts`. A pure-JS QR
+encoder (`src/remote/qr.ts`, byte mode, level L, versions 1-10) draws the link; the six-digit code is
+shown separately and typed on the phone, and `POST /api/pair` — the only token-exempt route, and
+only on the remote listener — is one-use, five minutes, five attempts. **Updates:** `Updater` gained
+an optional `backup` hook (signature unchanged) that writes a full archive to `update-backups/` and
+keeps three; a failed copy stops the update. `first-start.json` records whether a new version came
+up healthy, and the settings card offers putting the previous version's work back through
+`store.restore(archive, { replaceExisting: true })` — the plain `POST /api/restore` still refuses to
+overwrite. **Setup:** `branch doctor --fix` (and a button) checks Git, the Playwright browser, a free
+port and a writable workspace, installing the browser itself. Tests: `tests/deployment.test.mjs`,
+17 cases, no Electron — a real dry-run install into a temp folder with real `.lnk` files and a
+throw-away `HKCU\Software\BranchAgentTest\<uuid>` hive, fake-exec argv assertions for the Run key
+and the scheduled task (nothing real is ever registered), a Reed-Solomon check that every codeword
+vanishes at the first 20 generator powers, and a fake-updater proof that the safety copy happens
+before the hand-over script is written.
+
 ## Batch 22 (wave 3) — plans, several specialists at once, steering, reviewers and shared notes
 `src/orchestration.ts` and `src/orchestration-tools.ts` add six things to how a task is run, each
 behind a flag that is off by default, so an unchanged install behaves exactly as before.
@@ -840,6 +986,296 @@ the scrubber rather than skill scanning), A2119, A0836, A1856, A1897, A0875, A08
 A2131/A2160 partly (a resource sandbox, not a container) and A2277. Left alone deliberately:
 external vault backends (A1519, A1841), multi-user accounts (A1652, A1896, A2002, A2216), WebAuthn
 (A2074) and Docker isolation (A2152) — none of them fit a single-owner local desktop app.
+
+## Batch 23 (wave 4) — a terminal worth using, and a command line scripts can rely on
+
+`branch chat` now opens a real terminal view built from Node's own readline and escape sequences
+(`src/terminal-tui.ts`, `src/terminal-input.ts`, `src/terminal-style.ts`, `src/terminal-commands.ts`):
+a status line that stays above the line being typed (model, tokens and money this conversation has
+used, which approval preset is in force), answers wrapped to the window as they stream, one short
+row per step with Ctrl+E to expand them, Enter to send and Alt+Enter to add a line, the up arrow to
+bring a message back, Ctrl+C to stop the task without closing the terminal and Ctrl+D to leave. The
+slash commands are `/help`, `/model`, `/think`, `/preset`, `/memory`, `/skills`, `/plan`, `/verify`,
+`/dry-run`, `/attach`, `/history`, `/export`, `/new` and `/exit`. When a task pauses for a yes the
+question is shown with the tool and the exact target and takes y / n / a / s, answered through
+`Runtime.approve` — the same route the settings screen uses — after which the task carries on in the
+same conversation. `src/terminal.ts` is untouched apart from exporting `progressLine`, and stays the
+fallback: the full view is entered only when stdout is a terminal (or `FORCE_TTY=1`) and `--plain`
+was not passed. One capability switch (`resolveStyle`) governs colour, cursor movement, the window
+title and the Windows Terminal progress indicator, so `NO_COLOR` or `TERM=dumb` produces output with
+no escape sequence in it at all.
+
+The command line grew the parts a script needs (`src/cli-run.ts`, `src/cli-completion.ts`):
+`branch run` takes `--json` (JSON Lines on stdout, human wording on stderr), `--attach`, `--plan`,
+`--verify`, `--dry-run`, `--preset`, `--save-preset`, `--budget` and `--timeout`, and exits 0
+finished / 2 stopped to ask / 3 failed / 4 out of budget; `branch status` shows the running tasks,
+the questions waiting and the health summary; `branch logs <id>` prints the timeline; `branch
+approve <id> yes|no` answers a paused task by writing the answer into the approval policy as a
+standing rule, because the program run that stopped has already ended — the `ApprovalGate` lives in
+memory, so there is no one-time answer to give from another process, and the command says in as many
+words that it saved a rule that applies to future tasks too; `branch completion bash|powershell`
+prints a completion script and needs no database, so it short-circuits before the workspace is
+opened. `--preset` holds only for that one task and puts the owner's saved setting back afterwards
+(`--save-preset` is the one that keeps the change, and says so): a flag in a script should not
+quietly rewrite a setting the owner chose. One list, `cliCommands`, now drives the command check,
+`branch help` and both completion scripts, so a command added anywhere shows up in all three. `tests/cli-tui.test.mjs` drives the whole view
+through a child process with `FORCE_TTY=1` and asserts on ANSI-stripped output.
+
+Deliberately left alone: multi-client attach to a running server, a setup wizard, and per-project
+custom slash commands — all named in this theme but each is its own piece of work. Covers A0007,
+A0136, A0205, A0249, A0620 and A1211 outright, plus two with a named gap: A0012 is the `--json`
+event stream, not its "only the final answer on stdout by default" half (`branch run` without
+`--json` still prints the existing `{run, usage, events}` report, which other branches merge
+alongside), and A0183 is the subcommands and the terminal view without the setup wizard. The rest
+of the theme's 23 entries are other projects' CLIs and are not ours to tick.
+
+## Batch 23 (wave 6) — sharing, durable workflows, a waiting line, days off and household profiles
+Six additions, each in its own file, wired in through one block per shared file.
+**Sharing (`src/conversation-share.ts`).** `shareHtml` writes one conversation as a whole page with
+its colours written in and no `<script>` anywhere, so it can be opened but can do nothing. Before it
+is written, every pattern `skill-scan.ts` already recognises as a secret is blanked out (that array
+is now exported rather than copied), optionally with email addresses and phone-like numbers, and the
+caller gets a receipt counting what went out and what was held back. `ShareLinks` keeps the finished
+page in `conversation_shares` with a scrypt-free sha256 of a six-character code plus a salt; opening
+`/share/<id>?code=…` checks the code with `timingSafeEqual`, refuses a second use and an expiry, and
+answers under `default-src 'none'`. That route sits before `authorize()` beside `/hooks/` because it
+carries its own code, and it is loopback-only: the server still binds 127.0.0.1 and still rejects a
+foreign `Host`, so there is no public hosting and the docs say so. The audit's "URL-based sharing"
+is therefore met as far as this app honestly can meet it on one computer.
+**Labels and notes (`src/labels.ts`).** A real `labels` table (owner, target, target id, label) and
+`project_notes`, both added to `backupTables`. `SessionSearchSchema` gained `labels: []` and
+`SessionLibrary.search` an `IN (...) GROUP BY … HAVING COUNT(DISTINCT label)=?` clause, so a filter
+means *every* label, not any. Labels fold to lower case inside the class rather than through a zod
+`.transform`: a transform in a registered tool's schema makes `z.toJSONSchema` throw, which took
+`/api/state` down with "Transforms cannot be represented in JSON Schema" until it was found.
+**Workflows (`src/workflows.ts`).** `workflows` is a new record table; per-step state lives in
+`workflow_state` (status, attempts, output, run id, times). The runner walks the steps, retries a
+working step up to `retries` times, halts on `approval` and on a `wait` whose time has not come, and
+lets `branch` jump `skipAhead` steps when the previous output does not contain given words. Prompt
+steps go through the existing `runtime.run`; recipe steps through `knowledge.replayProcedure`.
+Restart safety is the Store's job: `interruptWorkflows()` marks a workflow and its steps that were
+`running` as interrupted, and a workflow waiting on an approval is untouched by recovery, so closing
+and reopening the app leaves it exactly where it was — proven by a test that closes the app and
+builds a second one on the same data folder. `pause` remembers what it interrupted so carrying on
+from a pause still counts as the approval.
+**The waiting line (`src/run-queue.ts`).** A `run_queue` table ordered by `source` priority (owner 0,
+schedule and trigger 5, mcp 7) then arrival, with a settable `atOnce` (default three), a position,
+cancel for both waiting and working entries, and one task per conversation at a time. It is a new
+route (`POST /api/queue`), not a change to `/api/run`: the existing `executions >= 8 → 429` guard
+that `core-regressions` asserts is untouched.
+**Days off (`src/calendar.ts`, `data/holidays.json`).** Four countries ship as plain JSON; a copy is
+seeded into the data folder on first use and preferred over the bundled one, so the owner can
+correct it. `dayOffDecision` is a pure function the tests hit directly; the scheduler consults it
+before claiming a due schedule, so nothing runs on a held-back day. Quiet hours reuse the delivery
+ledger's own `nextAt` gate through a new `holdUntil` hook, so a night-time message simply waits.
+**Profiles (`src/profiles.ts`).** `household_profiles` holds a name and a scrypt hash of a PIN.
+`runtime.owner` is readonly and was left alone; instead the profile supplies a *scope* string
+(`profile:<id>`) that the session, memory and label routes read under, `projectsApi` and
+`secretsApi` call `requireOwner()`, and `runForCurrentPerson` lends the conversation to the
+assistant for the length of a task and hands it straight back, so their conversations stay theirs.
+What this is not is written plainly in both the docs and the UI copy: one computer, no syncing, the
+assistant still runs with the owner's settings, and facts it saves by itself during a task are still
+the owner's.
+Left undone on purpose: filtering the rail's conversation list and Ctrl+K by label needs
+`public/shell.js`, which wave 6's interface branch owns, so the label controls live in this batch's
+own panel and the `labels` filter is on the search route ready for it. Profiles are out of
+`backupTables` on purpose — a PIN hash belongs to one computer, and `RowSchema` takes no BLOBs — so
+a restore brings a profile's records back without the person; the docs say to add them again.
+`tests/collab-workflows.test.mjs` (21 tests) covers all of it; `automation`, `session-library`,
+`channels`, `server`, `projects-locker`, `static-assets`, `ui`, `core-regressions`, `memory`,
+`triggers-webhooks` and `runtime` still pass (88 in all). No new dependency.
+Covers A1901, A1999, A2226, A0862, A0632, A2073 and A0697.
+## Batch 23 (wave 6) — the web app grows up
+
+The browser interface got the parts it was missing. `public/markdown.js` is a dependency-free
+renderer that builds DOM nodes and never HTML strings, so a reply, a saved note or a document can
+carry `<script>` and it arrives as characters on the page; headings, lists, tables, quotes, links
+(opened outside the app through the desktop allowlist), inline code and fenced blocks with a copy
+button and the language written out all render, and `tests/fixtures/markdown-sample.md` is the
+fixture the test reads structure out of. `public/inspector.js` is "Look inside": one panel per task
+showing every model round with its duration, prompt size, tokens and cost, every tool call with
+what it was given and what came back (both clipped) and its receipt outcome beside it, the plan,
+the reviewer's verdicts, anything the owner steered mid-task and the questions it stopped on, with
+the whole thing saved as JSON. The round figures come from the payload the runtime really writes
+(`estimatedInput`/`estimatedOutput` and `reported` on `model.completed`), and each row says whether
+the provider counted them or we did; per-round cost goes through the same price table as the Usage
+screen. The raw arguments of a call are not on the events at all — only the plain-language label is
+— so they are read back from the assistant message that asked for the call, by call id, falling
+back to the label when that message has been compacted away. It is
+fed by one new route, `GET /api/runs/:id/inspect` (src/inspect.ts), which folds the timeline,
+receipts, usage and cost into a single answer. `public/live-run.js` puts a row in the message column
+while a task works — the step it has reached, how long it has been going, tokens so far, live over
+the run's existing WebSocket — with "Ask it to wait", "Tell it something" and Stop. Waiting
+and carrying on are both notes to a task that is still working (`POST /api/runs/:id/steer`); the
+resume route refuses anything but an interrupted run, so neither control touches it;
+a question the task stops on appears there as a card with Yes once / Yes for this conversation /
+Always / No, wired to `POST /api/policy/approve`. Because a task ends the moment it asks, the card
+is fetched once more as the row shuts down, or it would never be seen. `public/token-meter.js` is
+the quiet bar under the composer: context used against the model's window and the cost so far, with
+the numbers in a popover; a model with no price on file is said so in words. `public/playground.js`
+is Settings → Developer → Try things out: a form generated from each tool's own JSON schema
+(`GET /api/tools/forms`) and `POST /api/tools/try`, which evaluates the same approval policy the
+runtime uses and refuses or asks before it runs anything — it does not bypass the gate. The app is
+installable: `manifest.webmanifest`, generated 192/512 icons, and `service-worker.js` that keeps the
+shell files and never caches `/api/`, so a dropped connection shows a plain banner rather than a
+browser error; registration is skipped under `?desktop=1` and inside Electron, and the CSP grew
+`worker-src 'self'; manifest-src 'self'`. Finally `public/i18n.js` moves the labels behind `t(key)`
+with `public/locales/en.json` as the source of truth and a machine-drafted `fr.json` beside it,
+marked as a draft; markup carries `data-t` / `data-t-label` / `data-t-placeholder`, the language is
+chosen in Appearance, dates and numbers go through `Intl`, and a key with no translation falls back
+to English rather than leaving a blank. `tests/web-ui.test.mjs` covers all of it; the static-assets
+test now also follows absolute imports, the locale files and the list inside the service worker.
+Covers A0482, A0447, A0285, A0295, A1302, A0057, A0731, A1904, A0437 and A0483. Not done: the whole markdown renderer runs on replies, while a
+saved memory fact and a document search passage — one line each, and the passage carries the
+search's own highlights — get the inline formatting only (bold, italic, inline code, links); the
+"two models side by side" pane reuses the evaluation route and degrades to a plain message where
+that route is not configured, and localisation covers the shell chrome and the wave 6 screens
+rather than every string in every older section screen.
+
+## Batch 24 (wave 6) — a tool catalog that stops growing, and explicit context accounting
+The catalog was the one part of the prompt charged on **every** round that grew with the product:
+on this tree 81 tools cost 47,480 characters (about 11,870 estimated tokens) of a 20,000-token
+limit, which is why two builders had already raised the compaction threshold. `src/catalog.ts` fixes that three
+ways and nothing else in the loop changed shape. **Schema diet**: `ToolRegistry.descriptions()` now
+runs every generated schema through `slimSchema` — out go `$schema`, `title`, `additionalProperties`
+that is `false` or `{}`, string and array length bounds, machine-generated `pattern`s (any longer
+than 40 characters, or any sitting next to a `format` that already says the same thing), bare
+`propertyNames`, and required entries for properties that carry a `default`; descriptions are capped
+at 200 characters. Enum values, required lists, `format`, `default`, types and property names all
+stay, and the walk is keyword-aware so a tool with a property actually named `pattern` or
+`maxLength` is not mangled. 47,480 → 30,180 characters, **36.4 % smaller** at the same 81 tools.
+`descriptions(perms, { diet: false })` returns the old shape, and the two places that are not the
+model loop use it: the MCP server, because another program's client validates against what it is
+advertised, and `/api/state`, because the app's tool list is for a person to read. **Groups and lazy
+expansion**: every tool has a `group` (its own, or inferred from its name prefix), and a run is
+shown the always-open boxes (`core`, `files`), whatever a cheap lexical scorer guesses from the
+prompt, project and recent messages (`rankGroups`, two or three boxes, no model call), and one line
+per closed box. `tools.expand {groups}` opens a box for the rest of the conversation; it is handled
+in `Runtime.callTool` before the registry, touches nothing, and can only ever reveal tools the run's
+permissions already allowed, because the catalog is built from `descriptions(context.permissions)`.
+A tool used in the last three rounds stays in view after its box closes. Tools whose names the
+product does not recognise land in `other` and stay open while there are twelve or fewer of them —
+nothing in a request's words can point at a box with no meaning. Watches (`monitor.*`) and the
+morning brief (`brief.*`) were the one family the prefixes did not know, so they were landing in
+`other` and staying open — filling seven of the twelve slots that keep an owner's plugin and MCP
+tools visible without an extra round, and six more of those would have closed the box on all of
+them. They are filed under `schedules`, where they belong. Typical first round
+on this tree: 17 to 24 tools, 5,200–7,800 characters (1,300–2,000 estimated tokens, 83–89 % smaller);
+everything closed: 861 characters, 216 estimated tokens (**98.2 % smaller**). **Context accounting**:
+one `ContextBudget` per round (`limit`, `system`, `catalog`, `messages`, `reserve`, `threshold`,
+`headroom`) emitted as `context.budget`, with `catalog.size` and `catalog.preselected` /
+`catalog.expanded` alongside. Compaction now compares the **conversation alone** against a threshold
+derived as `limit − catalog − reserve`, floored at the old constant, so a bigger catalog can no
+longer fold a conversation away early — only a catalog large enough to break the whole request
+still forces a last-resort fold instead of failing the task; `compactionThresholdFloor` (11,000) and
+`derivedCompactionThreshold()` are both exported, and `compactionThreshold` — the name wave 5 had
+raised to a fixed 14,000 — is now re-exported as that floor, because it is no longer a constant
+anything should read as the live figure. **Provider caching**: the Anthropic body is
+written tools → system → messages, Claude's own cache-prefix order, with one `cache_control` marker
+at the end of the catalog and one on the instructions, and `cache_read_input_tokens` is carried
+through `Usage.cachedInput` into the `model.completed` event; the OpenAI body puts tools before
+messages for automatic prefix caching and reads `prompt_tokens_details.cached_tokens`.
+`tests/catalog-diet.test.mjs` covers all of it, including 150 dummy tools over a 20-round
+conversation that neither exceeds the limit nor thrashes compaction. Two existing literals changed:
+`tests/providers.test.mjs` now expects `system` as a marked text block instead of a bare string, and
+nothing in `tests/compaction-attention.test.mjs` needed touching — it imports `compactionThreshold`,
+which now means the 11,000 floor, and the conversation share alone is well past that when it
+compacts. Covers the
+context-management theme (#82) and the reliability inventory item (#16).
+## Batch 24 (wave 7) — knowledge bases that actually retrieve
+
+Documents could already be searched by their words and, with an OpenAI-shaped key, by meaning. What
+was missing was everything above that: whole folders as a named thing, passages that remember where
+they came from, a ranking that does not depend on which SQLite you happen to have, and a reader that
+works for more than one provider shape. `src/embeddings.ts` puts one `Embeddings` interface over
+three shapes — OpenAI-compatible `/embeddings`, Gemini `batchEmbedContents`, and Ollama's own route
+for a model on this computer — chosen from the owner's existing model plan, with the provider retry
+policy behind it, a cost charged to the asking task through the usage ledger, and a plain refusal
+when nothing connected can read passages. Every reading is kept in `embedding_cache` under
+sha256(passage + model), so re-reading a library is free and a knowledge base and a saved fact that
+say the same words are read once between them. `src/vector-store.ts` defines `VectorBackend` and
+ships one implementation: a `vectors` table with cosine worked out in TypeScript, comfortable to
+about 50k passages in a collection; the HTTP adapter contract for a real vector database is written
+in docs/configuration.md and deliberately not in code. `src/chunking.ts` cuts Markdown at its
+headings and everything else into overlapping paragraph windows, with deterministic passage names and
+per-passage title, heading path and page. `src/bm25.ts` is a pure-TypeScript BM25 that ranks the
+candidates FTS5 narrows down — and ranks them the same way on a build with no FTS5 at all.
+`src/knowledge-bases.ts` and `src/knowledge-tools.ts` are the collections themselves: create, add,
+remove, reindex with progress events, and a hybrid search that fuses the word order and the meaning
+order with reciprocal rank fusion and then hands them to the wave-6 reranker, every result carrying
+its file, heading and page. `knowledge.ask` has the model read the best passages and answer with
+numbered sources. A collection ticked "use this when answering" goes in front of the task ahead of
+the document library, and a `KnowledgeRetriever` joins documents and saved facts behind the wave-6
+`Retriever` interface. For memory, `src/memory-consolidate.ts` adds the nightly pass on the existing
+scheduler beat: newly written facts get their comparison by meaning (through the same cache), and
+near-duplicates are written into the review queue as suggested merges — it never deletes anything.
+The Knowledge card lives at the foot of the existing Documents section in `public/knowledge.js`.
+
+The listing tool is `knowledge.collections`, not the brief's `knowledge.list`, because
+`knowledge.list` was already taken by the stored recipes and specialists. No dependency was added.
+
+Changed while integrating. Background reading used to leave no trace of what it cost, so
+`kb_collections` gained an `index_tokens` column that adds up every reading and the card says how
+much has been sent; a new `knowledge` settings record holds `maxIndexTokens` (400,000, zero for no
+limit) and `compareAtMost` (50,000). A reading that would go past the token limit is refused in one
+sentence on the card and word search carries on — only passages that were never read count towards
+it, worked out without touching the network by `CachedEmbeddings.missing`, so re-reading costs
+nothing and is never refused. `VectorBackend.search` gained a `scanAtMost` argument so the cosine
+loop's ceiling is the owner's setting rather than a constant. `/api/knowledge` answers now go through
+`hideSecrets` like every other route that can quote a person's files. `kb_collections` joined the
+backup tables, while `kb_chunks`, `vectors` and `embedding_cache` are documented as rebuilt by
+pressing "Read it again". The two deletions that dropped a collection's vectors were awaited rather
+than left floating. Four tests were added: a `.env`, `credentials.json`, `id_rsa` and `.pem` in an
+indexed folder reach neither the passage table nor the provider; the token limit refuses and then
+allows a re-read; the second nightly pass makes no network call at all; and a backup carries the
+knowledge bases but not their passages.
+
+## Batch 25 (wave 7) — a voice you can talk to, and models you can switch on the fly
+Voice stopped being one provider's feature. `src/voice-stt.ts` is one `Transcription` service with
+three adapters — the Whisper-shaped `/audio/transcriptions` every OpenAI-compatible service speaks,
+Gemini's inline-audio `generateContent`, and a whisper.cpp or faster-whisper program the owner has
+already installed (detected by path, never downloaded, argv built by a pure exported function).
+`src/voice-tts.ts` is the matching `Speech` service: `/audio/speech`, Gemini's speech route, and the
+voices that ship with Windows through a hidden PowerShell child (`sapiScript()` is pure and asserted
+in the tests, quotes doubled, run with `-File` and never `-Command`, so nothing in a model's reply
+can be executed). `src/voice-service.ts` decides which route runs from the owner's settings and is
+where **keep audio on this computer** is enforced — in the service, so the new `voice.say` tool
+cannot go round it, which the tests prove by counting network calls. Costs follow
+`estimateImageCost`'s shape exactly: a published per-minute or per-thousand-character figure with
+the date it was read, `null` when there is no price or no known length, and a genuine zero only for
+a voice on this computer. `src/voice-talk.ts` holds the hold-to-talk state machine (idle →
+listening → thinking → speaking → idle, pressing again interrupts) away from the browser so it is
+unit-tested without a microphone; `public/voice-talk.js` draws it in the composer and wires the Voice
+settings card. Voice notes arriving on Telegram, Discord and WhatsApp become ordinary messages:
+`InboundMessage` gained an optional `voice` whose bytes are fetched lazily (so a stranger cannot make
+Branch download anything), `ChannelRouter` gained injectable `transcribeVoice` and `speakReply`
+properties on the `outboundGuard` pattern, and the reply quotes the transcript back. Telegram can
+send a spoken reply (`sendVoice`); the other two cannot yet and say so.
+
+On the model side, `src/model-switch.ts` adds `/model` in the composer and a `models.switch` tool
+that resolves its conversation from the task it is part of — one conversation changes, no restart,
+every other conversation untouched. `src/model-profiles.ts` makes routing profiles ordinary data in
+`settings/model-profiles`: four are generated from the connections that actually exist, ordered only
+by things that can be justified (runs here; published output price), with `private` honestly empty
+when there is no local connection. `Runtime.routed()` asks the profile first and writes a
+`model.routed` event whose reason names the rule that fired, which is the "why this model" line.
+`src/provider-probe.ts` asks each connection what it can do — auth, model count, speech/pictures/
+embeddings — and appears under `connections` in `branch doctor --probe` and in Settings → Models.
+`src/gemini-signin.ts` builds the Google PKCE sign-in and the bearer-header plumbing, and says
+plainly in the docs that Google accepts a user token for `generateContent` only on a Cloud project
+with the API enabled, so the key flow stays the default. One behaviour changed for everyone: a
+Gemini key now travels in `x-goog-api-key` rather than `?key=` **on the chat and audio routes**
+(`src/providers/gemini.ts`); the picture route in `src/media-images.ts` still uses `?key=` and was
+left alone as another wave's file. `GeminiProvider` gained `audio()` so `media.transcribe` and
+`media.speak` work on Gemini too. The voice-note download host lists for Discord and WhatsApp are
+plumbing no test covers: Telegram is the channel proven end to end here.
+**Deliberately not built:** the OpenAI Realtime WebSocket (A1212, A2293). The network policy checks
+HTTP addresses before each request and has no WebSocket hook, so a realtime session would skip that
+check or need a dependency; both were refused, and `realtimeNote` says so in the app and the docs.
+No wake word, and nothing listens unless the button is held. `tests/voice-providers.test.mjs` (14
+tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
+all of it. No new dependency.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

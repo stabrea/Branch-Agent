@@ -89,6 +89,21 @@ acorn". Every change shows at once by writing `data-theme`, `data-accent`, `data
 through `POST /api/preferences` (`PreferencesSchema` in `src/preferences.ts`). Reduced motion is
 also honoured from the operating system unless the owner asks for full motion.
 
+Appearance also carries the language. English is the source of truth; every other language file
+answers the same keys and falls back to English where it does not. The choice is this browser's,
+not the workspace's, and dates and numbers follow it through `Intl`.
+
+## Rendered prose, code and the wave 6 panels
+
+`public/web-ui.css` holds the newer pieces and uses nothing but the tokens above: rendered
+markdown and code blocks, the "Look inside" sheet, the live row, the context meter, the developer
+playground's fields and the offline banner. Rendered prose sets its own rhythm (paragraph line
+height 1.55, headings at 1.35/1.18/1.04 rem) and borrows `--well` for code grounds, `--line` for
+every rule, `--copper-text` for links and `--font-mono` for code. The "Look inside" sheet is a
+680 px panel over `--scrim`, full width below 720 px. The meter is deliberately quiet: a 4 px track
+in `--line` filled with `--copper`, small `--faint` text, and below 520 px the cost drops out so
+the bar still fits a phone. Nothing here introduces a colour of its own.
+
 ## Artwork
 
 The KeepOak logo and the revolving acorn stay. Logo PNGs are bundled locally.

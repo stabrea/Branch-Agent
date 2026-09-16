@@ -1,4 +1,6 @@
 import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
+// Wave 6: replies render as markdown, and any task can be opened with "Look inside".
+import { fillMarkdown, inlineNodes } from "/markdown.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -90,7 +92,7 @@ function displayView(view) {
   $("page-title").textContent = titles[view];
   /* The open conversation is named beside the title, but only on the conversation. */
   $("thread-name").hidden = view !== "chat";
-  if (view === "usage") void window.branchUsage?.render();
+  if (view === "usage") { void window.branchUsage?.render().then(() => window.branchAllowed?.render()); }
 }
 document
   .querySelectorAll(".nav")
@@ -143,6 +145,8 @@ function renderRuns() {
         el("p", date(run.createdAt), "meta"),
         button("Inspect trace", () => showRun(run.id)),
       );
+      // Wave 6: the same task, opened as one readable screen instead of raw events.
+      if (globalThis.branchInspector) node.append(globalThis.branchInspector.button(run.id));
       for (const change of run.changes || []) {
         const row = el("div", undefined, "file-change");
         row.append(el("span", `${change.existed ? "Changed" : "Created"} ${change.path} (+${change.added} −${change.removed})`));
@@ -259,6 +263,9 @@ async function showMemoryHistory(node, record) {
 }
 function memoryCard(record) {
   const node = recordCard(record.data.text);
+  /* A saved fact is one line, so it keeps its heading and gets the inline formatting only:
+     bold, italic, inline code and links, built as nodes so nothing in it can become markup. */
+  node.querySelector("h3")?.replaceChildren(...inlineNodes(record.data.text));
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
@@ -474,6 +481,7 @@ async function refresh() {
   renderProcedures();
   renderSchedules();
   renderAutomations();
+  renderCollab();
   renderIdentity();
   renderSkills();
   renderModels();
@@ -487,6 +495,10 @@ async function refresh() {
   renderAttention();
   void window.branchMcp?.render();
   void window.branchApprovals?.render();
+  void window.branchScreenControl?.render();
+  // Batch 19 (wave 7): the rules read as sentences, under the same settings card.
+  void window.branchRules?.render();
+  void window.branchMisc?.render();
   void window.branchDiagnostics?.render();
 }
 const notifiedAttention = new Set();
@@ -886,6 +898,8 @@ async function saveSessionModel() {
     await loadSessionModel();
   } catch (e) { toast(e.message); }
 }
+/* Wave 7: the rail shows the active model again after /model or the models.switch tool. */
+globalThis.branchRefreshSessionModel = () => loadSessionModel();
 $("session-model").addEventListener("change", saveSessionModel);
 $("session-reasoning").addEventListener("change", saveSessionModel);
 form("models-form", async () => {
@@ -1031,10 +1045,12 @@ function stepLabel(calls) {
   return calls.length === 1 ? `Used ${shown}` : `Worked with ${calls.length} tools · ${shown}`;
 }
 /** A tool step is one quiet row in the flow that opens, not a card of its own. */
-function toolStep(content, calls) {
+function toolStep(content, calls, source) {
   const node = el("details", undefined, "message assistant-step tool-step");
   const summary = el("summary");
   summary.append(el("span", stepLabel(calls)));
+  // Wave 6: the row that says what it worked with also opens the whole task.
+  if (source?.runId && globalThis.branchInspector) summary.append(globalThis.branchInspector.button(source.runId));
   node.append(summary);
   const body = el("div", undefined, "step-body");
   if (content.trim()) body.append(el("p", content));
@@ -1047,27 +1063,27 @@ function toolStep(content, calls) {
   $("conversation").append(node);
 }
 function message(role, content, source) {
-  if (source?.toolCalls?.length) return toolStep(content, source.toolCalls);
+  if (source?.toolCalls?.length) return toolStep(content, source.toolCalls, source);
   const node = el("div", undefined, "message " + role);
-  node.append(
-    el("small", role === "user" ? "You" : "Branch Agent"),
-    document.createTextNode(content),
-  );
-  if (source?.messageId && !source.toolCalls?.length) {
+  node.append(el("small", role === "user" ? "You" : "Branch Agent"));
+  /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
+  if (role === "user") node.append(document.createTextNode(content));
+  else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
+  /* Wave 7: every reply gets Read aloud, whether or not it can also be branched from, and it goes
+     through the voice service so the free Windows voice works with no key and no internet. */
+  if (role === "assistant" && !source?.toolCalls?.length) {
+    const controls = el("div", undefined, "message-controls");
+    if (source?.messageId)
+      controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
+    const readBtn = button("Read aloud", () => globalThis.branchSpeak?.(content));
+    readBtn.classList.add("text-button");
+    const stopBtn = button("Stop", () => globalThis.branchStopSpeaking?.());
+    stopBtn.classList.add("text-button");
+    controls.append(readBtn, stopBtn);
+    node.append(controls);
+  } else if (source?.messageId) {
     const controls = el("div", undefined, "message-controls");
     controls.append(conversationButton("Branch from here", () => branchConversation(sessionId, source.messageId)));
-    if (role === "assistant" && typeof speakText !== "undefined") {
-      const readBtn = button("Read aloud", async () => {
-        const settings = await api("voice/settings").catch(() => ({}));
-        const useProvider = settings.useProviderVoice ?? false;
-        await speakText(content, useProvider);
-      });
-      readBtn.classList.add("text-button");
-      controls.append(readBtn);
-      const stopBtn = button("Stop", () => stopSpeaking?.());
-      stopBtn.classList.add("text-button");
-      controls.append(stopBtn);
-    }
     node.append(controls);
   }
   $("conversation").append(node);
@@ -1339,6 +1355,8 @@ $("login-form").addEventListener("submit", async (event) => {
     await api("lock/unlock", {}).catch(() => undefined);
     sessionStorage.setItem("branch-token", token);
     $("token").value = "";
+    /* Wave 7: the voice and model-routing cards can only read their settings once you are in. */
+    globalThis.branchVoiceReady?.();
   } catch (e) {
     toast(e.message);
   }
@@ -1361,15 +1379,40 @@ $("prompt").addEventListener("keydown", (event) => {
   if (conversationBusy && sessionId) { $("followup-send").click(); return; }
   if (!conversationBusy) $("chat-form").requestSubmit();
 });
+/**
+ * Wave 7: talk mode. The words that were spoken are sent the ordinary way, and the reply comes
+ * back so it can be read aloud. Nothing here bypasses the message box: you see what was heard.
+ */
+let lastReply = "";
+globalThis.branchRunSpoken = async (text) => {
+  if (conversationBusy) return "";
+  lastReply = "";
+  $("prompt").value = text;
+  $("chat-form").requestSubmit();
+  // Waits for the task to finish, however it finishes. A task that fails leaves no reply to read
+  // out, so this comes straight back rather than leaving talk mode stuck on "working".
+  await new Promise((done) => setTimeout(done, 100));
+  for (let waited = 0; waited < 600 && conversationBusy; waited++)
+    await new Promise((done) => setTimeout(done, 500));
+  return lastReply;
+};
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const prompt = $("prompt").value.trim();
-  if (!prompt || conversationBusy) return;
+  const typed = $("prompt").value.trim();
+  if (!typed || conversationBusy) return;
+  /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
+  if (await (globalThis.branchSlashCommand?.(typed, sessionId) ?? false)) { $("prompt").value = ""; return; }
+  /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */
+  const prompt = $("ask-first-toggle")?.checked
+    ? await (window.branchMisc?.askBeforeStarting(typed) ?? Promise.resolve(typed))
+    : typed;
   setConversationBusy(true);
   if (!sessionId) $("conversation").replaceChildren();
   message("user", prompt);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
+  // Wave 6: the live row you can step into while it works.
+  globalThis.branchLiveRun?.watch(sessionId, prompt);
   try {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     // Pictures put on the composer travel with this one message and are then cleared (wave 5).
@@ -1386,6 +1429,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
     message("assistant", run.output);
+    /* Wave 7: talk mode reads this out loud once the reply is on the screen. */
+    lastReply = run.output;
     $("session-label").textContent = currentTemporary ? run.status + " · temporary, not saved" : run.status + " · conversation saved";
     await loadConversation(run.sessionId, run.status);
     await refresh();
@@ -1404,6 +1449,8 @@ $("chat-form").addEventListener("submit", async (event) => {
     message("assistant", e.message);
   } finally {
     stopActivity();
+    globalThis.branchLiveRun?.stop(sessionId);
+    globalThis.branchTokenMeter?.refresh();
     setConversationBusy(false);
     if (pendingFollowUps > 0) void awaitFollowUps();
   }
@@ -1721,6 +1768,17 @@ function renderAutomations() {
   const container = $("automations-container");
   if (!container || !automations || !state) return;
   container.replaceChildren(automations.showAutomations(state, { el, api, toast, refresh }));
+}
+/* Wave 6: workflows, the waiting line, days off, shared copies and the people here. */
+let collab = null;
+import("./collab.js").then((module) => {
+  collab = module;
+  if (state) renderCollab();
+}).catch(() => {});
+function renderCollab() {
+  const container = $("collab-container");
+  if (!container || !collab || !state) return;
+  container.replaceChildren(collab.showCollab(state, { el, api, toast, refresh }));
 }
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});

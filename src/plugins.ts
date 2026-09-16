@@ -7,6 +7,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { ToolContext } from "./contracts.js";
 import { schemaFor } from "./skill-http-tools.js";
 import { ParametersSchema, type InputValue } from "./recipes.js";
+import type { BranchPluginProvider } from "./provider-plugins.js";
 
 /**
  * Plugins are single files a developer drops into the `plugins` folder beside the private data.
@@ -37,12 +38,21 @@ export interface BranchPluginHook { event: string; run(payload: { event: string;
 export interface BranchPlugin {
   id: string; name: string; description?: string; permissions?: string[];
   tools?: BranchPluginTool[]; hooks?: BranchPluginHook[];
+  /** Ways of talking to a model this plugin brings; see src/provider-plugins.ts. */
+  providers?: BranchPluginProvider[];
+}
+/** Where a plugin's model connections go. Kept structural so the loader needs no extra import. */
+export interface PluginProviderHost {
+  register(pluginId: string, entry: BranchPluginProvider): unknown;
+  forget(pluginId: string): unknown;
 }
 export interface PluginSummary { id: string; name: string; description: string; permissions: string[]; tools: { name: string; description: string; permission: string }[]; hooks: string[] }
 interface Loaded { summary: PluginSummary; toolNames: string[]; stopHooks: (() => void)[] }
 
 export class Plugins {
   private readonly loaded = new Map<string, Loaded>();
+  /** Set by the launch when this copy can hold model connections; left unset, plugins bring none. */
+  providers?: PluginProviderHost | undefined;
   constructor(private readonly store: Store, private readonly owner: string, private readonly registry: ToolRegistry, private readonly folder: string) {}
   private key(id: string): string { return `plugin:${id}`; }
   private saved(id: string): { enabled: boolean; summary?: PluginSummary } | undefined {
@@ -96,7 +106,13 @@ export class Plugins {
         });
         toolNames.push(tool.name);
       }
-    } catch (error) { for (const name of toolNames) this.registry.unregister(name); throw error; }
+      // A way of talking to a model is only made available to choose; no model is switched over.
+      for (const provider of plugin.providers ?? []) this.providers?.register(id, provider);
+    } catch (error) {
+      for (const name of toolNames) this.registry.unregister(name);
+      this.providers?.forget(id);
+      throw error;
+    }
     for (const hook of plugin.hooks ?? [])
       stopHooks.push(this.store.onEvent((runId, kind, data) => { if (kind === hook.event) void hook.run({ event: kind, runId, data }).catch(() => undefined); }));
     this.loaded.set(id, { summary, toolNames, stopHooks });
@@ -108,6 +124,8 @@ export class Plugins {
     const entry = this.loaded.get(id);
     for (const name of entry?.toolNames ?? []) this.registry.unregister(name);
     for (const stop of entry?.stopHooks ?? []) stop();
+    // Its model connections go with it, along with every preset made from them.
+    if (entry) this.providers?.forget(id);
     this.loaded.delete(id);
   }
   /** Switches a plugin off: its tools leave the catalog, its hooks stop, and it stays off next time. */

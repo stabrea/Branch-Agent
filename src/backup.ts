@@ -13,6 +13,13 @@ export const backupTables = [
   "specialists", "procedures", "schedules", "settings", "deliveries",
   "installed_skills", "skill_versions", "session_branches", "session_origins",
   "file_versions", "workspace_snapshots",
+  // Wave 6 (collaboration and workflows): labels, project notes, workflows and their per-step state.
+  "labels", "project_notes", "workflows", "workflow_state",
+  // Wave 7: the knowledge bases themselves — their names, the folders they point at and whether they
+  // are in use. Their passages, vectors and cached readings are left out on purpose: those are worked
+  // out again from the person's own files by pressing "Read it again", and they would multiply the
+  // size of a backup for nothing.
+  "kb_collections",
 ] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
 export const BackupArchiveSchema = z.object({
@@ -50,13 +57,24 @@ export function hasState(db: DatabaseSync): boolean {
   return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0;
 }
 
+export interface RestoreOptions {
+  /**
+   * Empties the backed-up tables first, so a safety copy can be put back over work that is already
+   * there. Only the update screen uses it, and only after a new version failed its first health check.
+   */
+  replaceExisting?: boolean;
+}
+
 /** Inserts every row of the archive into a fresh install, in one transaction; unknown columns are refused. */
-export function importBackup(db: DatabaseSync, input: unknown): { tables: number; rows: number } {
+export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number } {
   const archive = parseBackupArchive(input);
-  if (hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
+  if (!options.replaceExisting && hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
   let tables = 0, rows = 0;
   db.exec("BEGIN");
   try {
+    if (options.replaceExisting)
+      for (const table of [...backupTables].reverse())
+        if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;

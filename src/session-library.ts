@@ -20,6 +20,8 @@ const ArchiveSchema = z.object({
 export const SessionSearchSchema = z.object({
   query: z.string().trim().max(500).default(""),
   offset: z.number().int().min(0).max(1000000).default(0),
+  /** Wave 6: only conversations carrying every one of these labels. */
+  labels: z.array(z.string().trim().min(1).max(40)).max(5).default([]),
 }).strict();
 type Archive = z.infer<typeof ArchiveSchema>;
 
@@ -64,7 +66,14 @@ export class SessionLibrary {
       .get(sessionId)?.found === 1;
   }
   search(owner: string, input: unknown) {
-    const { query, offset } = SessionSearchSchema.parse(input);
+    const { query, offset, labels } = SessionSearchSchema.parse(input);
+    const wanted = labels.map((label) => label.toLocaleLowerCase("en"));
+    // Only conversations carrying every wanted label; an empty list means no label filter at all.
+    const labelFilter = wanted.length
+      ? `AND s.id IN (SELECT target_id FROM labels WHERE owner=? AND target='conversation'
+          AND label IN (${wanted.map(() => "?").join(",")}) GROUP BY target_id HAVING COUNT(DISTINCT label)=?)`
+      : "";
+    const labelArgs = wanted.length ? [owner, ...wanted, wanted.length] : [];
     const rows = this.db.prepare(`SELECT s.id,s.created_at,
       (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count,
       (SELECT substr(json_extract(m.body,'$.content'),1,240) FROM messages m
@@ -73,7 +82,8 @@ export class SessionLibrary {
       FROM sessions s WHERE s.owner=? AND s.temporary=0 AND EXISTS(SELECT 1 FROM messages m WHERE m.session_id=s.id
         AND json_extract(m.body,'$.role') IN ('user','assistant')
         AND (?='' OR instr(branch_fold(json_extract(m.body,'$.content')),branch_fold(?))>0))
-      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, offset);
+      ${labelFilter}
+      ORDER BY s.created_at DESC,s.id DESC LIMIT 21 OFFSET ?`).all(owner, query, query, ...labelArgs, offset);
     return {
       sessions: rows.slice(0, 20).map(row => ({ sessionId: String(row.id),
         createdAt: String(row.created_at), preview: String(row.preview ?? ""),

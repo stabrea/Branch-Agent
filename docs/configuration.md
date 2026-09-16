@@ -233,6 +233,35 @@ Built on Node's own TLS with no mail library: a small IMAP4rev1 reader (`LOGIN`,
 
 Speech-to-text transcription requires an OpenAI-compatible provider with an API key. The ChatGPT plan sign-in does not provide an API key for audio endpoints; configure an API key in **Settings → Model connection** to use voice transcription. API routes: `POST /api/voice/transcribe` (binary audio input), `POST /api/voice/speak` (JSON text input, audio output), `GET|POST /api/voice/settings` (voice preferences).
 
+### Talking to it, and where the sound goes (wave 7)
+
+**Talk** next to the message box is hold-to-talk: hold it, speak, let go. What you said is written out, put in the message box so you can see it, sent as an ordinary message, and the answer is read back to you. Press Talk again while it is talking and it stops. The four states it moves through (waiting, listening, working, reading aloud) live in `src/voice-talk.ts` and are tested on their own.
+
+Three services can write out what you say, and Branch picks whichever one your settings point at: an OpenAI-shaped `/audio/transcriptions` (the Whisper shape, which most providers speak), Gemini's own route (the sound goes inline with the request), or **a speech program already installed on this computer** — whisper.cpp or faster-whisper. Branch never downloads a speech model for you: you point it at the program and its model file, and it checks the program is there before it tries. The transcript is read from what the program prints, using the flags whisper.cpp's and faster-whisper's own command lines document; this has not been run against a real installation, so a build that names its flags differently will refuse in plain words rather than silently return nothing. Three can read text aloud: the OpenAI-shaped `/audio/speech`, Gemini's speech route, and **the voices that come with Windows**, which need no key, no account and no internet. The Windows voice is driven by a short PowerShell script written to a temporary file and run with `-File` and no console window; the words are put in as a quoted string, so nothing in a reply can be run as a command.
+
+- **Keep audio on this computer**: nothing containing sound may leave. Both cloud routes then refuse in plain words instead of sending anyway, and the refusal lives in the service itself, so the `voice.say` tool cannot go around it. The two sound tools in the media toolbox (`media.transcribe` and `media.speak`) read the same setting straight from your settings and refuse the same way, so a workspace sound file is not a way round it either. It also wins over "answer a voice note with a voice note": a spoken reply would be uploaded to the chat app, so with this on the words are sent instead.
+- **Who writes out what you say** / **Who reads replies aloud**: pick a service, or leave it on "whatever suits".
+- **Language**: a code such as `en` forces one; empty lets the service work it out.
+- **Answer a voice note on a chat app with a voice note back**: off until you turn it on. Telegram is the one channel that can send sound back today, and the only one whose voice-note handling is covered by a test; the Discord and WhatsApp download paths are plumbing built to their documented shapes but not exercised here.
+
+A voice note that arrives on **Telegram, Discord or WhatsApp** is written out and handled exactly like a typed message, and the reply quotes the transcript back ("You said (from your voice note): …") so you can see what was heard. The bytes are only fetched once the message has earned an answer, so a stranger cannot make Branch download anything, and a note over 20 MB is refused.
+
+Costs are estimated the same honest way as everything else: published per-minute prices for writing out speech and per-thousand-character prices for reading aloud, with the date they were read, and **no figure at all** when there is no price on file or the length is unknown. A voice on this computer genuinely costs nothing, and reports zero. Where a task exists to record it against, the figure is written into that task's own record as a `voice.spoken` or `voice.transcribed` event; the message-box microphone and a voice note arriving on a chat app happen before any task starts, so their cost is reported in the answer and shown on screen rather than filed.
+
+Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
+
+**Not built: live two-way voice calls** (the OpenAI Realtime WebSocket, audit A1212 and A2293). Branch checks every outbound address against its network policy before each request, and that policy has no hook for a WebSocket; a realtime session would either skip the check or need a new dependency, and this build refuses both. Hold-to-talk does the same job over the ordinary routes. There is no wake word and nothing listens unless you are holding the button.
+
+### Which model does what (wave 7)
+
+Type `/model` in the message box to see your connections, and `/model <name>` to change the one answering **this conversation only** — no restart, nothing else affected, and the next reply is charged at the new model's prices. `/model default` puts it back. The assistant can do the same for itself with the `models.switch` tool. The rail above the message box always names the model that will answer next.
+
+**Settings → Which model does what** holds *routing profiles*. A profile is just data — a name and an order of connections — saved in `settings/model-profiles`, so you can read it, change it and hand it to someone else. Branch fills in four from the connections you actually have: **Cheap and fast** (whatever runs on this computer first, then the least expensive with a published price), **Best quality** (most expensive first, which is the only ranking that can be justified from published prices), **Private** (only connections on this computer; honestly empty until you set one up) and **Long context** (your own order — Branch cannot read how much a cloud model holds, so it does not pretend to). None is switched on until you pick one. When a profile does pick, the run records a `model.routed` event whose reason says which rule fired, for example *The "Cheap and fast" profile asked for alpha first, but it was not available, so beta took it* — that is the "why this model" line in the run inspector.
+
+**Settings → Check your connections** asks each connection what it can do right now: whether its key still works, how many models it lists, and whether it offers speech, pictures and comparing passages. `branch doctor --probe` prints the same thing under `connections`. It costs nothing beyond one list-of-models request per connection.
+
+**Signing in with Google for Gemini** (`src/gemini-signin.ts`) is built as far as it can honestly go: the standard code flow with PKCE through the existing sign-in machinery, and the resulting token sent to Gemini in the ordinary `Authorization: Bearer` header — never in the address. **But**: Google's Generative Language API accepts a signed-in person's token only for a Google Cloud project that has the API switched on, and it bills that project. Branch cannot check that from here without sending a real request, so the API key remains the ordinary way and nothing has been changed about it. To be plain about what exists today: the sign-in is written down in code and nothing else — there is no button for it on any screen and no route that turns it on, so a Gemini connection is still made with a key. Nothing else in Branch uses Google sign-in. One thing did change for everybody: a Gemini API key now travels in the `x-goog-api-key` header instead of a `?key=` query parameter on the chat and audio routes, so it cannot end up in a log there. The picture route still passes it as a query parameter; that belongs to another part of the app and was not touched here.
+
 ## Projects and secrets
 
 **Settings → Projects** keeps named projects, each with its own instructions (added to every task while it is active), a preferred model preset and its own secrets. The `default` project always exists. Switching the active project changes all three for new tasks; a conversation's own model choice still wins. API: `GET /api/projects`, `POST /api/projects`, `POST /api/projects/active`, `POST /api/projects/:id/remove`.
@@ -476,6 +505,31 @@ Shell: `maxMemoryMb` (default 1024) and `maxCpuSeconds` (default 60) stop a comm
 
 A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "string" | "number" | "boolean", required, default, description } }`) and use `{{name}}` in step arguments, expectations and precondition paths; `procedures.verify` and `procedures.replay` take `inputs`, which are bound and checked before any step runs. `resultSchema` (the same JSON-Schema subset as delegation) is applied to the final step's result. `templates.export` / `GET /api/templates/:kind/:id` and `templates.import` / `POST /api/templates/import` move a specialist or recipe definition between installs without ids, evidence or secrets. A project's `folder` scopes every file tool to that folder inside the workspace while the project is active.
 
+## Command line and terminal
+
+`branch <command>` (or `node dist/cli.js <command>`) is the whole command line; `branch help` lists it. Nothing here needs the web app to be running.
+
+**Talking in the terminal.** `branch chat` opens the full terminal view: a status line that stays put above what you type (which model is answering, how many tokens and how much money this conversation has used, and which approval preset is in force), answers wrapped to the window as they stream, and one short row for each step — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done. Press **Ctrl+E** to show or hide what is behind those rows. **Enter** sends, **Alt+Enter** adds another line to the same message, the **up arrow** brings back a message you already sent, **Ctrl+C** stops the task in hand without closing the terminal, and **Ctrl+D** leaves. It is drawn with Node's own readline and escape sequences; there is no extra package involved.
+
+The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new` and `/exit`. `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace.
+
+**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
+
+**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal, when you pass `--plain`, or when you set `NO_COLOR`. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. With `NO_COLOR` set, or `TERM=dumb`, nothing writes a single escape sequence: no colour, no cursor movement, no window title and no progress indicator. `COLUMNS` and `LINES` override the window size. On a terminal that takes them, the window title follows the task in hand and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+
+**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The task finished. |
+| 2 | The task stopped to ask you something; `branch approve` answers it. |
+| 3 | The task failed, was cancelled, or ran past `--timeout`. |
+| 4 | The task ran out of the budget you gave it. |
+
+`branch status` lists the tasks working now, the ones waiting for an answer, and the health summary (`--json` for the same thing as JSON). `branch logs <task id>` prints that task's timeline one line per step (`--json` for the stored events). `branch approve <task id> yes|no` answers a task that stopped to ask. It cannot answer just this once: the program run that stopped has already ended, so the answer is **saved as a standing rule** for that tool and that exact target and applies to every future task, not only this one. The command says so when it runs, and the rule can be changed under **Settings → When to check with me**. For a one-time yes, use the terminal view (`branch chat`) or the settings screen instead.
+
+**Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+
 ## Other programs and streams
 
 `POST /v1/chat/completions` accepts the OpenAI chat shape with the local session token as the bearer token. The last user message becomes the task, system/developer messages travel as caller instructions, `model` may name a preset id, `x-branch-session` (or `metadata.session_id`) continues a conversation, and `stream: true` returns `chat.completion.chunk` events. Every response carries `branch.{run_id, session_id, status}`. `GET /v1/models` lists presets. `GET /api/runs/:id/stream?after=<id>` streams a run's events in order over Server-Sent Events until it ends.
@@ -633,6 +687,34 @@ If your model connection is an OpenAI-compatible one, its `/embeddings` route is
 
 Routes: `GET /api/documents` (the library, the switch and the size limit), `POST /api/documents` with `{ path }`, `{ text }` or `{ name, content }` where `content` is the file's bytes base64-encoded, `DELETE /api/documents/{id}`, `POST /api/documents/search` with `{ query, limit }`, `POST /api/documents/reindex` with `{ id }`, and `GET|POST /api/documents/settings` (`useDocuments`, `embeddingModel`). The tools are `documents.search` and `documents.list` under `documents.read`, and `documents.add` and `documents.remove` under `documents.write`.
 
+## Tables of figures
+
+`data.load` opens a table for the length of one task: give it a workspace file (`.csv`, `.tsv`, `.json`, `.xlsx`), a public address, or pasted text. Up to 5000 rows, 64 columns and 500 characters a cell are kept; anything longer is cut and the answer says so. What comes back is the column names, what kind each column holds, the row count and a five-row preview as a Markdown table — never the whole file, so a big spreadsheet cannot fill the conversation. Up to eight tables can be open at once, and everything is dropped when the task finishes.
+
+`data.describe` gives plain numbers for each column: how many rows are filled, how many are empty, how many different values, and for columns of numbers the smallest, largest, average and middle value. `data.query` answers a question with read-only SQL — one statement, starting with `SELECT` or `WITH`, run against a private in-memory copy of the open tables; anything else is refused. Yes/no columns are held as 1 and 0 there, so compare them as numbers. Both return a `markdown` field that the message column shows as a table.
+
+`data.chart` draws a table as bars, a line or a pie and keeps it beside the task as an SVG file (`{ spec: { type, label, value, title, limit } }`). `data.export` saves a table into your workspace as `.csv` or `.xlsx`; the spreadsheet it writes is the same shape the documents library reads, so an exported file can be added straight back. Exports and research reports go through the same before-and-after as every other file the assistant writes, so each one keeps its previous bytes and has an Undo. The spreadsheet writer has been checked against this app's own reader; opening one in Excel has not been tested. The tools are `data.load`, `data.describe`, `data.query` and `data.chart` under `data.read`, and `data.export` under `data.write`.
+
+## Looking a question up properly
+
+`research.run` takes a question, a depth (`quick`, `standard` or `deep`) and optionally the addresses to read. Quick runs one search and reads up to two pages; standard three searches and six pages; deep six and twelve. Each page is fetched under the same network policy as the rest of web reading, and page text is treated as information, never instructions. The sentences that speak to the question are kept with the address and title they came from.
+
+From `standard` upwards, sentences from different pages that are about the same thing are compared: a claim two or more sources state with the same figures is listed under **What the sources agree on**, and one where their figures differ is listed under **Where the sources disagree**, with each side quoted and numbered. If your document library has something about the question it is read too and cited as one of your own documents.
+
+The report is written to `research/<question>.md` in your workspace with a numbered **Sources** list. Progress is recorded as it goes (`research.progress`, `research.skipped`, `research.flagged` for a page whose lines read like orders to the assistant, `research.finished`) so the pane on the right can show what it is reading. Everything read is saved after each page, so a run that stops on its budget can be carried on: ask the same question again and it picks up where it left off, and the report it writes says it was cut short. `research.list` lists what has been written. The tools are `research.run` under `research.run` and `research.list` under `research.read`; `GET /api/research` returns the same list for the reports panel.
+
+## Watching a page or a search
+
+`monitor.create` starts a watch: `{ url }` or `{ query }`, `every` (minutes, or `"30m"`, `"6h"`, `"1d"`; at least five minutes), an optional `label`, and `notifyVia` — either `"activity"`, which puts the news in your conversation list, or `{ channel, chatId }` to send it to a chat. The first look is taken straight away so the next change is a real change. Each check compares the words against what was seen last time and describes the difference in plain language: how many lines are new, how many are gone, and a few of each. Watches run on the same beat as schedules; one that cannot be read is tried again in an hour and never stops the others.
+
+`monitor.list`, `monitor.check` (look now) and `monitor.remove` complete the set. Routes: `GET|POST /api/monitors`, `POST /api/monitors/{id}/check`, `DELETE /api/monitors/{id}`. `monitor.list` needs `monitors.read`; the rest need `monitors.manage`.
+
+## The morning brief
+
+One message first thing, assembled from what the app already holds: what is planned today, tasks left unfinished, documents added in the last day, watches that changed, and anything you asked to be reminded of. There is no calendar account and nothing is read aloud. Turn it on with `brief.configure` — `enabled`, `dailyAt` (24-hour local time), `timezone`, `deliverTo` (a channel chat, or nothing to leave it in the conversation list), `sections` (any of `schedules`, `tasks`, `documents`, `watches`, `reminders`) and `template`.
+
+The template is ordinary text with `{{date}}`, `{{schedules}}`, `{{tasks}}`, `{{documents}}`, `{{watches}}` and `{{reminders}}` in it; a section you switch off leaves the message entirely, heading and all. `brief.preview` shows what would be sent without sending it, and `brief.send` sends it now. Routes: `GET /api/brief` (preview), `POST /api/brief` (settings), `POST /api/brief/send`. `brief.preview` needs `brief.read`; the other two need `brief.manage`.
+
 ## Conversation search
 
 In **Memory → Search past conversations**, enter keywords and choose whether all or any must match. Results show an excerpt and the originating conversation's start time; **Read message** opens the source, with additional pages for long messages.
@@ -726,6 +808,32 @@ When a conversation grows past the fold-away threshold, the assistant is asked t
 **Pins** keep one message in front of the assistant however long the conversation runs. `POST /api/sessions/:id/pins {"messageId": 12, "pinned": true}` pins, `{"pinned": false}` unpins, and `GET /api/sessions/:id/pins` lists them. Only something you or the assistant said can be pinned — a tool result cannot be kept on its own, because it would be separated from the request that produced it. Pins are held against a message's lasting identity, so they survive the transcript repair that follows an interrupted task.
 
 Each conversation also keeps a one-line note of what is going on in it: the last thing you asked for, the last file touched and the last step taken. It appears in the context pane under **What we are doing** and rides along with the running-task list at `GET /api/activity`.
+
+## Why the assistant sometimes says it is opening a toolbox
+
+The assistant has a lot of tools now, and the full list of them is sent to the model **every single
+round** — not once per conversation. Left alone that list grows with every new feature and crowds
+out the conversation itself.
+
+So the tools are kept in labelled toolboxes: files, git, web, memory, documents, schedules, media,
+messages, specialists, skills and a few more. At the start of a task the assistant opens the ones
+the request obviously needs — "commit my changes and push" opens the git box — and leaves the rest
+closed. A closed box costs one line, "git: 6 tools", instead of its full contents. If the assistant
+finds it needs something from a closed box, it opens it, which is what it means when it says it is
+opening a toolbox; that box then stays open for the rest of the conversation, and anything it has
+just used stays in view for the next few rounds. Nothing is hidden from you and nothing new is
+allowed: a box can only ever contain tools this task was already permitted to use.
+
+You do not configure any of this. It shows up in the task's timeline as **catalog.preselected**
+(which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
+**catalog.size** (how many tools were described this round and what they weighed).
+
+Alongside it, each round records a **context.budget** line: the size limit, what the instructions
+cost, what the tool list cost, what the conversation costs, and the room held back for the answer.
+Folding older turns into a summary is now decided on the conversation alone, so adding tools to the
+product can never, by itself, cause a conversation to be folded away early. The point at which that
+happens is worked out each round from what the tool list and the answer leave over, and it never
+drops below the old fixed figure of 11,000.
 
 ## Showing the assistant a picture
 
@@ -957,3 +1065,614 @@ advertised by a registry you have browsed, whose words appear in that work. It i
 match on this computer: no model is asked, nothing is sent anywhere, and a suggestion never
 installs or switches anything on. The Skills screen shows all of the above, and the interface file
 `/skills-extra.js` is served from the same local allowlist as the rest of the interface.
+
+## How Branch runs on this computer: installing, starting and reaching it from a phone
+
+**Installing.** The release carries two files: `Branch-Agent-windows-x64.zip` and `Install Branch
+Agent.cmd`. The script unpacks the zip with the `tar.exe` that ships with Windows (PowerShell's
+`Expand-Archive` is the fallback) and then runs `dist/install/install-cli.js` *from inside the
+unpacked app*, using the runtime the download already carries. Nothing has to be installed first and
+nothing is downloaded by the installer itself. It copies the app to
+`%LOCALAPPDATA%\Programs\Branch Agent`, keeps whatever was there in `…\Branch Agent.previous`,
+writes a Start menu shortcut and (unless `--no-desktop-shortcut`) a desktop one through
+`WScript.Shell`, writes `Uninstall Branch Agent.cmd` next to the app, and registers it under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BranchAgent` with a
+`QuietUninstallString`. Only this person's own settings are touched, so no administrator prompt
+appears and nothing has to be signed. Saved work from an older folder layout (`%LOCALAPPDATA%` or
+`%APPDATA%` under `Branch Agent` or `branch-agent`) is copied across once, and never over a folder
+that already holds a database. Uninstalling removes the program, the shortcuts, the sign-in entry
+and the background task; conversations and files are left alone.
+
+**Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
+state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
+program. Without the marker it uses the per-person application-data folder as before.
+`BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` still win over both.
+
+**Starting with Windows.** *Settings → How Branch runs on this computer → Start Branch when I sign
+in to Windows* writes one value, `Branch Agent`, into
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. With *Start quietly in the corner of the
+taskbar* on, the command carries `--start-minimized` and the window stays hidden until the tray icon
+is used. Switching it off deletes the value.
+
+**Keeping Branch working with the window closed.** `branch daemon install | uninstall | status`, or
+the switch in the same settings card, registers a Task Scheduler task called `Branch Agent daemon`
+with `/SC ONLOGON /RL LIMITED`. The task runs `wscript.exe //B //Nologo` against a one-line launcher
+that starts the engine with window style 0, so no console flashes up; the engine itself is
+`dist/cli.js start` run through the app's own executable with `ELECTRON_RUN_AS_NODE=1`. While an
+engine is running it leaves `running.json` in the data folder (port, process id, address). A later
+launch of the window reads that note, checks the process still exists and that the port answers
+`GET /api/state` with the session token from disk, and joins it instead of starting a second engine;
+a note left behind by a crash is removed rather than trusted.
+
+**Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
+`{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
+and opens a *second* listener bound to that address alone. The address must be inside
+`100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
+refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
+(one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
+upgrade) also accept the Tailscale address and name; nothing else is ever added.
+`POST /api/deployment/remote/invite` makes one invitation: a link carrying only an identifier,
+returned as a QR matrix drawn by `src/remote/qr.ts` (no dependency), plus a six-digit number that is
+**not** in the link. The phone opens `/pair?id=…`, types the number, and `POST /api/pair` — the only
+route exempt from the session token, and only on the remote listener — hands back the key. An
+invitation lasts five minutes, works once, and dies after five wrong numbers.
+
+**Safety copies and going back.** Before an update swaps any files, the updater calls its `backup`
+hook, which writes the whole of the person's saved work to `update-backups/before-<time>-v<version>.json`
+in the data folder and keeps the newest three. Both launches do this: a window running its own
+engine writes the copy itself, and a window that joined a background engine asks that engine for it
+with `POST /api/deployment/backup` and the session token, because the engine is the one that owns
+the saved work. A failure there stops the update either way, and the engine's own sentence is what
+the owner reads, followed by what to do about it — free some space on the drive, or move the data
+folder somewhere Branch can write, then try again. When the reason is size, the sentence says the
+limit (64 MiB). There is no way to skip the copy: an update with nothing to go back to is refused.
+When a version starts for the first time its health report is recorded in `first-start.json`; if it
+did not come up cleanly, the settings card offers *Put back the previous version's saved work*,
+which reads the newest safety copy and restores it with `replaceExisting`. `POST /api/restore` is
+unchanged and still refuses to write over a copy that already holds conversations.
+
+**Updating while an engine works in the background.** The background engine holds the same program
+files open as the window, so a hand-over would hit a locked file. Before the hand-over script is
+written, the window reads `running.json`, asks that process to close (`taskkill /PID <pid> /T`, then
+`/T /F` if it will not), waits a bounded time for it to go and removes the note. An engine that
+still refuses is not treated as a failure: the hand-over script waits for the engine's process id
+as well as the window's, and ends it itself before mirroring anything. Nothing new is started: the
+hand-over still runs through the same hidden Windows Script Host launcher, and every tool is run
+with no window.
+
+**Checking a computer is ready.** `branch doctor --fix`, and the *Check and repair what I can*
+button, look for Git, the private browser Branch uses to read pages, a free address on this
+computer, and a writable files folder. With `--fix` it installs the browser
+(`npx playwright install chromium --only-shell`); the rest come with a plain-language step, because
+installing Git asks questions a script should not answer for someone.
+
+Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
+`POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
+`POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
+`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`/pair` and `/pair.js`.
+## Using this computer's screen and keyboard
+Branch can look at what is on this computer's screen and work the windows on it. It is switched
+off, and while it is off every one of these tools answers with one plain sentence instead of
+trying. Turn it on in **Settings → Using your screen and keyboard**, which writes the setting
+`desktop-control` for your owner record.
+Routes: `GET /api/desktop/settings` returns `{ enabled, maxActionsPerRun }`; `POST` to the same
+address changes either field. `enabled` is `false` and `maxActionsPerRun` is `40` until you say
+otherwise. The setting is read again before every single action, so switching it off stops work
+that is already under way rather than waiting for the task to finish.
+The tools are `desktop.screenshot` (a picture of one window by part of its name, or of a whole
+screen), `desktop.windows` (list the open windows, or bring one to the front, minimise it or close
+it), `desktop.read` (everything in a window listed by name and kind, so the assistant works from
+words rather than from pixels), `desktop.click`, `desktop.type`, `desktop.key`, `desktop.open`
+(start a program, or open one of your workspace files with whatever usually opens it) and
+`desktop.clipboard`. They sit behind three permissions — `desktop.view`, `desktop.control` and
+`desktop.clipboard` — and none of the three counts as merely looking, so under **Ask before
+changes** every single one stops and asks you first. Photographing your screen is treated as a
+change on purpose.
+How it works underneath: one Windows PowerShell script, written once into a private temporary
+folder and called with `-File` so nothing is ever pasted into a command line, driving Windows' own
+accessibility layer (UI Automation) and `user32`. Clicking and typing go through the accessibility
+layer first — a button is pressed by its name, text is placed into a box directly — and fall back
+to a real mouse click or key press only when the program offers nothing better. The script runs
+through the same bounded runner the host-command tool uses, so it is stopped by time, by output
+size, or the moment the task is cancelled. No new dependency; nothing is installed.
+While any of this is happening a small notice sits on top of everything with a **Stop** button on
+it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
+the action in flight is cut off and every later one in the same task is refused. `POST
+/api/runs/:id/cancel` does the same thing. Every action is written into Activity as
+`desktop.action` with the name of the window it touched, alongside the ordinary signed receipt.
+Windows that are never photographed and never typed into: anything whose title or program looks
+like a password manager (Bitwarden, 1Password, KeePass, LastPass, Dashlane, NordPass, Proton Pass,
+Roboform, Enpass, Keeper), the Windows sign-in and permission prompts (`LogonUI`, `consent`,
+`CredentialUIBroker`, `LockApp`), and anything whose title mentions a password, a passkey, signing
+in, unlocking or Windows Security. The check is made against the title Windows itself reports for
+the window it found, never against what was asked for, so a wildcard cannot creep past it. A
+picture of a whole screen is refused outright while such a window is showing, because a photograph
+of the whole screen cannot hide part of itself. `desktop.type` also refuses text that still has a
+`{{placeholder}}` in it or that points at an environment variable, and the screen tools are never
+given the secrets locker at all, so there is no path by which a saved password could be typed.
+### What this cannot do
+- **There is no global Esc.** Stopping means the button on the notice, `POST /api/runs/:id/cancel`,
+  or closing Branch. Branch does not listen to your keyboard while you are using it yourself, and
+  building that would mean watching every key you press, which is a worse trade than it sounds.
+- **A whole-screen picture cannot be censored.** Branch can refuse to take one, and does when a
+  password window is showing, but it cannot black out part of a picture it has taken. Prefer asking
+  for one window.
+- **Programs that draw themselves cannot be read.** Games, drawing programs, many Electron apps and
+  anything that paints into a canvas tell Windows' accessibility layer nothing useful.
+  `desktop.read` will come back nearly empty and clicking will fall back to guessing at a point.
+- **Windows running as an administrator are invisible.** Branch runs as you, so a program started
+  with elevated rights cannot be read, clicked or photographed, and Windows gives no error worth
+  repeating when that happens.
+- **Only whole screens, and only one at a time.** `display` picks one of the screens Windows
+  reports; there is no way to ask for a region, and no way to ask for all of them at once.
+- **Windows moves under it.** A program can rebuild its own window between Branch finding it and
+  Branch using it; Branch looks it up once more and tries again, and gives up plainly after that.
+- **Nothing is recorded.** There is no screen recording, no replay of what was done, and no way to
+  watch the screen continuously — only the one picture or reading you asked for.
+- **The refusal list is deliberately clumsy.** Titles are matched loosely, so an ordinary window
+  that merely mentions a password, a passkey or signing in — a web page about password managers, a
+  document called "sign in flow" — is refused as well. That is the error worth making, but it does
+  mean Branch will sometimes refuse a window that was perfectly harmless.
+- **Opening a file cannot be confirmed.** `desktop.open` with a program name reports the program it
+  started. Opening a *file* hands it to Windows, which picks the program and says nothing about
+  what happened, so the answer says so and asks the assistant to look at the open windows instead.
+- **It will not run a program out of your workspace.** `desktop.open` opens documents. A workspace
+  file that is itself a program — `.exe`, `.bat`, `.cmd`, `.ps1`, `.msi` and the like — is turned
+  down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
+  my workspace". Running something has its own switch: the host-command tool.
+- **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
+## The client library, issue context, and what the assistant was allowed to do (batch 19, wave 6)
+### A client for scripts on this computer
+`packages/sdk/` is a single file of plain JavaScript that talks to the Branch Agent already running
+here. It installs nothing and is not published anywhere: point an `import` at
+`packages/sdk/client.mjs`. TypeScript users get `packages/sdk/types.d.ts`, which is **generated**
+from the app's own zod schemas by `node scripts/generate-sdk-types.mjs` (run it after
+`npm run build`), so the types cannot promise something the app would refuse. The client covers
+runs (start, `stream` over Server-Sent Events, `watch` over the run socket, steer, cancel, resume,
+approve, receipts, activity), sessions, memory, documents, schedules, policy, the record below,
+"ask me questions first", combined search and issue context; anything else goes through
+`branch.get` / `branch.post`. It needs the local session key, which is the whole of the app's
+security — see `packages/sdk/README.md` for three worked examples.
+### Issues as context
+`{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
+settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
+`issues.comment` (behind `issues.write`). GitHub reuses the token named in `git.github`; Linear
+needs its own key saved in the active project's secrets. Neither key ever goes into a web address,
+and both are scrubbed out of anything reported back.
+`POST /api/issues/context {"url": "..."}` turns an issue address — a GitHub issue or pull-request
+link, `owner/name#12`, or a Linear link or reference such as `ENG-214` — into a passage carrying
+the title, description and up to ten comments, with the address as its citation and a line saying
+the text was written by other people and is to be quoted, not obeyed. Pasting such an address into
+the box you type in pulls that passage into the task. An issue is treated exactly like a web page:
+before the assistant sees it, lines that read like orders aimed at it are flagged, taken out, or
+the whole issue refused, according to the same `web.injection` setting (`warn`, `redact`, `block`)
+that `web.fetch` obeys.
+`github.open_pull_request` takes two more optional fields: `issue` (the issue it settles) and
+`changes` (one line each). Given an issue it reads it first, then writes the description from a
+shared template ending in `Closes owner/name#12`, so merging the pull request closes the issue.
+### What the assistant was allowed to do
+Every moment that widens or narrows what Branch Agent can reach is written into a dedicated
+`audit` table: a question you answered, a saved password handed to a command (**by name only — the
+value never reaches the record**), a change to the approval settings, a messaging account
+connected or disconnected, something exported, and a switch to another project or into the
+practice workspace. The table is append-only, enforced by the database itself: two SQLite triggers
+refuse any attempt to change or remove a row, so nothing — not even Branch — can quietly rewrite
+what happened.
+`GET /api/audit` lists it newest first and accepts `action`, `source`, `from`, `to` and `limit`.
+`GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file. The
+diagnostics folder carries it as `allowed.json`, scrubbed the same way everything else there is.
+The foot of the Usage screen shows it in plain language, with a count of each kind.
+### Deciding approvals a kind of thing at a time
+Tools are sorted into seven kinds — looking things up, changing files, running commands, using a
+web page, messaging people, spending money and changing settings — from the permission each one
+needs, with a small override list for the handful whose permission does not say enough. A tool
+nobody anticipated counts as changing settings rather than as reading.
+`GET /api/approvals/categories` lists the kinds with the tools in each and what that kind is
+currently set to (null when the tools inside it disagree). `POST /api/approvals/categories`
+`{"commands": "deny"}` saves it, expanding to one rule per tool — never a wildcard — through the
+same `savePolicy` the hand-edited rule list uses. **Only the kinds named in the request change**:
+a kind decided earlier stays decided, and every rule you wrote by hand and every standing yes
+remembered from a question you answered is kept, ahead of the new rules, so a narrower rule you set
+deliberately still wins. Because one kind can be dozens of tools, a policy may now hold up to 300
+rules rather than 100 (`maximumPolicyRules` in `src/policy.ts`). Settings → When to check with me
+shows it under the preset.
+### Ask me questions first
+With the toggle beside the box you type in switched on, Branch Agent comes back with up to five
+short questions, each with what it would assume if you say nothing, before it starts. A short,
+plain request skips this on its own, judged by the same rule that decides whether a task is worth
+planning first, so "what is in this folder" never turns into a form.
+`GET`/`POST /api/ask-first/settings` holds `askFirst` and `maxQuestions`.
+`POST /api/ask-first {"prompt": "..."}` returns `{skipped, reason, questions}` — one model request,
+or none at all when it is skipped. `POST /api/ask-first/answers` returns the request with the
+answers written underneath it, which is what the task then gets.
+### The practice workspace
+`POST /api/practice {"practice": true}` makes a project called "Practice workspace" whose folder is
+`practice-workspace` inside your workspace, writes four made-up files into it (a read-me, meeting
+notes, a shopping list and an invoice spreadsheet) and a short demo conversation into your history,
+then switches to it. `{"practice": false}` goes back to whatever project you were using before.
+`GET /api/practice` says which you are in. The files are left behind either way, and a file you
+changed is never overwritten by switching in again.
+### One way of finding passages, and putting the best first
+Your documents and your saved notes are both asked the same question through one `Retriever`
+interface. What they find is merged and then put in order by a second pass. By default that pass
+counts how much of your question each passage uses — it costs nothing, happens on this computer,
+and gives the same order every time. Set `mode` to `model` and it instead asks the model once to
+read the top twenty and pick the best five.
+`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`.
+`POST /api/retrieval/search {"query": "..."}` returns the passages with `reranked` and
+`rerankCalls`, which is 0 for the word count and 1 for the model. The same ordering is used for the
+passages put in front of an ordinary task.
+### Model connections a plugin brings
+A plugin may export `providers`, alongside the tools and hooks it already exports. Each is named
+`plugin.provider.<id>` and is a factory that, given the address, the key and the model name the
+owner chose, returns something that answers like every built-in connection. It is handed both the
+network check to call and a fetch that makes that check itself, so an adapter that forgets to ask
+is still held to the owner's address rules. (A plugin is still code running as part of the
+assistant: only install files you trust.)
+`GET /api/providers/plugins` lists the adapters plugins have brought. `POST /api/providers/plugins`
+`{"driver": "plugin.provider.echo", "preset": "echo", "name": "Echo", "endpoint": "...", "model": "..."}`
+makes a connection from one and puts it in the model list. Switching the plugin off takes both the
+adapter and every model preset made from it away again. Nothing is registered until the owner
+switches the plugin on, exactly as with a plugin's tools.
+
+## Sharing a conversation, labels, workflows, the waiting line, days off and people here
+
+**Sharing a copy.** `GET /api/sessions/:id/export?format=html` saves one conversation as a single
+page. The page carries no scripts and asks for nothing from the internet: its colours are written
+into it, so it opens anywhere and can do nothing. Before it is written, anything that looks like a
+key, token or password is blanked out; `?contactDetails=1` also blanks out email addresses and
+phone-like numbers, and `?toolResults=0` leaves out what the assistant's tools returned. The
+response carries an `x-branch-share-receipt` header saying exactly how many messages went out, how
+many were held back, and how much was blanked out. `POST /api/sessions/:id/share` makes the same
+page into a link this app serves itself at `/share/<id>`: it needs the six-character code shown to
+you once, works one time, and stops working at its expiry (`expiresInMinutes`, five minutes to a
+week). Five wrong codes close a link for good, so a six-character code cannot be guessed at.
+Nothing is published anywhere: the link only works on this computer, because the app listens
+on this machine's own address. `GET /api/shares` lists them and
+`POST /api/shares/:id/revoke` stops one. Shared copies belong to whoever is using the app: while
+somebody else's profile is switched on they can share only their own conversations, never yours.
+
+**Labels and project notes.** `POST /api/labels` sticks a short label on a conversation, a saved
+procedure or a document (`{ target, targetId, label }`); `POST /api/labels/remove` takes it off and
+`GET /api/labels` lists every label with how many things carry it. Labels are kept and matched in
+lower case however they are typed, and there are at most twenty on one thing.
+`POST /api/sessions/search` now takes `labels: [...]`, and only conversations carrying **every**
+label are returned; an empty list means no filter. `POST /api/projects/notes` writes a note against
+a project and `GET /api/projects/notes?project=<id>` reads them newest first. Labels and notes are
+saved in the `labels` and `project_notes` tables and travel with the backup.
+
+**Things that run themselves.** A workflow is a saved list of steps: `prompt` (ask the assistant),
+`recipe` (replay a verified procedure), `tool` (use one tool), `approval` (stop and wait for you),
+`wait` (stop until a time), and `branch` (look at the last answer and skip ahead when it does not
+contain given words). Each step may have `retries` (up to five second tries) and a `timeoutMs`.
+`POST /api/workflows` saves one, `GET /api/workflows` lists them, and
+`POST /api/workflows/:id/run|pause|resume|remove` works it. Where each step got to is written down
+in the `workflow_state` table as it happens, so closing the app in the middle loses nothing: a
+workflow that was working is marked "stopped when the app closed" and carries on from the same
+step. Resuming a workflow that is waiting on an approval is you saying yes, and only from your own
+screen: the assistant's `workflows.resume` tool refuses a workflow that is waiting for you, so it
+can never say yes on your behalf. The same five things are tools (`workflows.create`, `.list`,
+`.run`, `.pause`, `.resume`) under the `workflows.manage` and `workflows.read` permissions. A
+`tool` step, and every step inside a `recipe` step, goes through your approval settings exactly as
+the assistant does mid-conversation: a step your settings allow simply runs, one they refuse fails
+with the same plain refusal, and one they say to ask about stops the workflow where it is and waits
+for you — `POST /api/workflows/:id/resume` is you saying yes, and it may carry
+`{"remember":"always"}` to keep that yes as a standing rule. A yes that is not standing counts for
+that workflow only. A workflow another app or a schedule set going is held to the same limits that
+task would have been, so starting one is no way around them. Workflows are the owner's: they are
+refused while somebody else's profile is switched on. **Weekly review** ships as an example: collect what finished, write the review, keep
+it in memory, and send it on.
+
+**The waiting line.** `POST /api/queue` puts a task in line instead of turning it away when as many
+are already working as this computer is set to handle. What you ask for (`source: "owner"`) is
+served before anything a schedule, a trigger or another app started. `GET /api/queue` shows what is
+waiting with its position, `POST /api/queue/:id/cancel` takes a waiting task out of the line or
+stops one that is working, and `POST /api/queue/settings` sets how many run at once (one to eight,
+three by default). A conversation only ever has one task working, so its others wait their turn. A
+task from the line runs as the owner, so the line is the owner's: it is refused while somebody
+else's profile is switched on, and they start tasks the ordinary way instead. The line's "how many
+at once" sits under the same ceiling as everything else: the whole app runs at most eight things at
+a time, counted once across the line and the requests the app's own screen makes, so the two
+together can never go past it.
+
+**Days off and quiet hours.** `GET`/`POST /api/calendar` holds the country whose holidays to use,
+your own days off, which weekdays you work, and quiet hours. A schedule created with
+`daysOff: "skip"` moves on to its next turn when its moment lands on a holiday, a weekend or a day
+you marked off; `daysOff: "shift"` moves it to the next working day instead; `"run"` (the default)
+minds none of it. Nothing runs on the day it was held back, and the schedule records why under
+`lastDayOff`. When quiet hours are on, messages made during them are held until the hours end
+rather than arriving in the night. The holiday list is ordinary data: a few countries ship with the
+app in `data/holidays.json`, a copy is put in your data folder on first use, and that copy is the
+one that counts, so anything wrong or missing can simply be corrected there. It is plainly
+incomplete and is not kept up to date for you.
+
+**People who share this computer.** `POST /api/profiles` gives somebody else a name and a PIN of
+four to eight digits (the PIN is stored only as a scrypt hash), `POST /api/profiles/switch` moves
+between them and back to the owner (`{ profileId: null }`), and `POST /api/profiles/:id/remove`
+removes one. Only the owner may add or remove people. Five wrong PINs in a row stop that profile
+accepting any for five minutes. While somebody's profile is switched on, the conversation list,
+saved conversations and the Memory view are theirs and not the owner's, a task they start is filed
+under their name, and the secrets locker, projects, saved workflows, the waiting line, days off and
+the owner's shared copies are all refused in plain words. **Be honest about what this is:** separation on one computer, not separate accounts. There
+is no syncing, and the assistant still works as the owner: it uses the owner's models, tools and
+settings, it draws on the facts the owner has it remember while answering somebody else, and
+anything it decides to remember by itself during their task is filed under the owner, not them.
+What a profile changes is which conversations and saved facts the screens show and which of the
+owner's areas are refused — not who the assistant is while it works. Anyone who can open the files
+on this machine can still read everything. The PIN keeps profiles apart; it does not
+lock the data away. Profiles themselves are deliberately left out of the backup, because a PIN
+belongs to this computer: restoring a backup elsewhere brings the conversations and facts back but
+not the people, so add them again there and the records will be waiting. Continuing an interrupted
+task, steering one, queuing a follow-up and pinning a skill to a conversation stay with the owner.
+
+The panel under Schedules covers labels, workflows, the waiting line, days off, shared copies and
+the people here. Filtering the rail's conversation list and Ctrl+K by label is left to the interface
+work that owns those files.
+
+The interface file `/collab.js` is served from the same local allowlist as the rest of the
+interface, and its panel sits under Schedules.
+
+## Rendering, looking inside a task, stepping in, the meter, the playground, the phone and languages
+
+**Markdown and code.** `/markdown.js` builds real elements and never HTML strings, so anything the
+model writes is shown, never run: a `<script>` in a reply appears as characters on the page. A
+reply gets the whole renderer — headings, lists, tables, quotes, horizontal rules, bold, italic,
+inline code, links and fenced code blocks, and a code block shows the language it was written in
+and has a Copy button. A saved memory fact and a document search passage are one line each, so they
+get `inlineNodes` only: bold, italic, inline code and links, with the search's own highlights left
+intact. A link only opens if it is `http`, `https` or `mailto`; inside the desktop app it goes
+through that app's own allowlist, elsewhere it opens a new tab.
+
+**Look inside a task.** `GET /api/runs/:id/inspect` answers everything the panel shows in one call:
+the task, how long it took, each model round (which model, how long, the size of the prompt, the
+tokens in and out), each tool call (what went in, what came back, both clipped, and whether its
+proof checked out), the plan it worked through, the reviewer's verdicts, anything you told it
+mid-task, the questions it stopped on, the step-by-step timeline, usage and cost. The panel opens
+from any run in Activity or from the row in a conversation that says what it worked with, and
+**Save this as a file** writes the same answer out as JSON. `GET /api/runs/:id/timeline` and
+`GET /api/runs/:id/receipts` still answer on their own.
+
+**Stepping into a task.** While a task is working, a row appears above the message box with the
+step it has reached and how long it has been going, fed by the run's WebSocket at
+`/api/runs/:id/ws` and checked against `GET /api/activity` every second. **Pause** sends a steering
+note telling it to hold; **Tell it something** sends your own note to `POST /api/runs/:id/steer`;
+**Stop** calls `POST /api/runs/:id/cancel`. When the approval rules make a task stop and ask, the
+question appears in the same place with **Yes, just now**, **Yes, for this conversation**, **Yes,
+always** and **No**, each answered through `POST /api/policy/approve`. "Yes, always" is only
+offered for a task you started yourself, and writes a rule into your settings.
+
+**The meter.** Under the message box, a quiet bar shows how much of this conversation's room has
+been used against the model's context window, and roughly what it has cost so far. Clicking it
+opens the numbers: messages, tasks, words in, words out and the cost. A model with no price on
+file is said so in words; it is never shown as costing nothing. On a phone the cost moves into the
+popover so the bar still fits.
+
+**Try things out.** Settings → Developer → Try things out lists every tool. `GET /api/tools/forms`
+returns each tool's description and its JSON schema, and the screen builds the form from that.
+**Run it** posts to `POST /api/tools/try`, which checks the same approval rules the assistant works
+under: a tool your settings refuse comes back refused, a tool they say to ask about comes back as a
+question and only runs after you say yes, and the result is shown exactly as the tool returned it.
+Below that, one question can be put to two models using the evaluation route where that is
+configured.
+
+**On a phone.** `/manifest.webmanifest` and `/service-worker.js` make the page installable. The
+worker keeps the app's own files (stylesheets, scripts, icons, the English words) so it opens
+quickly and shows the app rather than a browser error when the connection drops. Nothing under
+`/api/`, `/v1/` or `/webhooks/` is ever cached: your assistant is live or it is nothing, and an
+unreachable computer puts a plain banner on the screen. The worker is never registered inside the
+desktop app or when the page is opened with `?desktop=1`, and the desktop app never offers to
+install itself.
+
+**Languages.** Labels go through `t(key)` in `/i18n.js`, reading `/locales/en.json`. The rail, the
+sections, the owner menu, the message box and the screens described above are covered; the older
+section screens still carry their English copy in the markup and are the next thing to move.
+`/locales/fr.json` is a machine draft and says so; a key it does not answer falls back to English
+rather than leaving a blank. Markup carries the key in `data-t` (text) or `data-t-label`,
+`data-t-placeholder`, `data-t-title` (attributes). The language is chosen in Settings → Appearance
+and kept in this browser, not in the workspace. Dates and numbers are written with `Intl` in the
+chosen language.
+
+The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.js`, `/live-run.js`,
+`/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
+`/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
+as the rest of the interface.
+
+## Knowledge bases (batch 24, wave 7)
+
+A **knowledge base** is a name you give to whole folders or single files of your own work. It sits in
+the **Knowledge** card at the bottom of **Documents**. Name one, point it at a folder inside your
+workspace, and press **Create**; **Read it again** re-reads it after the files change. Each one shows
+how many files and passages it holds, how many are matched by meaning, which model read it and when.
+
+Reading a knowledge base cuts every file into passages. A Markdown file is cut at its headings, so a
+passage never straddles two sections and each one carries the headings above it; everything else is
+cut into overlapping windows of whole paragraphs (about 1500 characters with 200 of overlap). Word,
+spreadsheet, web, table and plain-text files are read with the readers Branch already has — no new
+file formats are added here, and a PDF is skipped rather than half-read. Passage names are worked out
+from the file and the wording, so the same folder always produces the same passages with the same
+names. Up to 20 folders or files per knowledge base, 400 files in total, 5 MB a file.
+
+**What is sent where.** Passages are compared by meaning only if a model you have already connected
+can do it. An OpenAI-shaped connection is asked at its `/embeddings` route; a Gemini connection at
+`batchEmbedContents`; a model running on this computer through Ollama's own `/api/embeddings`, in
+which case **nothing leaves this computer**. LM Studio speaks the OpenAI shape and is reached the same
+way, also without leaving the machine. **Your question goes to the same place as your files:** matching
+by meaning means the wording of each search — and the first 500 characters of a task when a knowledge
+base is ticked **Use this when answering** — is sent to that same connection, unless the model is on
+this computer, in which case nothing leaves it. The card says which of those is happening. If none of your
+connections can do it, Branch says so in one sentence and the knowledge base still works by its words
+alone. Every reading is kept here under a fingerprint of the passage and the model, so reading the
+same folder twice costs nothing, and the cost of a first reading is charged to the task that asked for
+it, exactly like a model answer. Background reading has no task to charge, so it is recorded as a
+`knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
+reading it has been charged for, shown on its card.
+
+**What is never read.** A knowledge base can only point at folders and files inside your workspace,
+and the same guard that protects every other file tool applies: anything that looks like a secret —
+`.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,
+`id_ed25519`, and `.pem`, `.key`, `.p12` and `.pfx` files — is refused, as is any path that leaves
+the workspace or goes through a symbolic link or junction. Such a file is counted in the knowledge
+base's note as one that could not be read, so nothing is dropped in silence, and its words are never
+cut into passages or sent anywhere. Anything hidden by `.branchignore` is left out too.
+
+**What a reading may cost.** `POST /api/knowledge/settings` holds two numbers. `maxIndexTokens`
+(400,000 by default, which is roughly 1.5 MB of writing) is the most new reading one press of **Read
+it again** may do. A larger one is refused in a sentence on the card instead of running up a bill you
+did not ask for — or, with a model on this computer, an hour of work you did not ask for — and you
+either point the knowledge base at fewer files or raise the number; **0** means no limit. Passages
+already read never count towards it, so re-reading a folder nothing changed in is always allowed.
+`compareAtMost` (50,000 by default) is the most stored passages one search will compare, so a search
+always has a ceiling.
+
+**How a search works.** The passages are narrowed with SQLite's full-text search where this build has
+it, then ranked by BM25 worked out in Branch itself — so a rare word counts for far more than a common
+one, and the ranking is the same on every build. That order and the order by meaning are combined with
+reciprocal rank fusion, and the second pass from the reranking settings puts the best first. Every
+result names its file, its heading path and its page where one was known. A knowledge base you tick
+**Use this when answering** is put in front of every task with numbered sources, the way your own
+documents already can be; an attached knowledge base is offered before the document library, and the
+documents fall in behind it when it has nothing to say. Turning **Use my documents when answering**
+off at the top of the panel turns knowledge bases off as well, so that one switch always means "put
+none of my own writing in front of my tasks". A file that is too large or that no reader could turn
+into text is counted in the knowledge base's note rather than passed over in silence.
+
+**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
+the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
+knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
+interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
+similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
+`fingerprints` against the service's own REST API — `search` sending the query vector and the
+collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
+chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
+be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
+written today.
+
+**In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
+each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
+`kb_search`), their vectors (`vectors`) and the store of readings (`embedding_cache`) are **not**: all
+three are worked out again from your own files, so after a restore each knowledge base is there but
+empty until you press **Read it again**. Leaving them out keeps a backup small; putting them in would
+make it many times larger for something a button rebuilds.
+
+**Saved facts.** Facts are compared by meaning as well as by their words through the same store of
+readings, so nothing is ever read twice. A quiet pass runs at most once a day on the scheduler's beat:
+it gives newly written facts their comparison by meaning and writes near-duplicates into the review
+queue as suggested merges. It never deletes or changes a fact — you accept or ignore each suggestion
+in **Memory**, the same as every other tidying suggestion. Settings live under `memory-consolidation`
+(`enabled`, `everyHours`, `lastRunAt`).
+
+Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
+now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
+`{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/source` with `{ collection, source }` or
+`{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
+`knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
+`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. All seven sit in
+the **documents** toolbox, not the memory one, because a knowledge base is a set of your own files.
+The listing tool
+is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
+stored recipes and specialists.
+## Traces, the counters page and the permission rules (batch 19, wave 7)
+### There is no telemetry, and there never will be
+Branch Agent collects nothing about you and sends nothing to the people who made it. There is no
+"help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
+collected in the first place. Everything on this page is about *you* choosing to send *your own*
+traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
+type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+button, it now carries the last 200 steps with their names, timings and outcomes, and every value
+in it has been through the same scrub as the rest of the folder.
+### Spans: the shape of a task while it runs
+Every task gets a trace of its own, and a step — a *span* — for the task itself, each round with
+the model, each tool call and each sub-task. Each span points at the one above it, so the trace is
+a tree rather than a list. The ids follow the W3C trace context standard, so a viewer you already
+have understands them. They are written to a `spans` table beside the events, and every attribute
+goes through the same scrubber as everything else, so a saved password or key cannot be in one.
+`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's. The newest
+20 000 are kept and older ones are let go once per launch, so the table cannot grow without end.
+When Branch hands work to another assistant, or sends a webhook, it puts the standard
+`traceparent` header on the call, and when another assistant sends work here with that header the
+task joins their trace instead of starting a new one. One piece of work across two assistants is
+therefore one trace.
+### Sending traces somewhere you run
+`GET`/`POST /api/tracing/settings` holds `enabled` (false until you change it), `destination`
+(`otlp`, `langfuse` or `langsmith`), `endpoint`, `headers`, `batchSize`, `retries` and
+`serviceName`. Once it is on, each task sends its own steps as soon as it finishes, and
+`POST /api/tracing/test` sends the last five so you can check the address before relying on it.
+Turning sending on without an address is refused rather than half-done.
+`includeErrors` adds the crashes Branch recorded — an uncaught failure in the engine, with the
+stack scrubbed — to what goes out, which is the whole of "send crash reports to my own endpoint":
+they go to *your* address and nowhere else, and there is no third-party crash service involved.
+A header value may be `secret://<project>/<NAME>` instead of the key itself. The real value is
+looked up from the locker at the moment of the call and is never in the settings, never in a log
+and never in an error message. Every send — successful or not — is written into the record of what
+the assistant was allowed to do, with the host it went to and how many steps went with it.
+All three destinations speak plain JSON over HTTP; no library is installed for any of them. OTLP
+posts to `/v1/traces` (and `/v1/metrics` for the counters), Langfuse to `/api/public/ingestion`,
+LangSmith to `/runs/batch`, unless the address you typed already has a path of its own. A failed
+send is tried again a couple of times with a growing pause, and the address rules are checked
+before every single try.
+**A collector on this computer needs one extra step.** Branch refuses private and local addresses
+by default, so sending to `http://localhost:4318` is blocked until you allow private addresses —
+`allowPrivateAddresses` in the `web` section of the integrations file, the same switch Web reading
+uses. The refusal says so itself rather than leaving you to guess, and an address that is not
+allowed is refused once rather than tried again and again. That default is deliberate: it is the
+same rule that stops a web page reaching things on your own network.
+These screens are the owner's own. While somebody else's profile is switched on, the steps, the
+rules and the sending settings are all refused, exactly like the owner's secrets and saved
+workflows.
+### The counters page
+`GET /api/metrics` answers in the plain text a monitoring tool scrapes, behind the same local key
+as everything else: how many tasks there are and what state they are in, tokens in and out, the
+estimated cost this month, tool calls and failures, how many conversations have been shortened, how
+many steps have been recorded, and a histogram of how long tool calls take. Usage → **Health**
+shows the same numbers in plain words. Queue depth is not reported: there is no single queue to
+count, so a made-up number is left out rather than invented.
+### Permission rules about one particular thing
+A rule can now name what it is about as well as which tool it covers: a folder or file (`path`), a
+website (`host`), a messaging account (`channel`) or a command (`command`). A rule with one of
+these is looked at before the broader rules, so "never write anything under finance" beats "writing
+files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
+rule written before this behaves — nothing you already had changes.
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
+about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+Which kind a call counts as is worked out from what the call says it would touch, not from its
+arguments: a bare website name is a website, and anything else is a folder or file. That means a
+tool that reports what it touches through its own `target()` — as a tool with no plain `path`
+argument is meant to — is covered by a folder rule like any other.
+Browser clicking, typing and uploading go through these same rules with the website as the thing
+they are about; they do not get a second set of their own.
+Settings → When to check with me shows every rule as a sentence — "Ask before writing files under
+finance", "Never allow browsing example.com" — with a button to take one away, a short form to add
+one, and a **Try a decision out** box that says what would happen and which rule decided, without
+saving or running anything.
+`GET /api/rules` lists the rules with their sentences. `POST /api/rules/add` takes one rule,
+`POST /api/rules/remove {"index": 0}` takes one away, and `POST /api/rules/test {"tool": "...",
+"target": "..."}` answers with the decision and the sentence behind it.
+### Yes for this conversation, and what it is tied to
+"Yes, for this conversation" is a grant with an end: it lasts an hour, ends when the conversation
+ends, and ends the moment you lock Branch. `GET /api/rules/allowed?session=<id>` lists what a
+conversation is allowed to do right now and when each one runs out.
+A yes is tied to the exact request it was given for. The approval card shows those exact words,
+with any saved password or key already taken out, and the answer carries a fingerprint of them. If
+the assistant changes so much as one character — the same file with different contents counts — the
+old yes does not cover it and it has to ask again. `POST /api/policy/approve` accepts an optional
+`fingerprint`; an answer whose fingerprint does not match what the task is waiting on is refused
+with a plain message.
+The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
+carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
+the socket sees what the app sees and can answer under the same binding.
+### Wrong keys are counted
+Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
+message saying so and a line in the record of what the assistant was allowed to do, filed under
+"Somewhere kept getting the key wrong and was made to wait". The right key is checked first and
+clears the count at once, so a stale tab in your own browser can never shut you out of your own app.
+"The same place" means the address the connection itself came from. A header a caller writes for
+itself, such as `x-forwarded-for`, is ignored: Branch has no proxy in front of it, so trusting one
+would only let a single guesser pretend to be a thousand different places. On this computer's own
+listener that makes every local program one place, which is the honest answer; the phone's listener
+sees each device separately. The socket a running task streams over is not counted, so a wrong key
+there is refused without being held against anyone.

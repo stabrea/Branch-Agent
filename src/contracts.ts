@@ -50,10 +50,13 @@ export interface Message {
 export interface Usage {
   input: number;
   output: number;
+  /** Input tokens the provider served from its own prompt cache, when it reports them. */
+  cachedInput?: number | undefined;
 }
 export const UsageSchema = z.object({
   input: z.number().int().nonnegative(),
   output: z.number().int().nonnegative(),
+  cachedInput: z.number().int().nonnegative().optional(),
 });
 export interface ToolDescription {
   name: string;
@@ -184,12 +187,20 @@ export interface ToolContext {
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
   source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
+  /**
+   * Where answers already given are remembered when there is no conversation to remember them
+   * against: a saved workflow uses its own name here, so a yes given to one of its steps still
+   * counts when that step is tried again.
+   */
+  approvalKey?: string;
 }
 export interface ToolDefinition<T = unknown> {
   name: string;
   description: string;
   parameters: z.ZodType<T>;
   inputSchema?: Record<string, unknown>;
+  /** The toolbox this tool belongs to; worked out from its name when it does not say. */
+  group?: string;
   permission: string;
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */

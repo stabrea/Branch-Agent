@@ -13,15 +13,21 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
+import { AuditLog } from "./audit.js";
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
-import { exportBackup, importBackup } from "./backup.js";
+import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
+// Wave 6 (collaboration and workflows): labels and project notes, share links, household profiles.
+import { Labels } from "./labels.js";
+import { ShareLinks } from "./conversation-share.js";
+import { Profiles } from "./profiles.js";
+import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -42,6 +48,10 @@ export class Store {
   private historyStore: WorkspaceHistory | undefined;
   readonly skills: InstalledSkills;
   readonly projects: Projects;
+  /** Wave 6: labels and project notes, read-only share links, and the household's profiles. */
+  readonly labels: Labels;
+  readonly shares: ShareLinks;
+  readonly profiles: Profiles;
   private lockerStore: Locker | undefined;
   private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
@@ -50,6 +60,8 @@ export class Store {
    * secret value can never be written down even if a tool put one in its result by mistake.
    */
   guardEvent: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data;
+  private auditStore: AuditLog | undefined;
+  private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -75,7 +87,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS trigger_log(id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL, owner TEXT NOT NULL, run_id TEXT, payload_summary TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delivery_log(id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id TEXT NOT NULL, owner TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks"])
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
@@ -83,11 +95,16 @@ export class Store {
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
+    this.labels = new Labels(this.db);
+    this.shares = new ShareLinks(this.db);
+    this.profiles = new Profiles(this.db, "local");
     this.memories = new MemoryFacts(this.db);
     this.review = new MemoryReview(this.db, this.memories);
     this.skills = new InstalledSkills(this.db);
     this.projects = new Projects(this);
     this.migrateUsage();
+    // The spans table is created up front, so the metrics page can count them from the first launch.
+    void this.spans;
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
     this.library = new SessionLibrary(this.db);
@@ -95,7 +112,11 @@ export class Store {
     this.working = new WorkingSessions(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
+    this.interruptWorkflows();
     this.discardTemporarySessions();
+    // The newest 20 000 spans are kept and the rest let go, once per launch, so a machine left
+    // running for weeks does not grow a spans table without end.
+    try { this.spans.prune("local"); } catch { /* tidying is never a reason not to start */ }
   }
   private migrateUsage(): void {
     const usageColumns = this.db
@@ -188,7 +209,7 @@ export class Store {
   /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
   /** Restores a backup into a fresh install; refuses when this copy already has state. */
-  restore(input: unknown) { return importBackup(this.db, input); }
+  restore(input: unknown, options: RestoreOptions = {}) { return importBackup(this.db, input, options); }
   /** Skill failure patterns, exclusions, demotion, benchmarks and drafts for this owner. */
   get governance(): SkillGovernance {
     return (this.governanceStore ??= new SkillGovernance(this, "local"));
@@ -214,6 +235,10 @@ export class Store {
   get locker(): Locker {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
     return this.lockerStore;
+  }
+  /** The append-only record of what the assistant was allowed to do. */
+  get audit(): AuditLog {
+    return (this.auditStore ??= new AuditLog(this.db));
   }
   sessionTemporary(sessionId: string): boolean {
     return Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(sessionId)?.temporary ?? 0) === 1;
@@ -245,6 +270,24 @@ export class Store {
   private discardTemporarySessions(): void {
     for (const row of this.db.prepare("SELECT id FROM sessions WHERE temporary=1").all())
       this.purgeSession(String(row.id));
+  }
+  /** An empty conversation with no task in it, for history the app writes itself. */
+  createSession(owner: string): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO sessions(id,owner,created_at,temporary) VALUES(?,?,?,0)").run(id, owner, new Date().toISOString());
+    return id;
+  }
+  /**
+   * Wave 6: files a conversation and its tasks under another person in this household, so a task
+   * started while somebody's profile is switched on lands in their list and not the owner's.
+   */
+  reassignSession(sessionId: string, toOwner: string): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE sessions SET owner=? WHERE id=?").run(toOwner, sessionId);
+      this.db.prepare("UPDATE tasks SET owner=? WHERE session_id=?").run(toOwner, sessionId);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   ownsSession(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);
@@ -453,6 +496,10 @@ export class Store {
     );
   }
   usageStore(): UsageStore { return new UsageStore(this.db); }
+  /** The spans of running and finished tasks, beside the events. Created on first use. */
+  get spans(): SpanStore {
+    return (this.spanStore ??= new SpanStore(this.db));
+  }
   memoryCapacity(owner: string) { return this.memories.capacity(owner); }
   configureMemory(owner: string, input: unknown) { return this.memories.configure(owner, input); }
   updateMemory(owner: string, input: unknown, sourceRunId: string) {
@@ -532,6 +579,12 @@ export class Store {
         "SELECT id, event_type as eventType, status, attempt, next_retry_at as nextRetryAt, created_at as createdAt FROM delivery_log WHERE webhook_id = ? AND owner = ? ORDER BY id DESC LIMIT ?",
       )
       .all(webhookId, owner, limit) as Array<{ id: number; eventType: string; status: string; attempt: number; nextRetryAt: string | null; createdAt: string }>;
+  }
+  /** A workflow left working when the app closed is marked so the owner can carry it on. */
+  private interruptWorkflows(): void {
+    this.db.exec("UPDATE workflows SET data=json_set(data,'$.status','interrupted') WHERE json_extract(data,'$.status')='running'");
+    if (this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_state'").get())
+      this.db.exec("UPDATE workflow_state SET status='interrupted' WHERE status='running'");
   }
   private interruptSchedules(): void {
     this.db.exec(

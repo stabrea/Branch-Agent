@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import type { Runtime } from "../runtime.js";
 import { Deliveries } from "./deliveries.js";
+import { audit } from "../audit.js";
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -20,6 +21,15 @@ export interface InboundMessage {
   text: string;
   addressed: boolean;
   messageId: string;
+  /**
+   * A voice note, when the person sent one instead of typing. The bytes are fetched only if the
+   * message gets as far as being answered, so a stranger cannot make Branch download anything.
+   */
+  voice?: {
+    mediaType: string;
+    seconds?: number | undefined;
+    bytes: () => Promise<Uint8Array>;
+  };
 }
 /** What a channel says about itself, in words the owner can act on. */
 export interface ChannelHealth {
@@ -36,6 +46,8 @@ export interface ChannelAdapter {
   health?(): ChannelHealth;
   start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void>;
   send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
+  /** Sends a spoken reply, on the channels that accept one. Absent means this channel cannot. */
+  sendVoice?(chatId: string, audio: Uint8Array, mediaType: string, replyToMessageId?: string): Promise<string | undefined>;
   stop(): Promise<void>;
 }
 export const ChannelPolicySchema = z.object({
@@ -63,6 +75,17 @@ export class ChannelRouter {
    */
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
+  /**
+   * Turns a voice note into words. `createBranch` connects the real voice service; on its own this
+   * says plainly that nothing is set up, so a voice note is never silently dropped.
+   */
+  transcribeVoice: (clip: { bytes: Uint8Array; mediaType: string; name: string; seconds?: number | undefined }) => Promise<string> =
+    async () => { throw new Error("Voice notes are not set up on this computer yet"); };
+  /**
+   * Reads a reply aloud so it can be sent back as a voice note, but only when the owner has asked
+   * for that. Returning null means "send the words instead", which is what happens by default.
+   */
+  speakReply: (text: string) => Promise<{ bytes: Uint8Array; mediaType: string } | null> = async () => null;
   constructor(private readonly store: Store, private readonly runtime: Runtime, public pumpMs = 10000) {
     this.deliveries = new Deliveries(store, runtime.owner);
   }
@@ -132,6 +155,8 @@ export class ChannelRouter {
     const key = `channel-session:${channel}:${chatId}`;
     const saved = this.store.get("settings", owner, key)?.data as { title?: string } | undefined;
     this.store.save("settings", owner, key, { sessionId, channel, chatId, title: saved?.title ?? chatId, updatedAt: new Date().toISOString(), linked: true });
+    audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${chatId} on ${channel}`,
+      reason: "A chat was pointed at one of your conversations, so both share one history", outcome: "saved" });
     return { channel, chatId, sessionId };
   }
   /** Chats that have talked to the assistant, usable as delivery targets. */
@@ -157,11 +182,46 @@ export class ChannelRouter {
     }
     return this.answer(message);
   }
+  /**
+   * A voice note becomes an ordinary message: the words are written out first, and the transcript
+   * is quoted back so the person can see what was heard before reading the answer.
+   */
+  private async spoken(message: InboundMessage): Promise<string> {
+    if (!message.voice) return message.text;
+    const bytes = await message.voice.bytes();
+    const text = await this.transcribeVoice({
+      bytes, mediaType: message.voice.mediaType, name: `voice-note-${message.messageId}`, seconds: message.voice.seconds,
+    });
+    return [message.text, text].filter(Boolean).join("\n").trim();
+  }
+  /**
+   * Answers a voice note with a voice note, when the owner has switched that on and the channel
+   * accepts one. The words have already been sent, so a failure here changes nothing for the person.
+   */
+  private async voiceReply(message: InboundMessage, text: string): Promise<void> {
+    const adapter = this.adapters.get(message.channel)?.adapter;
+    if (!adapter?.sendVoice) return;
+    const checked = await this.outboundGuard(text);
+    if (checked.blocked) return;
+    const spoken = await this.speakReply(checked.text);
+    if (!spoken) return;
+    await adapter.sendVoice(message.chatId, spoken.bytes, spoken.mediaType, message.messageId);
+  }
   private async answer(message: InboundMessage): Promise<Outcome> {
     const owner = this.runtime.owner, key = `channel-session:${message.channel}:${message.chatId}`;
     const saved = this.store.get("settings", owner, key)?.data as { sessionId?: string } | undefined;
     const sessionId = saved?.sessionId && this.store.ownsSession(owner, saved.sessionId) ? saved.sessionId : undefined;
-    const prompt = message.chatKind === "group" ? `[${message.senderName} in ${message.chatTitle ?? "a group"}] ${message.text}` : message.text;
+    let heard: string;
+    try {
+      heard = await this.spoken(message);
+    } catch (error) {
+      await this.deliver(message.channel, message.chatId,
+        `I could not make out that voice note: ${error instanceof Error ? error.message : String(error)}`,
+        `voice-failed:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "failed";
+    }
+    const quoted = message.voice ? `You said (from your voice note): "${heard}"\n\n` : "";
+    const prompt = message.chatKind === "group" ? `[${message.senderName} in ${message.chatTitle ?? "a group"}] ${heard}` : heard;
     try {
       const run = await this.runtime.run({
         prompt, ...(sessionId ? { sessionId } : {}),
@@ -172,7 +232,8 @@ export class ChannelRouter {
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
         title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });
       const text = run.status === "completed" ? run.output || "(no reply)" : run.status === "needs_input" ? run.output : `I could not finish that (${run.status}).`;
-      await this.deliver(message.channel, message.chatId, text, `reply:${run.id}`, message.messageId).catch(() => undefined);
+      await this.deliver(message.channel, message.chatId, quoted + text, `reply:${run.id}`, message.messageId).catch(() => undefined);
+      if (message.voice) await this.voiceReply(message, text).catch(() => undefined);
       return run.status === "completed" || run.status === "needs_input" ? "replied" : "failed";
     } catch (error) {
       await this.deliver(message.channel, message.chatId, "Something went wrong on my side; the owner can see the details in Activity.", `reply-error:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
@@ -200,11 +261,16 @@ export class ChannelRouter {
     if (!match) throw new Error("No pending request has that code");
     const approved: Pair = { status: "approved", code: match.code, name: match.name, requestedAt: match.requestedAt, approvedAt: new Date().toISOString() };
     this.store.save("settings", owner, `channel-pair:${match.channel}:${match.senderId}`, approved);
+    audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${match.name} on ${match.channel}`,
+      reason: "You approved this sender, so their messages now reach the assistant", outcome: "allowed" });
     return { ...approved, channel: match.channel, senderId: match.senderId };
   }
   remove(owner: string, input: unknown) {
     const { channel, senderId } = z.object({ channel: z.string().min(1).max(64), senderId: z.string().min(1).max(64) }).strict().parse(input);
-    return { removed: this.store.delete("settings", owner, `channel-pair:${channel}:${senderId}`) };
+    const removed = this.store.delete("settings", owner, `channel-pair:${channel}:${senderId}`);
+    if (removed) audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${senderId} on ${channel}`,
+      reason: "You disconnected this sender, so their messages no longer reach the assistant", outcome: "refused" });
+    return { removed };
   }
   private pair(channel: string, senderId: string): Pair | undefined {
     const parsed = pairSchema.safeParse(this.store.get("settings", this.runtime.owner, `channel-pair:${channel}:${senderId}`)?.data);

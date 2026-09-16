@@ -153,6 +153,69 @@ test("an ask pauses the task, a yes for this conversation is not asked again, an
   assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "other.txt", readOnly: false }).decision, "ask");
 });
 
+test("replaying a saved recipe asks about the steps inside it before any of them runs", async (t) => {
+  let recipeId = "";
+  const replay = () => ({ content: "", toolCalls: [{ id: "r1", name: "procedures.replay", arguments: JSON.stringify({ id: recipeId }) }] });
+  const { app, api, workspace, provider } = await served(t, [replay, say("done")]);
+  const context = app.runtime.context();
+  const recipe = app.knowledge.proposeProcedure(context, {
+    name: "write a file", preconditions: [],
+    steps: [{ tool: "files.write", args: { path: "recipe.txt", content: "hello" }, expected: { path: "recipe.txt", bytes: 5 } }],
+  });
+  recipeId = recipe.id;
+  // Verified first, while nothing is asked about; the settings come afterwards.
+  assert.equal((await app.knowledge.verifyProcedure(context, recipe.id)).data.status, "verified");
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  await writeFile(join(workspace, "recipe.txt"), "stale");
+  // Replaying at all is the first question; saying yes to it is not a yes to what is inside.
+  const first = (await api("POST", "/api/run", { prompt: "replay it" })).body;
+  assert.equal(first.status, "needs_input");
+  assert.match(first.output, /Before I go ahead: Using procedures\.replay/);
+  await api("POST", "/api/policy/approve", { sessionId: first.sessionId, decision: "allow", remember: "session" });
+  provider.reset();
+  const paused = (await api("POST", "/api/run", { prompt: "replay it", sessionId: first.sessionId })).body;
+  assert.equal(paused.status, "needs_input", "the step inside the recipe is asked about, not waved through");
+  assert.match(paused.output, /Before I go ahead: Writing recipe\.txt/);
+  assert.equal(await readFile(join(workspace, "recipe.txt"), "utf8"), "stale", "no step ran while it waits");
+  const waiting = (await api("GET", "/api/policy")).body.waiting;
+  assert.equal(waiting[0].tool, "files.write", "the question names the step's own tool");
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  provider.reset();
+  const second = (await api("POST", "/api/run", { prompt: "replay it", sessionId: paused.sessionId })).body;
+  assert.equal(second.status, "completed", second.output);
+  assert.equal(await readFile(join(workspace, "recipe.txt"), "utf8"), "hello");
+});
+
+test("a read-only setting refuses a recipe's steps before any of them runs", async (t) => {
+  const { app, api, workspace } = await served(t);
+  const context = app.runtime.context();
+  const recipe = app.knowledge.proposeProcedure(context, {
+    name: "write two files", preconditions: [],
+    steps: [
+      { tool: "files.write", args: { path: "one.txt", content: "one" }, expected: { path: "one.txt", bytes: 3 } },
+      { tool: "files.write", args: { path: "two.txt", content: "two" }, expected: { path: "two.txt", bytes: 3 } },
+    ],
+  });
+  await app.knowledge.verifyProcedure(context, recipe.id);
+  await api("POST", "/api/policy", { preset: "read-only" });
+  await assert.rejects(() => app.knowledge.replayProcedure(app.runtime.context(), recipe.id),
+    /Your settings do not allow this/);
+  assert.equal(await readFile(join(workspace, "one.txt"), "utf8"), "one", "only what the verification wrote is there");
+});
+
+test("a saved password inside a tool call never reaches the question the person is shown", async (t) => {
+  const secret = "sk-live-do-not-print-me";
+  const { app, api } = await served(t, [calls(write("c1", `notes-${secret}.txt`, "one")), say("done")]);
+  app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
+  assert.equal(paused.status, "needs_input");
+  const waiting = (await api("GET", "/api/policy")).body.waiting;
+  const shown = JSON.stringify([paused.output, waiting, app.store.events(paused.id)]);
+  assert.ok(!shown.includes(secret), "the question, the waiting list and the event log are all scrubbed");
+  assert.match(paused.output, /SERVICE_TOKEN/, "the name of the secret stands in for its value");
+});
+
 test("read only refuses a change in plain words without stopping the task", async (t) => {
   const { app, api, workspace } = await served(t, [calls(write("c1", "blocked.txt", "no")), say("I could not change that file")]);
   await api("POST", "/api/policy", { preset: "read-only" });

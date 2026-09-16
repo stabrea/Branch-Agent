@@ -1,5 +1,9 @@
 import { z } from "zod";
+import { audit } from "./audit.js";
+import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
 import type { Store } from "./store.js";
+
+export { globMatches } from "./policy-resources.js";
 
 /**
  * The owner's approval policy: an ordered list of rules that says, for each tool and for what that
@@ -23,6 +27,11 @@ export const PolicyRuleSchema = z
     decision: PolicyDecisionSchema,
     /** What a "yes" to this question is remembered as, unless the person picks differently. */
     remember: PolicyRememberSchema.default("session"),
+    /**
+     * What the rule is about: a folder, a website, a messaging account or a command. Left out, the
+     * rule covers whatever the tool would touch, which is how every rule written before this behaves.
+     */
+    resource: ResourceMatcherSchema.optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
@@ -37,12 +46,17 @@ export const PolicyLimitsSchema = z
   .strict();
 export type PolicyLimits = z.infer<typeof PolicyLimitsSchema>;
 
+/**
+ * Most rules one policy may hold. It is well above the number of tools this app has, because
+ * deciding a whole kind of thing at once (see src/tool-categories.ts) writes one rule per tool.
+ */
+export const maximumPolicyRules = 300;
 export const PolicyPresetSchema = z.enum(["off", "ask-before-changes", "workspace", "read-only", "custom"]);
 export type PolicyPresetName = z.infer<typeof PolicyPresetSchema>;
 export const PolicySchema = z
   .object({
     preset: PolicyPresetSchema.default("off"),
-    rules: z.array(PolicyRuleSchema).max(100).default([]),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).default([]),
     limits: PolicyLimitsSchema.prefault({}),
   })
   .strict();
@@ -50,7 +64,7 @@ export type Policy = z.infer<typeof PolicySchema>;
 export const PolicyInputSchema = z
   .object({
     preset: PolicyPresetSchema.optional(),
-    rules: z.array(PolicyRuleSchema).max(100).optional(),
+    rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
     limits: PolicyLimitsSchema.partial().optional(),
   })
   .strict();
@@ -114,16 +128,12 @@ const readOnlyPermissions = new Set([
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
   // Looking at a picture or a sound file the person already has changes nothing.
   "media.read",
+  // Figures held only for this task, reports already written, watches, and the brief: all look-only.
+  "data.read", "research.read", "monitors.read", "brief.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
-
-const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** Pattern matching for rules: `*` stands for any text (a path separator included); everything else is literal. */
-export function globMatches(pattern: string, value: string): boolean {
-  return new RegExp("^" + pattern.split("*").map(escaped).join(".*") + "$", "i").test(value);
-}
 
 /** What a call would touch, in the form rules match against: a path, a command, or a host. */
 export function policyTarget(tool: string, args: unknown): string {
@@ -137,16 +147,28 @@ export function policyTarget(tool: string, args: unknown): string {
   return "";
 }
 
-export interface PolicyRequest { tool: string; target: string; readOnly: boolean }
+export interface PolicyRequest {
+  tool: string; target: string; readOnly: boolean;
+  /** What the call is about, for rules that name a folder, a website, an account or a command. */
+  resource?: PolicyResource | null | undefined;
+}
 export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | null }
-/** The first rule that matches decides; with no match the call goes ahead. */
+/** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
+function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
+  if (rule.applies === "changes" && request.readOnly) return false;
+  if (!globMatches(rule.tool, request.tool)) return false;
+  if (!globMatches(rule.match, request.target)) return false;
+  return rule.resource ? resourceMatches(rule.resource, request.resource) : true;
+}
+/**
+ * The first rule that matches decides, and rules that name a particular folder, website, account or
+ * command are looked at before the broader ones, so "never under finance" beats "files are fine".
+ * Within each of those two groups the owner's own order is kept, so an older rule list is unchanged.
+ */
 export function evaluatePolicy(policy: Policy, request: PolicyRequest): PolicyOutcome {
-  for (const rule of policy.rules) {
-    if (rule.applies === "changes" && request.readOnly) continue;
-    if (!globMatches(rule.tool, request.tool)) continue;
-    if (!globMatches(rule.match, request.target)) continue;
-    return { decision: rule.decision, rule };
-  }
+  const named = policy.rules.filter((rule) => rule.resource);
+  const broad = policy.rules.filter((rule) => !rule.resource);
+  for (const rule of [...named, ...broad]) if (ruleCovers(rule, request)) return { decision: rule.decision, rule };
   return { decision: "allow", rule: null };
 }
 
@@ -167,7 +189,7 @@ export function readPolicy(store: Store, owner: string): Policy {
   return saved.success ? saved.data : PolicySchema.parse({});
 }
 /** Saves a preset, a hand-edited rule list, or new limits; anything left out keeps its current value. */
-export function savePolicy(store: Store, owner: string, input: unknown): Policy {
+export function savePolicy(store: Store, owner: string, input: unknown, reason = "The approval settings were saved"): Policy {
   const value = PolicyInputSchema.parse(input ?? {});
   const current = readPolicy(store, owner);
   const next: Policy = {
@@ -176,12 +198,18 @@ export function savePolicy(store: Store, owner: string, input: unknown): Policy 
     limits: PolicyLimitsSchema.parse({ ...current.limits, ...value.limits }),
   };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;
 }
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
-  const next: Policy = { ...current, rules: [PolicyRuleSchema.parse(rule), ...current.rules].slice(0, 100) };
+  const added = PolicyRuleSchema.parse(rule);
+  const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
   store.save("settings", owner, policyKey, next);
+  audit(store, owner, {
+    action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
+    reason: `A standing "${added.decision}" was remembered from a question you answered`, outcome: "saved",
+  });
   return next;
 }

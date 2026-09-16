@@ -39,6 +39,8 @@ import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
+import { recordUncaughtErrors } from "./tracing.js";
+import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -51,10 +53,34 @@ import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
+import { VoiceService, registerVoice } from "./voice-service.js";
+import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { DataTables, registerData } from "./data-tools.js";
+import { Research, registerResearch } from "./research.js";
+import { Monitors, registerMonitors } from "./monitors.js";
+import { MorningBrief, registerBrief } from "./brief.js";
+import { DesktopControl } from "./integrations/desktop.js";
+import { registerDesktop } from "./integrations/desktop-tools.js";
+import { audit } from "./audit.js";
+import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
+// Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
+import { KnowledgeBases } from "./knowledge-bases.js";
+import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
+import { MemoryConsolidation } from "./memory-consolidate.js";
+import { PracticeWorkspace } from "./practice-workspace.js";
+import { ProviderPlugins } from "./provider-plugins.js";
+import type { IssueAccess } from "./integrations/issue-tools.js";
+// Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
+import { registerLabels } from "./labels.js";
+import { Workflows, registerWorkflows } from "./workflows.js";
+import { RunQueue } from "./run-queue.js";
+import { ExecutionLimit } from "./execution-limit.js";
+import { CalendarSettingsStore } from "./calendar.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -120,6 +146,10 @@ export async function createBranch(options: {
   // Version control on this computer only; sending work to a server is switched on separately.
   const git = new GitTools(files, new GitRunner());
   registerGit(registry, git);
+  // This computer's screen and keyboard. The tools are always here so they can explain themselves,
+  // but every one of them refuses until the owner turns the switch on in Settings.
+  const desktop = new DesktopControl(store, { artifacts });
+  registerDesktop(registry, desktop);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -166,7 +196,23 @@ export async function createBranch(options: {
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
+  // Wave 7: one place that turns speech into words and words into speech, whichever service does
+  // the work, plus switching model in one conversation. Voice notes on chat apps come through here.
+  const voice = new VoiceService(store, runtime.models, web.policy, web.policy.guard(globalThis.fetch));
+  registerVoice(registry, voice, store);
+  registerModelSwitch(registry, store, runtime.models);
+  media.voice = voice;
   const channels = new ChannelRouter(store, runtime);
+  channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
+  channels.speakReply = async (text) => {
+    const settings = voice.settings(runtime.owner);
+    // "Keep audio on this computer" wins over every other voice choice, including this one: a
+    // spoken reply made here would still be uploaded to the chat app, and the Voice screen tells
+    // the owner nothing containing sound leaves. The words are sent instead, as they always are.
+    if (!settings.replyWithVoiceOnChannels || settings.keepAudioOnThisComputer) return null;
+    const spoken = await voice.speak(runtime.owner, { text: text.slice(0, 1500), voice: "", speed: 1 });
+    return { bytes: spoken.bytes, mediaType: spoken.mediaType };
+  };
   // Personal details and, when the owner switches it on, a content check, either side of the model.
   const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
@@ -179,30 +225,69 @@ export async function createBranch(options: {
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
   };
+  // Spans are written straight to their own table rather than through the event log, so the same
+  // scrubber is put in front of them explicitly: no attribute can carry a saved password or key.
+  runtime.tracer.scrub = (value) => runtime.hideSecrets(value);
+  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker.
+  sessionLock.onLock = () => runtime.approvals.forgetAll();
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
+  const version = String(createRequire(import.meta.url)("../package.json").version);
+  const userAgent = `BranchAgent/${version}`;
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
   skillPackages.replayRecipe = (recipe, _event, runId) => replayNamedRecipe(knowledge, store, runtime, recipe, runId);
   const packageProblems = skillPackages.restore();
+  // Model connections a plugin brought; nothing is registered until a plugin is switched on, so
+  // this has to exist before the plugins the owner already chose are loaded back.
+  const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
+  plugins.providers = providerPlugins;
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
+  // One trace crosses the boundary: a delivery and a question to another assistant both carry the
+  // traceparent of the task behind them.
+  webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   runtime.notifyEvent = webhooks.notifier(runtime.owner);
   channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
-  const version = String(createRequire(import.meta.url)("../package.json").version);
-  const userAgent = `BranchAgent/${version}`;
+  // Figures, looking things up properly, watching pages, and the one message first thing.
+  const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
+  const dataTables = new DataTables(files, web, writeObserver);
+  registerData(registry, dataTables, artifacts);
+  const research = new Research(store, web, files, documents, writeObserver);
+  registerResearch(registry, research);
+  const monitors = new Monitors(store, web, deliverMessage);
+  registerMonitors(registry, monitors);
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage);
+  registerBrief(registry, brief);
+  scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
+  // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
+  registerLabels(registry, store.labels);
+  const workflows = new Workflows(store, runtime, knowledge);
+  registerWorkflows(registry, workflows);
+  // One count of what is working at once, shared by the web routes and the waiting line.
+  const executions = new ExecutionLimit();
+  const runQueue = new RunQueue(store, runtime, executions);
+  // Whenever anything finishes — a task from the line or a request from the app's own screen — the
+  // line is looked at again, so a task never sits waiting for room that is already there.
+  executions.onRoom = () => {
+    try { runQueue.drain(runtime.owner); } catch { /* the line must never break a finished request */ }
+  };
+  const calendar = new CalendarSettingsStore(store, dataDir);
+  await calendar.seed();
+  scheduler.calendar = calendar;
+  channels.deliveries.holdUntil = (at) => calendar.holdUntil(runtime.owner, at);
   const chatgpt = options.chatgpt;
   if (chatgpt) {
     await chatgpt.load();
@@ -213,7 +298,59 @@ export async function createBranch(options: {
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
+  remoteAgents.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   registerRemoteAgents(registry, remoteAgents);
+  // Documents and saved facts are both asked the same way, and the best answer is put first.
+  const retrieval = new Retrieval(store, runtime.owner, runtime.models);
+  retrieval.add(new DocumentRetriever(documents));
+  retrieval.add(new MemoryRetriever(memory.retrieval));
+  documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // Knowledge bases. Reading passages is charged to the task that asked for it, exactly the way a
+  // model answer is; background reading has no task, so it is recorded as an event instead.
+  const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
+    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
+  knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
+  memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
+  const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
+  // Facts written during a task are compared by meaning as soon as it finishes, never during it.
+  registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  const documentContext = documents;
+  // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
+  // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
+  runtime.documents = {
+    contextFor: async (owner, prompt, signal) => {
+      if (documentContext.settings(owner).useDocuments === false) return null;
+      return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
+        ?? documentContext.contextFor(owner, prompt, signal);
+    },
+  };
+  scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
+  // A safe folder of made-up files to try things in before pointing the app at real work.
+  const practice = new PracticeWorkspace(store, files);
+  // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as
+  // secret:// references and filled in only at the moment of the call.
+  const traceExport = new TraceExporter({
+    store, owner: runtime.owner, policy: web.policy, version,
+    fillSecrets: (headers) =>
+      store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
+  });
+  const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
+  // A finished task's spans go out on their own once sending is on; the exporter itself does
+  // nothing at all while it is off, so this stays quiet until the owner turns it on.
+  runtime.exportSpans = async (runId) => {
+    const settings = traceExportSettings(store, runtime.owner);
+    if (!settings.enabled) return;
+    const spans = store.spans.forRun(runId).filter((span) => span.endedAt !== null);
+    if (!spans.length) return;
+    const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
+    const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    const failed = results.find((result) => !result.ok);
+    store.event(runId, failed ? "trace.send_failed" : "trace.sent",
+      failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
+  };
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -224,8 +361,25 @@ export async function createBranch(options: {
     documents,
     /** Making and reading pictures, speech and sound files. */
     media,
+    /** Writing speech out and reading text aloud, whichever service does the work. */
+    voice,
     /** Finding, tidying and moving saved facts. */
     memory,
+    /** Documents and saved facts behind one interface, with the best answer put first. */
+    retrieval,
+    /** Named sets of folders and files, read into passages and searched by words and by meaning. */
+    knowledgeBases,
+    /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
+    consolidation,
+    /** The practice workspace: made-up files to try tools on safely. */
+    practice,
+    /** Model connections plugins have brought. */
+    providerPlugins,
+    /**
+     * Searching, reading and commenting on issues, once the launcher has loaded the integration
+     * settings. It stays null while no tracker is set up.
+     */
+    issues: null as null | IssueAccess,
     git,
     scheduler,
     chatgpt,
@@ -237,6 +391,8 @@ export async function createBranch(options: {
     /** Assistants elsewhere this one may hand work to. */
     remoteAgents,
     artifacts,
+    /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
+    desktop,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -244,9 +400,16 @@ export async function createBranch(options: {
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
-    secretsFor: (context: ToolContext, names: string[]) =>
-      store.secrets.resolve(context.owner, store.projects.active(context.owner).id, names,
-        { runId: context.runId, purpose: "host command" }),
+    secretsFor: async (context: ToolContext, names: string[]) => {
+      const project = store.projects.active(context.owner).id;
+      const values = await store.secrets.resolve(context.owner, project, names,
+        { runId: context.runId, purpose: "host command" });
+      // The names only; a value never leaves the locker, and never reaches this record.
+      for (const name of Object.keys(values))
+        audit(store, context.owner, { action: "secret.used", actor: "a command you allowed", subject: `${name} (project ${project})`,
+          reason: "A command this assistant ran needed it", source: context.source ?? "owner", runId: context.runId, outcome: "handed over" });
+      return values;
+    },
     /** References, replacement dates, the use audit and the shared scrubber. */
     secrets: store.secrets,
     /** Locking the app, by hand or after a quiet spell. */
@@ -257,6 +420,11 @@ export async function createBranch(options: {
     privacy,
     moderation,
     channels,
+    /** Tables open for a task, reports already written, page watches, and the morning brief. */
+    dataTables,
+    research,
+    monitors,
+    brief,
     web,
     hooks,
     teams,
@@ -274,13 +442,24 @@ export async function createBranch(options: {
     evaluationSuites,
     triggers,
     webhooks,
+    /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
+    workflows,
+    runQueue,
+    /** How much may be going on at once, counted once for the whole app. */
+    executions,
+    calendar,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
       git,
       /** A secret from whichever project is active right now, for GitHub's personal access token. */
-      activeSecret: async (name: string) =>
-        (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "integration" }))[name]!,
+      activeSecret: async (name: string) => {
+        const project = store.projects.active(runtime.owner).id;
+        const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "integration" }))[name]!;
+        audit(store, runtime.owner, { action: "secret.used", actor: "a connection you set up", subject: `${name} (project ${project})`,
+          reason: "A service this assistant talked to needed it", outcome: "handed over" });
+        return value;
+      },
       secret: async (name: string) =>
         (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "channel" }))[name]!,
       web,
@@ -290,11 +469,14 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
+    /** Sending traces and counters to an address the owner chose; off until they turn it on. */
+    traceExport,
     close: () => (closing ??= (async () => {
+      stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
       try {
-        await closeBranch(scheduler, runtime, store, channels);
+        await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
         oauth.closeAll();
       }
@@ -315,7 +497,9 @@ async function closeBranch(
   runtime: Runtime,
   store: Store,
   channels?: ChannelRouter,
+  desktop?: { close(): Promise<void> },
 ): Promise<void> {
+  await desktop?.close().catch(() => undefined);
   await channels?.detachAll();
   const schedulingStopped = scheduler.stop();
   await runtime.shutdown();
@@ -325,6 +509,7 @@ async function closeBranch(
 export * from "./contracts.js";
 export * from "./store.js";
 export * from "./registry.js";
+export * from "./catalog.js";
 export * from "./runtime.js";
 export * from "./demo.js";
 export * from "./providers.js";
@@ -380,7 +565,14 @@ export * from "./recipes.js";
 export * from "./templates.js";
 export * from "./network-policy.js";
 export * from "./policy.js";
+export * from "./policy-resources.js";
 export * from "./approvals.js";
+// Batch 19 (wave 7): spans, sending traces out, the metrics page and the auth rate limit.
+export * from "./tracing.js";
+export * from "./tracing-shapes.js";
+export * from "./tracing-export.js";
+export * from "./metrics.js";
+export * from "./auth-limits.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
@@ -408,6 +600,10 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+export * from "./integrations/desktop.js";
+export * from "./integrations/desktop-tools.js";
+export * from "./integrations/desktop-config.js";
+export * from "./integrations/desktop-banner.js";
 export * from "./pricing.js";
 export * from "./local-models.js";
 export * from "./local-hardware.js";
@@ -417,11 +613,54 @@ export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
 export * from "./memory-hygiene.js";
+export * from "./memory-consolidate.js";
+export * from "./embeddings.js";
+export * from "./vector-store.js";
+export * from "./chunking.js";
+export * from "./bm25.js";
+export * from "./knowledge-bases.js";
+export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
+export * from "./citations.js";
+export * from "./data-table.js";
+export * from "./data-chart.js";
+export * from "./data-tools.js";
+export * from "./research.js";
+export * from "./research-claims.js";
+export * from "./monitors.js";
+export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 export * from "./media.js";
+export * from "./voice.js";
+export * from "./voice-stt.js";
+export * from "./voice-tts.js";
+export * from "./voice-talk.js";
+export * from "./voice-service.js";
+export * from "./voice-api.js";
+export * from "./model-profiles.js";
+export * from "./model-switch.js";
+export * from "./provider-probe.js";
+export * from "./gemini-signin.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
 export * from "./media-settings.js";
 export * from "./media-video.js";
+export * from "./audit.js";
+export * from "./tool-categories.js";
+export * from "./ask-first.js";
+export * from "./practice-workspace.js";
+export * from "./retrieval.js";
+export * from "./provider-plugins.js";
+export * from "./misc-api.js";
+export * from "./integrations/linear.js";
+export * from "./integrations/issue-context.js";
+export * from "./integrations/issue-tools.js";
+// Wave 6 (collaboration and workflows).
+export * from "./labels.js";
+export * from "./conversation-share.js";
+export * from "./workflows.js";
+export * from "./run-queue.js";
+export * from "./execution-limit.js";
+export * from "./calendar.js";
+export * from "./profiles.js";
