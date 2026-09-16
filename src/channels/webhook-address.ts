@@ -57,9 +57,17 @@ export function saveWebhookAddressSettings(store: Store, owner: string, input: u
  * so the address on the Connections card is the address the service is already posting to.
  */
 export function webhookSecret(store: Store, owner: string, channel: string): string {
+  return storedWebhookSecret(store, owner, channel) ?? newSecret(store, owner, channel);
+}
+/**
+ * This channel's random word if it already has one, and nothing at all if it does not. Nothing is
+ * made here, which is what makes it safe to call on the way in: a post from the internet naming a
+ * channel that does not exist must not leave a row behind it, or anyone at all could fill this
+ * computer's settings with names they made up.
+ */
+export function storedWebhookSecret(store: Store, owner: string, channel: string): string | undefined {
   const saved = AddressSchema.safeParse(store.get("settings", owner, key(channel))?.data ?? {});
-  if (saved.success) return saved.data.secret;
-  return newSecret(store, owner, channel);
+  return saved.success ? saved.data.secret : undefined;
 }
 /** A fresh word, for when the owner thinks somebody else has seen the address. */
 export function rotateWebhookSecret(store: Store, owner: string, channel: string): string {
@@ -91,12 +99,17 @@ export function sameSecret(supplied: string, expected: string): boolean {
  * Why a post to this address is not answered, or null when it may be. An address carrying the right
  * word is always answered; one carrying the wrong word never is; one carrying none is answered only
  * while the owner is still being given time to paste the new addresses in.
+ *
+ * Nothing is written here. This runs before anything has been checked, on a post that may have come
+ * from anywhere, so a channel that has no word yet is simply one whose word does not match — never
+ * a reason to make one and keep it. The word is made when the owner looks at the Connections card.
  */
 export function webhookAddressRefusal(
   store: Store, owner: string, channel: string, supplied: string | undefined,
 ): string | null {
-  const expected = webhookSecret(store, owner, channel);
-  if (supplied !== undefined) return sameSecret(supplied, expected) ? null : "No chat service is connected at that address";
+  const wrongAddress = "No chat service is connected at that address";
+  const expected = storedWebhookSecret(store, owner, channel);
+  if (supplied !== undefined) return expected && sameSecret(supplied, expected) ? null : wrongAddress;
   if (webhookAddressSettings(store, owner).acceptOldAddresses) return null;
-  return "No chat service is connected at that address";
+  return wrongAddress;
 }

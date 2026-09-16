@@ -1500,6 +1500,18 @@ export class Runtime {
    */
   private letOldestQuestionGo(dropped: PendingApproval): void {
     const message = droppedPendingMessage(dropped.label);
+    // A question that went away unanswered is a thing the assistant asked for and did not get, so
+    // it belongs in the same record as every yes and no. Written first and on its own, because the
+    // record is the one place a person reads afterwards and it must not be lost if telling the
+    // task itself goes wrong.
+    try {
+      audit(this.store, this.owner, {
+        action: "approval.decided", actor: this.owner,
+        subject: `${dropped.tool}${dropped.target ? ` on ${dropped.target}` : ""}`,
+        reason: message.slice(0, 500), source: dropped.source, origin: dropped.source,
+        runId: dropped.runId, outcome: "let go unanswered",
+      });
+    } catch { /* the record must never break the question being asked now */ }
     try {
       this.store.event(dropped.runId, "policy.ask.dropped", { name: dropped.tool, target: dropped.target, label: dropped.label, message });
       if (this.store.run(dropped.runId)?.status === "needs_input") this.store.finish(dropped.runId, "failed", message);

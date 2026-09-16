@@ -664,3 +664,162 @@ test("`branch approve` binds its answer to the request the task actually stopped
   assert.equal(app.runtime.approvals.answer(run.sessionId, "files.write", target, "0".repeat(32)), undefined,
     "the answer must not cover a request the owner never saw");
 });
+
+// ---------------------------------------------------------------------------
+// Integration pass: four things the review of this branch asked to see proved.
+// ---------------------------------------------------------------------------
+
+test("a post from outside never leaves a webhook address behind for a name nobody connected", async (t) => {
+  const { app, root } = await fixture(t);
+  const { startServer } = await import("../dist/server.js");
+  const { storedWebhookSecret, webhookAddressSettings } = await import("../dist/channels/webhook-address.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const owner = app.runtime.owner;
+  const saved = () => app.store.list("settings", owner).filter((row) => row.id.startsWith("webhook-address:")).length;
+  assert.equal(saved(), 0, "nothing has an address until the owner looks at the Connections card");
+
+  // Somebody on the internet knocking on names they made up, with a word and without one, in both
+  // shapes of address. Not one of those knocks may write anything down on this computer.
+  const knock = (path) => fetch(`${server.url}${path}`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: "{}" }).catch(() => undefined);
+  for (const name of ["made-up-one", "made-up-two", "made-up-three"]) {
+    await knock(`/webhooks/chat/${name}/${"0".repeat(32)}`);
+    await knock(`/webhooks/whatsapp/${name}/${"a".repeat(32)}`);
+    await knock(`/webhooks/chat/${name}`);
+    assert.equal(storedWebhookSecret(app.store, owner, name), undefined, `${name} must not be given an address of its own`);
+  }
+  assert.equal(saved(), 0, "a stranger cannot fill this computer's settings with names they invented");
+  // Nor can a stranger start the clock on the grace period the owner is meant to be given.
+  assert.equal(webhookAddressSettings(app.store, owner).oldAddressesEndOn, "");
+});
+
+test("an older database whose record has only the one column is brought forward with its rows", async (t) => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { AuditLog, auditCsv } = await import("../dist/audit.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-audit-old-"));
+  const file = join(root, "old.db");
+
+  // Exactly the table an older release wrote: a source and no origin, two rows already in it, and
+  // the two rules that refuse any later edit. This is the shape the new column has to be added to.
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE audit(id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL,
+    at TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, subject TEXT NOT NULL, reason TEXT NOT NULL,
+    source TEXT NOT NULL, run_id TEXT, outcome TEXT NOT NULL);
+    CREATE TRIGGER audit_is_append_only_update BEFORE UPDATE ON audit
+      BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be changed'); END;
+    CREATE TRIGGER audit_is_append_only_delete BEFORE DELETE ON audit
+      BEGIN SELECT RAISE(ABORT, 'The record of what the assistant was allowed to do cannot be removed'); END;`);
+  for (const [action, source, outcome] of [["approval.decided", "owner", "allowed"], ["policy.changed", "schedule", "saved"]])
+    old.prepare("INSERT INTO audit(owner,at,action,actor,subject,reason,source,run_id,outcome) VALUES(?,?,?,?,?,?,?,NULL,?)")
+      .run("local", new Date().toISOString(), action, "local", "something", "from before", source, outcome);
+  old.close();
+
+  // Opening it with this release adds the column without touching a single row that is already there.
+  const db = new DatabaseSync(file);
+  t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
+  const log = new AuditLog(db);
+  assert.ok(db.prepare("PRAGMA table_info(audit)").all().some((row) => String(row.name) === "origin"),
+    "the column is added to a database that already has rows in it");
+  const entries = log.list("local");
+  assert.equal(entries.length, 2, "nothing was lost on the way");
+  assert.equal(entries.find((row) => row.action === "policy.changed").origin, "schedule",
+    "an older row's origin is the source it always had");
+  assert.equal(log.list("local", { origin: "schedule" }).length, 1, "and the filter finds it");
+  assert.equal(log.list("local", { origin: "owner" }).length, 1);
+  // A new row written into the brought-forward table keeps the two apart, and so does the export.
+  log.record("local", { action: "approval.decided", actor: "local", subject: "files.write on note.txt",
+    reason: "answered on a phone", source: "telegram", origin: "schedule", outcome: "allowed" });
+  assert.match(auditCsv(log.list("local")), /"telegram","schedule"/);
+  // Opening the same database a second time must not try to add the column again.
+  assert.doesNotThrow(() => new AuditLog(db));
+  // And the record still only grows.
+  assert.throws(() => db.prepare("DELETE FROM audit WHERE id=1").run(), /cannot be removed/);
+});
+
+test("a debugger lives through one press after another and goes when the conversation's task ends", async (t) => {
+  const { app } = await fixture(t);
+  const { saveDebugSettings } = await import("../dist/index.js");
+  const { fileURLToPath } = await import("node:url");
+  const { writeFile } = await import("node:fs/promises");
+  const fixtures = join(fileURLToPath(import.meta.url), "..", "fixtures");
+  await saveDebugSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    adapters: { fake: { path: process.execPath, args: [join(fixtures, "fake-debug-adapter.mjs")], launch: {} } } });
+  t.after(() => app.debugAdapters.stopAll());
+  await writeFile(join(app.files.base, "four.ts"), "export const four = 4;\n");
+
+  // "Nothing is being debugged" is the one answer that means the program has gone; anything else
+  // — including "it has not stopped on a line yet" — means it is still there.
+  const stillDebugging = async () => {
+    try { await app.debugAdapters.variables({ limit: 1 }); return true; }
+    catch (error) { return !/Nothing is being debugged/.test(error.message); }
+  };
+
+  // Pressing a tool by hand is what "Try a tool" does: a context with no task behind it at all.
+  const press = () => app.runtime.context({ signal: AbortSignal.timeout(20000) });
+  const first = press();
+  assert.equal(first.runId, "", "a press is not a task");
+  await app.debugAdapters.start({ adapter: "fake", program: "four.ts", args: [], breakpoints: [], waitMs: 200 }, first);
+  assert.equal(await stillDebugging(), true);
+  // A second press, and a third. The program being debugged has to still be there after every one
+  // of them, or the owner could never look at anything after starting it.
+  for (const again of [press(), press()]) {
+    assert.equal(await app.debugAdapters.closeRun(again.runId), 0, "one press ending is not a task ending");
+    await delay(100);
+    assert.equal(await stillDebugging(), true, "what the press before started is still running");
+  }
+
+  // Now a real conversation's task ends, and what it started goes with it.
+  await app.debugAdapters.stop(first).catch(() => undefined);
+  const run = app.store.createRun(app.runtime.owner, "debug four.ts");
+  app.store.message(run.sessionId, { role: "user", content: "debug four.ts" });
+  const inside = app.runtime.context({ runId: run.id, signal: AbortSignal.timeout(20000) });
+  await app.debugAdapters.start({ adapter: "fake", program: "four.ts", args: [], breakpoints: [], waitMs: 200 }, inside);
+  assert.equal(await stillDebugging(), true);
+  app.store.finish(run.id, "completed", "done");
+  await delay(400);
+  assert.equal(await stillDebugging(), false,
+    "the conversation's task ending takes the debugger with it");
+});
+
+test("a question let go because the conversation was full is written into the record", async (t) => {
+  const { app } = await fixture(t, (request) =>
+    request.messages.some((message) => message.role === "tool")
+      ? say("written")
+      : { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "last.txt", content: "hello" }) }] });
+  const { maximumPendingPerSession } = await import("../dist/approvals.js");
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "files.write", decision: "ask", remember: "session" }] });
+  const owner = app.runtime.owner;
+
+  // The conversation is already waiting on as many questions as it may be, each from a real task.
+  const runs = [app.store.createRun(owner, "note-0")];
+  const sessionId = runs[0].sessionId;
+  for (let n = 0; n < maximumPendingPerSession; n++) {
+    const made = n === 0 ? runs[0] : app.store.createRun(owner, `note-${n}`, sessionId);
+    if (n > 0) runs.push(made);
+    const dropped = app.runtime.approvals.ask({ runId: made.id, sessionId, tool: "files.write",
+      target: `note-${n}.txt`, label: `write note-${n}.txt`, question: `May I write note-${n}.txt?`,
+      source: "owner", remember: "session", askedAt: new Date().toISOString(), fingerprint: String(n).padStart(32, "0") });
+    assert.equal(dropped, null, "nothing goes while there is still room");
+  }
+  assert.equal(app.runtime.approvals.roomToAsk(sessionId), 0);
+  app.store.finish(runs[0].id, "needs_input", "May I write note-0.txt?");
+
+  // One more task in the same conversation stops to ask: the oldest question is let go.
+  const before = app.store.audit.list(owner, { action: "approval.decided" }).length;
+  await app.runtime.run({ prompt: "write the last note", sessionId });
+  const waiting = app.runtime.approvals.waiting(sessionId);
+  assert.equal(waiting.length, maximumPendingPerSession, "the cap holds");
+  assert.equal(waiting.some((entry) => entry.target === "note-0.txt"), false, "the oldest is the one that went");
+  assert.equal(app.runtime.approvals.resolve(sessionId, String(0).padStart(32, "0")), undefined,
+    "a question that was let go cannot be answered afterwards");
+
+  // The task it belonged to is told plainly, and the record says so too.
+  assert.equal(app.store.run(runs[0].id).status, "failed");
+  assert.match(app.store.run(runs[0].id).output, /was let go/);
+  const entries = app.store.audit.list(owner, { action: "approval.decided" });
+  assert.equal(entries.length, before + 1, "a question that went away unanswered is written down");
+  assert.equal(entries[0].outcome, "let go unanswered");
+  assert.equal(entries[0].subject, "files.write on note-0.txt");
+  assert.match(entries[0].reason, /was let go/);
+});
