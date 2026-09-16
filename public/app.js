@@ -1,3 +1,4 @@
+import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -443,9 +444,10 @@ async function refresh() {
   const active = state.activeModel ?? { provider: state.provider, presetName: state.provider, model: "" };
   const demo = active.provider === "offline-demo-fixture";
   $("provider").textContent = demo ? "Offline demonstration" : `${active.presetName} · ${active.model}`;
-  if (savedAppearance !== state.preferences.appearance) {
-    savedAppearance = state.preferences.appearance;
-    applyAppearance(savedAppearance);
+  const look = JSON.stringify(state.preferences);
+  if (savedAppearance !== look) {
+    savedAppearance = look;
+    applyAppearance(state.preferences);
   }
   $("context-provider").textContent = demo ? "Not connected" : active.presetName;
   $("context-runs").textContent = state.runs.filter(
@@ -1561,16 +1563,15 @@ $("procedure-json").value = JSON.stringify(
   null,
   2,
 );
-function applyAppearance(value) {
-  const theme = value === "daylight" ? "daylight" : "forest";
-  document.documentElement.dataset.theme = theme;
-  $("appearance").value = theme;
-}
-applyAppearance("forest");
-form("settings-form", async () => {
-  const value = await api("preferences", { appearance: $("appearance").value });
-  savedAppearance = value.appearance;
-  applyAppearance(savedAppearance);
+initAppearance((value) => api("preferences", value));
+$("settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    savedAppearance = JSON.stringify(await api("preferences", currentAppearance()));
+    toast("Appearance saved.");
+  } catch (error) {
+    toast(error.message);
+  }
 });
 $("appearance-shortcut").addEventListener("click", () => {
   displayView("settings");
@@ -1664,3 +1665,6 @@ import("./providers.js").then((mod) => {
     mod.initProvidersUI().catch((e) => toast(`Provider UI error: ${e.message}`));
   };
 }).catch((e) => console.error("Failed to load providers UI:", e));
+
+/* Used by public/shell.js (the rail and the command palette). */
+export { api, displayView, openConversation, titles };

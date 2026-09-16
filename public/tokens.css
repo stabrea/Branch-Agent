@@ -1,0 +1,255 @@
+/* Branch Agent token layer — the only place a colour is written down.
+   Values copied from the approved KeepOak redesign (keepoak-redesign-public/public):
+     Forest  <- site.css :root                       (the dark "forest floor" ground)
+     Daylight<- site.css :root[data-theme="light"]   + app/portal.css card/ink/muted/line
+     Accents <- site.css, app/appearance.css, public-theme.css (see each block)
+   Nothing below this file may hard-code a colour. See docs/design.md. */
+
+/* ---------- Forest (dark, the default) ---------- */
+:root {
+  /* surfaces — site.css :root */
+  --ground: #03140b;
+  --panel: rgba(5, 24, 15, 0.94);
+  --panel-2: rgba(8, 30, 19, 0.7);
+  --surface: #051810;
+  --well: rgba(0, 0, 0, 0.26);
+  --scrim: rgba(1, 10, 5, 0.62);
+  /* ink — site.css :root --text/--text-2/--text-3 */
+  --text: #edf1ea;
+  --muted: rgba(237, 241, 234, 0.78);
+  --faint: rgba(237, 241, 234, 0.6);
+  /* edges — site.css :root --line/--line-2/--hover/--press */
+  --line: rgba(236, 241, 233, 0.12);
+  --line-strong: rgba(236, 241, 233, 0.22);
+  --hover: rgba(237, 241, 234, 0.07);
+  --selected: rgba(237, 241, 234, 0.11);
+  /* warm paper accents — site.css :root --paper/--paper-2/--paper-text/--paper-mute/--paper-line */
+  --paper: #f4f1e8;
+  --paper-2: #fffdf7;
+  --paper-text: #17201b;
+  --paper-mute: #55605a;
+  --paper-line: #d8d5c9;
+  /* state — site.css :root --ok/--warn/--bad and their tints */
+  --good: #86d6a0;
+  --good-tint: rgba(134, 214, 160, 0.13);
+  --warn: #f2c572;
+  --warn-tint: rgba(242, 197, 114, 0.13);
+  --bad: #f28b7a;
+  --bad-tint: rgba(242, 139, 122, 0.13);
+  --danger: var(--bad);
+  --shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.65);
+  color-scheme: dark;
+}
+
+/* ---------- Daylight (light) ---------- */
+:root[data-theme="daylight"] {
+  /* site.css :root[data-theme="light"] --ground, app/portal.css --card */
+  --ground: #dde7da;
+  --panel: rgba(255, 253, 248, 0.96);
+  --panel-2: rgba(250, 251, 247, 0.8);
+  --surface: #fffdf8;
+  --well: rgba(23, 40, 30, 0.05);
+  --scrim: rgba(20, 34, 26, 0.4);
+  /* app/portal.css --ink/--muted; site.css light --text-3 */
+  --text: #17231d;
+  --muted: #59675f;
+  --faint: rgba(18, 33, 26, 0.64);
+  /* site.css light --line/--line-2/--hover/--press */
+  --line: rgba(23, 40, 30, 0.14);
+  --line-strong: rgba(23, 40, 30, 0.24);
+  --hover: rgba(23, 40, 30, 0.06);
+  --selected: rgba(23, 40, 30, 0.1);
+  /* app/portal.css --paper/--card; site.css light --paper-line */
+  --paper: #f4f1e9;
+  --paper-2: #fffdf8;
+  --paper-text: #17231d;
+  --paper-mute: #59675f;
+  --paper-line: #d8d8cd;
+  /* site.css :root[data-theme="light"] --ok/--warn/--bad */
+  --good: #1f7a45;
+  --good-tint: rgba(31, 122, 69, 0.12);
+  --warn: #8a5a00;
+  --warn-tint: rgba(196, 140, 20, 0.15);
+  --bad: #b3321f;
+  --bad-tint: rgba(179, 50, 31, 0.1);
+  --shadow: 0 24px 60px -22px rgba(20, 40, 28, 0.35);
+  color-scheme: light;
+}
+
+/* ---------- Accents ----------
+   --copper* keeps its historical name so existing rules need no rewrite;
+   --accent is the same colour under the name usage.js and new code read. */
+:root {
+  /* Copper (default) — site.css --copper/--copper-hi/--copper-lo/--on-copper/--copper-text */
+  --copper: #e07033;
+  --copper-hi: #f08a4e;
+  --copper-low: #9a4618;
+  --on-copper: #1b0a02;
+  --copper-text: #f4a06c;
+}
+:root[data-theme="daylight"] {
+  /* site.css :root[data-theme="light"] --copper-text; --on-copper stays dark in both themes */
+  --copper-text: #a3480f;
+}
+/* Leaf — public-theme.css html[data-theme=light] / html[data-theme] --pk-accent */
+:root[data-accent="leaf"] {
+  --copper: #d3e3b6;
+  --copper-hi: #e2eecb;
+  --copper-low: #8fa86c;
+  --on-copper: #17261b;
+  --copper-text: #d3e3b6;
+}
+:root[data-accent="leaf"][data-theme="daylight"] {
+  --copper: #35563b;
+  --copper-hi: #42684a;
+  --copper-low: #22381f;
+  --on-copper: #ffffff;
+  --copper-text: #2b4630;
+}
+/* Earth — app/appearance.css html[data-palette=earth] --leaf (light and dark) */
+:root[data-accent="earth"] {
+  --copper: #e4ba94;
+  --copper-hi: #efceae;
+  --copper-low: #a17a55;
+  --on-copper: #251c17;
+  --copper-text: #e4ba94;
+}
+:root[data-accent="earth"][data-theme="daylight"] {
+  --copper: #77523b;
+  --copper-hi: #8d6449;
+  --copper-low: #533625;
+  --on-copper: #ffffff;
+  --copper-text: #6a4833;
+}
+/* Slate — app/appearance.css html[data-palette=slate] --leaf (light and dark) */
+:root[data-accent="slate"] {
+  --copper: #b0d0e0;
+  --copper-hi: #c6dfec;
+  --copper-low: #6f93a5;
+  --on-copper: #18242c;
+  --copper-text: #b0d0e0;
+}
+:root[data-accent="slate"][data-theme="daylight"] {
+  --copper: #3f6378;
+  --copper-hi: #4d768e;
+  --copper-low: #2b4655;
+  --on-copper: #ffffff;
+  --copper-text: #35566a;
+}
+/* Ink — public-theme.css --pk-ink, a quiet accent for people who want no colour */
+:root[data-accent="ink"] {
+  --copper: #f1eddd;
+  --copper-hi: #ffffff;
+  --copper-low: #a9a494;
+  --on-copper: #11261e;
+  --copper-text: #f1eddd;
+}
+:root[data-accent="ink"][data-theme="daylight"] {
+  --copper: #233529;
+  --copper-hi: #33483a;
+  --copper-low: #17231d;
+  --on-copper: #ffffff;
+  --copper-text: #233529;
+}
+/* Swatches for the appearance screen: the same five accents, shown for the live theme. */
+:root {
+  --swatch-copper: #e07033;
+  --swatch-leaf: #d3e3b6;
+  --swatch-earth: #e4ba94;
+  --swatch-slate: #b0d0e0;
+  --swatch-ink: #f1eddd;
+}
+:root[data-theme="daylight"] {
+  --swatch-leaf: #35563b;
+  --swatch-earth: #77523b;
+  --swatch-slate: #3f6378;
+  --swatch-ink: #233529;
+}
+:root {
+  /* Tints derived once, here, so no component invents an alpha of its own. */
+  --accent: var(--copper);
+  --accent-soft: color-mix(in srgb, var(--copper) 6%, transparent);
+  --accent-tint: color-mix(in srgb, var(--copper) 12%, transparent);
+  --accent-edge: color-mix(in srgb, var(--copper) 28%, transparent);
+  --accent-ring: color-mix(in srgb, var(--copper) 34%, transparent);
+  --accent-glow: color-mix(in srgb, var(--copper) 14%, transparent);
+  /* names public/usage.js reads when it paints its canvas */
+  --border: var(--line);
+  --text-dim: var(--faint);
+}
+
+/* ---------- Type ---------- */
+:root {
+  --display: Archivo, "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: Geist, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Consolas, monospace;
+  --text-scale: 1;
+  font-family: var(--body);
+  font-size: calc(15px * var(--text-scale));
+  color: var(--text);
+  background: var(--ground);
+  font-synthesis: none;
+}
+:root[data-font="system"] {
+  --body: system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --display: system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+:root[data-text-size="small"] {
+  --text-scale: 0.9;
+}
+:root[data-text-size="large"] {
+  --text-scale: 1.15;
+}
+
+/* ---------- Space, radius, focus ---------- */
+:root {
+  --density: 1;
+  --s1: calc(4px * var(--density));
+  --s2: calc(8px * var(--density));
+  --s3: calc(12px * var(--density));
+  --s4: calc(16px * var(--density));
+  --s5: calc(24px * var(--density));
+  --s6: calc(32px * var(--density));
+  --s7: calc(48px * var(--density));
+  --r1: 8px;
+  --r2: 12px;
+  --r3: 16px;
+  --r4: 20px;
+  --icon-w: 74px;
+  --rail-w: 244px;
+  --aside-w: 300px;
+  --ring: 2px solid var(--copper-hi);
+}
+:root[data-density="compact"] {
+  --density: 0.75;
+  --r1: 6px;
+  --r2: 9px;
+  --r3: 12px;
+  --r4: 14px;
+  --icon-w: 66px;
+  --rail-w: 214px;
+}
+:focus-visible {
+  outline: var(--ring);
+  outline-offset: 3px;
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
