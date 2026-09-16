@@ -1967,6 +1967,110 @@ listener that makes every local program one place, which is the honest answer; t
 sees each device separately. The socket a running task streams over is not counted, so a wrong key
 there is refused without being held against anyone.
 
+## What is allowed, trajectories, the live feed, the month view and metering (batch 19, wave 7)
+
+### What is allowed right now
+The details pane beside a conversation lists what that conversation is allowed to do without asking
+again: every yes it has remembered, with the plain words of what it covers and when it runs out,
+and beneath them the standing rules that say "go ahead". Each remembered yes has a "Take this back"
+beside it; taking one back makes the assistant ask again the next time. Before you press any of the
+answers on an approval card, a quiet line under each says what that answer leaves behind — nothing,
+a yes for this conversation that runs out in an hour, or a standing rule you can remove later.
+
+- `GET /api/rules/allowed?session=<id>` — `{ session, grants, standing }`. `grants` are this
+  conversation's remembered answers (`tool`, `target`, `decision`, `label`, `grantedAt`,
+  `expiresAt`, `fingerprint`); `standing` are the rules whose decision is "allow", each with the
+  sentence the settings screen shows.
+- `POST /api/rules/allowed/revoke` — `{ session, tool, target }`. Removes one remembered answer and
+  hands back what is left. A yes that is not there any more answers 404.
+
+### Answering an approval from a chat app
+When a task started from Telegram or Discord stops to ask whether it may go ahead, the question is
+put in that chat with buttons: Yes, Yes always (only for a task you started yourself, the same rule
+the app's own card follows) and No. Telegram uses an inline keyboard, Discord an action row of
+message components. Each button carries its answer and the fingerprint of the exact request, so a
+yes cannot be replayed against a different one, and the conversation it belongs to is worked out
+from the chat rather than carried in the button — Telegram allows only 64 bytes there.
+
+A channel with no buttons — WhatsApp, email — gets the same question with "Reply y for yes, a for
+yes always, or n for no." A bare `y`, `a` or `n` from a chat whose conversation has a question
+waiting answers it; anything longer is an ordinary message, whatever it happens to say. The answer
+goes through the same approval path as the app's own card, and the record of what the assistant was
+allowed to do says which chat app it was answered on.
+
+### A task's trajectory
+A trajectory is one JSON file holding everything a task actually did, in a shape that is written
+down here and does not move, so an evaluation tool can read a file saved months ago. "Save
+trajectory" in the Look inside panel writes one; `runs.export` hands the same thing to the
+assistant itself.
+
+- `GET /api/runs/<id>/trajectory` — one task.
+- `GET /api/runs/trajectories.jsonl?limit=<1-500>` — many tasks, newest first, one trajectory per
+  line, for feeding an evaluation run. This one is the owner's own: a second person's profile is
+  refused, because every task at once is the whole history rather than one task of theirs.
+- Tool: `runs.export` (`{ runId? }`, defaults to the task it is called in; read-only).
+
+The shape: `format` is always `"branch-agent-trajectory"` and `formatVersion` is `1`. Beside them,
+`exportedAt`, `version` (the Branch that ran the task), `run` (`id`, `sessionId`, `prompt`,
+`status`, `output`, times), `seconds`, `rounds` (each model round with its provider, model, preset,
+duration, prompt size, tokens, whether the provider counted them, and its cost), `calls` (each tool
+call with what went in and what came back, both clipped to 600 characters, its status and its
+receipt), `plan`, `verdicts`, `steering`, `questions`, `timeline`, `receiptCounts`, `usage`, `cost`,
+`messages` (the conversation as the model saw it) and `spans` (up to 500 steps recorded while it
+ran). Saved passwords and keys are taken out before anything leaves.
+
+### The live event stream
+`GET /api/events/stream` is Server-Sent Events carrying every event of this workspace, not just one
+task's. It is behind the same local key as every other route, so a browser reads it with `fetch`
+and a stream reader rather than `EventSource`, which cannot carry a key. The Activity screen uses
+it for the "Happening now" feed, and it starts and stops with that screen.
+
+- `kind=tool.completed,tool.failed` — only these kinds. Leave it out for every kind. At most 20.
+- `after=<id>` — everything after that event id, so a client that reconnects carries on rather than
+  repeating itself. `after=0` replays from the beginning. Leaving `after` out means "only what
+  happens from now on", which is what a fresh screen wants.
+- `maxMs=<milliseconds>` — how long the connection is held open. The default is 150 000, and that
+  is also the ceiling: a larger number is brought back down to it.
+
+One connection is closed after 2 000 events, whichever comes first. An event's body can hold what a
+tool was asked to do, so every one of them has any saved password or key taken back out of it before
+it is sent, the same way the rest of the app does. A second person's profile sees only its own
+events, never the owner's.
+
+Each message is `id: <n>`, `event: <kind>`, `data: {"id","runId","kind","data","createdAt"}`. The
+stream opens with an `event: ready` naming where it started and closes with an `event: end` naming
+the last id it sent, which is the id to pass as `after` next time.
+
+### What a month cost
+The Usage screen opens on this month: what it has cost so far across the tasks whose model has a
+price on file, one plain sentence saying what it is heading for at that pace ("At this pace, about
+$X this month"), and the same money broken three ways — by model, by conversation, and by where the
+task came from. A month in which no model had a price says so rather than showing $0.00. A task is
+not filed under a project anywhere in the ledger, so there is no cost-per-project breakdown.
+
+Beside it, "How it has been going" counts the middle round's size (the middle, not the average, so
+one enormous task does not colour it), how many rounds were counted, how often a tool worked, and
+how many conversations had to be shortened to make room. All of it comes from `GET /api/usage`,
+which now returns a `statistics` record alongside `data` and `stats`.
+
+The spreadsheet at `GET /api/usage/export.csv` carries `estimatedCostUsd`, `costPerRunUsd`,
+`dearestModel`, `dearestModelCostUsd`, `runsWithPrice` and `runsWithoutPrice`. A day whose models
+had no price leaves the money cells empty rather than writing a zero.
+
+### Keeping a usage spreadsheet on a schedule (metering)
+Branch can keep a spreadsheet of this month's usage in a folder of your own workspace and write it
+again at an interval you choose. It is off until you ask for it, and it is written on this computer
+only — nothing is sent anywhere.
+
+- `GET /api/usage/metering` / `POST /api/usage/metering` — `{ enabled, folder, every }`, where
+  `every` is `hourly`, `daily` or `weekly` and `folder` is a plain name inside the workspace. A
+  folder that would climb out of the workspace is refused when you save it, not later.
+- `POST /api/usage/metering/now` — writes it straight away and says where it went.
+
+The file is named after the month (`usage-2026-09.csv`) and holds the same money columns as the
+export above. The scheduler's existing beat writes it; a folder it cannot write to is passed over
+quietly rather than stopping the rest of the scheduled work.
+
 ## Specialists that work in different ways (batch 20, wave 7)
 
 A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a
