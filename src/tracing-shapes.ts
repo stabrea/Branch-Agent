@@ -58,6 +58,45 @@ export function metricsToOtlp(points: MetricPoint[], service: { name: string; ve
   };
 }
 
+/** One line of a task's story, on its way out as an OpenTelemetry log record. */
+export interface LogRecordInput {
+  runId: string; kind: string; createdAt: string; data: Record<string, unknown>;
+  /** The trace this line belongs to, when the task was traced; the viewer then shows them together. */
+  traceId?: string | undefined;
+  spanId?: string | undefined;
+}
+/** Anything that went wrong is a warning to whoever is reading; everything else is ordinary. */
+const severityOf = (kind: string): { number: number; text: string } =>
+  /fail|error|refus|denied/i.test(kind) ? { number: 13, text: "WARN" } : { number: 9, text: "INFO" };
+
+/**
+ * Batch 20 (wave 8): the third OpenTelemetry signal. Traces say what shape a task had and the
+ * counters say how much of it there was; the log records are the task's own story — each stored
+ * event as one line, carrying the trace id so a viewer shows the words beside the span they came
+ * from. The values are the ones already scrubbed on the way into the event log.
+ */
+export function eventsToOtlpLogs(rows: LogRecordInput[], service: { name: string; version: string }): unknown {
+  return {
+    resourceLogs: [{
+      resource: { attributes: [attribute("service.name", service.name), attribute("service.version", service.version)] },
+      scopeLogs: [{
+        scope: { name: "branch.runtime", version: service.version },
+        logRecords: rows.map((row) => {
+          const severity = severityOf(row.kind);
+          return {
+            timeUnixNano: nanos(row.createdAt), observedTimeUnixNano: nanos(row.createdAt),
+            severityNumber: severity.number, severityText: severity.text,
+            body: { stringValue: `${row.kind} ${JSON.stringify(row.data)}`.slice(0, 2000) },
+            attributes: [attribute("branch.event.kind", row.kind), attribute("branch.run.id", row.runId)],
+            ...(row.traceId ? { traceId: row.traceId } : {}),
+            ...(row.spanId ? { spanId: row.spanId } : {}),
+          };
+        }),
+      }],
+    }],
+  };
+}
+
 /**
  * Langfuse takes a list of events, each with its own id and moment. A span becomes one
  * `span-create` observation; the task's own span becomes the trace it all hangs off.

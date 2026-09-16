@@ -93,6 +93,13 @@ export class Secrets {
    * `secret://bitwarden/...` reference never reaches the locker's own project look-up.
    */
   credentials: ReferenceFiller | null = null;
+  /**
+   * Batch 20 (wave 8): the other sources that are not the locker's own projects — a command of the
+   * owner's above all. They are asked before the project look-up too, so a reference like
+   * `secret://cmd/deploy` is never refused for the wrong reason. See src/vault-sources.ts for the
+   * contract they all follow.
+   */
+  readonly sources: ReferenceFiller[] = [];
   constructor(private readonly db: DatabaseSync, private readonly locker: Locker) {
     db.exec(`CREATE TABLE IF NOT EXISTS secret_meta(owner TEXT NOT NULL, project TEXT NOT NULL, name TEXT NOT NULL,
       rotated_at TEXT, expires_at TEXT, PRIMARY KEY(owner,project,name));
@@ -153,9 +160,11 @@ export class Secrets {
    * moment of the call and nowhere earlier. A reference to another project is refused.
    */
   async fill<T>(owner: string, project: string, value: T, use: { runId?: string | undefined; purpose: string }): Promise<T> {
-    // The password managers go first: their item names are not locker names, and reading them as a
-    // project would turn "secret://bitwarden/GitHub" into a refusal about the wrong thing.
-    const started = this.credentials ? await this.credentials.fill(value, use) : value;
+    // The other sources go first: their reference names are not locker names, and reading one as a
+    // project would turn "secret://cmd/deploy" or "secret://bitwarden/GitHub" into a refusal about
+    // the wrong thing.
+    let started = this.credentials ? await this.credentials.fill(value, use) : value;
+    for (const source of this.sources) started = await source.fill(started, use);
     const references = collectReferences(started);
     if (!references.length) return started;
     const foreign = references.find((reference) => reference.project !== project);

@@ -65,6 +65,8 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { SessionTokens } from "./session-tokens.js";
+import { CommandSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -268,6 +270,10 @@ export async function createBranch(options: {
   const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
   credentials.gate = () => sessionLock.require();
   store.secrets.credentials = credentials;
+  // Batch 20 (wave 8): a password fetched by a command of the owner's own, behind the same lock.
+  const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
+  commandSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(commandSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -605,6 +611,9 @@ export async function createBranch(options: {
     fillSecrets: (headers) =>
       store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
   });
+  // Short-lived, scoped keys for anything that is not the app window. The master session key is
+  // never one of these; see src/session-tokens.ts.
+  const sessionTokens = new SessionTokens(store.sqlite, store);
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -615,6 +624,13 @@ export async function createBranch(options: {
     if (!spans.length) return;
     const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
     const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    // Batch 20 (wave 8): the same send carries the task's own story as OpenTelemetry log records,
+    // tied to the trace by its id, so a collector shows the words beside the shape.
+    const root = spans.find((span) => !span.parentSpanId) ?? spans[0];
+    await traceExport.sendLogs(store.events(runId).map((event) => ({
+      runId, kind: event.kind, createdAt: event.createdAt, data: event.data,
+      ...(root ? { traceId: root.traceId, spanId: root.spanId } : {}),
+    }))).catch(() => null);
     const failed = results.find((result) => !result.ok);
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
@@ -792,6 +808,8 @@ export async function createBranch(options: {
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
+    /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
+    sessionTokens,
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
       // Wave 8: a connection that stays open must not outlive the app either.
@@ -1079,3 +1097,13 @@ export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
+// may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
+export * from "./session-tokens.js";
+export * from "./vault-sources.js";
+export * from "./channels/allowlist.js";
+export * from "./remote/gateway-auth.js";
+export * from "./providers/cli-agent.js";
+export * from "./cli-attach.js";
+export * from "./cli-completion.js";
+export * from "./cli-run.js";
