@@ -77,6 +77,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - A long conversation keeps a structured note of it — what we are doing, what was decided, what is still open, files touched — and any message you pin stays in front of the assistant.
 - Show the assistant a picture when the model can look at one; a model that cannot says so plainly.
 - A first-run setup that ends with a real test call: ChatGPT plan, API key or offline demonstration.
+- A practice workspace of made-up files to try tools on safely, one click each way from your real folder; an unchangeable record of everything the assistant was allowed to do, saveable as a spreadsheet; approvals decided a kind of thing at a time; "ask me questions first" before a long task; issues from GitHub and Linear pulled into a task from their address, with a pull-request description that closes the issue; and a dependency-free client in `packages/sdk/` for scripts on this computer, with types generated from the app's own input checks.
 - Temporary conversations that never enter search, the library or memory and are discarded when you move on.
 - "Forget what this conversation saved": preview and remove a conversation's own memory facts, keep the ones you edited, and stop that conversation from saving again on its own.
 - Projects with their own instructions, preferred model and secrets; switch the active project to change all three.

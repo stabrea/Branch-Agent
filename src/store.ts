@@ -13,6 +13,7 @@ import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
+import { AuditLog } from "./audit.js";
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
@@ -50,6 +51,7 @@ export class Store {
    * secret value can never be written down even if a tool put one in its result by mistake.
    */
   guardEvent: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data;
+  private auditStore: AuditLog | undefined;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -215,6 +217,10 @@ export class Store {
     if (!this.lockerStore) throw new Error("The secrets locker is not open in this launch");
     return this.lockerStore;
   }
+  /** The append-only record of what the assistant was allowed to do. */
+  get audit(): AuditLog {
+    return (this.auditStore ??= new AuditLog(this.db));
+  }
   sessionTemporary(sessionId: string): boolean {
     return Number(this.db.prepare("SELECT temporary FROM sessions WHERE id=?").get(sessionId)?.temporary ?? 0) === 1;
   }
@@ -245,6 +251,12 @@ export class Store {
   private discardTemporarySessions(): void {
     for (const row of this.db.prepare("SELECT id FROM sessions WHERE temporary=1").all())
       this.purgeSession(String(row.id));
+  }
+  /** An empty conversation with no task in it, for history the app writes itself. */
+  createSession(owner: string): string {
+    const id = randomUUID();
+    this.db.prepare("INSERT INTO sessions(id,owner,created_at,temporary) VALUES(?,?,?,0)").run(id, owner, new Date().toISOString());
+    return id;
   }
   ownsSession(owner: string, sessionId: string): boolean {
     return !!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(sessionId, owner);

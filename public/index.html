@@ -137,6 +137,12 @@
               <p id="first-run-extras-status" role="status"></p>
             </div>
           </section>
+          <section id="practice-card" class="card" hidden>
+            <h2>Somewhere safe to try things</h2>
+            <p>Before you point Branch at the folder your real work is in, you can give it a practice workspace: a handful of made-up files and a short conversation already in the history. Read one, change one, ask it to search — nothing here is real, so nothing you care about can come to harm. One click takes you back to your own folder, and the practice workspace stays behind in case you want it again.</p>
+            <p id="practice-state" class="subtle" role="status"></p>
+            <button id="practice-toggle" type="button">Try the practice workspace</button>
+          </section>
           <details id="saved-conversations" class="card saved-conversations">
             <summary>Saved conversations</summary>
             <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
@@ -207,6 +213,8 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
+              ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
+                ><input id="ask-first-toggle" type="checkbox" /> Ask me questions first</label
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
               ><button id="send">Send ↗</button
@@ -761,6 +769,9 @@
             <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
             <button id="policy-limits-save" type="button">Save these limits</button>
+            <h3>Or decide a whole kind of thing at once</h3>
+            <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
+            <div id="approval-categories" class="card-list"></div>
             <p id="policy-status" class="subtle" role="status"></p>
           </section>
           <section id="desktop-card" class="card">
@@ -977,5 +988,6 @@
     <script src="/memory-tidy.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
+    <script src="/misc.js" type="module"></script>
   </body>
 </html>
