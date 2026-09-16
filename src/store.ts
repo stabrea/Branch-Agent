@@ -11,6 +11,7 @@ import { MemoryFacts } from "./memory.js";
 import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
 import { Locker, type LockerKeySource } from "./locker.js";
+import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
@@ -42,7 +43,13 @@ export class Store {
   readonly skills: InstalledSkills;
   readonly projects: Projects;
   private lockerStore: Locker | undefined;
+  private secretsStore: Secrets | undefined;
   private receiptsStore: Receipts | undefined;
+  /**
+   * Set once the locker is open: every event is passed through it on the way to the log, so a
+   * secret value can never be written down even if a tool put one in its result by mistake.
+   */
+  guardEvent: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -169,7 +176,14 @@ export class Store {
   /** Opens the secrets locker with a key source; values stay encrypted in the database. */
   openLocker(keys: LockerKeySource): Locker {
     this.receiptsStore ??= new Receipts(keys);
-    return (this.lockerStore ??= new Locker(this.db, keys));
+    this.lockerStore ??= new Locker(this.db, keys);
+    this.secretsStore ??= new Secrets(this.db, this.lockerStore);
+    return this.lockerStore;
+  }
+  /** References, replacement dates, the use audit and the shared scrubber, in front of the locker. */
+  get secrets(): Secrets {
+    if (!this.secretsStore) throw new Error("The secrets locker is not open in this launch");
+    return this.secretsStore;
   }
   /** Every table of the person's state, for a backup file; secrets are left out (device-bound key). */
   backup(appVersion: string) { return exportBackup(this.db, appVersion); }
@@ -321,7 +335,8 @@ export class Store {
     this.eventListeners.add(listener);
     return () => { this.eventListeners.delete(listener); };
   }
-  event(runId: string, kind: string, data: Record<string, unknown>): void {
+  event(runId: string, kind: string, input: Record<string, unknown>): void {
+    const data = this.guardEvent(input);
     this.db
       .prepare(
         "INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)",

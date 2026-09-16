@@ -365,6 +365,9 @@ function state(app: Branch): unknown {
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
     tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    lock: app.sessionLock.state(),
+    privacy: app.privacy.settings(),
+    secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
   };
 }
 async function api(
@@ -384,6 +387,8 @@ async function api(
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
+  if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
+  if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
@@ -715,21 +720,60 @@ async function projectsApi(app: Branch, request: IncomingMessage, path: string):
   }
   throw new HttpError(404, "Endpoint not found");
 }
-/** Secret values go in and never come out; only names are listed. */
+/** Secret values go in and never come out; only names, dates and who used them are listed. */
 async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner, locker = app.store.locker;
+  const owner = app.runtime.owner, secrets = app.store.secrets;
   const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
+  if (request.method === "GET" && path === "/api/secrets/audit")
+    return { uses: secrets.audit(owner), reminders: secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)) };
   const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
-  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: locker.names(owner, listMatch[1]!) }; }
+  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: secrets.list(owner, listMatch[1]!) }; }
   if (request.method === "POST" && path === "/api/secrets") {
-    const { project, name, value } = z.object({ project: z.string(), name: z.string(), value: z.string() }).strict().parse(await readBody(request, 64 * 1024));
-    known(project);
-    return locker.set(owner, project, name, value);
+    const body = z.object({ project: z.string(), name: z.string(), value: z.string(), expiresInDays: z.number().optional() })
+      .strict().parse(await readBody(request, 64 * 1024));
+    known(body.project);
+    return secrets.put(owner, body.project, body.name, body.value, { expiresInDays: body.expiresInDays ?? 0 });
   }
-  const removeMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/remove$/.exec(path);
-  if (removeMatch && request.method === "POST") {
+  const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
+  if (action && request.method === "POST") {
+    if (action[3] === "remove") {
+      z.object({}).strict().parse(await readBody(request));
+      return { removed: secrets.remove(owner, action[1]!, action[2]!) };
+    }
+    const body = z.object({ value: z.string(), expiresInDays: z.number().optional() }).strict().parse(await readBody(request, 64 * 1024));
+    known(action[1]!);
+    return secrets.rotate(owner, action[1]!, action[2]!, body.value, { expiresInDays: body.expiresInDays ?? 0 });
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Locking the app, and the privacy checks on messages that leave this computer. */
+async function guardApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (request.method === "GET" && path === "/api/lock") return app.sessionLock.state();
+  if (request.method === "POST" && path === "/api/lock") return app.sessionLock.lock();
+  if (request.method === "POST" && path === "/api/lock/unlock") { z.object({}).strict().parse(await readBody(request)); return app.sessionLock.unlock(); }
+  if (request.method === "POST" && path === "/api/lock/settings") return app.sessionLock.configure(await readBody(request));
+  if (request.method === "GET" && path === "/api/privacy") return app.privacy.settings();
+  if (request.method === "POST" && path === "/api/privacy") return app.privacy.configure(await readBody(request));
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Signing in to an outside service: the app opens the address this returns in the browser. */
+async function connectionsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (request.method === "POST" && path === "/api/connections/oauth/start") {
+    const started = await app.oauth.start(await readBody(request, 16 * 1024));
+    // The flow finishes on its own when the service calls back; nothing here waits for it.
+    app.oauth.waitFor(started.id).catch(() => undefined);
+    return started;
+  }
+  const cancel = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})\/cancel$/.exec(path);
+  if (cancel && request.method === "POST") {
     z.object({}).strict().parse(await readBody(request));
-    return { removed: locker.remove(owner, removeMatch[1]!, removeMatch[2]!) };
+    await app.oauth.cancel(cancel[1]!);
+    return { cancelled: cancel[1] };
+  }
+  const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);
+  if (status && request.method === "GET") {
+    const tokens = await app.oauth.saved(status[1]!);
+    return { id: status[1], signedIn: tokens !== null, expiresAt: tokens?.expiresAt ?? null, scope: tokens?.scope ?? null };
   }
   throw new HttpError(404, "Endpoint not found");
 }
@@ -1150,6 +1194,9 @@ export async function startServer(
         return;
       }
       authorize(request, url, token);
+      // Doing something counts as activity; merely looking does not, or the app's own three-second
+      // refresh of the screen would keep it awake for ever and it would never lock itself.
+      if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
@@ -1164,7 +1211,8 @@ export async function startServer(
     } catch (e) {
       if (!response.headersSent)
         send(response, e instanceof HttpError ? e.status : 400, {
-          error: errorText(e),
+          // A saved password or key can never travel back out in a failure message.
+          error: app.runtime.hideSecrets(errorText(e)),
         });
       else response.end();
     }
@@ -1332,7 +1380,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|connections)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

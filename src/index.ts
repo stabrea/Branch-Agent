@@ -25,6 +25,10 @@ import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import { SessionLock } from "./session-lock.js";
+import { Moderation } from "./moderation.js";
+import { PrivacyGuard } from "./privacy-guard.js";
+import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
@@ -81,6 +85,8 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
+  // One scrubber in front of the whole event log: no saved password or key can be written down.
+  store.guardEvent = (data) => store.secrets.scrubber.deep(data);
   // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
   // private database, never in the person's workspace.
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
@@ -119,6 +125,9 @@ export async function createBranch(options: {
     options.reliability,
   );
   runtime.artifacts = artifacts;
+  // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
+  const sessionLock = new SessionLock(store, runtime.owner);
+  store.secrets.gate = () => sessionLock.require();
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -147,6 +156,15 @@ export async function createBranch(options: {
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
+  // Personal details and, when the owner switches it on, a content check, either side of the model.
+  const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
+    (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
+  const privacy = new PrivacyGuard(store, runtime.owner, moderation);
+  moderation.configure(privacy.settings().moderation);
+  channels.outboundGuard = (text) => privacy.outbound(text);
+  runtime.hideSecrets = (value) => privacy.inbound(store.secrets.scrubber.deep(value));
+  // Signing in to outside services the ordinary way, with the answer coming back to this computer.
+  const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
@@ -192,7 +210,17 @@ export async function createBranch(options: {
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
-      store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
+      store.secrets.resolve(context.owner, store.projects.active(context.owner).id, names,
+        { runId: context.runId, purpose: "host command" }),
+    /** References, replacement dates, the use audit and the shared scrubber. */
+    secrets: store.secrets,
+    /** Locking the app, by hand or after a quiet spell. */
+    sessionLock,
+    /** Signing in to outside services with the standard authorization-code flow and PKCE. */
+    oauth,
+    /** Personal details and the optional content check, either side of the assistant. */
+    privacy,
+    moderation,
     channels,
     web,
     hooks,
@@ -207,8 +235,9 @@ export async function createBranch(options: {
       git,
       /** A secret from whichever project is active right now, for GitHub's personal access token. */
       activeSecret: async (name: string) =>
-        (await store.locker.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name]))[name]!,
-      secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
+        (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "integration" }))[name]!,
+      secret: async (name: string) =>
+        (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "channel" }))[name]!,
       web,
       hooks,
       files,
@@ -216,7 +245,7 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
-    close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
+    close: () => (closing ??= closeBranch(scheduler, runtime, store, channels).finally(() => oauth.closeAll())),
   };
 }
 async function closeBranch(
@@ -247,6 +276,13 @@ export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
 export * from "./projects.js";
 export * from "./locker.js";
+export * from "./vault.js";
+export * from "./pii.js";
+export * from "./moderation.js";
+export * from "./privacy-guard.js";
+export * from "./session-lock.js";
+export * from "./oauth.js";
+export * from "./integrations/job-object.js";
 export * from "./artifacts.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";

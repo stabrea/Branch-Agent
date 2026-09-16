@@ -631,6 +631,42 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+## Batch 23 (wave 4) — secrets that cannot leak, ordinary sign-ins, commands kept in their lane
+`src/vault.ts` puts one `Secrets` service in front of the locker. Tools and settings pass a
+reference (`secret://project/NAME`); `Secrets.fill` walks a value, refuses a reference belonging to
+another project, and substitutes the real thing only at the call boundary. Every value ever unlocked
+is remembered by one `SecretScrubber` built on the existing `scrubSecrets`, and that scrubber is
+attached in exactly three places: `store.guardEvent` (every stored event), `runtime.hideSecrets`
+(tool results, tool errors, run summaries) and the server's error reply. **Order matters**: the
+result is scrubbed *before* `receipts.sign`, so a scrubbed result still verifies — signing first
+would have made every secret-touching run read as "modified" in the receipts view. Two new tables,
+`secret_meta` (replacement day, reminder day) and `secret_use` (which run used which secret, what
+for), back `POST /api/secrets/:project/:NAME/rotate` and `GET /api/secrets/audit`.
+`src/oauth.ts` is a generic authorization-code + PKCE flow: a loopback listener on 127.0.0.1 port 0,
+`state` compared in constant time, the exchange and the refresh through the existing network policy,
+and the tokens kept in the locker as one JSON secret (`OAUTH_<ID>`). No provider-specific UI; a fake
+authorization server proves the round trip and the renewal. Note the trap found here: what the
+service answers with is snake_case and what the locker keeps is camelCase, so there are two schemas.
+`src/integrations/job-object.ts` gets real OS enforcement on Windows without a dependency: a small
+PowerShell supervisor declares the kernel32 calls with `Add-Type`, creates a job object with
+`PROCESS_TIME | PROCESS_MEMORY | KILL_ON_JOB_CLOSE`, and holds the handle for exactly as long as the
+command runs. The job is created *before* the command is spawned, so assignment happens within
+microseconds of the start; `null` at any point falls back to the sampler that was already there, and
+every result reports `isolation: "job-object" | "sampling"`. This genuinely changes behaviour: the
+Windows orphan case in `tests/shell.test.mjs` now cleans itself up, and that test was updated to
+assert the better outcome when a job is in force and the old limitation otherwise. `netless` sets
+the proxy variables to `http://127.0.0.1:9`; it is documented as best effort, not a firewall,
+because a per-command firewall rule needs administrator rights.
+`src/pii.ts` detects emails, phones, cards (Luhn), IBANs (mod-97) and national ids, and never
+repeats the detail it found in its own finding. `src/privacy-guard.ts` applies it outbound (default
+mask, through the new `ChannelRouter.outboundGuard` hook) and inbound (default off, so reading your
+own files is never rewritten), and chains the optional `src/moderation.ts` check. `src/session-lock.ts`
+locks after N quiet minutes and is what `Secrets.gate` calls, so a locked app will not open the
+locker for a new task. No new dependency. Covers A1343, A1687, A1414, A1563, A0590 (partly, through
+the scrubber rather than skill scanning), A2119, A0836, A1856, A1897, A0875, A0877, A0962 (further),
+A2131/A2160 partly (a resource sandbox, not a container) and A2277. Left alone deliberately:
+external vault backends (A1519, A1841), multi-user accounts (A1652, A1896, A2002, A2216), WebAuthn
+(A2074) and Docker isolation (A2152) — none of them fit a single-owner local desktop app.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
