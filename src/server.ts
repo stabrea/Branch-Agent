@@ -770,6 +770,9 @@ async function api(
   if (request.method === "GET" && path === "/api/studies")
     return { studies: app.studies.list(), results: app.studies.results().map(studySummary) };
   if (request.method === "POST" && path === "/api/studies") return app.studies.save(await readBody(request));
+  // Batch 20 (wave 8): the one folder outside the workspace a study may read a benchmark from.
+  if (path === "/api/studies/settings")
+    return { settings: request.method === "POST" ? app.studies.configure(await readBody(request)) : app.studies.settings() };
   if (request.method === "POST" && path === "/api/studies/run") {
     const body = z.object({ id: z.string().min(1).max(64), fresh: z.boolean().default(false) }).strict().parse(await readBody(request));
     const result = await app.studies.run(body.id, { fresh: body.fresh });

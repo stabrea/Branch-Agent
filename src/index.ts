@@ -396,6 +396,9 @@ export async function createBranch(options: {
   executions.onRoom = () => {
     try { runQueue.drain(runtime.owner); } catch { /* the line must never break a finished request */ }
   };
+  // Batch 20 (wave 8): a study's cells are work like any other, so they take places from the same
+  // count. The study runs its first cell on the place it already holds, so it can never be starved.
+  studies.executions = executions;
   const calendar = new CalendarSettingsStore(store, dataDir);
   await calendar.seed();
   scheduler.calendar = calendar;

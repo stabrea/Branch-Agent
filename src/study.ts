@@ -10,10 +10,11 @@
  * the tasks, so a small win on a handful of tasks is not read as a real one.
  */
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
+import type { ExecutionLimit } from "./execution-limit.js";
 import { codeRunSettings } from "./code-run.js";
 import { estimateCost, pricingSettings } from "./pricing.js";
 import { findSuite } from "./evaluation-suites.js";
@@ -98,14 +99,59 @@ interface StudyTask {
   refusal?: string | undefined;
 }
 
+/** Where a benchmark's files may be read from, and what to say when a study points elsewhere. */
+export const StudySettingsSchema = z.object({
+  /**
+   * One folder outside the workspace that benchmark files may be read from. Empty means the
+   * workspace and nothing else, which is where a study starts.
+   */
+  benchmarksFolder: z.string().trim().max(1000).default(""),
+}).strict();
+export type StudySettings = z.infer<typeof StudySettingsSchema>;
+
+const within = (root: string, directory: string): boolean => {
+  if (!root.trim()) return false;
+  const from = resolve(root), to = resolve(directory);
+  return to === from || to.startsWith(from.endsWith(sep) ? from : from + sep);
+};
+/**
+ * Why a study may not read a benchmark from this folder, or null when it may. A study names a
+ * folder on this computer, so it is confined the same way every other path is: your workspace, or
+ * the one benchmarks folder you named in Settings, and nowhere else.
+ */
+export function benchmarkFolderRefusal(directory: string, workspace: string, allowed: string): string | null {
+  if (within(workspace, directory) || within(allowed, directory)) return null;
+  return `A study may only read a benchmark from your workspace${allowed ? `, or from ${allowed},` : ""} `
+    + `and ${directory} is outside that. Move the files there, or name that folder in Settings, and try again.`;
+}
+
 export class StudyRunner {
   private readonly judgeCache = new Map<string, { score: number; reason: string }>();
+  /**
+   * The one count of how much work this computer is doing at once. A study holds the place its
+   * request or waiting-line entry took; every cell it runs beyond the first takes a place of its
+   * own and waits for one rather than pushing past the limit.
+   */
+  executions: ExecutionLimit | undefined;
   constructor(private readonly store: Store, private readonly runtime: Runtime) {}
   private get owner(): string { return this.runtime.owner; }
+  settings(): StudySettings {
+    const saved = StudySettingsSchema.safeParse(this.store.get("settings", this.owner, "studies")?.data ?? {});
+    return saved.success ? saved.data : StudySettingsSchema.parse({});
+  }
+  configure(input: unknown): StudySettings {
+    const value = StudySettingsSchema.parse({ ...this.settings(), ...(input as object) });
+    this.store.save("settings", this.owner, "studies", value);
+    return value;
+  }
 
   /** Saves a study so it can be run again exactly as written. */
   save(input: unknown): Study {
     const study = StudySchema.parse(input);
+    if (study.source.kind === "benchmark") {
+      const refusal = benchmarkFolderRefusal(study.source.directory, this.runtime.workspace, this.settings().benchmarksFolder);
+      if (refusal) throw new Error(refusal);
+    }
     this.store.save("governance", this.owner, `study:${study.id}`, { ...study });
     return study;
   }
@@ -147,23 +193,53 @@ export class StudyRunner {
     return this.finish(study, tasks, [...done.values()], startedAt, resumed, stopped);
   }
 
-  /** Runs what is left, `concurrency` at a time, writing each result down the moment it lands. */
+  /**
+   * Runs what is left, `concurrency` at a time, writing each result down the moment it lands.
+   *
+   * Every cell is a piece of work this computer is doing, so every cell takes a place from the one
+   * shared count. The study already holds a place — the request or the waiting-line entry that set
+   * it going — and the first worker runs on that one, which is what makes several studies at once
+   * safe: each of them can always make progress on a place it already has, whatever the others are
+   * doing, so none can be starved and none can deadlock. Every other worker asks for a place of its
+   * own and waits for one rather than pushing past the limit.
+   */
   private async workThrough(
     study: Study, queue: { task: StudyTask; preset: string; repeat: number }[], done: Map<string, StudyCell>,
   ): Promise<string | null> {
     let next = 0, stopped: string | null = null;
     const spend = () => [...done.values()].reduce((total, cell) => total + (cell.dollars ?? 0), 0);
-    const worker = async (): Promise<void> => {
+    const worker = async (onTheStudysOwnPlace: boolean): Promise<void> => {
       while (next < queue.length && !stopped) {
         if (study.maxDollars !== undefined && spend() > study.maxDollars) { stopped = `The study stopped after $${spend().toFixed(4)}, which is over the $${study.maxDollars.toFixed(4)} it was given.`; return; }
+        const place = onTheStudysOwnPlace ? () => undefined : await this.placeForACell();
+        // No place came free in a reasonable time: this worker stops and the ones that have a place
+        // finish the queue between them. Slower, never stuck.
+        if (!place) return;
         const item = queue[next++]!;
-        const cell = await this.runCell(study, item.task, item.preset, item.repeat);
-        done.set(cellKey(study.id, cell), cell);
-        this.store.save("governance", this.owner, cellKey(study.id, cell), { ...cell });
+        try {
+          const cell = await this.runCell(study, item.task, item.preset, item.repeat);
+          done.set(cellKey(study.id, cell), cell);
+          this.store.save("governance", this.owner, cellKey(study.id, cell), { ...cell });
+        } finally { place(); }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(study.concurrency, queue.length || 1) }, worker));
+    const workers = Math.min(study.concurrency, queue.length || 1);
+    await Promise.all(Array.from({ length: workers }, (_, index) => worker(index === 0)));
     return stopped;
+  }
+  /** How long a cell waits for a place before giving up its turn and letting the others finish. */
+  waitForPlaceMs = 30_000;
+  /** A place from the shared count, waited for rather than refused; null when none came free. */
+  private async placeForACell(): Promise<(() => void) | null> {
+    const limit = this.executions;
+    if (!limit) return () => undefined;
+    const deadline = Date.now() + this.waitForPlaceMs;
+    for (;;) {
+      const place = limit.take();
+      if (place) return place;
+      if (Date.now() >= deadline) return null;
+      await limit.roomSoon(200);
+    }
   }
 
   /** One cell, with retries and Best-of-N. The best try by score is the one that is kept. */
@@ -224,6 +300,10 @@ export class StudyRunner {
     }
     const adapter = findBenchmarkAdapter(study.source.benchmark);
     const directory = study.source.directory;
+    // A study names a folder on this computer, so it is confined exactly as every other path is.
+    // Checked here rather than only when the study was saved, so an older one is refused too.
+    const refusal = benchmarkFolderRefusal(directory, this.runtime.workspace, this.settings().benchmarksFolder);
+    if (refusal) throw new Error(refusal);
     const all = await adapter.discover(directory);
     const picked = (study.subset.length ? study.subset.flatMap((id) => all.filter((task) => task.id === id)) : all).slice(0, study.limit);
     return Promise.all(picked.map((task) => this.benchmarkTask(adapter, task, directory, study)));

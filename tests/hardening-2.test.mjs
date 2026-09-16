@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { createBranch, savePolicy } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
@@ -58,6 +59,84 @@ test("the app hands its guarded fetch to every reader of passages", async (t) =>
   assert.notEqual(app.documents.embeddingFetch, globalThis.fetch, "the document library");
   assert.notEqual(app.memory.retrieval.embeddingFetch, globalThis.fetch, "saved facts");
   assert.notEqual(app.knowledgeBases.embeddingCall, globalThis.fetch, "knowledge bases and tool meaning search");
+});
+
+// ---------------------------------------------------------------------------
+// 4. A study's cells take places from the one shared count, and a benchmark is
+//    read only from the workspace or the folder the owner named.
+// ---------------------------------------------------------------------------
+
+test("a study reads a benchmark only from the workspace or the folder the owner named", async (t) => {
+  const { app, root } = await fixture(t);
+  const { benchmarkFolderRefusal } = await import("../dist/study.js");
+  const outside = join(root, "somewhere-else");
+  assert.match(benchmarkFolderRefusal(outside, app.files.base, "") ?? "", /outside that/);
+  assert.equal(benchmarkFolderRefusal(join(app.files.base, "gaia"), app.files.base, ""), null);
+  assert.equal(benchmarkFolderRefusal(app.files.base, app.files.base, ""), null, "the workspace itself counts");
+  assert.equal(benchmarkFolderRefusal(join(outside, "gaia"), app.files.base, outside), null, "the named folder counts");
+  // A near-miss of the named folder is not inside it, whatever the string looks like.
+  assert.match(benchmarkFolderRefusal(`${outside}-other`, app.files.base, outside) ?? "", /outside that/);
+  // Saving a study that points outside is refused, and so is running an older one that does.
+  const study = { id: "away", name: "Away", source: { kind: "benchmark", benchmark: "gaia", directory: outside }, presets: ["default"] };
+  assert.throws(() => app.studies.save(study), /outside that/);
+  app.store.save("governance", app.runtime.owner, "study:away", { ...study, subset: [], limit: 20, repeats: 1, concurrency: 2, retries: 1, maxSteps: 30, maxTokens: 120000, bestOfN: 1, description: "" });
+  await assert.rejects(() => app.studies.run("away"), /outside that/);
+  // Naming the folder in Settings is what lets it through, and the study then runs.
+  app.studies.configure({ benchmarksFolder: outside });
+  assert.equal(app.studies.settings().benchmarksFolder, outside);
+  assert.equal(app.studies.save(study).id, "away");
+});
+
+test("every study cell takes a place from the shared count, and several studies cannot deadlock", async (t) => {
+  const { ExecutionLimit } = await import("../dist/execution-limit.js");
+  // Two places in all, and three studies each wanting two cells at once. Without the rule that a
+  // study's first cell runs on the place it already holds, the two studies that got a place would
+  // each wait for the other and nothing would ever finish.
+  const limit = new ExecutionLimit(2);
+  const held = [limit.take(), limit.take()];
+  assert.ok(held.every(Boolean));
+  assert.equal(limit.room, 0);
+  // Waiting for a place is woken the moment one comes back, rather than polled blindly.
+  let woke = false;
+  const sleeping = limit.roomSoon(5000).then(() => { woke = true; });
+  await delay(20);
+  assert.equal(woke, false, "nothing came free yet");
+  held[0]();
+  await sleeping;
+  assert.equal(woke, true, "giving a place up wakes whoever is waiting for one");
+  assert.equal(limit.room, 1);
+  // Giving the same place up twice cannot invent room, and the waiting line is still told.
+  let told = 0;
+  limit.onRoom = () => { told++; };
+  held[0]();
+  assert.equal(limit.room, 1);
+  held[1]();
+  assert.equal(limit.room, 2);
+  assert.equal(told, 1);
+  // A wait with nothing to wake it still comes back, which is what makes waiting safe at all.
+  const began = Date.now();
+  await new ExecutionLimit(0).roomSoon(50);
+  assert.ok(Date.now() - began >= 40);
+});
+
+test("a study's own place is what stops it starving when the computer is full", async (t) => {
+  const { app } = await fixture(t);
+  const { ExecutionLimit } = await import("../dist/execution-limit.js");
+  const limit = new ExecutionLimit(1);
+  app.studies.executions = limit;
+  app.studies.waitForPlaceMs = 300;
+  // Every place is taken by something else, so no cell can get one of its own.
+  const other = limit.take();
+  t.after(() => other());
+  const { saveSuite } = await import("../dist/evaluation-suites.js");
+  saveSuite(app.store, app.runtime.owner, {
+    id: "small", name: "Small", tasks: [{ id: "one", prompt: "one" }, { id: "two", prompt: "two" }, { id: "three", prompt: "three" }],
+  });
+  app.studies.save({ id: "busy", name: "Busy", source: { kind: "suite", suite: "small" }, presets: ["default"], concurrency: 3 });
+  const result = await app.studies.run("busy");
+  // Every cell still ran: the first worker uses the place the study itself holds.
+  assert.equal(result.cells.length, 3, "a full computer must slow a study down, never stop it");
+  assert.equal(limit.count, 1, "nothing the study took was left behind");
 });
 
 // ---------------------------------------------------------------------------

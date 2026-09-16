@@ -892,9 +892,23 @@ A study is saved with `POST /api/studies`:
 ```
 
 `source` can instead be `{ "kind": "suite", "suite": "everyday" }`. `concurrency` is how many tasks
-run at once, from 1 to 4. The whole app allows eight pieces of work at once; a running study holds
-one of those eight for as long as it lasts and its own tasks do not take places of their own, so the
-cap is set at half to keep a study plus ordinary work under that ceiling. `bestOfN` runs each task that
+run at once, from 1 to 4. The whole app allows eight pieces of work at once, and **every task a study
+runs takes one of those eight**, so a study can never quietly put four more on top of what everything
+else is doing. A study also holds the place the request that started it took, and it runs its first
+task on that one: that is what makes several studies at once safe. Each of them can always get on
+with something using a place it already has, whatever the others are doing, so none waits on another
+and none is starved. A task that wants a second or third place waits for one to come free, for up to
+thirty seconds, and then lets its turn go rather than holding anything up; the study finishes either
+way, more slowly when the computer is busy.
+
+**Where a benchmark may be read from.** `directory` is confined the same way every other path in
+Branch is: it must be inside your workspace, or inside the one benchmarks folder you have named.
+`GET /api/studies/settings` shows that folder and `POST /api/studies/settings {"benchmarksFolder":
+"C:/datasets"}` sets it; empty, which is where it starts, means the workspace and nothing else. A
+study pointing anywhere else is refused in one sentence when it is saved and again if it is run, so
+an older study cannot become a way to read a folder you never allowed.
+
+`bestOfN` runs each task that
 many times and keeps the best try by its score, remembering what the others scored. `maxDollars`
 stops the study when it has spent that much, and says so.
 
