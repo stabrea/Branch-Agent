@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, open, writeFile } from "node:fs/promises";
+import { mkdir, open } from "node:fs/promises";
 import { dirname, extname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -81,7 +81,18 @@ export class MediaTools {
     const target = await this.files.checked(where);
     await mkdir(dirname(target), { recursive: true });
     await this.files.checked(where);
-    await writeFile(target, bytes, { mode: 0o600 });
+    // The same guard `WorkspaceFiles.write` uses: a link left in the media folder must never be
+    // followed out of the workspace, and a file with a second name must not be written through.
+    const handle = await open(target, constants.O_WRONLY | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+    try {
+      const info = await handle.stat();
+      if (info.nlink > 1) throw new Error("Hardlink path denied");
+      if (!info.isFile()) throw new Error("Not a regular file");
+      await handle.truncate(0);
+      await handle.writeFile(bytes);
+    } finally {
+      await handle.close();
+    }
     return { path: where, bytes: bytes.byteLength };
   }
   private artifactStore(): RunArtifacts {
