@@ -275,6 +275,8 @@ function toolInventory(app: Branch) {
   const readiness: Record<string, string> = {
     "web.read": app.web.settings().allowPrivateAddresses ? "ready (private addresses allowed)" : "ready",
     "shell.execute": "ready (configured host commands)",
+    "git.remote": "ready (sending to a server switched on)",
+    "github.manage": "ready (GitHub token saved)",
     "browser.read": "ready (configured origins)", "browser.act": "ready (configured origins)",
   };
   const channels = app.channels.summary().channels.map((c) => c.id);

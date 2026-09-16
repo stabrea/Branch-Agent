@@ -33,6 +33,9 @@ import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { GitTools } from "./integrations/git.js";
+import { GitRunner } from "./integrations/git-run.js";
+import { registerGit } from "./integrations/git-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -81,6 +84,9 @@ export async function createBranch(options: {
     },
   });
   registerWorkspaceHistory(registry, history);
+  // Version control on this computer only; sending work to a server is switched on separately.
+  const git = new GitTools(files, new GitRunner());
+  registerGit(registry, git);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -137,6 +143,7 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    git,
     scheduler,
     chatgpt,
     version,
@@ -156,6 +163,10 @@ export async function createBranch(options: {
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
+      git,
+      /** A secret from whichever project is active right now, for GitHub's personal access token. */
+      activeSecret: async (name: string) =>
+        (await store.locker.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name]))[name]!,
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
       hooks,
@@ -223,3 +234,8 @@ export * from "./scheduler.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";
+export * from "./ignore.js";
+export * from "./integrations/git.js";
+export * from "./integrations/git-run.js";
+export * from "./integrations/git-tools.js";
+export * from "./integrations/github.js";

@@ -25,6 +25,14 @@ export function describeToolCall(name: string, args: unknown): string {
     case "web.search": return `Searching the web for “${short(a.query)}”`;
     case "web.fetch": return `Reading ${host(a.url)}`;
     case "shell.execute": return "Running a command";
+    case "git.status": return "Checking what changed";
+    case "git.diff": return "Looking at the changed lines";
+    case "git.log": return "Looking back through saved versions";
+    case "git.branch": return "Working with lines of work";
+    case "git.commit": return "Saving a version";
+    case "git.worktree": return "Setting up a parallel copy";
+    case "git.push": return "Sending work to the server";
+    case "git.pull": return "Bringing down work from the server";
     case "user.ask": return "Asking you a question";
     case "specialists.delegate": return `Asking the ${short(a.id)} specialist`;
     case "specialists.fanout": return "Running several specialists";
@@ -34,6 +42,7 @@ export function describeToolCall(name: string, args: unknown): string {
       if (name.startsWith("schedules.")) return "Updating a schedule";
       if (name.startsWith("skills.")) return "Reading a skill";
       if (name.startsWith("browser.")) return "Using the browser";
+      if (name.startsWith("github.")) return "Using GitHub";
       return `Using ${name}`;
   }
 }
