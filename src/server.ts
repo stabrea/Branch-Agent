@@ -400,6 +400,8 @@ async function api(
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
+    return packagesApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
@@ -1058,6 +1060,23 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * The reports the assistant has written, the watches that are running, and the morning brief. The
+ * reports list is what the Documents panel shows: a title, when it was written, and where the file is.
+ */
+async function packagesApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/research") return { reports: app.research.list(owner) };
+  if (request.method === "GET" && path === "/api/monitors") return { monitors: app.monitors.list(owner) };
+  if (request.method === "POST" && path === "/api/monitors") return app.monitors.create(owner, await readBody(request));
+  const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
+  if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
+  if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
+  if (request.method === "GET" && path === "/api/brief") return app.brief.preview(owner);
+  if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
+  throw new HttpError(404, "Endpoint not found");
+}
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (path === "/api/mcp/settings") {
     const mcp = app.mcpServer;
@@ -1394,7 +1413,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|monitors|brief)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

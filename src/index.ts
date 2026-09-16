@@ -50,6 +50,10 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { DataTables, registerData } from "./data-tools.js";
+import { Research, registerResearch } from "./research.js";
+import { Monitors, registerMonitors } from "./monitors.js";
+import { MorningBrief, registerBrief } from "./brief.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -169,6 +173,17 @@ export async function createBranch(options: {
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
+  // Figures, looking things up properly, watching pages, and the one message first thing.
+  const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
+  const dataTables = new DataTables(files, web, writeObserver);
+  registerData(registry, dataTables, artifacts);
+  const research = new Research(store, web, files, documents, writeObserver);
+  registerResearch(registry, research);
+  const monitors = new Monitors(store, web, deliverMessage);
+  registerMonitors(registry, monitors);
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage);
+  registerBrief(registry, brief);
+  scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
   // Test suites kept as data, their history, and comparing one suite across model choices.
@@ -216,6 +231,11 @@ export async function createBranch(options: {
     secretsFor: (context: ToolContext, names: string[]) =>
       store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
     channels,
+    /** Tables open for a task, reports already written, page watches, and the morning brief. */
+    dataTables,
+    research,
+    monitors,
+    brief,
     web,
     hooks,
     teams,
@@ -361,5 +381,13 @@ export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
 export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
+export * from "./citations.js";
+export * from "./data-table.js";
+export * from "./data-chart.js";
+export * from "./data-tools.js";
+export * from "./research.js";
+export * from "./research-claims.js";
+export * from "./monitors.js";
+export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
