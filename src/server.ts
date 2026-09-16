@@ -107,6 +107,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
     "/fonts/geist.woff2": ["fonts/geist.woff2", "font/woff2"],

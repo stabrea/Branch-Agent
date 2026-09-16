@@ -191,11 +191,14 @@ else {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
-    void (stop?.() ?? Promise.resolve())
+    // Shutting down waits for the loopback server and open work, but never for long: an update
+    // hand-over depends on this process actually ending.
+    const deadline = new Promise<void>((resolve) => setTimeout(resolve, 8000).unref());
+    void Promise.race([(stop?.() ?? Promise.resolve()), deadline])
       .catch((error) => console.error("Shutdown:", error.message))
       .finally(() => {
         tray?.destroy();
-        app.quit();
+        app.exit(0);
       });
   });
   void app

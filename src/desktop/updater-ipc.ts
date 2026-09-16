@@ -29,10 +29,14 @@ export function registerUpdaterIpc(
   ipcMain.handle("branch:update-check", (event) => { authorized(event); return updater.check(); });
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
+    if (updater.inProgress) return updater.status;
     const { script } = await updater.install();
     spawn("cmd.exe", ["/d", "/c", script, String(process.pid)], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+    const status = updater.applying();
     setTimeout(requestQuit, 750);
-    return updater.status;
+    // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.
+    setTimeout(() => app.exit(0), 20000).unref();
+    return status;
   });
   ipcMain.handle("branch:open-external", async (event, url: unknown) => {
     authorized(event);

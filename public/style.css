@@ -991,3 +991,12 @@ summary {
 .file-change { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 8px 0; font-size: 0.92rem; }
 .file-change pre.diff { flex-basis: 100%; max-height: 240px; overflow: auto; font-size: 0.8rem; white-space: pre-wrap; margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--well); }
 .memory-history { margin-top: 8px; }
+
+/* Updating screen */
+.update-screen { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--ground); color: var(--text); }
+.update-panel { width: min(520px, calc(100vw - 32px)); padding: 28px 28px 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); text-align: center; }
+.update-panel h2 { margin: 0 0 12px; }
+.update-panel canvas { display: block; width: 100%; max-width: 420px; height: auto; margin: 0 auto 12px; image-rendering: pixelated; border-radius: 10px; background: var(--well); }
+.update-panel .progress { margin: 12px 0 8px; }
+.progress.indeterminate .progress-bar { width: 40% !important; animation: update-slide 1.2s ease-in-out infinite alternate; }
+@keyframes update-slide { from { transform: translateX(-20%); } to { transform: translateX(170%); } }

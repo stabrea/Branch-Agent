@@ -568,6 +568,17 @@
       </div>
       <p class="context-footer">SMALL STEPS. USEFUL PROGRESS.</p>
     </aside>
+    <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
+      <div class="update-panel">
+        <h2 id="update-title">Updating</h2>
+        <canvas id="update-walker" width="420" height="140" aria-hidden="true"></canvas>
+        <p id="update-stage">Getting ready</p>
+        <div class="progress"><div id="update-bar" class="progress-bar"></div></div>
+        <p id="update-detail" class="subtle"></p>
+        <p class="subtle">You can keep this window open. It closes and opens again by itself when the update is in place.</p>
+      </div>
+    </div>
+    <script src="/update-screen.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>

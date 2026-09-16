@@ -733,7 +733,9 @@ $("chatgpt-logout").addEventListener("click", async () => {
 let updatesTimer = null;
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
-  const working = ["checking", "downloading", "verifying", "unpacking", "ready"].includes(status.phase);
+  const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
+  const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
+  if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();
   $("updates-progress").hidden = status.progress === null;
   $("updates-bar").style.width = `${Math.round((status.progress ?? 0) * 100)}%`;
   $("updates-check").disabled = working || status.phase === "unsupported";
@@ -741,7 +743,7 @@ function showUpdateStatus(status) {
   $("updates-install").disabled = working;
   $("updates-install").textContent = working ? "Updating…" : "Update and restart";
   clearTimeout(updatesTimer);
-  if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus), 700);
+  if (working) updatesTimer = setTimeout(() => window.branchDesktop.updateStatus().then(showUpdateStatus).catch(() => {}), installing ? 400 : 700);
 }
 async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
@@ -753,7 +755,10 @@ $("updates-check").addEventListener("click", async () => {
   try { showUpdateStatus(await window.branchDesktop.checkForUpdates()); } catch (e) { toast(e.message); }
 });
 $("updates-install").addEventListener("click", async () => {
-  try { showUpdateStatus(await window.branchDesktop.installUpdate()); } catch (e) { toast(e.message); await renderUpdates(); }
+  try {
+    window.branchUpdateScreen?.show({ phase: "downloading", message: "Starting the download…", progress: 0, release: state.updateRelease || null, bytes: null });
+    showUpdateStatus(await window.branchDesktop.installUpdate());
+  } catch (e) { window.branchUpdateScreen?.hide(); toast(e.message); await renderUpdates(); }
 });
 function modelLine(model) {
   if (!model) return "Model: not recorded";
