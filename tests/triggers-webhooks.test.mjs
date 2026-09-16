@@ -212,3 +212,21 @@ test("webhook enable re-enables after auto-disable", async (t) => {
   assert.ok(enabled.enabled);
   assert.equal(enabled.failureCount, 0);
 });
+
+test("trigger fire creates run that appears in log with run ID", async (t) => {
+  const { app, context } = await fixture(t);
+  const trigger = app.triggers.create(context, {
+    name: "Test trigger",
+    prompt: "Hello {{payload.name}}",
+    rateLimitPerMinute: 30,
+  });
+
+  const result = await app.triggers.fire("local", trigger.id, { name: "World" });
+  assert.ok(result.runId);
+
+  // Verify it appears in the log
+  const log = app.triggers.getLog(trigger.id, "local");
+  assert.equal(log.length, 1);
+  assert.equal(log[0].runId, result.runId);
+  assert.equal(log[0].status, "completed");
+});
