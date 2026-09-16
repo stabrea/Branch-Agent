@@ -78,7 +78,7 @@ export function setLockdown(store: Store, owner: string, input: unknown): Lockdo
   if (on) turnOn(store, owner);
   else turnOff(store, owner, current);
   audit(store, owner, {
-    action: "policy.changed", actor: owner, subject: on ? "Lockdown on" : "Lockdown off",
+    action: "lockdown.changed", actor: owner, subject: on ? "Lockdown on" : "Lockdown off",
     reason: on
       ? "Every tool now waits for a yes; host programs, the screen, the browser and sending out are off"
       : "The settings that were in place before Lockdown were put back exactly as they were",

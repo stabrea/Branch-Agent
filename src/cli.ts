@@ -14,7 +14,10 @@ import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
-import { cliCommands, completionScript, usageText } from "./cli-completion.js";
+import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
+// Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
+import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
+import { scopeDescriptions } from "./session-tokens.js";
 import { errorText, type Run } from "./contracts.js";
 import { watchFolder } from "./watch.js";
 import {
@@ -99,6 +102,12 @@ async function serve(
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
+  // Batch 20 (wave 8): `branch <command> --help` says what that command does and stops. Asking must
+  // never be the same thing as doing, so this comes before every command, workspace and database.
+  if (cliCommands.some((entry) => entry.name === command) && asksForHelp(process.argv.slice(3))) {
+    console.log(commandHelp(command));
+    return;
+  }
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
   // Printing a completion script or the command list needs no workspace, database or integrations.
@@ -109,6 +118,10 @@ async function main(): Promise<void> {
     throw new Error(`${usageText()}\n\nI do not know the command "${command}".`);
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
+  // These two talk to the engine that is already running and never start one of their own, so they
+  // come before the workspace and the database are opened at all.
+  if (command === "schedule") return scheduleCommand(dataDir);
+  if (command === "chat" && process.argv.includes("--attach")) return attachedChat(dataDir);
   const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(dataDir, "chatgpt-auth.json")), { userAgent: "BranchAgent" });
   const { app, close } = await configuredApp({ workspace, dataDir, presets, chatgpt });
@@ -162,6 +175,8 @@ async function main(): Promise<void> {
       console.log(`Backup written to ${target}. Secrets are not included; they stay on this device.`);
       return;
     }
+    if (command === "token") { tokenCommand(app); return; }
+    if (command === "trace") { traceCommand(app); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;
@@ -220,6 +235,139 @@ async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index > 0 ? process.argv[index + 1] : undefined;
+}
+/**
+ * `branch token create|list|revoke`. A short-lived key for a script, an extension or the SDK —
+ * never the local key itself, which never stops working and may do everything.
+ */
+function tokenCommand(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const action = process.argv[3] ?? "list", asJson = process.argv.includes("--json");
+  const owner = app.runtime.owner;
+  if (action === "create") {
+    const made = app.sessionTokens.create(owner, {
+      scope: flag("scope") ?? "read", name: flag("name") ?? "A script",
+      minutes: Number(flag("minutes") ?? 60) || 60,
+    });
+    if (asJson) return void console.log(JSON.stringify(made));
+    console.log(made.token);
+    console.log(`\nThis is the only time it is shown. ${scopeDescriptions[made.entry.scope]}`);
+    console.log(`It stops working at ${made.entry.expiresAt}. Take it back sooner with: branch token revoke ${made.entry.id}`);
+    return;
+  }
+  if (action === "revoke") {
+    const id = process.argv[4];
+    if (!id) throw new Error("Name the key to take back: branch token revoke <id>");
+    const done = app.sessionTokens.revoke(owner, id);
+    if (asJson) return void console.log(JSON.stringify({ id, revoked: done }));
+    console.log(done ? `That key stops working now.` : `There is no key of yours with the number ${id}.`);
+    return;
+  }
+  if (action !== "list") throw new Error("Usage: branch token create [--scope read|run] [--minutes 60] | token list | token revoke <id>");
+  const entries = app.sessionTokens.list(owner);
+  if (asJson) return void console.log(JSON.stringify({ tokens: entries }, null, 2));
+  if (!entries.length) return void console.log("You have not made any short-lived keys.");
+  for (const entry of entries)
+    console.log([entry.id, entry.scope, entry.name, entry.revokedAt ? "taken back" : `until ${entry.expiresAt}`, `${entry.uses} use(s)`].join("\t"));
+}
+/**
+ * `branch trace <task id>`. The number a tracing tool knows this task by, and whether its steps
+ * went anywhere. Printing it is the join between what happened here and what a viewer shows.
+ */
+function traceCommand(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const runId = process.argv[3];
+  if (!runId) throw new Error("Name a task: branch trace <task id>");
+  const spans = app.store.spans.forRun(runId);
+  if (!spans.length) throw new Error(`Nothing was recorded for the task ${runId}.`);
+  const root = spans.find((span) => !span.parentSpanId) ?? spans[0]!;
+  const settings = app.traceExport.settings();
+  const sent = app.store.events(runId).filter((event) => event.kind === "trace.sent" || event.kind === "trace.send_failed");
+  const report = {
+    runId, traceId: root.traceId, spans: spans.length,
+    kinds: [...new Set(spans.map((span) => span.kind))],
+    sending: settings.enabled ? { to: settings.destination, endpoint: settings.endpoint } : null,
+    lastSend: sent.at(-1) ? { kind: sent.at(-1)!.kind, at: sent.at(-1)!.createdAt } : null,
+  };
+  if (process.argv.includes("--json")) return void console.log(JSON.stringify(report, null, 2));
+  console.log(`Trace ${report.traceId} — ${report.spans} step(s): ${report.kinds.join(", ")}`);
+  console.log(settings.enabled
+    ? `Sending is on, to ${settings.destination} at ${settings.endpoint}.`
+    : "Sending traces is off, so this trace has stayed on this computer.");
+  console.log(report.lastSend
+    ? `Last send: ${report.lastSend.kind === "trace.sent" ? "arrived" : "did not arrive"} at ${report.lastSend.at}.`
+    : "This task's steps have not been sent anywhere.");
+}
+/**
+ * `branch schedule add|list|remove` against the engine already running in the background. It goes
+ * through the same door as the app window, so a schedule made here is the same schedule.
+ */
+async function scheduleCommand(dataDir: string): Promise<void> {
+  const client = await connect(dataDir);
+  const action = process.argv[3] ?? "list", asJson = process.argv.includes("--json");
+  if (action === "list") {
+    const { schedules } = await client.get<{ schedules: { id: string; data: Record<string, unknown> }[] }>("/api/schedules");
+    if (asJson) return void console.log(JSON.stringify({ schedules }, null, 2));
+    if (!schedules.length) return void console.log("Nothing is scheduled.");
+    for (const row of schedules)
+      console.log([row.id, String(row.data.status ?? ""), String(row.data.dueAt ?? ""), String(row.data.prompt ?? "").slice(0, 60)].join("\t"));
+    return;
+  }
+  if (action === "add") {
+    const prompt = flag("prompt");
+    if (!prompt) throw new Error('Say what to do: branch schedule add --prompt "water the plants" --at 2026-10-01T09:00:00Z');
+    const every = flag("every");
+    const saved = await client.post<{ id: string }>("/api/schedules", {
+      prompt, kind: flag("kind") ?? "task",
+      dueAt: new Date(flag("at") ?? Date.now() + 60_000).toISOString(),
+      ...(every ? { intervalMs: Number(every) } : {}),
+    });
+    console.log(asJson ? JSON.stringify(saved) : `Scheduled. Its number is ${saved.id}.`);
+    return;
+  }
+  if (action === "remove") {
+    const id = process.argv[4];
+    if (!id) throw new Error("Name the schedule: branch schedule remove <id>");
+    const done = await client.post<{ removed: boolean }>(`/api/schedules/${id}/remove`, {});
+    console.log(asJson ? JSON.stringify(done) : done.removed ? "Removed." : "There is no schedule with that number.");
+    return;
+  }
+  throw new Error('Usage: branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | schedule list | schedule remove <id>');
+}
+/**
+ * `branch chat --attach`: a second terminal joining the conversation the engine already running is
+ * having. Without `--session` it lists the conversations and picks the newest. `--watch` only
+ * listens, which is what a second window open beside the first one wants.
+ */
+async function attachedChat(dataDir: string): Promise<void> {
+  const client = await connect(dataDir);
+  const asked = flag("session");
+  const sessions = await conversations(client, 10);
+  if (!asked && !sessions.length) throw new Error("That copy of Branch has no conversations yet. Say something in the app window first.");
+  const sessionId = asked ?? sessions[0]!.id;
+  console.error(`[attached to ${client.url}, conversation ${sessionId}]`);
+  for (const line of transcriptLines(await messagesOf(client, sessionId))) console.log(line);
+  let last = (await since(client, sessionId, -1)).last;
+  const prompt = process.argv.slice(3).filter((word) => !word.startsWith("--")).join(" ").trim();
+  if (prompt) {
+    const run = await client.post<{ output?: string; status?: string }>("/api/run", { prompt, sessionId });
+    console.log(`branch: ${run.output ?? "(no reply)"}`);
+    last = (await since(client, sessionId, last)).last;
+    return;
+  }
+  // Nothing to say: watch what the other terminal is doing until Ctrl+C.
+  console.error("[watching; Ctrl+C stops it]");
+  let stopped = false;
+  const stop = (): void => { stopped = true; };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  const rounds = Number(flag("watch") ?? 0) || Number.POSITIVE_INFINITY;
+  for (let round = 0; round < rounds && !stopped; round++) {
+    const fresh = await since(client, sessionId, last).catch(() => ({ lines: [], last }));
+    for (const line of fresh.lines) console.log(line);
+    last = fresh.last;
+    if (!stopped && round + 1 < rounds) await new Promise((wait) => setTimeout(wait, 500));
+  }
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
 }
 /** Reads the files of a `skill/` folder that belong in a package. */
 async function packageFiles(folder: string): Promise<Record<string, string>> {
@@ -315,7 +463,8 @@ async function runOnce(
 ): Promise<void> {
   const flags: RunFlags = parseRunArgs(process.argv.slice(3));
   if (command === "demo") flags.prompt = "Run the deterministic file write/read/verify fixture.";
-  if (!flags.prompt) throw new Error('Provide a prompt: branch run "your request"');
+  // Carrying a stopped task on needs no new words: it takes up its own request again.
+  if (!flags.prompt && !flags.resumeRunId) throw new Error('Provide a prompt: branch run "your request"');
   const writer = {
     line: (value: unknown) => { if (flags.json) process.stdout.write(JSON.stringify(value) + "\n"); },
     note: (text: string) => console.error(text),

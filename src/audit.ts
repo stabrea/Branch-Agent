@@ -20,6 +20,10 @@ export const auditActions = [
   // A drafted skill switched on without the trial it is meant to pass first. Only the owner can
   // do it, only by saying so in as many words, and it is written down every time.
   "skill.forced",
+  // Batch 20 (wave 8): the rest of the moments that widen or narrow what Branch may reach — a
+  // short-lived key made or taken back, a connection added or removed, everything locked down, and
+  // a browser borrowed from the owner's own window.
+  "token.issued", "connection.changed", "lockdown.changed", "browser.borrowed",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -67,6 +71,10 @@ const actionLabels: Record<AuditAction, string> = {
   "mcp.tried": "You tried out another AI tool's server",
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
+  "token.issued": "A short-lived key for a script was made or taken back",
+  "connection.changed": "A connection to a model service was added or removed",
+  "lockdown.changed": "Everything was locked down, or let go again",
+  "browser.borrowed": "Branch borrowed your own browser window, or gave it back",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

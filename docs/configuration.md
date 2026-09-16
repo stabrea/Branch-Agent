@@ -2936,3 +2936,198 @@ These rows of the audit are done, by a feature that exists under another name.
   (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
+
+## Short-lived keys, where a password comes from, who may message, and the command line (batch 20, wave 8)
+
+This section closes the open rows of the secrets-and-auth (#69), tracing-and-telemetry (#63) and
+cli-and-tui (#72) themes. Some of it is new, some points at a feature that already does the job,
+and some is written down here as deliberately not built.
+
+### Short-lived keys for a script (A0100, A1930)
+
+The local session key the app prints when it starts never runs out and may do everything. That is
+right for the app's own window and wrong for anything you paste into a script, a browser extension
+or the client library. So there is a second kind of key, made from the command line:
+
+```
+branch token create --scope read --minutes 60 --name "My dashboard"
+branch token list
+branch token revoke <id>
+```
+
+- `--scope read` may look at things only: any request that is not a GET is refused, in those words.
+  `--scope run` may also start a task. Neither may ever become the master key.
+- The key is shown once. Only its hash is kept (`session_tokens` in the database), so nothing can
+  read it back out of Branch afterwards.
+- It stops working at the minute you named, and `branch token revoke` stops it sooner.
+- Making one and taking one back are both written into the record of what the assistant was allowed
+  to do, as "A short-lived key for a script was made or taken back".
+- The master key is checked **first** on every request, so a mistake in this feature can hold up a
+  script and never you. A wrong short-lived key is counted by the same rate limit as a wrong master
+  key. See `src/session-tokens.ts` and `authorize` in `src/server.ts`.
+
+These are one feature answering two audited rows: A0100 ("session API-key authentication") and
+A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
+
+### Where a saved password can come from (A1807, A0221)
+
+`src/vault-sources.ts` writes down the contract every source follows: a scheme (the part after
+`secret://`), a label, and one method that turns a reference into a value at the moment it is
+needed. Every source obeys the same three rules — nothing is looked up early, every look-up is
+scrubbed out of results and logs, and every look-up is written into the record.
+
+| Reference | Where the value comes from |
+| --- | --- |
+| `secret://<project>/NAME` | Branch's own locker, encrypted on this computer. |
+| `secret://cmd/<name>` | A command **you listed in Settings** that prints the password. |
+| `secret://bitwarden/<item>`, `secret://1password/<path>` | Your password manager's own command line, when you have switched that on. |
+| `env`, `file` | A value already in a program's environment, or in a file you pointed at. |
+
+The command source is new. It is off until you turn it on, and the command is never free text —
+`secret-commands` in your settings holds the list:
+
+```json
+{
+  "enabled": true,
+  "commands": [
+    { "name": "deploy", "command": "C:/tools/get-deploy-key.exe", "args": ["--quiet"], "note": "the deploy key" }
+  ]
+}
+```
+
+`secret://cmd/deploy` then runs exactly that program — no shell, no window, a stripped environment
+(only `PATH`, `TEMP` and the few a program needs to find itself), a ten-second limit, and a 64 KiB
+cap on what it may print. A name that is not in your list never starts a process at all. A missing
+program, a non-zero exit and an empty answer each get their own plain sentence.
+
+### One list of who may message the assistant (A0686)
+
+Each chat app carried a list of its own. `src/channels/allowlist.ts` is the one shape for all of
+them: a rule names a channel (or `*`) and a sender (or `*`) and says `allow` or `block`.
+
+- **A block anywhere wins**, so "never this person" cannot be undone by a broader rule.
+- `unknown` says what happens to somebody no rule covers: `pair` offers them a code to be approved
+  with (as before), `block` turns them away.
+- The per-channel lists still work and are read after this one, so nothing you already set up stops
+  working.
+
+### What a phone must satisfy (A1003, A1004, A1804)
+
+The extra door that faces your private Tailscale address has a chain of named steps, and **every
+step in it must pass** — so adding a step can only make the door harder to open:
+
+- `token` — the same local key the window on this computer uses.
+- `pairing` — a phone must have been let in once by accepting an invitation.
+- `device` — the phone must send back the secret it was given when it paired
+  (`x-branch-device` and `x-branch-device-key`), so a key copied off one phone is no use on another.
+
+The default chain is `token, pairing`. Set it in `remote-gateway-auth`; the phones that have been
+let in are in `remote-devices`, and only the fingerprint of each secret is kept.
+
+**Signing in through somebody else's identity service (OIDC, a social login, WebAuthn against an
+outside authenticator) is deliberately not one of the steps** — A1897, A2003, A2074, A2095, A2216.
+There is one owner, the door faces their own private network, and putting an outside company on the
+path a phone takes to reach this computer would make it less private, not more.
+
+### The third OpenTelemetry signal, the logs route, and one task's trace (A0056, A0800, A1440)
+
+- **Logs.** When sending traces is on and the destination is a collector that speaks
+  OpenTelemetry, each finished task's own story goes out as OTLP **log records** to `/v1/logs`
+  beside the spans at `/v1/traces` and the counters at `/v1/metrics`. Each record carries the trace
+  id, so a viewer shows the words beside the span they came from. Langfuse and LangSmith have no
+  logs signal, so for those nothing is sent.
+- **The logs route.** `GET /api/logs` answers one JSON object per line (`application/x-ndjson`),
+  filtered with `run`, `kind` and `limit`, behind the same local key as everything else. That is
+  the "logs API" a log shipper reads. **There is no Grafana or Loki client here on purpose**: a
+  collector of yours already reads OpenTelemetry, so the way to Grafana is to point one at the OTLP
+  address above rather than to teach Branch a second protocol.
+- **One task's trace.** `branch trace <task id>` prints the trace id, how many steps were recorded
+  and of what kinds, whether sending is on and where to, and whether the last send arrived. The
+  same trace id is what Langfuse and LangSmith are given, so the number you read here is the number
+  you search for there.
+
+### What a task's spans cover (A1149, A0856, A1498, A1583, A0799, A1287, A1523)
+
+One implementation, in `src/tracing.ts` and `src/tracing-shapes.ts`, projected into three shapes.
+A task now has a span for each of: the task itself (`run`), each model round (`model`), each tool
+call (`tool`), looking something up in your own documents (`retrieval`), the answer going back out
+to a chat app (`delivery`), and each sub-task (`child`). A delivery happens after the task has
+settled, so it is joined back to the task's own trace rather than floating on its own.
+
+### The record of what the assistant was allowed to do, widened (A1931)
+
+Four more kinds of moment are written down: a short-lived key made or taken back
+(`token.issued`), a connection to a model service added or removed (`connection.changed`),
+Lockdown turned on or off (`lockdown.changed`), and your own browser window borrowed and given back
+(`browser.borrowed`). Handing the whole assistant over as one file and switching who is using the
+computer now write a line too.
+
+### Installing the `branch` command (A1159)
+
+`package.json` carries `"bin": { "branch": "./dist/cli.js" }`, so the command line can be installed
+like any npm command:
+
+```
+npm run pack:cli          # builds, then writes branch-agent-<version>.tgz — publishes nothing
+npm install -g ./branch-agent-0.15.0.tgz
+branch --help
+```
+
+`scripts/pack-cli.mjs` only reads this folder and writes one file. Installing is your own step,
+because it writes outside this folder.
+
+### More of the command line (A0012, A0306, A0910, A2103)
+
+- `branch <command> --help` says what one command does, and stops. Asking is never the same thing
+  as doing: no workspace, database or connection is opened.
+- `branch run` takes `--session <id>` to carry on in a conversation, `--resume <task id>` to pick a
+  stopped task up where it left off (with no new words needed), and `--fork <session id>` to work in
+  a copy so the conversation it came from is left exactly as it was.
+- `branch chat --attach` joins the conversation the engine already running in the background is
+  having: it lists the conversations, picks one (`--session`), prints what has been said, and either
+  says something or just watches. Two terminals can be in one conversation at once and each sees
+  what the other said. It goes through the same door, with the same key, as the app window.
+- `branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | list | remove <id>` works
+  against that same running engine over `/api/schedules`.
+- **A coding assistant you already have, used as a model.** `cli-agent` is a provider shape that
+  runs an installed tool's own command line: Claude Code (`claude -p --output-format json`), Codex
+  (`codex exec --json`) or the GitHub Copilot CLI. The prompt goes in on standard input, the answer
+  comes out of the tool's JSON where it prints JSON. Nothing is stored, no key is asked for, and
+  **the tool's own sign-in is the only sign-in there is** — which is what each row says beside it.
+  `GET /api/providers/cli-agents` lists them; `POST` the same address offers one in the model list.
+  It never asks for tool calls: it answers in words and Branch decides what to do.
+
+### Already true, and checked (A0284, A0383, A0425, A0488, A0551, A0723, A0793, A1191, A0137, A2404, A0614, A2177, A1497)
+
+- **A command line exists**, and has since the first release: `src/cli.ts`, with every command in
+  one list (`cliCommands` in `src/cli-completion.ts`) that drives the checking, `branch help`, the
+  per-command help and the bash and PowerShell completion scripts. A test runs `--help` for every
+  command in that list.
+- **A local web client** is the app itself: the pages in `public/` served by `src/server.ts` on
+  `http://127.0.0.1:3210`, behind the local key.
+- **An interactive terminal view** is `branch chat` — the full drawn view from wave 4
+  (`src/terminal-tui.ts`) where the terminal can be drawn on, the plain stream otherwise.
+- **Session authentication and pairing** is the local key plus the invitation flow above.
+- **A profile needs its PIN**, and five wrong ones in a row are made to wait five minutes
+  (`src/profiles.ts`).
+- **LangSmith** is one of the three destinations traces can be sent to (`src/tracing-export.ts`).
+
+### Not applicable, and why
+
+- **A2003, A2095, A2216, A1897, A2074 (social login, web-UI password reset, multi-user accounts,
+  OIDC, WebAuthn)** — Branch is one person's assistant on their own computer. There is nobody to
+  register, no password to reset, and no second account to keep apart. What protects it is that it
+  listens on this computer only, behind a key on disk. See the chain above.
+- **A0566 Sentry error telemetry** — nothing about you is collected or sent anywhere, which is a
+  written non-goal. A crash is already recorded as an error span (`recordUncaughtErrors` in
+  `src/tracing.ts`) and goes to **your** collector when you turn sending on.
+- **A1620, A1751 (optional analytics, execution telemetry)** — the same non-goal. The counters page
+  and the usage ledger are yours and stay here.
+- **A0681 tracing/logging** is a Rust library for a Rust program; this is TypeScript.
+- **A1334 application logging guidance** — `GET /api/logs` and the OTLP logs signal above are the
+  answer for this tree.
+- **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
+  separately; `secret://cmd/<name>` above is the general form of the same idea.
+- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
+  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
+  become a task. Still open.

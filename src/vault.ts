@@ -79,6 +79,13 @@ export class Secrets {
   readonly scrubber = new SecretScrubber();
   /** Set by the session lock: it throws a plain reason when secrets may not be used yet. */
   gate: () => void = () => undefined;
+  /**
+   * Batch 20 (wave 8): sources that are not the locker's own projects — a command of the owner's,
+   * and, where it is switched on, their password manager. They are asked first, so a reference like
+   * `secret://cmd/deploy` never reaches the project look-up and is never refused for the wrong
+   * reason. See src/vault-sources.ts for the contract they all follow.
+   */
+  readonly sources: { fill<T>(value: T, use: { runId?: string | undefined; purpose: string }): Promise<T> }[] = [];
   constructor(private readonly db: DatabaseSync, private readonly locker: Locker) {
     db.exec(`CREATE TABLE IF NOT EXISTS secret_meta(owner TEXT NOT NULL, project TEXT NOT NULL, name TEXT NOT NULL,
       rotated_at TEXT, expires_at TEXT, PRIMARY KEY(owner,project,name));
@@ -139,12 +146,16 @@ export class Secrets {
    * moment of the call and nowhere earlier. A reference to another project is refused.
    */
   async fill<T>(owner: string, project: string, value: T, use: { runId?: string | undefined; purpose: string }): Promise<T> {
-    const references = collectReferences(value);
-    if (!references.length) return value;
+    // The other sources go first: their reference names are not locker names, and reading one as a
+    // project would turn "secret://cmd/deploy" into a refusal about the wrong thing.
+    let started = value;
+    for (const source of this.sources) started = await source.fill(started, use);
+    const references = collectReferences(started);
+    if (!references.length) return started;
     const foreign = references.find((reference) => reference.project !== project);
     if (foreign) throw new Error(`${secretReference(foreign.project, foreign.name)} is not in the active project (${project})`);
     const values = await this.resolve(owner, project, references.map((reference) => reference.name), use);
-    return mapStrings(value, (text) => text.replace(anyReference, (whole, _project, name: string) => values[name] ?? whole));
+    return mapStrings(started, (text) => text.replace(anyReference, (whole, _project, name: string) => values[name] ?? whole));
   }
 
   /** Which run used which secret, newest first. */

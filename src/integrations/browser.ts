@@ -15,6 +15,7 @@ import { resolve as healResolve, type HealTarget } from './browser-heal.js';
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
+import { audit } from '../audit.js';
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -288,6 +289,10 @@ export class BranchBrowser {
     entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
     // Every request Branch's own tab makes is checked, not only the addresses it is asked to open.
     entry.session.options.guardUrl = url => attachedAddressRefusal(url);
+    // Batch 20 (wave 8): reaching into the owner's own browser window widens what Branch can see,
+    // so it is written into the record of what the assistant was allowed to do, both ways.
+    audit(this.store, context.owner, { action: 'browser.borrowed', actor: 'a task', runId: context.runId,
+      subject: 'your own browser window', reason: 'A task asked to work in the browser you already have open', outcome: 'borrowed' });
     return this.borrowedReport(entry);
   }
   private borrowedReport(entry: RunEntry) {
@@ -300,6 +305,9 @@ export class BranchBrowser {
     const entry = this.sessions.get(this.key(context));
     if (!entry?.borrowed) return { released: false };
     await this.closeRun(context);
+    if (this.store)
+      audit(this.store, context.owner, { action: 'browser.borrowed', actor: 'a task', runId: context.runId,
+        subject: 'your own browser window', reason: 'The task finished with it', outcome: 'given back' });
     return { released: true };
   }
   /** Starts keeping a recording of this task's browser window. */

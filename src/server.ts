@@ -86,13 +86,15 @@ import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
 // Wave 5 (deployment): installing, background running and reaching Branch from a phone.
 import { RemoteAccess } from "./remote/remote-access.js";
+import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
+import { GatewayAuth } from "./remote/gateway-auth.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
-import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
@@ -190,6 +192,12 @@ function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
   /** Batch 19 (wave 7): counts wrong keys per place, so the key cannot be guessed at speed. */
   limits?: { limiter: AuthLimiter; onFailure: (source: string) => void },
+  /**
+   * Batch 20 (wave 8): a short-lived key made with `branch token create`. It is only looked at
+   * after the master key has already failed, so a mistake here can hold up a script and never the
+   * owner's own app. It answers the plain reason it refused, or null to let the request through.
+   */
+  scoped?: (supplied: string) => string | null,
 ): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
@@ -206,8 +214,10 @@ function authorize(
   if (correct) { limits?.limiter.succeed(from); return; }
   const waiting = limits?.limiter.refusal(from, "key");
   if (waiting) throw new HttpError(429, waiting);
+  const refusal = supplied && scoped ? scoped(supplied) : "Local session token required";
+  if (refusal === null) { limits?.limiter.succeed(from); return; }
   limits?.onFailure(from);
-  throw new HttpError(401, "Local session token required");
+  throw new HttpError(401, refusal);
 }
 /** A study result without its thousands of rows, for the list on the Evaluation screen. */
 const studySummary = (result: StudyRunResult) => ({
@@ -593,7 +603,7 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
-  if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
+  if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
   if (path.startsWith("/api/knowledge")) {
@@ -615,6 +625,11 @@ async function api(
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
   if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
+  // Batch 20 (wave 8): coding assistants already installed here, used as a model through their own
+  // command line and their own sign-in. Listing them installs nothing and signs in to nothing.
+  if (request.method === "GET" && path === "/api/providers/cli-agents") return { agents: cliAgentRows() };
+  if (request.method === "POST" && path === "/api/providers/cli-agents")
+    return registerCliAgent(app.runtime.models, await readBody(request, 8 * 1024));
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
@@ -1193,7 +1208,15 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
 }
 async function schedulesApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
-  const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger))?$/.exec(path);
+  // Batch 20 (wave 8): adding, listing and removing a schedule over the local API, so `branch
+  // schedule` works against the engine already running rather than starting a second one.
+  if (path === "/api/schedules" || path === "/api/schedules/") {
+    app.store.profiles.requireOwner("Your schedules");
+    if (request.method === "GET") return { schedules: app.store.list("schedules", owner) };
+    if (request.method === "POST") return app.scheduler.create(scheduleContext(app), await readBody(request));
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger|remove))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
   const record = app.store.get("schedules", owner, match[1]!);
   if (!record) throw new HttpError(404, "Schedule not found");
@@ -1202,7 +1225,15 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     z.object({}).strict().parse(await readBody(request));
     return app.scheduler.trigger(owner, record.id, undefined, "local");
   }
+  if (request.method === "POST" && match[2] === "remove") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.scheduler.remove(scheduleContext(app), record.id);
+  }
   throw new HttpError(404, "Endpoint not found");
+}
+/** The owner's own hands, for a schedule they are adding or removing from the command line. */
+function scheduleContext(app: Branch) {
+  return app.runtime.context({ signal: AbortSignal.timeout(30000), source: "owner" });
 }
 /** Webhook triggers carry their own per-schedule token instead of the session token. */
 async function hook(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -1839,11 +1870,17 @@ function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: s
 /** The pairing door, open only on the phone's listener and only for the invitation on offer. */
 export async function pairingRequest(
   remote: RemoteAccess, request: IncomingMessage, response: ServerResponse, path: string,
+  /** Batch 20 (wave 8): writes the phone down and hands it a secret of its own, when asked to. */
+  gateway?: GatewayAuth,
 ): Promise<boolean> {
   if (request.method !== "POST" || path !== "/api/pair") return false;
-  const body = z.object({ id: z.string().max(64), code: z.string().max(16) }).strict()
-    .parse(await readBody(request, 1024));
-  send(response, 200, remote.pairing.redeem(body.id, body.code));
+  const body = z.object({ id: z.string().max(64), code: z.string().max(16), name: z.string().trim().max(80).default("A phone") })
+    .strict().parse(await readBody(request, 1024));
+  const redeemed = remote.pairing.redeem(body.id, body.code);
+  // The phone is remembered the moment it is let in, so the "this exact phone" step of the chain
+  // has something to check against from the very next request.
+  const device = gateway?.remember(body.name);
+  send(response, 200, device ? { ...redeemed, deviceId: device.device.id, deviceKey: device.secret } : redeemed);
   return true;
 }
 export async function startServer(
@@ -1864,6 +1901,8 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // Batch 20 (wave 8): what a phone must satisfy on the extra door, as a chain of named steps.
+  const gateway = new GatewayAuth(app.store, app.runtime.owner);
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
   // place is made to wait, with a line written into the record of what the assistant was allowed to do.
   const authLimiter = new AuthLimiter(options.authLimits);
@@ -1876,7 +1915,7 @@ export async function startServer(
         .pathname;
       if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
-      if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
+      if (viaRemote && (await pairingRequest(remote, request, response, path, gateway))) return;
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -1898,7 +1937,15 @@ export async function startServer(
       authorize(request, url, token, remote.allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      });
+      }, (supplied) => app.sessionTokens.check(app.runtime.owner, supplied, {
+        method: request.method ?? "GET", executes: isExecution(request, path),
+      }));
+      // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
+      // window on this computer never goes through it.
+      if (viaRemote) {
+        const refused = gateway.check(request, true);
+        if (refused) throw new HttpError(401, refused);
+      }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
@@ -1983,6 +2030,8 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
+  // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
+  if (request.method === "GET" && path === "/api/logs") { logsResponse(app, request, response); return true; }
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;

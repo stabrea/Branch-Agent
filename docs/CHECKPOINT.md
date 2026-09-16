@@ -1742,6 +1742,60 @@ cost-per-project breakdown; the month view shows model, conversation and channel
 (Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
 adds the figures up a project at a time.)
 
+## Batch 20 (wave 8) — the rest of secrets and auth, tracing, and the command line
+
+The open rows of three themes at once: secrets-and-auth (#69), tracing-and-telemetry (#63) and
+cli-and-tui (#72). Backend and command line; no new dependency.
+
+**Keys that run out.** The local session key never expires and may do everything, which is the
+wrong thing to paste into a script. `branch token create --scope read --minutes 60` makes a second
+kind of key that may only look at things (or, with `--scope run`, also start a task), stops working
+at a stated minute, and can be taken back at once. Only its hash is kept. The master key is checked
+first in `authorize`, so a mistake here can hold up a script and never the owner; a wrong one is
+counted by the same rate limit. `src/session-tokens.ts`.
+
+**Where a password comes from.** `src/vault-sources.ts` writes down the one contract every source
+follows — the locker, the environment, a file, a password manager, and now a command of the owner's
+own. `secret://cmd/<name>` runs exactly one of the programs they listed in Settings: no shell, no
+window, a stripped environment, a time limit, and a name that is not in the list never starts a
+process at all. The locker asks these sources before it looks at its own projects.
+
+**One list of who may message.** `src/channels/allowlist.ts` replaces the per-channel lists with one
+shape (channel, sender, allow/block) where a block anywhere wins. The old per-channel lists still
+work and are read after it.
+
+**A chain for the extra door.** `src/remote/gateway-auth.ts` turns "who is this phone" into named
+steps — the key, having paired, and the phone's own secret — where every step in the chain must
+pass, so adding one can only make the door harder to open. OIDC and WebAuthn stay out on purpose
+and the reason is written down in docs/configuration.md.
+
+**The third OpenTelemetry signal, and the logs route.** A finished task's own story now goes out as
+OTLP log records at `/v1/logs`, carrying the trace id, beside the spans and the counters. `GET
+/api/logs` answers JSON Lines behind the local key for a log shipper; Grafana and Loki are reached
+by pointing a collector at OTLP rather than by teaching Branch a second protocol.
+
+**Spans that cover the whole task.** `retrieval` and `delivery` spans were declared but never
+written. Looking something up in the owner's documents now opens one, and the answer going back out
+to a chat app opens another — joined to the task's own trace through `Tracer.startAfter`, because by
+then the task has settled and let go of its ids. A coverage test asserts all six kinds.
+
+**More moments in the record.** A short-lived key made or taken back, a model connection added or
+removed, Lockdown, a borrowed browser window, handing the whole assistant over, and switching who is
+using the computer.
+
+**The command line.** `branch <command> --help` says what a command does without doing it (nothing
+is opened at all). `branch run` takes `--session`, `--resume` and `--fork`. `branch chat --attach`
+joins the conversation the running engine is already having, so two terminals share one conversation.
+`branch schedule add|list|remove` works over `/api/schedules`. `branch trace <task>` prints the trace
+id and whether it was sent. `package.json` now carries `bin: { branch }` and `npm run pack:cli`
+writes a tarball; installing it is the owner's own step.
+
+**A coding assistant as a model.** `src/providers/cli-agent.ts` runs Claude Code, Codex or the
+GitHub Copilot CLI as a model backend: prompt on stdin, JSON out where the tool offers it, stripped
+environment, a time limit, and no sign-in of Branch's own — every row says so in as many words.
+
+Tests: `tests/auth-tracing-cli.test.mjs` (19).
+
 ## Batch 21 (wave 8) — the long tail in "other"
 
 The last untouched rows of the `other` theme of the capability audit (#60). Backend first, with only

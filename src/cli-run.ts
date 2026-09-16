@@ -34,6 +34,14 @@ export interface RunFlags {
   /** Most tokens this one task may use before it stops. */
   budget?: number;
   timeoutMs?: number;
+  /**
+   * Batch 20 (wave 8): which conversation this task belongs to. `--session` carries on in one that
+   * already exists, `--resume` picks up where a task that stopped left off, and `--fork` works in a
+   * copy so the conversation it came from is left exactly as it was.
+   */
+  sessionId?: string;
+  resumeRunId?: string;
+  forkFrom?: string;
 }
 const wholeNumber = (name: string, value: string | undefined): number => {
   const parsed = Number(value);
@@ -56,8 +64,14 @@ export function parseRunArgs(argv: string[]): RunFlags {
     else if (word === "--save-preset") { flags.preset = argv[++at] ?? ""; flags.savePreset = true; }
     else if (word === "--budget") flags.budget = wholeNumber("--budget", argv[++at]);
     else if (word === "--timeout") flags.timeoutMs = wholeNumber("--timeout", argv[++at]);
+    else if (word === "--session") flags.sessionId = argv[++at] ?? "";
+    else if (word === "--resume") flags.resumeRunId = argv[++at] ?? "";
+    else if (word === "--fork") flags.forkFrom = argv[++at] ?? "";
     else words.push(word);
   }
+  for (const [name, value] of [["--session", flags.sessionId], ["--resume", flags.resumeRunId], ["--fork", flags.forkFrom]] as const)
+    if (value === "") throw new Error(`${name} needs a number after it`);
+  if (flags.resumeRunId && flags.forkFrom) throw new Error("Choose either --resume or --fork, not both");
   if (flags.attach.some((path) => !path)) throw new Error("--attach needs a file after it");
   if (flags.preset === "") throw new Error(`${flags.savePreset ? "--save-preset" : "--preset"} needs a name after it`);
   flags.prompt = words.join(" ").trim();
@@ -95,6 +109,33 @@ export interface RunWriter {
   note(text: string): void;
 }
 /** Streams a task as JSON Lines while it works, then the run itself, and answers with its status. */
+/**
+ * Batch 20 (wave 8): which conversation a scripted task joins, and where it picks up from.
+ *
+ * `--fork` makes a copy of the conversation at its last message and works in that, so the one it
+ * came from is left exactly as it was — the safe way to try a different wording. `--resume` carries
+ * on the transcript of a task that stopped, in its own conversation. `--session` simply joins one.
+ * Anything that is not the owner's own is refused by the store, in its own words.
+ */
+export function conversationFor(
+  store: Store, owner: string, flags: RunFlags,
+): { sessionId?: string; resumeFrom?: string; prompt?: string } {
+  if (flags.forkFrom) {
+    const view = store.sessionView(owner, flags.forkFrom);
+    const point = [...view.messages].reverse()
+      .find((message) => ["user", "assistant"].includes(message.role) && !message.toolCalls?.length);
+    if (!point) throw new Error("There is nothing in that conversation to work from yet");
+    return { sessionId: store.branchSession(owner, { sessionId: flags.forkFrom, messageId: point.messageId }).sessionId };
+  }
+  if (flags.resumeRunId) {
+    const previous = store.run(flags.resumeRunId);
+    if (!previous || previous.owner !== owner) throw new Error(`There is no task of yours numbered ${flags.resumeRunId}`);
+    // Carrying on needs no new words, so an empty `--resume` takes up the task's own request again.
+    return { sessionId: previous.sessionId, resumeFrom: previous.id, prompt: previous.prompt };
+  }
+  return flags.sessionId ? { sessionId: flags.sessionId } : {};
+}
+
 export async function runForScripts(
   runtime: Runtime,
   flags: RunFlags,
@@ -107,10 +148,12 @@ export async function runForScripts(
   const timer = flags.timeoutMs ? setTimeout(() => controller.abort(new Error("Timed out")), flags.timeoutMs) : undefined;
   let seen = 0, runId = "";
   const pump = setInterval(() => { seen = drain(runtime, runId, seen, writer); }, 100);
+  const { prompt: carried, ...conversation } = conversationFor(runtime.store, runtime.owner, flags);
   try {
     const run = await runtime.run({
-      prompt: flags.prompt + attachedText(attachments),
+      prompt: (flags.prompt || carried || "") + attachedText(attachments),
       signal: controller.signal,
+      ...conversation,
       ...(images.length ? { images } : {}),
       ...(flags.plan ? { plan: true } : {}), ...(flags.verify ? { verify: true } : {}),
       ...(flags.dryRun ? { dryRun: true } : {}),

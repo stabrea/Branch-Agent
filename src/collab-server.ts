@@ -4,6 +4,7 @@ import type { createBranch } from "./index.js";
 import type { Run } from "./contracts.js";
 import type { RunOptions } from "./runtime.js";
 import { ShareRequestSchema, ShareLinkSchema } from "./conversation-share.js";
+import { audit } from "./audit.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
 
@@ -150,7 +151,17 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
     profiles.requireOwner("Adding somebody to this computer");
     return profiles.create(await body());
   }
-  if (request.method === "POST" && path === "/api/profiles/switch") return profiles.switch(await body());
+  if (request.method === "POST" && path === "/api/profiles/switch") {
+    const switched = profiles.switch(await body());
+    // Batch 20 (wave 8): who is using the computer decides whose records are reachable, so every
+    // switch is written down — the move back to the owner included.
+    audit(app.store, app.runtime.owner, {
+      action: "profile.switched", actor: switched.active?.name ?? app.runtime.owner,
+      subject: switched.active ? `${switched.active.name}'s profile` : "back to you",
+      reason: "Somebody switched who is using this computer", outcome: "switched",
+    });
+    return switched;
+  }
   const remove = new RegExp(`^/api/profiles/(${idPattern})/remove$`).exec(path);
   if (remove && request.method === "POST") {
     profiles.requireOwner("Removing somebody from this computer");
