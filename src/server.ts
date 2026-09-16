@@ -83,6 +83,9 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
+// Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
+// questions at once, and what each project has cost.
+import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -239,6 +242,8 @@ async function staticFile(
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the Lockdown switch and the shape branched conversations make.
+    "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -523,6 +528,11 @@ async function api(
   if (handlesOrchestrationPath(path))
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
+  if (handlesOtherPath(path))
+    return otherApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OtherApiError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
@@ -863,7 +873,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
+  // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
+  if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
+  if (match && match[2] === "merge-note" && request.method === "POST")
+    return app.sessionTree.mergeNote(owner, { sessionId: match[1]! });
   if (match && match[2] === "summary" && request.method === "GET") return app.store.sessionSummary(owner, match[1]!);
   if (match && match[2] === "pins") {
     if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };

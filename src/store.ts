@@ -99,6 +99,9 @@ export class Store {
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
     if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
       this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
+    // Wave 8: which project a task was done under, so the figures can be counted per project.
+    if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "project"))
+      this.db.exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT 'default'");
     this.labels = new Labels(this.db);
     this.toolUsage = new ToolUsage(this.db);
     this.shares = new ShareLinks(this.db);
@@ -164,7 +167,7 @@ export class Store {
   duplicateSession(owner: string, sessionId: string) {
     return this.library.duplicate(owner, sessionId);
   }
-  createRun(owner: string, prompt: string, sessionId?: string, temporary = false, source = "web"): Run {
+  createRun(owner: string, prompt: string, sessionId?: string, temporary = false, source = "web", project?: string): Run {
     const now = new Date().toISOString();
     if (
       sessionId &&
@@ -188,10 +191,12 @@ export class Store {
       output: "",
       createdAt: now,
       updatedAt: now,
+      // The project a task was done under is settled when it starts and never changes afterwards.
+      project: project ?? this.projects.active(owner).id,
     };
     this.db
-      .prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?)")
-      .run(run.id, session, owner, prompt, run.status, "", now, now, source);
+      .prepare("INSERT INTO tasks(id,session_id,owner,prompt,status,output,created_at,updated_at,source,project) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run(run.id, session, owner, prompt, run.status, "", now, now, source, run.project!);
     this.db.prepare("INSERT INTO usage(run_id) VALUES(?)").run(run.id);
     return run;
   }
@@ -635,6 +640,7 @@ export class Store {
       output: String(r.output),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
+      project: r.project === undefined || r.project === null ? "default" : String(r.project),
     };
   }
   private toRecord(r: Row): SavedRecord {

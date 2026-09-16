@@ -25,6 +25,9 @@ import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
 import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
+// Wave 8: conversations branched off other conversations, seen as a tree, and one answer carried back.
+import { SessionTree, registerSessionTree } from "./session-tree.js";
+import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
@@ -232,6 +235,8 @@ export async function createBranch(options: {
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
+  const sessionTree = new SessionTree(store.sqlite);
+  registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
@@ -293,7 +298,11 @@ export async function createBranch(options: {
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
   const privacy = new PrivacyGuard(store, runtime.owner, moderation);
   moderation.configure(privacy.settings().moderation);
-  channels.outboundGuard = (text) => privacy.outbound(text);
+  // Wave 8 (the long tail): while Lockdown is on, nothing is sent out of a messaging account at all.
+  channels.outboundGuard = async (text) =>
+    lockedDown(store, runtime.owner)
+      ? { text: "", blocked: true, reason: lockdownRefusal }
+      : privacy.outbound(text);
   runtime.hideSecrets = (value) => {
     const scrubbed = store.secrets.scrubber.deep(value);
     // The privacy settings live in the database; a failure reported while the app is closing
@@ -342,8 +351,13 @@ export async function createBranch(options: {
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
-  runtime.notifyEvent = webhooks.notifier(runtime.owner);
-  channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
+  // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
+  const notify = webhooks.notifier(runtime.owner);
+  const guardedNotify: typeof notify = (event, payload) => {
+    if (!lockedDown(store, runtime.owner)) notify(event, payload);
+  };
+  runtime.notifyEvent = guardedNotify;
+  channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
@@ -370,7 +384,7 @@ export async function createBranch(options: {
   // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
   // each box finishes.
   const flows = new Flows(store, runtime.owner, workflows);
-  flows.notifyEvent = webhooks.notifier(runtime.owner);
+  flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
@@ -466,6 +480,8 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
+    sessionTree,
     files,
     knowledge,
     documents,
@@ -839,3 +855,13 @@ export * from "./mcp-lifecycle.js";
 export * from "./mcp-apps.js";
 export * from "./mcp-workbench.js";
 export * from "./integrations/mcp-oauth.js";
+// Wave 8 (the long tail in "other"): the app's own OpenAPI description, keeping answers to
+// identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
+// make, what each project has cost, and watching a folder.
+export * from "./api-openapi.js";
+export * from "./request-cache.js";
+export * from "./batch-inference.js";
+export * from "./lockdown.js";
+export * from "./session-tree.js";
+export * from "./project-ledger.js";
+export * from "./watch.js";

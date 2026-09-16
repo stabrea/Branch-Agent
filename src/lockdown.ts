@@ -1,0 +1,102 @@
+import { z } from "zod";
+import type { Store } from "./store.js";
+import { audit } from "./audit.js";
+
+/**
+ * One switch that shuts everything down at once. Turning Lockdown on makes every tool wait for the
+ * owner's yes, and switches off the four things that reach past this app on their own: running
+ * programs on this computer, using the screen and keyboard, borrowing the owner's browser, and
+ * sending anything out — messages and notes to other programs.
+ *
+ * What made it possible to turn back on again is the exact settings that were there before. They
+ * are copied, untouched, into one kept record; turning Lockdown off writes those same settings back
+ * and nothing else, so a switch that was already off before stays off afterwards. Both moments are
+ * written into the record of what the assistant was allowed to do.
+ */
+
+/** The settings Lockdown takes over, and what it sets each one to while it is on. */
+const guarded: readonly { key: string; locked: Record<string, unknown> }[] = [
+  // Every tool, on anything, waits for a yes. The first matching rule wins, so one rule is enough.
+  { key: "policy", locked: { preset: "custom", rules: [{ tool: "*", match: "*", applies: "any", decision: "ask", remember: "never" }], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } } },
+  { key: "code-run", locked: { enabled: false } },
+  { key: "desktop-control", locked: { enabled: false } },
+  { key: "browser-attach", locked: { enabled: false, runId: "", grantedAt: "" } },
+];
+const stateKey = "lockdown";
+
+export const LockdownSchema = z.object({ on: z.boolean() }).strict();
+export interface LockdownState {
+  on: boolean;
+  /** When it was turned on, so the rail can say how long it has been on. */
+  since: string | null;
+  /** In plain language, what is switched off while it is on. */
+  effects: string[];
+}
+export const lockdownEffects = [
+  "Every tool waits for your yes.",
+  "Running programs on this computer is off.",
+  "Using your screen and keyboard is off.",
+  "Borrowing your browser is off.",
+  "Sending messages out and telling other programs what happened are both off.",
+];
+
+interface SavedLockdown { on: boolean; since: string | null; before: Record<string, Record<string, unknown> | null> }
+
+function saved(store: Store, owner: string): SavedLockdown {
+  const record = store.get("settings", owner, stateKey)?.data as unknown as SavedLockdown | undefined;
+  return record && typeof record.on === "boolean" ? record : { on: false, since: null, before: {} };
+}
+
+/** Whether Lockdown is on, and what that stops. */
+export function lockdownState(store: Store, owner: string): LockdownState {
+  const current = saved(store, owner);
+  return { on: current.on, since: current.since, effects: lockdownEffects };
+}
+
+/** True while Lockdown is on. The one question the sending paths ask before they send anything. */
+export function lockedDown(store: Store, owner: string): boolean {
+  return saved(store, owner).on;
+}
+
+/** The sentence a refused send gives back, so every place says the same thing. */
+export const lockdownRefusal = "Lockdown is on, so nothing is being sent out. Turn it off in Settings to allow this again.";
+
+/**
+ * Turns Lockdown on or off. Turning it on copies the settings it is about to change and then
+ * changes them; turning it off writes exactly those copies back — a setting that had never been
+ * saved before is removed again rather than being given a made-up default.
+ */
+export function setLockdown(store: Store, owner: string, input: unknown): LockdownState {
+  const { on } = LockdownSchema.parse(input);
+  const current = saved(store, owner);
+  if (on === current.on) return lockdownState(store, owner);
+  if (on) turnOn(store, owner);
+  else turnOff(store, owner, current);
+  audit(store, owner, {
+    action: "policy.changed", actor: owner, subject: on ? "Lockdown on" : "Lockdown off",
+    reason: on
+      ? "Every tool now waits for a yes; host programs, the screen, the browser and sending out are off"
+      : "The settings that were in place before Lockdown were put back exactly as they were",
+    outcome: "saved",
+  });
+  return lockdownState(store, owner);
+}
+
+function turnOn(store: Store, owner: string): void {
+  const before: Record<string, Record<string, unknown> | null> = {};
+  for (const entry of guarded) {
+    const record = store.get("settings", owner, entry.key);
+    before[entry.key] = record ? record.data : null;
+    store.save("settings", owner, entry.key, { ...(record?.data ?? {}), ...entry.locked });
+  }
+  store.save("settings", owner, stateKey, { on: true, since: new Date().toISOString(), before });
+}
+
+function turnOff(store: Store, owner: string, current: SavedLockdown): void {
+  for (const entry of guarded) {
+    const was = current.before[entry.key];
+    if (was === null || was === undefined) store.delete("settings", owner, entry.key);
+    else store.save("settings", owner, entry.key, was);
+  }
+  store.save("settings", owner, stateKey, { on: false, since: null, before: {} });
+}

@@ -70,6 +70,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions } from "./orchestration.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
+import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
@@ -196,6 +197,8 @@ export class Runtime {
   readonly orchestration: Orchestration;
   /** Tool calls handed over to finish later; their answers come back as follow-up messages. */
   readonly deferrals: Deferrals;
+  /** Answers kept for identical requests. Off until the owner turns it on; see src/request-cache.ts. */
+  readonly requestCache: RequestCache;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -211,6 +214,7 @@ export class Runtime {
     this.orchestration = new Orchestration(store, this.owner, workspace);
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
+    this.requestCache = new RequestCache(store, this.owner);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -724,9 +728,11 @@ export class Runtime {
     if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
     // A routing profile (wave 7) is the owner's own named set of choices. It is asked first, and
     // whichever rule fired is written down so the inspector can say why this model and not another.
-    const byProfile = routeByProfile(this.store, this.models, owner, "chat");
+    // Wave 8: a project may name the way of working its own tasks start from.
+    const defaults = this.store.projects.defaults(owner);
+    const byProfile = routeByProfile(this.store, this.models, owner, "chat", defaults.profile);
     if (byProfile.preset) {
-      this.store.event(run.id, "model.routed", { preset: byProfile.preset, kind: "profile", reason: byProfile.reason });
+      this.store.event(run.id, "model.routed", { preset: byProfile.preset, kind: "profile", reason: byProfile.reason, project: defaults.projectId });
       return { ...override, preset: byProfile.preset };
     }
     // Off by default, so this costs nothing until the owner asks for it.
@@ -1220,6 +1226,22 @@ export class Runtime {
       "gen_ai.system": preset.provider.name, "gen_ai.request.model": preset.model,
       "branch.preset": preset.id, "branch.tokens.estimated_input": input,
     });
+    // The same question asked twice. A kept answer costs nothing and never leaves this computer,
+    // so the round is recorded as finished with no tokens and the reason written beside it.
+    const cacheKey: CacheKeyParts = {
+      provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
+      messages, tools: tools.map((tool) => ({ name: tool.name })),
+    };
+    const kept = this.requestCache.look(cacheKey);
+    if (kept) {
+      this.store.event(run.id, "model.completed", {
+        toolCalls: 0, estimatedInput: 0, estimatedOutput: 0, reported: null, cachedInput: null,
+        preset: preset.id, provider: preset.provider.name, model: preset.model,
+        cached: true, cacheReason: "The same request was answered before, so nothing was sent or charged.",
+      });
+      span?.end("ok", "", { "branch.model.cached": true });
+      return CompletionSchema.parse({ ...kept, toolCalls: [] });
+    }
     try {
       const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
       const raw = onTextDelta
@@ -1243,6 +1265,8 @@ export class Runtime {
         model: preset.model,
       });
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
+      // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
+      this.requestCache.keep(cacheKey, completion);
       return completion;
     } catch (e) {
       if (e instanceof ProviderStreamError)
