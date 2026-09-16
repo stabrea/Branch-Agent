@@ -707,6 +707,52 @@ WindowsAgentArena, AndroidWorld, WebVoyager, BrowserGym, BEIR, AGBench, APPS/MBP
 however well the suite mechanism would carry them; so are the URL and HTML-state evaluators
 (A1765, A1766), which need a browser page the harness does not yet drive.
 
+
+## Batch 23 (wave 4) — models that run on this computer
+Branch could already be pointed at Ollama or LM Studio as a provider; it could not *manage* one.
+`src/local-models.ts` speaks both runtimes' own APIs with no new dependency: `OllamaClient` does
+version, list (`/api/tags`), details (`/api/show`, including the largest `*.context_length` the
+server reports and whether the model can be shown a picture), delete, embeddings
+(`/api/embeddings`, one passage per request) and `pull`, which reads Ollama's newline-delimited
+progress stream and turns each line into a `model.download.progress` report with bytes so far,
+total and a percentage. `LmStudioClient` lists models (`/api/v0/models`, falling back to
+`/v1/models`) and loads one by asking it for a single token, which is the only public way to make
+LM Studio bring a model into memory. Every base address goes through `assertOnThisComputer`, which
+refuses anything that is not `localhost`/`127.0.0.1`/`[::1]` or that carries credentials, a query
+or a fragment; model names are checked against the shape Ollama accepts so a name can never become
+a path. These requests deliberately do not go through `NetworkPolicy` — it refuses loopback by
+design, and a local runtime is nothing but loopback — which is the same carve-out
+`GET /api/providers/local` already documents.
+`src/local-hardware.ts` reads memory and cores from Node and, on Windows only, the graphics card
+from one cached `powershell Get-CimInstance Win32_VideoController` that returns null on any
+surprise. `recommendModels()` is pure: three sizes (llama3.2:3b, llama3.1:8b, qwen2.5:14b) each
+marked as fitting this computer or not, with plain-language expectations ("fast, good for notes";
+"slower, better at reasoning") and a note saying whether the graphics card will take the work or
+replies will come a word at a time.
+`src/local-runtimes.ts` holds it together for the app: one shared `LocalRuntimes` with an in-memory
+download registry, because a multi-gigabyte pull lasts far longer than the server's 150 s request
+timeout — `POST /api/local-models/pull` starts it and returns at once, `GET
+/api/local-models/downloads` says how it is going — plus the last error and the health section.
+`src/local-models-api.ts` is the whole `/api/local-models/*` family, so `src/server.ts` gains only a
+four-line dispatch block, the family name in `isExecution`, and `/local-models.js` in the static
+list. `src/local-routing.ts` adds per-task routing (`settings/routing`, off by default): a pure
+`classifyTask` (length, tool-need phrases, and a personal-details heuristic written here because
+Branch still has no PII guard — A0875) and a pure `chooseRoute` that keeps a private task on this
+computer, sends a long or tool-heavy one to the cloud model, prefers the free local model when a
+simple task would cost more than the owner's ceiling by the existing pricing table, and falls back
+to the cloud when the local server is not answering. `Runtime.loop` consults it in ten lines and
+records a `model.routed` event; an explicit run or conversation choice always wins.
+`document-embeddings.ts` gains an `Embedder` interface so `documents.ts` and `memory-retrieval.ts`
+can take Ollama's reader in two lines each when the connected model is on Ollama's port, swapping
+`text-embedding-3-small` for `nomic-embed-text`. `models.ts` gains `presetRunsLocally`, a `local`
+flag on every `ModelChoice` and `ModelRouter.runsLocally`, so the context pane says "· on this
+computer" plainly. UI: a "Models on this computer" card in Settings (`public/local-models.js`) with
+the hardware summary, the three suggestions, a native progress bar per download, what is installed
+with its size and whether it can see pictures, and the routing switches. Tests:
+`tests/local-models.test.mjs` (20) drive a real loopback fake Ollama, including a pull whose NDJSON
+is split across chunks. Covers A1788 and A2365, and the provider-adapter family under
+`models.routing-and-cost`; A2103 (under `cli-and-tui`) is adjacent but not claimed.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

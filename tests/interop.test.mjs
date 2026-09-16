@@ -161,7 +161,7 @@ test("the health check names what works and what to do about what does not", asy
   const { app, api } = await fixture(t);
   const report = await api("/api/health");
   assert.equal(report.ok, true, JSON.stringify(report.items.filter((i) => !i.ok)));
-  assert.deepEqual(report.items.map((i) => i.name), ["Saved data", "Workspace folder", "Device key", "Models", "Channels", "Schedules", "Tasks waiting for you"]);
+  assert.deepEqual(report.items.map((i) => i.name), ["Saved data", "Workspace folder", "Device key", "Models", "Models on this computer", "Channels", "Schedules", "Tasks waiting for you"]);
   const broken = { name: "broken", async complete() { throw new Error("connection refused"); } };
   app.runtime.models.register({ id: "broken", name: "Broken box", provider: broken, model: "x" });
   app.runtime.models.configure("local", { activePreset: "broken" });

@@ -31,7 +31,7 @@ test("named presets: each task uses the selected preset's provider and model", a
   const first = await app.runtime.run({ prompt: "one" });
   assert.equal(first.status, "completed");
   assert.deepEqual(kinds(app, first, "model.selected")[0], {
-    presetId: "alpha", presetName: "Alpha", provider: "alpha", model: "alpha-1", reasoning: null, source: "default" });
+    presetId: "alpha", presetName: "Alpha", provider: "alpha", model: "alpha-1", reasoning: null, source: "default", local: false });
   app.runtime.models.configure("local", { activePreset: "beta" });
   const second = await app.runtime.run({ prompt: "two" });
   assert.equal(second.output, "beta answered");

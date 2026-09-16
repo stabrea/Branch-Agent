@@ -760,6 +760,27 @@
             <p id="models-note" class="subtle"></p>
             <button>Save model settings</button>
           </form>
+          <section id="local-models-card" class="card">
+            <h2>Models on this computer</h2>
+            <p>Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
+            <p id="local-models-hardware" class="subtle"></p>
+            <p id="local-models-state" class="subtle">Checking…</p>
+            <div id="local-models-suggestions" class="card-list"></div>
+            <div class="input-row">
+              <input id="local-model-name" maxlength="160" placeholder="Or type a model name, for example llama3.2:3b" />
+              <button id="local-model-get" type="button">Get this model</button>
+            </div>
+            <div id="local-models-downloads" class="card-list"></div>
+            <div id="local-models-installed" class="card-list"></div>
+            <h3>Which model answers which task</h3>
+            <p class="subtle">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
+            <label><input id="local-routing-enabled" type="checkbox" /> Choose the model for me, task by task</label>
+            <label><input id="local-routing-private" type="checkbox" /> Keep tasks that mention personal details on this computer</label>
+            <label><input id="local-routing-hard" type="checkbox" /> Send long or fiddly tasks to the cloud model</label>
+            <label for="local-routing-ceiling">Use the free model here when a simple task would cost more than (US dollars)</label>
+            <input id="local-routing-ceiling" type="number" min="0" max="100" step="0.01" />
+            <button id="local-routing-save" type="button">Save these rules</button>
+          </section>
           <form id="model-settings-form" class="card" hidden>
             <h2>Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
@@ -854,5 +875,6 @@
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
+    <script src="/local-models.js" type="module"></script>
   </body>
 </html>

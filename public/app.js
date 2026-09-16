@@ -454,7 +454,12 @@ async function refresh() {
     savedAppearance = look;
     applyAppearance(state.preferences);
   }
-  $("context-provider").textContent = demo ? "Not connected" : active.presetName;
+  /* A model running here is said plainly, so it is obvious when nothing leaves this computer. */
+  $("context-provider").textContent = demo
+    ? "Not connected"
+    : active.local
+      ? `${active.presetName} · on this computer`
+      : active.presetName;
   /* The context pane offers "Connect a model" while nothing real is connected. */
   $("context-panel").dataset.connected = String(!demo);
   $("context-runs").textContent = state.runs.filter(
