@@ -239,7 +239,11 @@ test("an assistant elsewhere can be added by its card, asked, and removed", asyn
   assert.equal(answer.answer, "Ada says: what is the time");
   assert.equal(ada.seen[0].authorization, "Bearer shared-key");
   assert.equal(ada.seen[0].body.method, "tasks/send");
-  assert.deepEqual(Object.keys(ada.seen[0].body.params.message.parts[0]), ["type", "text"], "only the words of the task are sent");
+  // Nothing but the task itself leaves this computer: no workspace, no history, no run id.
+  assert.deepEqual(Object.keys(ada.seen[0].body.params).sort(), ["id", "message"]);
+  assert.deepEqual(Object.keys(ada.seen[0].body.params.message).sort(), ["parts", "role"]);
+  assert.equal(ada.seen[0].body.params.message.parts.length, 1);
+  assert.deepEqual(Object.keys(ada.seen[0].body.params.message.parts[0]).sort(), ["text", "type"], "only the words of the task are sent");
   const removed = await api("/api/agents/remote/remove", { agent: "Ada" });
   assert.equal(removed.body.removed, true);
   assert.equal((await api("/api/agents/remote")).body.agents.length, 0);
