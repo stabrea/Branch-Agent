@@ -2001,9 +2001,10 @@ export async function startServer(
       authorize(request, url, token, remote.allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      }, (supplied) => app.sessionTokens.check(app.runtime.owner, supplied, {
-        method: request.method ?? "GET", executes: isExecution(request, path),
-      }));
+      }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
+        ?? app.sessionTokens.check(app.runtime.owner, supplied, {
+          method: request.method ?? "GET", executes: isExecution(request, path),
+        }));
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2398,6 +2399,18 @@ function voiceDeps(app: Branch) {
     // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
     oauth: app.oauth,
   };
+}
+/**
+ * Batch 20 (wave 8): the doors a short-lived key never opens, whatever its scope. A "run" key is
+ * described to its holder as one that may start a task but may not change what Branch is allowed to
+ * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
+ * two are the owner's own step, in the app window, with the master key.
+ */
+function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  if (method === "GET") return null;
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets"))
+    return "A short-lived key cannot name a program for Branch to run, or change the locker. Do that in the app window.";
+  return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (

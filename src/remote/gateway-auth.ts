@@ -16,7 +16,8 @@ import type { Store } from "../store.js";
  * The steps:
  *   - `token`   the same local key the window on this computer uses. Already checked before this
  *               runs; it is in the chain so the list reads as the whole truth.
- *   - `pairing` the phone must have been let in once by accepting an invitation.
+ *   - `pairing` at least one phone has been let in on this computer. It is a switch, not a check on
+ *               who is calling; the step that tells one phone from another is `device`.
  *   - `device`  the phone must send back the secret it was given when it paired, so a key copied
  *               off one phone is no use on another.
  *
@@ -124,6 +125,8 @@ export class GatewayAuth {
     if (step === "token")
       return tokenOk ? null : "This phone does not have the key for this computer. Accept a fresh invitation on the computer.";
     if (step === "pairing")
+      // A switch, deliberately: it says an invitation has been accepted at all. Telling this phone
+      // from another one is the `device` step below, which is the one to add for that.
       return this.devices().length ? null : "No phone has been let in yet. Make an invitation on the computer and accept it.";
     const id = String(request.headers[deviceHeader] ?? "");
     const secret = String(request.headers[deviceSecretHeader] ?? "");

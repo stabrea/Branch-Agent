@@ -3290,7 +3290,8 @@ The extra door that faces your private Tailscale address has a chain of named st
 step in it must pass** — so adding a step can only make the door harder to open:
 
 - `token` — the same local key the window on this computer uses.
-- `pairing` — a phone must have been let in once by accepting an invitation.
+- `pairing` — at least one phone has been let in on this computer. This step is a switch rather
+  than a check on who is calling; `device` below is the one that tells one phone from another.
 - `device` — the phone must send back the secret it was given when it paired
   (`x-branch-device` and `x-branch-device-key`), so a key copied off one phone is no use on another.
 

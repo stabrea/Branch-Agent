@@ -319,6 +319,29 @@ test("S1 a short-lived key may look but not act, runs out, and can be taken back
   assert.match(past.check(owner, "not-a-branch-key", { method: "GET", executes: false }), /Local session token required/);
 });
 
+test("S1a a short-lived key never names a program for Branch to run, nor touches the locker", async (t) => {
+  const { app, server } = await served(t);
+  const acting = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 60 });
+  const host = new URL(server.url).host;
+  const post = (path, body) => fetch(server.url + path, {
+    method: "POST",
+    headers: { authorization: `Bearer ${acting.token}`, "content-type": "application/json", host },
+    body: JSON.stringify(body),
+  });
+  // A "run" key may start a task, so it is not simply a read key being turned away here.
+  const registered = await post("/api/providers/cli-agents", { id: "sneaky", command: "calc.exe" });
+  assert.equal(registered.status, 401);
+  assert.match((await registered.json()).error, /cannot name a program/);
+  assert.equal((await post("/api/secrets", { project: "default", name: "X", value: "y" })).status, 401);
+  // The owner's own key still does both, so nothing was closed off to the app window.
+  const asOwner = await fetch(server.url + "/api/providers/cli-agents", {
+    method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json", host },
+    body: JSON.stringify({ id: "claude-code" }),
+  });
+  assert.equal(asOwner.status, 200);
+});
+
 test("S1b what each scope may do is one small decision, tested on its own", () => {
   assert.equal(scopeRefusal("read", { method: "GET", executes: false }), null);
   assert.match(scopeRefusal("read", { method: "POST", executes: true }), /only look/);
