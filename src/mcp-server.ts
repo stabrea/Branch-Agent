@@ -188,6 +188,12 @@ const scopedResources: readonly ResourceScope[] = [
 export class McpServer {
   private sessions = new Map<string, McpSession>();
   private inFlight = 0;
+  /**
+   * Calls parked on a question for the owner. Waiting for a person is not work, so it is taken off
+   * the busy count: otherwise a couple of unanswered questions would hold every slot the connection
+   * has for two minutes and refuse even a read.
+   */
+  private waiting = 0;
   private readonly stopWatching: () => void;
   /** The document library, once the launcher has built it, so documents can be offered too. */
   documents?: { list(owner: string): unknown[] };
@@ -426,7 +432,7 @@ export class McpServer {
     if (parsed._meta?.dryRun === true) return this.dryRun({ name: parsed.name, arguments: args });
     if (parsed.name === 'mcp.dry_run') return this.dryRun(DryRunSchema.parse(args));
     if (parsed.name === 'mcp.snapshot') return this.snapshot(session, args);
-    if (this.inFlight >= this.options.maxConcurrentCalls)
+    if (this.inFlight - this.waiting >= this.options.maxConcurrentCalls)
       return failure('Branch is already busy with as many shared calls as it allows. Try again shortly.');
     this.inFlight++;
     try {
@@ -498,7 +504,9 @@ export class McpServer {
     const verdict = this.gate(name, args, session);
     if (verdict.decision === 'deny') return failure(verdict.refusal);
     if (verdict.decision === 'ask') {
-      const answered = await this.waitForOwner(verdict);
+      this.waiting++;
+      let answered: 'allow' | 'deny' | 'waiting';
+      try { answered = await this.waitForOwner(verdict, session); } finally { this.waiting--; }
       if (answered !== 'allow') return failure(answered === 'deny' ? verdict.refusal : verdict.waiting);
     }
     const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
@@ -555,7 +563,7 @@ export class McpServer {
    * it, for as long as the owner's setting allows. If nothing comes, the question stays waiting and
    * the client is told to ask again: the answer is bound to these bytes, so a retry finds it.
    */
-  private async waitForOwner(verdict: McpVerdict): Promise<'allow' | 'deny' | 'waiting'> {
+  private async waitForOwner(verdict: McpVerdict, session?: McpSession): Promise<'allow' | 'deny' | 'waiting'> {
     const name = verdict.name;
     const asking = this.store.createRun(this.runtime.owner, `Another AI tool asked to use ${name}`);
     const question = approvalQuestion(verdict.label, verdict.target);
@@ -574,6 +582,9 @@ export class McpServer {
         return answer;
       }
       if (this.now() >= deadline) break;
+      // A client holding a call open is not an idle one, so the idle sweep must not take its
+      // session away underneath it — the answer is remembered against that session id.
+      if (session) session.lastSeen = this.now();
       await new Promise((resolve) => { const timer = setTimeout(resolve, 150); timer.unref?.(); });
     } while (this.now() < deadline);
     // The question is deliberately left waiting: the owner can still answer it, and the answer is

@@ -272,7 +272,7 @@ async function client(t, reply) {
   };
   const first = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize",
     params: { protocolVersion: "2025-06-18", clientInfo: { name: "probe", version: "1.0.0" } } });
-  return { app, call, rpc, sessionId: first.response.headers.get("mcp-session-id") };
+  return { app, call, rpc, server, headers, sessionId: first.response.headers.get("mcp-session-id") };
 }
 
 test("2 — a call that needs a yes waits for the owner, and goes ahead when they give one", async (t) => {
@@ -497,4 +497,69 @@ test("1 — on demand, a server nobody has ever connected is connected once rath
   assert.ok(app.registry.names().includes(name), "its tools are there, because they had to be asked for");
   assert.deepEqual(app.store.get("settings", app.runtime.owner, "mcp-tools:fixture").data.tools.map((t2) => t2.name),
     ["echo"], "and now they are written down, so next time nothing need be started");
+});
+
+test("2 — a call parked on a question does not use up the connection's busy limit", async (t) => {
+  const { app, call, rpc, server, headers, sessionId } = await client(t);
+  const clicked = {
+    name: "browser.click", description: "Click something on a web page", permission: "browser.interact",
+    parameters: z.object({ selector: z.string() }).strict(), execute: async () => ({ clicked: true }),
+  };
+  app.registry.register(clicked);
+  app.registry.register({ ...clicked, name: "browser.read", description: "Read what a web page says",
+    permission: "browser.read", parameters: z.object({}).strict(), execute: async () => ({ text: "a page" }) });
+  await call("/api/mcp/settings",
+    { enabled: true, exposedTools: ["browser.click", "browser.read"], askWaitSeconds: 600, idleMinutes: 1 });
+  savePolicy(app.store, app.runtime.owner, { rules: [
+    { tool: "browser.click", match: "*", decision: "ask" },
+    { tool: "browser.read", match: "*", decision: "allow" },
+  ] });
+
+  const mcp = app.mcpServer;
+  let clock = Date.now();
+  mcp.now = () => clock;
+
+  // Four other tools, each with its own connection, all waiting on the owner. Four at once is
+  // exactly as many calls as this server will do at a time, so if waiting counted as working the
+  // next call would be turned away — including a read that asks nobody anything.
+  const others = [];
+  for (let at = 0; at < 4; at++) {
+    const opened = await rpc({ jsonrpc: "2.0", id: 100 + at, method: "initialize",
+      params: { protocolVersion: "2025-06-18", clientInfo: { name: `probe-${at}`, version: "1.0.0" } } });
+    others.push(opened.response.headers.get("mcp-session-id"));
+  }
+  const parked = others.map((id, at) => rpc({ jsonrpc: "2.0", id: 10 + at,
+    method: "tools/call", params: { name: "browser.click", arguments: { selector: `#${at}` } } }, id));
+  const questions = [];
+  for (let at = 0; at < 200 && questions.length < 4; at++) {
+    questions.length = 0;
+    for (const id of others) {
+      const question = app.runtime.approvals.waiting(`mcp:${id}`).at(-1);
+      if (question) questions.push({ id, question });
+    }
+    if (questions.length < 4) await delay(25);
+  }
+  assert.equal(questions.length, 4, "all four are questions in the app");
+
+  const read = await fetch(`${server.url}/mcp`, {
+    method: "POST", headers: { ...headers, "mcp-session-id": sessionId },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 20, method: "tools/call",
+      params: { name: "browser.read", arguments: {} } }),
+    signal: AbortSignal.timeout(15_000),
+  }).then((response) => response.json());
+  assert.equal(read.result.isError, false, "and a fifth call still goes through");
+  assert.match(read.result.content[0].text, /a page/);
+
+  // A minute of the owner thinking about it is not an idle connection.
+  clock += 61_000;
+  await delay(300);
+  const dropped = mcp.dropIdleSessions();
+  for (const id of others) {
+    assert.ok(!dropped.includes(id), "the sessions the held-open calls belong to are kept");
+    assert.equal(mcp.hasSession(id), true);
+  }
+  assert.deepEqual(dropped, [sessionId], "the one that asked its question and went quiet is not");
+
+  for (const { id, question } of questions) app.runtime.approve(`mcp:${id}`, "allow", "session", question.fingerprint);
+  for (const answered of await Promise.all(parked)) assert.equal(answered.data.result.isError, false);
 });
