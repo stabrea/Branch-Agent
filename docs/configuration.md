@@ -706,3 +706,69 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+## Skill packages, registry versions, plugins and suggestions
+
+A **skill package** is one file (`.branchskill`) holding a `skill/` folder: `SKILL.md`, an optional
+`tools.json` and an optional `hooks.json`. It is a zip built with Node's own compression, so no
+extra software is needed. Inside it sits `branch-package.json`, the manifest: the skill's name, the
+package version, who made it, what the package asks to be allowed to do, and a fingerprint
+(SHA-256) of every file. Opening a package checks every fingerprint; if any file was changed after
+it was made, or a file is present that the manifest does not list, nothing is installed.
+
+`tools.json` describes web calls the skill may make: `{ "tools": [{ name, description, method,
+url, headers, body, input, pick }] }`. `{{name}}` in the address or a header takes one of the
+tool's declared inputs. `{{secret:NAME}}` in a header or the body takes a secret from your locker
+in the active project: the value is fetched at the moment of the call, is never written into the
+task's record, and is replaced with `[secret NAME]` in anything the assistant reads back. Every
+address goes through the same network rules as the rest of Branch, and only the fields listed in
+`pick` are kept from the answer. These tools are registered as `skill.<skill name>.<tool name>` and
+need the `skills.http` permission. `hooks.json` is `{ "hooks": [{ event, recipe }] }`: when that
+event happens, Branch runs one of **your own** verified recipes by that name. A package can never
+bring a recipe of its own.
+
+Routes: `POST /api/skills/package/inspect { file }` (base64; shows the manifest, the addresses, the
+secrets it wants and the plain-language list of what it asks for, and installs nothing),
+`POST /api/skills/package/install { file, approve }` (nothing happens unless `approve` is true; the
+skill arrives switched off and is scanned like any other), `GET /api/skills/packages`, and
+`POST /api/skills/:id/pack { author, packageVersion }` which builds a package from a skill you
+have. On the command line: `branch skill pack <folder> [out.branchskill] --author "Your name"
+[--package-version 1.0.0]` and `branch skill install <file.branchskill> [--approve]`.
+
+**Registries, version 2.** A registry index may now say `"version": 2` and publish a `publicKey`
+(base64 ed25519). Each listed skill may carry a `version`, a `changelog` and a `signature`, made
+over the exact lines `branch-skill-registry`, the registry name, the skill id, the version and the
+fingerprint. Branch labels every entry `checked`, `unsigned` or `invalid`; an `invalid` signature
+stops the install, an unsigned entry is installed but plainly labelled as unsigned. Version 1
+indexes still work exactly as before. `GET /api/registry/updates` asks the registries you installed
+from whether a newer version exists and returns the changelog; `POST /api/registry/update
+{ skillId }` saves the new version and switches to it, keeping the one you had;
+`POST /api/registry/rollback { skillId }` puts that earlier version back.
+
+**Help writing a skill.** `POST /api/skills/draft-from-runs { skillId, runIds }` reads two to six
+tasks that went well and proposes one improved version, saved but not switched on.
+`POST /api/skills/:id/test { version, examples }` runs the examples the skill lists under an
+`## Examples` heading (one task per bullet) with that version in place and reports what each one
+did; sending `examples` overrides the ones in the document. At most six examples are run, so a
+longer list is cut short rather than refused.
+
+**Plugins.** A developer can drop `<name>.mjs` into the `plugins` folder beside your private data.
+The file's default export is a `BranchPlugin`: `{ id, name, description, permissions, tools, hooks }`.
+A tool is `{ name: "plugin.<id>.<name>", description, permission, input, run(args, context) }`,
+where `input` is the same `{ name: { type, required, description } }` shape a recipe uses, and the
+permission must be one the plugin declared. A hook is `{ event, run(payload) }`. Plugins may add
+tools and react to events; they may not add screens to the app. `GET /api/plugins` lists the files
+without loading any of them; `POST /api/plugins/:id/inspect` loads one file to show what it would
+add (which runs the code at the top of that file); `POST /api/plugins/:id/enable` and
+`POST /api/plugins/:id/disable` switch it on and off, and the choice is remembered. On the command
+line: `branch plugin list | enable <id> | disable <id>`. **Be plain about the limits:** a plugin is
+not sandboxed. It runs inside Branch with the same reach over this computer that Branch has. The
+only thing holding it in bounds is the permission check every tool goes through, and the fact that
+nothing is loaded until you switch it on. Only use plugin files you trust.
+
+**Suggestions without a marketplace.** `GET /api/skills/suggest` reads the wording of your tasks
+from the last fourteen days and names skills you already have but have switched off, or skills
+advertised by a registry you have browsed, whose words appear in that work. It is a plain word
+match on this computer: no model is asked, nothing is sent anywhere, and a suggestion never
+installs or switches anything on. The Skills screen shows all of the above, and the interface file
+`/skills-extra.js` is served from the same local allowlist as the rest of the interface.
