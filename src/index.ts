@@ -425,8 +425,14 @@ export async function createBranch(options: {
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   // Knowledge bases. Reading passages is charged to the task that asked for it, exactly the way a
   // model answer is; background reading has no task, so it is recorded as an event instead.
+  // Batch 20 (wave 8): every passage sent to a provider that is not on this computer goes through
+  // the owner's network rules, exactly as every other provider call does. A reader running here is
+  // reached directly, because those rules refuse local addresses on purpose.
+  const guardedFetch = web.policy.guard(globalThis.fetch);
+  documents.embeddingFetch = guardedFetch;
+  memory.retrieval.embeddingFetch = guardedFetch;
   const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
-    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
+    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) }, undefined, guardedFetch);
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
   retrieval.add(new KnowledgeRetriever(knowledgeBases));

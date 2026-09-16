@@ -2171,6 +2171,19 @@ it, exactly like a model answer. Background reading has no task to charge, so it
 `knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
 reading it has been charged for, shown on its card.
 
+**Which calls go through the network rules, and why.** One convention covers the whole provider
+layer, reading passages included. Every call that leaves this computer — a model answer, a picture,
+speech, a content check, and every reading of a passage for a document, a knowledge base, a saved
+fact or the assistant's search for its own tools — is made through the fetch the network rules
+guard, so **Where it may go** in Settings decides it: a blocked website, or one outside your allowed
+list, is refused before a single word of yours is sent. A reader **running on this computer** is the
+one exception, and deliberately so: those rules refuse private and local addresses, which is exactly
+what you want for the open web and exactly the wrong answer for a model on your own machine. Its
+floor is the check every provider address makes anyway — HTTPS, or plain HTTP only on this
+computer's own loopback address (`localhost`, `127.0.0.1`, `[::1]`), never an address with a
+password written into it. That is the floor, not the ceiling: everything reachable from outside this
+machine is held to the full rules on top of it.
+
 **What is never read.** A knowledge base can only point at folders and files inside your workspace,
 and the same guard that protects every other file tool applies: anything that looks like a secret —
 `.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,

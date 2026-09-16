@@ -25,6 +25,42 @@ async function fixture(t, reply = () => say("done"), options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// 1. Reading passages by meaning goes through the same network rules as every
+//    other call to a provider. Nothing here reaches the real network.
+// ---------------------------------------------------------------------------
+
+test("a provider on a refused address cannot be asked to read passages", async () => {
+  const { NetworkPolicy } = await import("../dist/network-policy.js");
+  const { embeddingsFor, embeddingFetch } = await import("../dist/embeddings.js");
+  // The blocked list is checked before anything is looked up, so this needs no network at all.
+  const policy = new NetworkPolicy({ blockedHosts: ["embeddings.example"] }, async () => ["203.0.113.9"]);
+  let reached = 0;
+  const guarded = policy.guard(async () => { reached++; return new Response("{}"); });
+  for (const connection of [
+    { shape: "openai", endpoint: "https://embeddings.example/v1", apiKey: "k", model: "text-embedding-3-small", local: false },
+    { shape: "gemini", endpoint: "https://embeddings.example/v1", apiKey: "k", model: "text-embedding-004", local: false },
+  ]) {
+    const reader = embeddingsFor(connection, guarded);
+    await assert.rejects(() => reader.embed(["hello"], AbortSignal.timeout(2000)), /blocked list/,
+      `${connection.shape} must be refused before a passage leaves`);
+  }
+  assert.equal(reached, 0, "not one passage may reach a refused address");
+  // An allowed address is still reached, so the rules narrow rather than switch the reading off.
+  const open = new NetworkPolicy({}, async () => ["203.0.113.9"]);
+  assert.notEqual(embeddingFetch("https://reader.example/v1", open.guard(async () => new Response("{}"))), globalThis.fetch);
+  // A reader on this computer is reached directly: the rules refuse local addresses on purpose.
+  assert.equal(embeddingFetch("http://127.0.0.1:11434/v1", guarded), globalThis.fetch);
+});
+
+test("the app hands its guarded fetch to every reader of passages", async (t) => {
+  const { app } = await fixture(t);
+  // The three readers the app builds all take the guard rather than a bare fetch.
+  assert.notEqual(app.documents.embeddingFetch, globalThis.fetch, "the document library");
+  assert.notEqual(app.memory.retrieval.embeddingFetch, globalThis.fetch, "saved facts");
+  assert.notEqual(app.knowledgeBases.embeddingCall, globalThis.fetch, "knowledge bases and tool meaning search");
+});
+
+// ---------------------------------------------------------------------------
 // 7. The owner may add websites their own browser must never be pointed at, and
 //    may never take one off the built-in list.
 // ---------------------------------------------------------------------------
