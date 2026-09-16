@@ -2079,6 +2079,37 @@ is the composer's live variant, and it only appears when the connection in use c
 Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
 tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.
 
+## Batch 26 (wave 8) — real sandboxes, computers over SSH, and the last policy rows
+
+Where a script runs is now a choice, not a fixed thing: `src/sandbox-backends.ts` adds a container,
+the Linux side, and Windows' own throwaway desktop beside the plain Windows job object, each looked
+for on this computer and never installed, each refusing in a sentence that names what to install.
+A rule picks one with `backend`, and `paths` on the same rule is the only folder a sandboxed script
+can see. The script itself is read first (`src/code-check.ts`): a forbidden call, an oversized block
+or a network import is refused before anything is prepared.
+
+`src/remote/ssh-workspace.ts` adds folders on the owner's *other* computers, reached with the
+OpenSSH client Windows already ships. A computer can only be added by a short name already in the
+owner's own `~/.ssh/config`, and only if its key is already in their `known_hosts`; no password is
+ever handled and `StrictHostKeyChecking=no` is never passed. A computer starts able to hold files
+and nothing else, and the approval card names it.
+
+`src/git-checkpoint.ts` makes a mark of how a folder is before a change set is written — a real
+commit from `git stash create`, kept on a ref of Branch's own under `refs/branch/` — so "undo to
+before" is a real answer; a project may also name a line of work, and switching project switches
+the folder to it.
+
+The three modules wave 8 had written but never connected are connected: `src/firewall.ts` reads the
+network rules back as sentences with a test button, `src/session-limits.ts` holds the owner's own
+task back for a moment and turns a stranger away with one sentence (wired into `Runtime` and the
+channel router), and browser sign-ins can be carried to another computer sealed. `src/retention.ts`
+proposes old conversations for deletion, exports each one first, and deletes only on a plain yes.
+`src/manifest-permissions.ts` completes what wave 4 started: the permissions an add-on declares now
+narrow its tool set, and a skill package's declared addresses are held to at the moment of the call.
+The one sender allowlist now covers a paired phone under the channel name `remote`.
+
+All of it reaches the owner through `src/sandbox-remote-api.ts` and `public/sandbox-remote.js`.
+
 ## The audit rows that were already done under another name
 
 ### Already covered elsewhere

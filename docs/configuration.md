@@ -3650,6 +3650,183 @@ because it writes outside this folder.
   commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
   become a task. Still open.
 
+## Sandboxes: where a script actually runs (batch 26, wave 8)
+
+"How tightly a program is held" above is about the ceilings on a program. This is about *where* it
+runs. Nothing here is ever installed: each one is looked for on this computer and offered only if it
+is already there. **Settings → Approvals → Where scripts run** shows all four with a plain sentence
+each, and says what to install for any that is missing.
+
+| Where | What it protects you from | What it does **not** do |
+| --- | --- | --- |
+| **On this computer** (`job-object`) | A runaway script using all the memory or the processor. Always available; it is what everything did before. | It does not stop the script reading your files. |
+| **In a container** (`docker`) | Your files and your programs: nothing of this computer is visible inside except the one folder it is given. | Needs Docker Desktop or Podman already installed. Branch installs neither. |
+| **On the Linux side** (`wsl`) | The original folder: the script works on a copy, and only the files you name come back. | Needs Windows Subsystem for Linux already set up. |
+| **In Windows' throwaway desktop** (`windows-sandbox`) | Everything: a fresh Windows that is deleted when it closes. | **It opens a window on your screen**, so it is never chosen for you — you switch it on yourself. |
+
+A rule picks one with `backend`, next to `sandbox` and `paths`. A backend that is not on this
+computer is a plain refusal naming what to install; it never quietly falls back to something weaker,
+because that would be the opposite of what the rule asked for. `paths` on the rule is the only part
+of your workspace a sandboxed script can see — one folder, given relative to the workspace.
+
+Before anything is started at all, the script itself is read: a forbidden call for its language, a
+size over the cap, or an import that would reach the network when the rule does not allow it, is
+refused before any container, distribution or desktop is prepared.
+
+`GET /api/sandboxes` answers the settings and what this computer can offer; `POST /api/sandboxes`
+saves them. The settings are `SandboxBackendSettingsSchema` (`src/sandbox-backends.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `image` | The container image a script runs in. Nothing is ever pulled; it must already be on this computer. |
+| `distro` | Which Linux this computer already has, by name. Empty means the default one. |
+| `windowsSandbox` | Let Branch use Windows' throwaway desktop. Off, because it opens a window on your screen. |
+| `pulled` | Whether Branch has confirmed the image is already here. Branch writes this; it is not for you to set. |
+
+## Remote computers over SSH (batch 26, wave 8)
+
+A project's work can live on another computer — a machine in the cupboard, a server at work — and
+Branch reaches it with the OpenSSH client Windows already ships. Nothing is installed and **no
+password is ever handled**.
+
+Two things have to be true before a computer can be added, and both are read from files that are
+yours, not Branch's:
+
+1. Its short name must already be a `Host` in your own `~/.ssh/config`. You cannot type a hostname
+   here; if it is not in your config, Branch has no way to reach it and says so.
+2. Its key must already be in your own `known_hosts`. A computer Branch has never seen is refused,
+   not trusted: connect to it once yourself, look at the key it shows you, and then add it here.
+   Branch never passes `StrictHostKeyChecking=no`, and forces `BatchMode=yes`,
+   `PasswordAuthentication=no` and `NumberOfPasswordPrompts=0` on every call.
+
+A computer starts able to hold files and **nothing else**. You add the programs it may run one at a
+time; anything else is refused by name. Paths are kept inside that computer's own folder exactly as
+they are inside your workspace: `..`, a path starting at `/`, and a drive letter are all refused
+before anything is sent. The approval card names the computer, so a yes is never given blind.
+
+`ssh` itself is the boundary here. Every byte goes through the child process, so nothing on a remote
+computer can be used to reach an address the web rules refuse — but equally, the web rules do not
+see inside that connection. That is the trade, said out loud.
+
+The tools are `remote.list`, `remote.files`, `remote.read` and `remote.run` (their own toolbox,
+`remote`, because everything in it is somewhere else). The screen is **Settings → Remote computers**:
+`GET /api/remotes` lists them, `POST /api/remotes` adds one, `POST /api/remotes/remove` takes one
+off. Each computer is `RemoteComputerSchema` (`src/remote/ssh-workspace.ts`): `alias` the short name
+from your SSH config, `root` the folder on that computer everything is kept inside, `label` a name
+you will recognise, `executables` the programs it may run, and `addedAt` when you added it.
+
+## A way back to before a change (batch 26, wave 8)
+
+Before Branch writes a set of changes, it makes a mark of how the folder is right now — but only
+when the folder is kept in Git. The mark is a real commit, made with `git stash create`, which builds
+a commit object without touching your working folder, your index, or the shared stash list. It is
+kept on a ref of Branch's own under `refs/branch/checkpoints/`, so nothing else trips over it, and
+the twenty most recent are kept.
+
+The answer to a change now carries an `undo` you can ask for: "Ask to undo this, and the files go
+back to how they were just before." A folder that is not kept in Git simply has no mark and says so
+plainly; the change is still written. `GET /api/marks` lists them, `POST /api/marks/undo` puts one
+back, `POST /api/marks/forget` lets one go.
+
+A project may also name a **line of work** (`branch` on the project, in `src/projects.ts`). Switching
+to that project switches the folder to it. Work you have not saved yet stops the switch rather than
+being carried across — Branch says so and leaves the folder exactly as it was.
+
+## Firewall: what can reach outside this computer (batch 26, wave 8)
+
+The network rules have been enforced for a long time; what was missing was anywhere to read them
+back. **Settings → Approvals → What can reach out** says them in sentences — "Branch may only reach
+example.com and docs.rs, and nowhere else on the internet", "Scripts cannot reach the internet: they
+are pointed at an address that goes nowhere", "The browser may visit https://example.com. Any other
+address is refused before the page opens."
+
+The card is only a reading of the rules; nothing in it decides anything, so it cannot say one thing
+while the app does another. The **test** button asks the same check every real request asks, so
+pressing it cannot reach the address you asked about — and when an address is on Branch's list but
+not on the browser's, it says both halves.
+
+`GET /api/firewall` is the card; `POST /api/firewall/test` takes `{"address": "https://…"}`.
+
+## How much one person may ask for (batch 26, wave 8)
+
+A fixed window, deliberately, because "twenty a minute" is something you can reason about and watch
+reset. **Settings → Approvals → Ceilings** sets four numbers (`SessionLimitsSchema`,
+`src/session-limits.ts`; 0 means no limit):
+
+| Setting | What it is |
+| --- | --- |
+| `requestsPerMinute` | Most questions one conversation may ask in a minute. |
+| `tokensPerHour` | Most thinking one conversation may spend in an hour. |
+| `senderRequestsPerMinute` | The same per minute, for one person messaging Branch through a chat app. |
+| `senderTokensPerHour` | The same per hour, for one person messaging Branch through a chat app. |
+
+Reaching a ceiling means two different things on purpose. **Your own** task waits for the window to
+free up and then carries on — nothing is refused and nothing is lost. **Somebody messaging from
+outside** is told in one sentence ("That is as much as Branch will do for one person right now…")
+and their message is let go rather than queued behind everybody else's, because a stranger waiting
+silently for a minute looks exactly like Branch being broken. Both are written into the record as
+"Something reached the limit you set for a minute or an hour".
+
+`GET /api/limits` reads them, `POST /api/limits` saves them.
+
+## Carrying a sign-in to another computer (batch 26, wave 8)
+
+"Sign in once" already kept a browser profile per project. A saved sign-in can now be exported as a
+single sealed file and read back somewhere else: it is encrypted with a passphrase you choose, and
+the cookies inside are nowhere in the bytes that leave this computer. The wrong passphrase, and a
+file that is not one of ours, both refuse plainly. The alternative, if you would rather not move a
+sign-in at all, is to borrow your own browser window for the task instead.
+
+## Letting old conversations go (batch 26, wave 8)
+
+Nothing was ever deleted unless you deleted it one conversation at a time. **Settings → Retention**
+sets a rule, and the rule never acts on its own: Branch works out what it would sweep up, shows you
+the list, and only a plain yes deletes anything. Every conversation is handed back as a saved copy
+first, so nothing is lost to a rule you set months ago and forgot; one that cannot be copied is not
+deleted. Every sweep is written into the record as "Old conversations were offered for deletion,
+exported, or deleted".
+
+`RetentionSettingsSchema` (`src/retention.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `enabled` | Off until you ask for it. Off means nothing is ever proposed. |
+| `days` | Conversations older than this many days are proposed. 0 means age is not a reason. |
+| `megabytes` | When everything together is bigger than this, the oldest are proposed until it fits. 0 means size is not a reason. |
+| `exportBeforeDeleting` | Hand back a saved copy of everything before it goes. On, and it is meant to stay on. |
+
+`GET /api/retention` is the rule and what it would sweep up; `POST /api/retention` saves the rule;
+`POST /api/retention/prune` takes `{"approve": true}` and, optionally, the exact conversations.
+
+## What an add-on asked for, and what holds it to that (batch 26, wave 8)
+
+A skill package and a plugin both declare the permissions they need, and you see that list before
+anything is switched on. What the list now *does*: the tools are narrowed to what you allowed. A tool
+asking for a permission you did not grant is never registered at all — it is not in the catalog, so
+nothing can call it, and you are told which ones were left out and why.
+
+A skill package also declares every web address it will call, worked out from the package itself. You
+see them by name before installing, and they are held to at the moment of each call, not only when
+the package was read: a declared address can carry a value from the request, so an address outside
+the manifest is refused there and then.
+
+`POST /api/skills/package/install` takes `allow` — the permissions you ticked — alongside `approve`;
+`POST /api/plugins/<id>/enable` takes the same `allow`. Leave it out and the add-on gets exactly what
+its own manifest declared, as switching one on always did. Naming a permission the add-on never asked
+for grants nothing.
+
+## One list of who may reach Branch, phones included (batch 26, wave 8)
+
+The one allowlist (`src/channels/allowlist.ts`) already covered every chat app: a rule names a
+channel — or `*` for all of them — and a sender, and says `allow` or `block`, with `block` winning.
+It now covers a paired phone too, under the channel name `remote` with the device's id as the sender.
+
+A rule that says never is asked **first**, before the door's own chain of checks, so it holds whatever
+that chain is set to. Only a "never" is acted on for a phone: one that has already been let in stays
+let in unless you write a rule against it, so switching the list on never quietly locks your own
+phone out. A phone turned away this way is still paired — it is the rule stopping it, and taking the
+rule off lets it straight back in. Each refusal is written into the record.
+
 ## Every setting named, so nothing is only in the code (batch 26, wave 8)
 
 `scripts/check-docs.mjs` reads every settings schema in `src/` and fails if a field is not named
