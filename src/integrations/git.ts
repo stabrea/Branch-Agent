@@ -1,5 +1,6 @@
+import { realpathSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { NeedsInputError } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import { explainGit, type GitOutcome, type GitRunner } from "./git-run.js";
@@ -11,6 +12,11 @@ import { explainGit, type GitOutcome, type GitRunner } from "./git-run.js";
  * rewrites a saved version. Sending work to a server lives in the separate remote tools.
  */
 export const WORKTREE_HOME = ".branch-worktrees";
+
+/** The real, long-form spelling of a path when it exists; otherwise the resolved path as given. */
+function canonical(path: string): string {
+  try { return realpathSync.native(path); } catch { return resolve(path); }
+}
 export interface GitChange { path: string; state: string }
 
 export class GitTools {
@@ -112,8 +118,11 @@ export class GitTools {
     if (input.action === "list") {
       const stdout = (await this.run(cwd, ["worktree", "list", "--porcelain"], signal)).stdout;
       const paths = stdout.split("\n").filter((line) => line.startsWith("worktree ")).map((line) => line.slice(9).trim());
-      const mine = paths.filter((path) => !relative(home, path).startsWith("..") && relative(home, path) !== "");
-      return { folder: input.folder, copies: mine.map((path) => ({ name: relative(home, path).replace(/\\/g, "/") })) };
+      // Git may print a folder in a different spelling (Windows short names, case); compare real paths.
+      const base = canonical(home);
+      const inside = (path: string) => { const rel = relative(base, canonical(path)); return rel !== "" && !rel.startsWith(".."); };
+      const mine = paths.filter(inside);
+      return { folder: input.folder, copies: mine.map((path) => ({ name: relative(base, canonical(path)).replace(/\\/g, "/") })) };
     }
     if (!input.name) throw new Error("Tell me what to call this parallel copy.");
     const target = join(home, input.name);
