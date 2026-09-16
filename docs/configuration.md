@@ -3325,10 +3325,18 @@ next time the mirror is written, and a change nobody can keep is worse than a pl
 `files.write` refuses it in one sentence that says where to change the fact instead.
 
 For the same reason **there is no tool that writes the mirror**: giving the assistant a second way
-into the one folder it may not edit would take the refusal back. The app writes the notes itself
-after every task that finishes, and skips the writing when nothing has changed, so they keep up
-without being asked. `POST /api/memory/mirror` writes them on demand for the Memory screen; send
-`{"force": true}` to write them even when nothing has changed.
+into the one folder it may not edit would take the refusal back. Instead:
+
+- The folder does not appear until you ask for it. `POST /api/memory/mirror` — the button on the
+  Memory screen — writes it the first time. Nobody's workspace grows a folder they never asked for.
+- After that it keeps itself up to date: every task that finishes writes the notes again if what is
+  remembered has changed, and skips the writing when it has not.
+- Deleting the folder is how you stop it. Nothing puts it back until you ask again.
+- Send `{"force": true}` to write the notes even when nothing has changed.
+
+A knowledge base never reads these notes back in. A collection pointed at your whole workspace skips
+the mirror folder (`KnowledgeBases.skip`, wired in `src/index.ts`), because otherwise the assistant
+would end up quoting its own notes back to you as though they were a document of yours.
 
 This is *not* the [notes-folder bridge](#your-notes-folder-the-obsidian-bridge-batch-22-wave-8).
 That bridge writes tagged notes into a vault folder you name, through `insideVault`; the mirror

@@ -13,8 +13,9 @@ computer and what never does.
 - **Tidy up** and **Repeats, disagreements and facts you never use** only ever *suggest*.
 - **Documents → Knowledge** turns folders of your work into something it can quote with citations, and
   can summarise one, map the names in it, describe the pictures in it, or tidy it up.
-- Everything it remembers is also written out as Markdown in a **`memory` folder** you can read in any
-  notes app. Do not edit it: it is rewritten from what it remembers.
+- Ask once and everything it remembers is also written out as Markdown in a **`memory` folder** you
+  can read in any notes app, and kept up to date from then on. Do not edit it: it is rewritten each
+  time from what it remembers.
 - Only two things ever leave without your asking each time: what you actually ask a model, and — if you
   switch it on — the text of passages sent to be compared by meaning.
 
@@ -149,12 +150,18 @@ was looking.
 
 ## Your notes, as files you can read
 
-Everything Branch remembers is also written into a **`memory` folder in your workspace** as ordinary
-Markdown — one note per kind of fact, with a short README saying what the folder is. The real store is
-still the database; this is a window onto it, so what Branch knows is readable in any editor and by
-any notes app pointed at the same folder, Obsidian included.
+Everything Branch remembers can also be written into a **`memory` folder in your workspace** as
+ordinary Markdown — one note per kind of fact, with a short README saying what the folder is. The real
+store is still the database; this is a window onto it, so what Branch knows is readable in any editor
+and by any notes app pointed at the same folder, Obsidian included.
 
-Branch rewrites these notes itself after a task finishes, so they keep up without being asked.
+Ask for it once, from the **Memory** screen, and the folder appears. After that Branch keeps it up to
+date on its own, each time a task finishes. Until you ask, the folder is not created at all — nobody's
+workspace should grow a folder they never asked for. Delete the folder and it stays deleted until you
+ask again.
+
+If one of your knowledge bases covers your whole workspace, it leaves this folder out. Otherwise
+Branch would end up quoting its own notes back to you as though they were something you had written.
 
 **Do not edit them.** They are written from scratch each time, so anything you type in would be gone
 the next time they are written. Branch will not edit them either — if it tries, its own file tools

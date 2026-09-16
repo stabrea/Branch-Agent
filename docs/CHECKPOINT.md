@@ -2108,8 +2108,12 @@ Memory gained `src/memory-mirror.ts` — a regenerated Markdown mirror under `me
 fact kind — and the enforcement that makes "read-only by the model" real: `WorkspaceFiles` grew
 `readOnly` and `checkedForWrite`, and `files.write` now goes through it. There is deliberately **no
 tool** for the mirror: a second way for the model to write the one folder it may not edit would take
-that refusal back, so it regenerates on `onRunFinished` (the fingerprint makes an unchanged store
-free) and answers `POST /api/memory/mirror` for the panel. It writes through `WorkspaceFiles.checked`
+that refusal back. Instead `POST /api/memory/mirror` writes the folder the first time and
+`onRunFinished` keeps it up to date only once it exists (the fingerprint makes an unchanged store
+free) — writing it unasked put a `memory/` folder into every workspace and had a collection over the
+workspace index the assistant's own notes and cite them as the owner's document, which
+`tests/rag-vector.test.mjs` R6 caught; `KnowledgeBases.skip` now keeps those notes out of every
+collection. It writes through `WorkspaceFiles.checked`
 and never resolves a vault path, so `insideVault` does not come into it; the one gap, recorded in
 `docs/configuration.md`, is an owner who points the notes-folder bridge at the workspace and names its
 folder `memory`. `src/memory-ephemeral.ts` is the per-task store for pasted text, dropped on
