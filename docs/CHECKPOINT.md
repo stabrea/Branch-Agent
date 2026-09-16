@@ -1299,8 +1299,10 @@ puts every permitted tool in one of three tiers each round — **loaded** (full 
 `defaultMaxLoaded` = 12 besides core), **indexed** (one line: name, eight-word purpose and anything
 learned, at most 40 lines) and **deferred** (not in the request at all) — under a hard ceiling on the
 whole tool section (`toolBudgetTokens`, default 2,500, in the reliability settings). The same 1,000
-tools now cost **2,154**, and 90 tools cost 1,667 against 1,809 with groups alone: ten times the
-catalog for 487 more tokens, where toolboxes cost 7,768 more. Enforcement demotes the weakest loaded
+tools now cost **2,159** against **9,507** at the opening round, and 90 tools cost 1,673 against
+1,816: ten times the catalog for 486 more tokens, where toolboxes cost 7,691 more. Over a scripted
+20-round conversation with 1,000 tools the heaviest tool section measured **1,742** tokens, and
+every round is asserted smaller than the same run with toolboxes alone. Enforcement demotes the weakest loaded
 tool to a line, then trims the index, and each step is strictly smaller than the last, so it always
 terminates under the ceiling; `descriptions()` is memoised per round so what `catalog.size` reports
 is exactly what the provider received. `src/tool-index.ts` is the index itself: BM25 over name,

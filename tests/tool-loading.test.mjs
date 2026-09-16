@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   createBranch, ToolCatalog, ToolLoader, ToolIndex, ToolUsage, catalogHealthTick, catalogHealthId,
   estimateTokens, expandToolName, toolSearchName, toolDescribeName, toolNoteName,
-  defaultToolBudgetTokens, defaultIndexLines, promptShingles, safeDescription, withheldDescription,
+  defaultToolBudgetTokens, defaultIndexLines, defaultMaxLoaded, promptShingles, safeDescription, withheldDescription,
   maxExternalDescriptionChars, exportBackup, importBackup, indexLine,
 } from "../dist/index.js";
 
@@ -74,6 +74,8 @@ test("a thousand tools cost no more than a dozen, and every round is smaller tha
   assert.ok(grewTiered * 5 < grewGroups, `ten times the tools cost ${grewTiered} more, against ${grewGroups} with groups alone`);
 
   const filler = "we talked about the move and the boxes in the hallway ".repeat(120);
+  // The same toolboxes the tiered run has open, so each round is compared against its own twin.
+  const groupsEveryRound = groupsOnly(app, everything, expanded);
   let sessionId, biggest = 0;
   for (let round = 0; round < 20; round++) {
     const run = await app.runtime.run({ prompt: `step ${round}: ${filler}`, ...(sessionId ? { sessionId } : {}) });
@@ -87,8 +89,11 @@ test("a thousand tools cost no more than a dozen, and every round is smaller tha
     assert.ok(size.loaded + size.indexed + size.deferred >= everything.length - 5, "every tool is in one of the three tiers");
     assert.ok(size.indexed <= defaultIndexLines);
     assert.ok(size.deferred > 900, `${size.deferred} tools were left out of the request altogether`);
-    biggest = Math.max(biggest, estimateTokens(sent.toolSection));
+    const weight = estimateTokens(sent.toolSection);
+    assert.ok(weight < groupsEveryRound, `round ${round} weighed ${weight}, against ${groupsEveryRound} with groups alone`);
+    biggest = Math.max(biggest, weight);
   }
+  console.log(`over 20 rounds with ${everything.length} tools the heaviest tool section was ${biggest} estimated tokens, against ${groupsEveryRound} with toolboxes alone`);
   assert.ok(biggest < defaultToolBudgetTokens, `the heaviest tool section over 20 rounds was ${biggest}`);
 });
 
@@ -360,4 +365,18 @@ test("the toolbox opener still works, and is now a shortcut over the same index"
   const [size] = eventsOf(app, run.id, "catalog.size");
   assert.ok(size.loaded > 0 && size.indexed > 0, "both tiers are in use");
   assert.equal(size.budgetTokens, defaultToolBudgetTokens);
+
+  // Opening a toolbox is no longer the same as carrying all of it: at most a dozen tools travel in
+  // full, whatever the size of the box, and the rest of that box is still there to be searched for.
+  const tools = app.registry.descriptions(new Set(app.registry.permissions()));
+  const box = tools.filter((tool) => groupOf(app)(tool.name) === "schedules");
+  assert.ok(box.length > defaultMaxLoaded, `the schedules box holds ${box.length} tools`);
+  const loader = new ToolLoader(tools, { groupOf: groupOf(app), signals: { prompt: "tidy the desk" } });
+  loader.expand(["schedules"]);
+  loader.nextRound();
+  const carried = loader.descriptions().filter((tool) => tool.name.startsWith("schedules.") || tool.name.startsWith("brief.") || tool.name.startsWith("monitor.") || tool.name.startsWith("workflows."));
+  assert.equal(carried.length, defaultMaxLoaded, `opening it carried ${carried.length} of ${box.length}`);
+  const missed = box.find((tool) => !carried.some((seen) => seen.name === tool.name));
+  assert.ok(loader.search(missed.name, 3).matches.some((match) => match.name === missed.name),
+    `${missed.name} was left out of the message but is still findable`);
 });
