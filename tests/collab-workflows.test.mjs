@@ -404,6 +404,20 @@ test("the waiting line and the app's own screen share one count of what is worki
   assert.equal(app.executions.count, 0, "every place is given back");
 });
 
+test("a queued task starts by itself as soon as a place comes back", async (t) => {
+  const { app } = await served(t);
+  const held = [];
+  for (let i = 0; i < app.executions.limit; i++) held.push(app.executions.take());
+  assert.ok(held.every(Boolean), "every place is taken by something else");
+  const waiting = app.runQueue.submit("local", { prompt: "waits for room", source: "owner" });
+  assert.equal(waiting.status, "waiting", "there is no room for it yet");
+  for (const give of held) give();
+  for (let i = 0; i < 200 && app.runQueue.entry("local", waiting.id).status === "waiting"; i++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.notEqual(app.runQueue.entry("local", waiting.id).status, "waiting",
+    "nobody had to add another task for the line to move");
+});
+
 test("a task already working is cancelled rather than simply dropped", async (t) => {
   const { app, provider, call } = await served(t);
   let release;

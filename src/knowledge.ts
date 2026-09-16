@@ -11,7 +11,7 @@ import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
-import { ApprovalRequiredError, refusedByPolicy } from "./approvals.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 
 export const CheckSchema = z
   .object({ path: z.string().min(1).max(500), expected: z.string().max(32768) })
@@ -204,7 +204,7 @@ export class Knowledge {
       if (check.decision === "allow") continue;
       this.store.event(context.runId, check.decision === "deny" ? "policy.denied" : "policy.ask",
         { name: step.tool, label: check.label, target: check.target, source: { ...source, index } });
-      if (check.decision === "deny") throw new Error(refusedByPolicy(check.label));
+      if (check.decision === "deny") throw new PolicyRefusedError(step.tool, check.label);
       throw new ApprovalRequiredError(step.tool, check.target, check.label, check.remember);
     }
   }

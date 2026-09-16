@@ -9,6 +9,11 @@ export const maximumActiveExecutions = 8;
 
 export class ExecutionLimit {
   private active = 0;
+  /**
+   * Called each time a place comes back, so whatever is waiting for one can take it. Without this
+   * a task in the waiting line would sit there until somebody happened to add another.
+   */
+  onRoom: () => void = () => undefined;
   constructor(readonly limit = maximumActiveExecutions) {}
   /** How many pieces of work are going on right now. */
   get count(): number {
@@ -30,6 +35,7 @@ export class ExecutionLimit {
       if (given) return;
       given = true;
       this.active--;
+      this.onRoom();
     };
   }
 }

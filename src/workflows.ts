@@ -5,7 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { Knowledge } from "./knowledge.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
-import { ApprovalRequiredError, refusedByPolicy } from "./approvals.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import type { PolicyRemember, RunSource } from "./policy.js";
 
 /**
@@ -257,6 +257,11 @@ export class Workflows {
         if (error instanceof ApprovalRequiredError)
           return this.waitForYes(owner, id, index, step, error, source, attempt - 1);
         lastError = errorText(error);
+        // The settings refuse this outright, so trying again cannot help: the workflow stops here.
+        if (error instanceof PolicyRefusedError) {
+          this.writeStep(owner, id, index, step, { status: "failed", attempts: attempt, output: lastError });
+          return { halt: true, cursor: index, patch: { status: "failed", error: lastError } };
+        }
         this.writeStep(owner, id, index, step, { status: attempt > step.retries ? "failed" : "retrying", attempts: attempt, output: lastError });
       }
     }
@@ -283,7 +288,7 @@ export class Workflows {
       // A saved step uses its tool under the owner's approval settings, exactly as the assistant
       // does mid-conversation: allowed, asked about, or refused in the same words.
       const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context);
-      if (check.decision === "deny") throw new Error(refusedByPolicy(check.label));
+      if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
       if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember);
       const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };

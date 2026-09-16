@@ -35,6 +35,14 @@ export const approvalQuestion = (label: string, target: string): string =>
  * procedure being replayed — reaches a tool the approval policy says to ask about first. Whoever
  * called decides how the question is put: a conversation pauses, a workflow stops where it is.
  */
+/** Raised in the same places when the settings refuse the tool outright: trying again cannot help. */
+export class PolicyRefusedError extends Error {
+  override name = "PolicyRefusedError";
+  constructor(readonly tool: string, readonly label: string) {
+    super(refusedByPolicy(label));
+  }
+}
+
 export class ApprovalRequiredError extends Error {
   override name = "ApprovalRequiredError";
   constructor(

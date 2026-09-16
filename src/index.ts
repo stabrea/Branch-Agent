@@ -246,6 +246,11 @@ export async function createBranch(options: {
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
+  // Whenever anything finishes — a task from the line or a request from the app's own screen — the
+  // line is looked at again, so a task never sits waiting for room that is already there.
+  executions.onRoom = () => {
+    try { runQueue.drain(runtime.owner); } catch { /* the line must never break a finished request */ }
+  };
   const calendar = new CalendarSettingsStore(store, dataDir);
   await calendar.seed();
   scheduler.calendar = calendar;
