@@ -19,6 +19,11 @@ export interface SessionOptions {
   attached?: { context: BrowserContext; detach: () => Promise<void> } | undefined;
   /** Run before every step. Used while a recording is being made, to empty password boxes first. */
   beforeAction?: ((page: Page) => Promise<void>) | undefined;
+  /**
+   * An extra refusal applied to every single request Branch's own tab makes while it is working in
+   * the owner's browser, not only to addresses it was asked to open. Returns why, or null.
+   */
+  guardUrl?: ((url: string) => string | null) | undefined;
 }
 
 export class BrowserSession {
@@ -82,7 +87,10 @@ export class BrowserSession {
     const page = await this.context.newPage().finally(() => { this.creatingTab--; });
     // In the owner's own browser the website list is put on Branch's tab alone, so their other
     // tabs carry on exactly as before.
-    if (this.borrowed) await page.route('**/*', this.route);
+    if (this.borrowed) await page.route('**/*', async route => {
+      if (this.options.guardUrl?.(route.request().url())) { await route.abort(); return; }
+      await this.route(route);
+    });
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       void dialog.dismiss().catch(() => undefined);

@@ -68,13 +68,13 @@ async function fixture() {
 }
 
 /** A browser, a workspace and a place for kept files, all in one scratch folder. */
-async function harness(label, config = {}) {
+async function harness(label, config = {}, extraOrigins = []) {
   const root = await scratch(label);
   const workspace = join(root, 'workspace'), data = join(root, 'data');
   await mkdir(workspace, {recursive: true});
   await mkdir(data, {recursive: true});
   const {origin, stop} = await fixture();
-  const browser = new BranchBrowser({allowedOrigins: [origin], ...config});
+  const browser = new BranchBrowser({allowedOrigins: [origin, ...extraOrigins], ...config});
   browser.profiles = new BrowserProfiles(join(data, 'browser-profiles'), key);
   browser.artifacts = new RunArtifacts(join(data, 'artifacts'));
   browser.files = new WorkspaceFiles(workspace);
@@ -205,7 +205,9 @@ test('a renamed selector heals by name, the way that worked is recorded, and a h
 });
 
 test('the borrowed browser reuses its cookies, refuses a bank, and is let go without being closed', async () => {
-  const h = await harness('browser2-cdp');
+  // A bank is on the allowed list on purpose: the refusal being proved is the borrowing one, not
+  // the ordinary website list, which would otherwise stop the address first and prove nothing.
+  const h = await harness('browser2-cdp', {}, ['https://secure.chase.com']);
   // A headless Chromium this test starts itself, standing in for the owner's own browser.
   const port = 9411;
   const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`]});
@@ -213,7 +215,8 @@ test('the borrowed browser reuses its cookies, refuses a bank, and is let go wit
     const seed = await owned.newPage();
     await seed.goto(`${h.origin}/cookie`);
     await seed.evaluate(() => { document.cookie = 'branch_borrowed=knows-me-4242; max-age=600; path=/'; });
-    const before = owned.pages().length;
+    const theirTabs = owned.pages().filter(page => !page.isClosed());
+    const before = theirTabs.length;
 
     h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-borrow',
       grantedAt: new Date().toISOString()}}), save: () => undefined};
@@ -226,16 +229,23 @@ test('the borrowed browser reuses its cookies, refuses a bank, and is let go wit
     const seen = ok(await h.registry.execute('browser.extract', {selector: '#who', limit: 1}, context));
     assert.match(seen.rows[0].text, /knows-me-4242/, 'the sign-in the owner already had is reused');
 
-    // A bank is refused even though the origin list would otherwise allow it.
-    h.browser.tracer = undefined;
-    assert.match(attachedAddressRefusal('https://secure.chase.com/login') ?? '', /will not use your own browser/);
+    // The bank is on the allowed website list, so the refusal that stops it can only be the
+    // borrowing one — the plain website list would have let it through.
+    await refusal(h.registry.execute('browser.navigate', {url: 'https://secure.chase.com/login'}, context),
+      /will not use your own browser/);
     assert.equal(attachedAddressRefusal(`${h.origin}/`), null);
+    // A recording would photograph their other tabs, so the two are never on at once.
+    await refusal(h.registry.execute('browser.recording', {action: 'start'}, context),
+      /working in your own browser/);
 
     ok(await h.registry.execute('browser.borrow', {action: 'give back'}, context));
-    // Letting go never closes the owner's browser, and never closes a tab of theirs.
+    // Letting go never closes the owner's browser, and never closes a tab of theirs. Counted
+    // before anything new is opened, or the check would pass whatever Branch had done.
+    assert.equal(owned.pages().filter(page => !page.isClosed()).length, before, 'their tab count is unchanged');
+    for (const tab of theirTabs) assert.equal(tab.isClosed(), false, 'every tab of theirs is still open');
     const after = await owned.newPage();
     await after.goto(`${h.origin}/`);
-    assert.equal(owned.pages().filter(p => !p.isClosed()).length >= before, true, 'their tabs are still there');
+    assert.equal(await after.title(), 'Fixture', 'their browser is still working');
     await after.close();
   } finally { await owned.close(); await h.close(); }
 });
@@ -273,6 +283,19 @@ test('a kept recording exists, is a real archive, and holds no password and no k
     assert.equal(text.includes(password), false, 'no password value anywhere in the recording');
     assert.equal(text.includes(sessionToken), false, 'no key anywhere in the recording');
     assert.deepEqual(leaksIn(bytes, [password, sessionToken]), []);
+    await h.registry.finishRun(context);
+  } finally { await h.close(); }
+});
+
+test('a task keeping a recording cannot then borrow the owner\'s browser', async () => {
+  const h = await harness('browser2-trace-borrow');
+  h.browser.store = {get: () => ({data: {enabled: true, port: 9412, runId: 'run-both',
+    grantedAt: new Date().toISOString()}}), save: () => undefined};
+  try {
+    const context = runContext('run-both');
+    ok(await h.registry.execute('browser.recording', {action: 'start'}, context));
+    await refusal(h.registry.execute('browser.borrow', {action: 'borrow'}, context),
+      /keeping a recording/);
     await h.registry.finishRun(context);
   } finally { await h.close(); }
 });

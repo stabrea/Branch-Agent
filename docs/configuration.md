@@ -194,7 +194,7 @@ A number belongs to the *thing*, not to its place. It is worked out from what th
 
 The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
 
-**The honest limit:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here.
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
 
 ### Data in the shape you asked for
 
@@ -215,7 +215,7 @@ Branch normally uses a fresh browser that no website knows you in. **Settings �
 **The plain risk:** while this is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. Three things hold it back, and you should read all three before turning it on:
 
 - It is on for **one task**, named by its task number, and it **turns itself off after fifteen minutes**. A different task has to ask again.
-- Banks, brokers and password managers are **always refused**, by the same list of refusals the screen-and-keyboard control uses, extended to website names. Anything whose name contains "bank", "vault" or "password" is refused too.
+- Banks, brokers and password managers are **always refused** — not only when Branch is asked to open one, but on **every single request its tab makes**, so a link followed inside the page is refused too. The list sits beside the one the screen-and-keyboard control uses for windows; that one matches window titles, which a website name would never trip, so a list of website names was added next to it. Anything whose name contains "bank", "vault" or "password" is refused as well.
 - Branch opens **a new tab of its own** and closes only that tab. Your own tabs are never watched, never redirected and never closed; when the task ends Branch stops listening rather than shutting anything down. Your cookies are never copied into a saved sign-in.
 
 To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
@@ -231,6 +231,8 @@ Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled":
 What goes in: the steps taken and a picture of the window at each one. What deliberately does not: **a copy of the page's own markup**. A password box carries its contents in the markup even when it looks blacked out on screen, so markup snapshots are switched off outright. On top of that, password boxes are **emptied before every step** while a recording is being made, because the recorder writes down a description of whatever a step points at and that description would otherwise carry the contents with it. So if a website had already filled a password box on the page, a recording clears it.
 
 This is checked by unpacking the recording and searching the readable text inside — searching the packed file would prove nothing, because everything inside it is squashed.
+
+A recording photographs **every tab in the window it is made in**, so a recording and borrowing your own browser are never on at the same time: whichever you ask for second is refused with a sentence saying why. A recording is only ever made in a browser of Branch's own.
 
 ### One way of saying "look at this, press that"
 

@@ -1386,7 +1386,10 @@ in fifteen minutes (`/api/browser/attach`, settings card in the existing browser
 `browser.recording` (`browser-trace.ts`) writes a Playwright trace with `snapshots:false` — a
 snapshot resource carries `value="…"` of a password box — and empties password values before every
 step, because Playwright's action log records `locator resolved to <input … value="…">`. Proven by
-inflating the zip with a local central-directory reader, never by grepping compressed bytes.
+inflating the zip with a local central-directory reader, never by grepping compressed bytes. A
+recording traces every page in its context, so recording and borrowing refuse each other; the
+borrow refusal also runs in the borrowed tab's per-page route, not only in `navigate`, and the test
+puts a bank on `allowedOrigins` so the refusal proved is the borrowing one.
 `computer.look|press|type` (`computer.ts`) routes to page or window through the same methods that
 count the caps, and re-checks `desktop.view`/`desktop.control` so the browser permission is not a
 way round the screen one. `web.search` gained pluggable backends (`web-search.ts`: SearXNG, Brave,

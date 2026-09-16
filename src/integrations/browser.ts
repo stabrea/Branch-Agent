@@ -274,11 +274,17 @@ export class BranchBrowser {
     if (refused) throw new Error(refused);
     const entry = this.entry(context);
     if (entry.borrowed) return this.borrowedReport(entry);
+    // A recording takes pictures of every tab in the window, so it must never be your own window.
+    // Checked before the window question, because it is the more useful thing to be told.
+    if (entry.session.isRecording())
+      throw new Error('This task is keeping a recording, which would photograph your own tabs as well. Keep the recording first, then ask for your browser.');
     if (entry.session.started())
       throw new Error('Ask for your own browser before opening a page: this task already has a browser window of its own');
     const attached = await this.connect(settings.port);
     entry.borrowed = attached;
     entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
+    // Every request Branch's own tab makes is checked, not only the addresses it is asked to open.
+    entry.session.options.guardUrl = url => attachedAddressRefusal(url);
     return this.borrowedReport(entry);
   }
   private borrowedReport(entry: RunEntry) {
@@ -296,6 +302,10 @@ export class BranchBrowser {
   /** Starts keeping a recording of this task's browser window. */
   async startRecording(context: ToolContext) {
     const entry = this.entry(context);
+    // A recording photographs every tab in the window it is made in, so it is never made in the
+    // owner's own window: their other tabs are none of Branch's business.
+    if (entry.borrowed)
+      throw new Error('This task is working in your own browser, so a recording would photograph your other tabs too. Give your browser back first, then start a recording.');
     await entry.session.record(startRecording);
     entry.session.options.beforeAction = page => clearPasswordValues(page);
     return { recording: true,
