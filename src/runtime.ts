@@ -63,7 +63,9 @@ export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
-const compactionThreshold = 11000;
+/** Estimated tokens of working context above which older turns are folded into a summary.
+ *  Raised from 11000 as the tool catalog grew (wave 4/5); the catalog-diet work makes it derived. */
+export const compactionThreshold = 13000;
 const compactionKeep = 6;
 const contextLimit = 16000;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
