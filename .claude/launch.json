@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "branch-web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dist/cli.js", "start"],
+      "port": 3210
+    }
+  ]
+}

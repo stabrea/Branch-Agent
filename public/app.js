@@ -1234,6 +1234,14 @@ $("lock").addEventListener("click", () => {
   $("lock").hidden = true;
   $("connection").textContent = "Locked";
 });
+/** Enter sends; Shift+Enter (or Ctrl/Cmd+Enter while busy) keeps typing on a new line, like most chat apps. */
+$("prompt").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+  if (event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  if (conversationBusy && sessionId) { $("followup-send").click(); return; }
+  if (!conversationBusy) $("chat-form").requestSubmit();
+});
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const prompt = $("prompt").value.trim();

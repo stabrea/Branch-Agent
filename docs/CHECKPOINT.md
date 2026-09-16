@@ -47,6 +47,19 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Update incident 2026-09-15 (owner's 0.3.0 → 0.6.0) and the fix shipped in 0.7.0
+
+What happened: the button downloaded and staged 0.6.0 (169 MB took minutes with no visible progress; a
+second press hit "already in progress"), the hand-over script started, `app.quit()` ran but the
+shutdown never finished, so the process stayed alive with its window gone, the script waited on the
+pid forever, and relaunching only signalled the stuck single instance ("didn't open"). Fix: bounded
+shutdown (8 s race then `app.exit(0)`), a 20 s hard exit after launching the hand-over, the script
+ends the old pid itself after ~2 minutes, a second press returns status instead of an error, and a
+full-window updating screen (`public/update-screen.js`: stage, MB progress, pixel walker). The
+owner's install was moved to 0.7.0 by hand (previous kept as 0.3.0). Research: Hermes does not use a
+model to update; it uses numbered config migrations, update receipts and verified restart recovery.
+Follow-up: receipts + first-launch version check for Branch (issue #18).
+
 ## Release 0.7.0 (batches 12 to 15)
 
 Version 0.7.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip via
