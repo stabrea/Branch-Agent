@@ -110,6 +110,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
+  // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
+  "scratch.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

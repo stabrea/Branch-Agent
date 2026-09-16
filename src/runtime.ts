@@ -46,6 +46,7 @@ import {
   type RetryPolicyInput,
 } from "./provider-retry.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
+import { Orchestration, type ConductOptions } from "./orchestration.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
@@ -93,6 +94,10 @@ export interface RunOptions {
   dryRun?: boolean;
   /** Who started this task; defaults to the owner's own app or command line. */
   source?: RunSource;
+  /** Ask for a short plan first and work through it step by step. */
+  plan?: boolean;
+  /** Have a reviewer check the finished answer before it is given. */
+  verify?: boolean;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -102,6 +107,8 @@ export class Runtime {
   /** Per session: write tool calls whose outcome is unknown after an interruption, until a read has checked the state. */
   private readonly unreconciled = new Map<string, { name: string; arguments: string }[]>();
   private readonly activeSessions = new Set<string>();
+  /** Notes the owner sent to a task that is still working, waiting for its next round. */
+  private readonly steers = new Map<string, string[]>();
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
@@ -113,6 +120,8 @@ export class Runtime {
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
   private readonly rates: RateLimiter;
+  /** Plans, reviewer passes, milestone notes and the shared scratch area. */
+  readonly orchestration: Orchestration;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -125,6 +134,7 @@ export class Runtime {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
     this.rates = new RateLimiter(this.reliability.rateWindowMs);
+    this.orchestration = new Orchestration(store, this.owner, workspace);
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -139,6 +149,8 @@ export class Runtime {
       depth?: number;
       dryRun?: boolean;
       source?: RunSource;
+      /** The task whose shared scratch area this context uses; its own run by default. */
+      scratchRoot?: string;
     } = {},
   ): ToolContext {
     return {
@@ -149,6 +161,7 @@ export class Runtime {
       signal: options.signal ?? new AbortController().signal,
       budget: options.budget ?? new Budget(),
       depth: options.depth ?? 0,
+      ...(options.scratchRoot ?? options.runId ? { scratchRoot: options.scratchRoot ?? options.runId! } : {}),
       ...(options.dryRun ? { dryRun: true } : {}),
       ...(options.source ? { source: options.source } : {}),
     };
@@ -412,7 +425,7 @@ export class Runtime {
       AbortSignal.timeout(120000),
     ]);
     const context = this.scopeToSession(run, parent
-      ? { ...parent, runId: run.id, signal }
+      ? { ...parent, runId: run.id, signal, scratchRoot: parent.scratchRoot ?? parent.runId }
       : this.context({
           runId: run.id,
           signal,
@@ -434,7 +447,11 @@ export class Runtime {
       output = await this.loop(run, context, instructions, options.onTextDelta, {
         ...(options.model !== undefined ? { preset: options.model } : {}),
         ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
-      }, options.checks);
+      }, options.checks, {
+        ...(options.plan !== undefined ? { plan: options.plan } : {}),
+        ...(options.verify !== undefined ? { verify: options.verify } : {}),
+        ...(context.depth > 0 || context.agent ? { delegated: true } : {}),
+      });
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -545,6 +562,12 @@ export class Runtime {
     } finally {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
+      this.steers.delete(run.id);
+      // The scratch area belongs to the whole delegation tree, so only its top task empties it.
+      if ((context.scratchRoot ?? run.id) === run.id) this.orchestration.clearScratch(run.id);
+      // A plan that was being carried out by a task that stopped early is not resumed by the next
+      // message; one still waiting for the owner's yes stays, because that task stopped to ask.
+      if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId);
     }
     const settled = this.finish(run, status, output);
     this.saveTrace(run.id);
@@ -578,14 +601,18 @@ export class Runtime {
     onTextDelta?: (text: string) => void,
     override: RunModelOverride = {},
     checks?: CompletionCheck,
+    conduct: ConductOptions = {},
   ): Promise<string> {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
     const plan = this.models.plan(context.owner, run.sessionId, override);
     this.store.event(run.id, "model.selected", { ...plan.choice });
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
+    const conductor = this.orchestration.conductor(run, { ...conduct, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
+    this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
-    for (let round = 0; round < 12; round++) {
+    for (let round = 0; round < conductor.maxRounds(12); round++) {
+      this.applySteers(run, messages, ids);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
@@ -597,8 +624,10 @@ export class Runtime {
       messages.push(assistant); ids.push(null);
       this.store.message(run.sessionId, assistant);
       if (!completion.toolCalls.length) {
-        if (!checks || await this.answerPasses(run, messages, ids, context, checks, completion.content, checkFailures)) return completion.content;
-        checkFailures++;
+        if (checks && conductor.lastStep() && !(await this.answerPasses(run, messages, ids, context, checks, completion.content, checkFailures))) { checkFailures++; continue; }
+        const next = await conductor.afterAnswer(completion.content);
+        if (!next) return completion.content;
+        this.add(run, messages, ids, next);
         continue;
       }
       for (const call of completion.toolCalls) {
@@ -607,8 +636,49 @@ export class Runtime {
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
       }
+      this.orchestration.milestone(run, round + 1);
     }
-    throw new BudgetError("Maximum 12 model rounds reached");
+    throw new BudgetError(conductor.maxRounds(12) === 12 ? "Maximum 12 model rounds reached" : `Maximum ${conductor.maxRounds(12)} model rounds reached`);
+  }
+  /** Adds a message to the working context and to the stored transcript, so nothing is lost later. */
+  private add(run: Run, messages: Message[], ids: (number | null)[], message: Message | null): void {
+    if (!message) return;
+    messages.push(message); ids.push(null);
+    this.store.message(run.sessionId, message);
+  }
+  /**
+   * A short side question to the model with no tools and a small budget of its own, used for
+   * planning and for the reviewer pass. It never gets the task's tools and stops after a minute.
+   */
+  private async aside(run: Run, context: ToolContext, route: ModelRoute, messages: Message[]): Promise<string> {
+    const scoped: ToolContext = {
+      ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
+    };
+    return (await this.complete(run, messages, scoped, route.candidates[route.index]!, null)).content;
+  }
+  /**
+   * A note the owner sends to a task that is still working. It goes in front of the next round,
+   * unlike a follow-up message, which waits for the task to finish.
+   */
+  steer(runId: string, text: string): { queued: number } {
+    const note = String(text ?? "").trim();
+    if (!note || note.length > 2000) throw new Error("A note has to be between 1 and 2000 characters");
+    const run = this.store.run(runId);
+    if (!run || run.owner !== this.owner) throw new Error("Run not found");
+    if (run.status !== "running") throw new Error("Only a task that is still working can be steered");
+    const queue = [...(this.steers.get(runId) ?? []), note];
+    this.steers.set(runId, queue);
+    this.store.event(runId, "run.steered", { note: note.slice(0, 500), waiting: queue.length });
+    return { queued: queue.length };
+  }
+  private applySteers(run: Run, messages: Message[], ids: (number | null)[]): void {
+    const queue = this.steers.get(run.id);
+    if (!queue?.length) return;
+    this.steers.delete(run.id);
+    for (const note of queue)
+      this.add(run, messages, ids, { role: "user", content: `Note from the person, sent while you were working (read this before your next step): ${note}` });
+    this.store.event(run.id, "run.steer_applied", { notes: queue.length });
   }
   private openingMessages(run: Run, context: ToolContext, instructions: string): { messages: Message[]; ids: (number | null)[] } {
     const identity = assistantIdentity(this.store, context.owner);
@@ -752,10 +822,27 @@ export class Runtime {
   /** After a stalled model call: try again (twice at most), move to the next preset, or give up, as configured. */
   private recoverStall(run: Run, context: ToolContext, route: ModelRoute, error: StallError, stalls: number): boolean {
     if (context.signal.aborted) return false;
+    if (stalls >= 1 && this.changeStrategy(run, context, route, error, stalls)) return true;
     const policy = this.reliability.stallRecovery;
     const action = policy === "retry" && stalls < 2 ? "retry" : policy !== "fail" && this.fallBack(run, context, route, error) ? "fallback" : "fail";
     this.store.event(run.id, "model.stall_recovery", { action, stalls: stalls + 1, afterMs: error.afterMs, preset: route.candidates[route.index]!.id });
     return action !== "fail";
+  }
+  /**
+   * Once a task has gone quiet twice, doing the same thing again is unlikely to help. When the
+   * owner has asked for it, the task changes model instead, or stops and asks them what to do.
+   */
+  private changeStrategy(run: Run, context: ToolContext, route: ModelRoute, error: StallError, stalls: number): boolean {
+    const wanted = this.orchestration.settings().stuckAction;
+    if (wanted === "default") return false;
+    if (wanted === "switch") {
+      const switched = this.fallBack(run, context, route, error);
+      this.store.event(run.id, "run.stuck", { action: switched ? "switched" : "no_other_model", stalls: stalls + 1, afterMs: error.afterMs });
+      return switched;
+    }
+    const question = `This task has gone quiet twice while I was waiting for the model (${Math.round(error.afterMs / 1000)} seconds each time). Would you like me to try again, use a different model, or leave it?`;
+    this.store.event(run.id, "run.stuck", { action: "ask", stalls: stalls + 1, afterMs: error.afterMs });
+    throw new NeedsInputError(question);
   }
   /** Moves to the next configured preset after an eligible failure; records the cooldown and switch. */
   private fallBack(run: Run, context: ToolContext, route: ModelRoute, error: unknown): boolean {

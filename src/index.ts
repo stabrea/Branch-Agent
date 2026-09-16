@@ -9,6 +9,7 @@ import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
+import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
@@ -122,6 +123,8 @@ export async function createBranch(options: {
     execute: async ({ question }) => { throw new NeedsInputError(question); },
   });
   registerKnowledge(registry, knowledge);
+  // Working with several specialists at once, handing work over, and the shared scratch area.
+  registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
@@ -217,6 +220,8 @@ export * from "./channels/router.js";
 export * from "./channels/telegram.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
+export * from "./orchestration.js";
+export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";
 export * from "./receipts.js";

@@ -6,6 +6,17 @@ import type {
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
 
+/**
+ * Drops the JSON Schema dialect line from a generated tool schema. Every model provider ignores it
+ * (Gemini's adapter already strips it), and with dozens of tools it is a tenth of the catalog the
+ * model is sent every round.
+ */
+function withoutDialect(schema: Record<string, unknown>): Record<string, unknown> {
+  if (!("$schema" in schema)) return schema;
+  const { $schema: _dialect, ...rest } = schema;
+  return rest;
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
@@ -34,7 +45,7 @@ export class ToolRegistry {
         description: t.description,
         parameters:
           t.inputSchema ??
-          (z.toJSONSchema(t.parameters) as Record<string, unknown>),
+          withoutDialect(z.toJSONSchema(t.parameters) as Record<string, unknown>),
       }));
   }
   unregister(name: string): boolean {

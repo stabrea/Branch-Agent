@@ -1,0 +1,141 @@
+import { z } from "zod";
+import { Budget, errorText } from "./contracts.js";
+import type { ToolContext } from "./contracts.js";
+import type { ToolRegistry } from "./registry.js";
+import type { Runtime } from "./runtime.js";
+import type { Knowledge } from "./knowledge.js";
+
+/**
+ * Tools for working with several specialists at once: a parallel fan-out that splits this task's
+ * token budget between branches, a handoff to a named specialist, and the shared scratch area
+ * every sub-task of the same task can read and write.
+ */
+/** Most children one task may run at the same time; the delegation limit in the runtime. */
+const parallelConcurrency = 4;
+const ParallelTaskSchema = z.object({
+  specialist: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(8000),
+}).strict();
+export const ParallelSchema = z.object({
+  tasks: z.array(ParallelTaskSchema).min(1).max(6),
+  /** Stop the other branches as soon as one fails; off by default. */
+  failFast: z.boolean().default(false),
+}).strict();
+export interface BranchOutcome {
+  id: string; specialist: string; status: string; output: string; runId?: string; error?: string;
+}
+
+/** Runs `work` over the items with at most `limit` of them in flight, keeping the input order. */
+export async function pooled<T, R>(items: T[], limit: number, work: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (let index = next++; index < items.length; index = next++) results[index] = await work(items[index]!, index);
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Runs up to six specialist branches together, each with its own share of what is left of this
+ * task's token budget. One branch failing leaves the others running unless failFast was asked for;
+ * the branches' spend is added back to this task afterwards.
+ */
+export async function runParallel(runtime: Runtime, knowledge: Knowledge, context: ToolContext, input: unknown) {
+  const { tasks, failFast } = ParallelSchema.parse(input);
+  const share = Math.max(1, Math.floor(context.budget.remaining() / tasks.length));
+  const steps = Math.max(2, Math.floor((context.budget.limits.maxSteps - context.budget.steps) / tasks.length));
+  const stop = new AbortController();
+  const budgets: Budget[] = [];
+  const branches = await pooled(tasks, Math.min(tasks.length, parallelConcurrency), async (task, index) => {
+    const budget = new Budget({ maxSteps: steps, maxTokens: share });
+    budgets.push(budget);
+    const branch: ToolContext = { ...context, budget, signal: AbortSignal.any([context.signal, stop.signal]) };
+    const outcome = await oneBranch(runtime, knowledge, branch, task, index);
+    if (outcome.status !== "completed" && failFast) stop.abort(new Error(`Branch ${outcome.id} did not finish and failFast was asked for`));
+    return outcome;
+  });
+  // A branch never costs this task more than its share, whatever its own last call charged it.
+  const spent = budgets.reduce((total, budget) => total + Math.min(budget.tokens, share), 0);
+  if (context.runId)
+    runtime.store.event(context.runId, "delegation.parallel", {
+      share, spent, failFast,
+      branches: branches.map((b) => ({ id: b.id, specialist: b.specialist, status: b.status, ...(b.runId ? { runId: b.runId } : {}) })),
+    });
+  // The branches spent from their own share; the total comes off this task's budget afterwards,
+  // once every result is recorded, so a budget that runs out never loses work already paid for.
+  context.budget.charge(spent);
+  return {
+    branches, spent, tokensEach: share,
+    synthesise: "Combine these branch answers into one answer for the person, and say plainly where a branch failed or where two disagree.",
+  };
+}
+
+async function oneBranch(
+  runtime: Runtime, knowledge: Knowledge, branch: ToolContext,
+  task: z.infer<typeof ParallelTaskSchema>, index: number,
+): Promise<BranchOutcome> {
+  const id = `b${index + 1}`;
+  try {
+    const spec = knowledge.activeSpecialist(branch.owner, task.specialist);
+    const { run } = await runtime.delegateChecked(task.prompt, branch, spec.permissions, spec.instructions, { agent: task.specialist });
+    return { id, specialist: task.specialist, runId: run.id, status: run.status, output: run.output.slice(0, 4000) };
+  } catch (error) {
+    return { id, specialist: task.specialist, status: "failed", output: "", error: errorText(error) };
+  }
+}
+
+/** Hands the rest of a task to a named specialist with a brief, and brings its answer back. */
+export async function handOff(runtime: Runtime, knowledge: Knowledge, context: ToolContext, input: { specialist: string; brief: string }) {
+  const spec = knowledge.activeSpecialist(context.owner, input.specialist);
+  if (context.runId)
+    runtime.store.event(context.runId, "delegation.handoff", {
+      to: input.specialist, from: context.agent ?? "the main task", brief: input.brief.slice(0, 500),
+    });
+  const { run, result } = await runtime.delegateChecked(input.brief, context, spec.permissions, spec.instructions, { agent: input.specialist });
+  return { specialist: input.specialist, runId: run.id, status: run.status, output: run.output.slice(0, 4000), resolved: result.status === "resolved" };
+}
+
+export function registerOrchestration(registry: ToolRegistry, runtime: Runtime, knowledge: Knowledge): void {
+  registry.register({
+    name: "delegate.parallel",
+    description: "Run up to six specialists at once, each on a share of this task's budget. One failure leaves the rest running unless failFast. Combine their answers yourself.",
+    permission: "specialists.use",
+    parameters: ParallelSchema,
+    execute: async (a, c) => runParallel(runtime, knowledge, c, a),
+  });
+  registry.register({
+    name: "delegate.handoff",
+    description: "Hand the rest of this work to a named specialist, briefed in full. Its answer comes back to you.",
+    permission: "specialists.use",
+    parameters: z.object({
+      specialist: z.string().min(1).max(200),
+      brief: z.string().trim().min(1).max(4000),
+    }).strict(),
+    execute: async (a, c) => handOff(runtime, knowledge, c, a),
+  });
+  registerScratch(registry, runtime);
+}
+
+/** The shared notepad: everything a task and its sub-tasks write is gone when the task finishes. */
+function registerScratch(registry: ToolRegistry, runtime: Runtime): void {
+  const root = (context: ToolContext): string => context.scratchRoot ?? context.runId;
+  registry.register({
+    name: "scratch.set",
+    description: "Leave a note everyone on this task can read. Cleared when the task ends.",
+    permission: "scratch.write",
+    parameters: z.object({ key: z.string().trim().min(1).max(100), value: z.string().max(4000) }).strict(),
+    execute: async (a, c) => runtime.orchestration.scratchSet(root(c), c.runId, a.key, a.value),
+  });
+  registry.register({
+    name: "scratch.read",
+    description: "Read this task's shared notes: one by key, or all of them.",
+    permission: "scratch.read",
+    parameters: z.object({ key: z.string().trim().min(1).max(100).optional() }).strict(),
+    execute: async (a, c) => {
+      const entries = runtime.orchestration.scratchRead(root(c));
+      if (a.key) return entries[a.key] ? { key: a.key, ...entries[a.key]! } : { key: a.key, value: null };
+      return { notes: Object.entries(entries).map(([key, entry]) => ({ key, ...entry })).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)) };
+    },
+  });
+}

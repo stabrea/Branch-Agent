@@ -141,6 +141,8 @@ export interface ToolContext {
   depth: number;
   /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
   agent?: string;
+  /** The task whose shared scratch area this run and all of its sub-tasks read and write. */
+  scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
@@ -166,6 +168,10 @@ export const RunInputSchema = z
     checks: z.record(z.string(), z.unknown()).optional(),
     /** Practice run: nothing is really changed, and the report lists what would have happened. */
     dryRun: z.boolean().optional(),
+    /** Ask for a short plan first and work through it step by step. */
+    plan: z.boolean().optional(),
+    /** Have a reviewer check the finished answer before it is given. */
+    verify: z.boolean().optional(),
   })
   .strict();
 export const errorText = (error: unknown): string =>
