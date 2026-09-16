@@ -500,7 +500,7 @@ async function api(
   if (path.startsWith("/api/knowledge")) {
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
       request.method ?? "GET", path, () => readBody(request));
-    if (answer !== undefined) return answer;
+    if (answer !== undefined) return app.runtime.hideSecrets(answer);
     throw new HttpError(404, "Not found");
   }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))

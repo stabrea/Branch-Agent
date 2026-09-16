@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Bm25 } from "./bm25.js";
 import { chunkDocument, type Chunk } from "./chunking.js";
 import { Citations, type Citation } from "./citations.js";
-import { errorText } from "./contracts.js";
+import { errorText, estimateTokens } from "./contracts.js";
 import { documentType, extractText } from "./document-text.js";
 import { fuseRanks } from "./document-embeddings.js";
 import { CachedEmbeddings, EmbeddingCache, embeddingConnection, embeddingsFor, noEmbeddingsMessage,
@@ -13,7 +13,7 @@ import { CachedEmbeddings, EmbeddingCache, embeddingConnection, embeddingsFor, n
 import type { WorkspaceFiles } from "./files.js";
 import type { ModelRouter } from "./models.js";
 import type { Store } from "./store.js";
-import { SqliteVectors, type VectorBackend } from "./vector-store.js";
+import { SqliteVectors, comfortableChunkCount, type VectorBackend } from "./vector-store.js";
 import type { RerankablePassage } from "./documents.js";
 
 /**
@@ -38,6 +38,18 @@ export const CreateCollectionSchema = z.object({
   name: z.string().trim().min(1).max(120),
   sources: z.array(SourceSchema).max(maximumSources).default([]),
 }).strict();
+/**
+ * The two limits the owner can move. `maxIndexTokens` is how much new reading one press of "Read it
+ * again" may do; a reading that would go past it is refused in one sentence rather than run up a
+ * bill, or an hour of work, that nobody asked for. Passages already read never count towards it, so
+ * re-reading a folder nothing changed in is always allowed; zero means no limit.
+ * `compareAtMost` is how many stored passages one search may compare, so the work has a ceiling.
+ */
+export const KnowledgeSettingsSchema = z.object({
+  maxIndexTokens: z.number().int().min(0).max(20_000_000).default(400_000),
+  compareAtMost: z.number().int().min(100).max(comfortableChunkCount).default(comfortableChunkCount),
+}).strict();
+export type KnowledgeSettings = z.infer<typeof KnowledgeSettingsSchema>;
 export const KnowledgeSearchSchema = z.object({
   collection: z.string().trim().min(1).max(120).optional(),
   query: z.string().trim().min(1).max(500),
@@ -47,11 +59,15 @@ export const KnowledgeSearchSchema = z.object({
 export interface CollectionInfo {
   id: string; name: string; sources: CollectionSource[]; model: string; attached: boolean;
   documents: number; chunks: number; embedded: number; lastIndexedAt: string | null; note: string;
+  /** Roughly how much new reading this knowledge base has been charged for, added up over every read. */
+  indexTokens: number;
 }
 export interface IndexProgress {
   event: "knowledge.index.progress";
   collection: string; name: string;
   files: number; filesDone: number; chunks: number; embedded: number;
+  /** Roughly how much new reading this pass was charged for; zero when the reader is on this computer. */
+  tokens: number;
   status: string; finished: boolean; error?: string;
 }
 export interface KnowledgeHit {
@@ -93,6 +109,18 @@ export class KnowledgeBases {
         text_hash TEXT NOT NULL, UNIQUE(owner,collection,chunk_id));
       CREATE INDEX IF NOT EXISTS kb_chunks_collection ON kb_chunks(owner,collection);
       CREATE INDEX IF NOT EXISTS kb_chunks_document ON kb_chunks(owner,collection,doc_id);`);
+    // Added after the first release of this table; an install that already has it simply keeps it.
+    try { this.db.exec("ALTER TABLE kb_collections ADD COLUMN index_tokens INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
+  }
+  /** The owner's two limits: what one reading may cost, and how much one search may compare. */
+  settings(owner: string): KnowledgeSettings {
+    const saved = KnowledgeSettingsSchema.safeParse(this.store.get("settings", owner, "knowledge")?.data ?? {});
+    return saved.success ? saved.data : KnowledgeSettingsSchema.parse({});
+  }
+  configure(owner: string, input: unknown): KnowledgeSettings {
+    const value = KnowledgeSettingsSchema.parse({ ...this.settings(owner), ...(input as object) });
+    this.store.save("settings", owner, "knowledge", value);
+    return value;
   }
   private createIndex(): boolean {
     const available = this.db.prepare("PRAGMA compile_options").all()
@@ -129,7 +157,7 @@ export class KnowledgeBases {
       id, name: String(row.name), sources: JSON.parse(String(row.sources)) as CollectionSource[],
       model: String(row.model ?? ""), attached: Number(row.attached) === 1,
       documents: Number(counts?.documents ?? 0), chunks: Number(counts?.chunks ?? 0),
-      embedded, note: String(row.note ?? ""),
+      embedded, note: String(row.note ?? ""), indexTokens: Number(row.index_tokens ?? 0),
       lastIndexedAt: row.last_indexed_at === null ? null : String(row.last_indexed_at),
     };
   }
@@ -143,7 +171,8 @@ export class KnowledgeBases {
       collections: this.list(owner), meaningSearch: this.meaningSearchReady(owner),
       model: embeddingConnection(this.models, owner)?.model ?? "",
       onThisComputer: embeddingConnection(this.models, owner)?.local ?? false,
-      ranked: this.ranked, backend: this.vectors.name, readingNow: [...this.latest.values()].filter((entry) => !entry.finished),
+      ranked: this.ranked, backend: this.vectors.name, limits: this.settings(owner),
+      readingNow: [...this.latest.values()].filter((entry) => !entry.finished),
     };
   }
   /** How far the last read of a collection got, for the panel's progress line. */
@@ -165,11 +194,11 @@ export class KnowledgeBases {
     if (current.sources.length >= maximumSources) throw new Error(`A knowledge base holds up to ${maximumSources} folders or files`);
     return this.saveSources(owner, current.id, [...current.sources, source]);
   }
-  removeSource(owner: string, id: string, path: string): CollectionInfo {
+  async removeSource(owner: string, id: string, path: string): Promise<CollectionInfo> {
     const current = this.one(owner, id);
     const kept = current.sources.filter((entry) => entry.path !== path);
     const info = this.saveSources(owner, current.id, kept);
-    this.forgetDocument(owner, current.id, path);
+    await this.forgetDocument(owner, current.id, path);
     return info;
   }
   private saveSources(owner: string, id: string, sources: CollectionSource[]): CollectionInfo {
@@ -184,10 +213,10 @@ export class KnowledgeBases {
       .run(on ? 1 : 0, new Date().toISOString(), owner, current.id);
     return this.one(owner, current.id);
   }
-  remove(owner: string, id: string): { removed: string } {
+  async remove(owner: string, id: string): Promise<{ removed: string }> {
     const current = this.one(owner, id);
     this.clearChunks(owner, current.id);
-    void this.vectors.removeCollection(owner, current.id);
+    await this.vectors.removeCollection(owner, current.id);
     this.db.prepare("DELETE FROM kb_collections WHERE owner=? AND id=?").run(owner, current.id);
     this.latest.delete(current.id);
     return { removed: current.id };
@@ -197,11 +226,11 @@ export class KnowledgeBases {
       .run(owner, collection);
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=?").run(owner, collection);
   }
-  private forgetDocument(owner: string, collection: string, docId: string): void {
+  private async forgetDocument(owner: string, collection: string, docId: string): Promise<void> {
     if (this.ranked) this.db.prepare(`DELETE FROM kb_search WHERE rowid IN
       (SELECT row_id FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?)`).run(owner, collection, docId);
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?").run(owner, collection, docId);
-    void this.vectors.removeDocument(owner, collection, docId);
+    await this.vectors.removeDocument(owner, collection, docId);
   }
 
   /** Every file a collection's folders and files come to, as workspace-relative paths. */
@@ -238,7 +267,7 @@ export class KnowledgeBases {
     const current = this.one(owner, id);
     const paths = await this.filesIn(owner, current.id);
     let progress: IndexProgress = { event: "knowledge.index.progress", collection: current.id, name: current.name,
-      files: paths.length, filesDone: 0, chunks: 0, embedded: 0, status: "Reading your files", finished: false };
+      files: paths.length, filesDone: 0, chunks: 0, embedded: 0, tokens: 0, status: "Reading your files", finished: false };
     const report = (next: Partial<IndexProgress>) => { progress = { ...progress, ...next }; this.latest.set(current.id, progress); onProgress(progress); };
     report({});
     this.clearChunks(owner, current.id);
@@ -256,9 +285,11 @@ export class KnowledgeBases {
     // in silence, so the owner can see why a folder came out smaller than they expected.
     const skippedNote = skipped ? `${skipped} file${skipped === 1 ? "" : "s"} could not be read (too large, or no readable text).` : "";
     const note = [meaning.note, skippedNote].filter(Boolean).join(" ");
-    report({ embedded: meaning.embedded, status: note || "Ready", finished: true, ...(meaning.error ? { error: meaning.error } : {}) });
-    this.db.prepare("UPDATE kb_collections SET last_indexed_at=?, model=?, note=?, updated_at=? WHERE owner=? AND id=?")
-      .run(new Date().toISOString(), meaning.model, note, new Date().toISOString(), owner, current.id);
+    report({ embedded: meaning.embedded, tokens: meaning.tokens, status: note || "Ready", finished: true,
+      ...(meaning.error ? { error: meaning.error } : {}) });
+    this.db.prepare(`UPDATE kb_collections SET last_indexed_at=?, model=?, note=?, updated_at=?,
+        index_tokens=index_tokens+? WHERE owner=? AND id=?`)
+      .run(new Date().toISOString(), meaning.model, note, new Date().toISOString(), meaning.tokens, owner, current.id);
     return progress;
   }
   private async readFileChunks(path: string): Promise<Chunk[]> {
@@ -284,22 +315,42 @@ export class KnowledgeBases {
   /** Turns the passages that have no current list of numbers into one; the cache makes repeats free. */
   private async embedCollection(owner: string, collection: string, signal: AbortSignal, runId?: string) {
     const reader = this.embeddings(owner);
-    if (!reader) return { embedded: 0, model: "", note: noEmbeddingsMessage, error: "" };
-    const rows = this.db.prepare("SELECT chunk_id, doc_id, chunk_text, text_hash FROM kb_chunks WHERE owner=? AND collection=? LIMIT 50000")
-      .all(owner, collection);
-    if (!rows.length) return { embedded: 0, model: reader.model, note: "Nothing readable was found in those files", error: "" };
+    if (!reader) return { embedded: 0, model: "", tokens: 0, note: noEmbeddingsMessage, error: "" };
+    const rows = this.db.prepare("SELECT chunk_id, doc_id, chunk_text, text_hash FROM kb_chunks WHERE owner=? AND collection=? LIMIT ?")
+      .all(owner, collection, comfortableChunkCount);
+    if (!rows.length) return { embedded: 0, model: reader.model, tokens: 0, note: "Nothing readable was found in those files", error: "" };
+    const texts = rows.map((row) => String(row.chunk_text));
+    const tooMuch = this.tooExpensive(owner, reader, texts);
+    if (tooMuch) return { embedded: 0, model: reader.model, tokens: 0, note: tooMuch, error: "" };
     try {
-      const texts = rows.map((row) => String(row.chunk_text));
       const vectors = await reader.embedFor(runId, texts, signal);
       const written = await this.vectors.upsert(owner, rows.map((row, at) => ({
         collection, docId: String(row.doc_id), chunkId: String(row.chunk_id), model: reader.model,
         vector: vectors[at] ?? new Float32Array(), textHash: String(row.text_hash),
       })));
-      return { embedded: written, model: reader.model, note: "", error: "" };
+      return { embedded: written, model: reader.model, tokens: reader.stats.tokens, note: "", error: "" };
     } catch (error) {
       const message = errorText(error).slice(0, 200);
-      return { embedded: 0, model: reader.model, note: `Word search works. Comparing by meaning failed: ${message}`, error: message };
+      return { embedded: 0, model: reader.model, tokens: reader.stats.tokens,
+        note: `Word search works. Comparing by meaning failed: ${message}`, error: message };
     }
+  }
+  /**
+   * What to say when one reading would go past the limit the owner set, or nothing when it may go
+   * ahead. Only passages that have never been read count, so re-reading a folder nothing changed in
+   * is always allowed however large it is. A limit of zero means no limit.
+   */
+  private tooExpensive(owner: string, reader: CachedEmbeddings, texts: string[]): string {
+    const allowed = this.settings(owner).maxIndexTokens;
+    if (allowed === 0) return "";
+    const wanted = estimateTokens(reader.missing(texts));
+    if (wanted <= allowed) return "";
+    const where = reader.local
+      ? `would ask ${reader.model} on this computer to read about ${wanted.toLocaleString("en-US")} units of text`
+      : `would send about ${wanted.toLocaleString("en-US")} units of text to ${reader.model}`;
+    return `Word search works. Comparing by meaning was not done: reading these files ${where}, and your `
+      + `limit for one reading is ${allowed.toLocaleString("en-US")}. Point this knowledge base at fewer `
+      + `files, or raise the limit.`;
   }
 
   /** Word ranking and meaning ranking merged, then the second pass, with a citation on every answer. */
@@ -340,7 +391,8 @@ export class KnowledgeBases {
     const asked = await reader.embed([query], signal).catch(() => null);
     if (!asked?.[0]?.length) return [];
     const collections = collection ? [collection] : this.list(owner).map((entry) => entry.id);
-    const found = await Promise.all(collections.map((id) => this.vectors.search(owner, id, asked[0]!, candidates)));
+    const scanAtMost = this.settings(owner).compareAtMost;
+    const found = await Promise.all(collections.map((id) => this.vectors.search(owner, id, asked[0]!, candidates, scanAtMost)));
     return found.flat().filter((match) => match.score > 0.15).sort((a, b) => b.score - a.score)
       .slice(0, candidates).map((match) => match.chunkId);
   }

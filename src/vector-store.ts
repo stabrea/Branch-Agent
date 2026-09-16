@@ -28,8 +28,12 @@ export interface VectorBackend {
   /** Everything indexed for one document in one collection. */
   removeDocument(owner: string, collection: string, docId: string): Promise<number>;
   removeCollection(owner: string, collection: string): Promise<number>;
-  /** The closest passages to a question, best first. */
-  search(owner: string, collection: string, query: Float32Array, limit: number): Promise<VectorMatch[]>;
+  /**
+   * The closest passages to a question, best first. `scanAtMost` is how many stored passages one
+   * comparison may look at, so the work never grows without a ceiling; a backend that does the
+   * comparison itself may ignore it.
+   */
+  search(owner: string, collection: string, query: Float32Array, limit: number, scanAtMost?: number): Promise<VectorMatch[]>;
   count(owner: string, collection?: string): Promise<number>;
   /** Which passages of a collection are already read, by fingerprint, so re-reading is free. */
   fingerprints(owner: string, collection: string, model: string): Promise<Map<string, string>>;
@@ -64,13 +68,17 @@ export class SqliteVectors implements VectorBackend {
     return Number(this.db.prepare("DELETE FROM vectors WHERE owner=? AND collection=?").run(owner, collection).changes ?? 0);
   }
   /**
-   * Every passage of the collection compared with the question, best first. Lists of different
+   * The passages of the collection compared with the question, best first, never more than
+   * `scanAtMost` of them so one search can never grow without a ceiling. Lists of different
    * lengths — a collection read by two different models — score zero rather than throwing.
    */
-  async search(owner: string, collection: string, query: Float32Array, limit: number): Promise<VectorMatch[]> {
+  async search(
+    owner: string, collection: string, query: Float32Array, limit: number, scanAtMost = comfortableChunkCount,
+  ): Promise<VectorMatch[]> {
     if (!query.length) return [];
+    const ceiling = Math.max(1, Math.min(scanAtMost, comfortableChunkCount));
     const rows = this.db.prepare("SELECT doc_id, chunk_id, blob FROM vectors WHERE owner=? AND collection=? LIMIT ?")
-      .all(owner, collection, comfortableChunkCount);
+      .all(owner, collection, ceiling);
     return rows
       .map((row) => ({
         docId: String(row.doc_id), chunkId: String(row.chunk_id),

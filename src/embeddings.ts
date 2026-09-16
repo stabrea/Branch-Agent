@@ -195,6 +195,14 @@ export class CachedEmbeddings implements Embeddings {
   get local(): boolean { return this.inner.local; }
   get dimensions(): number { return this.inner.dimensions; }
   embed(texts: string[], signal: AbortSignal): Promise<Float32Array[]> { return this.embedFor(undefined, texts, signal); }
+  /**
+   * The passages that are not already read, worked out without touching the network. Used before a
+   * large reading to say what it would actually cost: a folder that is already read costs nothing,
+   * however big it is, so only these passages should ever count against a limit.
+   */
+  missing(texts: string[]): string[] {
+    return texts.filter((text) => !this.cache.get(textFingerprint(text, this.inner.model), this.inner.model));
+  }
   /** The same, charged to a task when there is one; background indexing has no task to charge. */
   async embedFor(runId: string | undefined, texts: string[], signal: AbortSignal): Promise<Float32Array[]> {
     const answers = new Array<Float32Array | undefined>(texts.length);

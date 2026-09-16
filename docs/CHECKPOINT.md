@@ -1194,6 +1194,22 @@ The Knowledge card lives at the foot of the existing Documents section in `publi
 The listing tool is `knowledge.collections`, not the brief's `knowledge.list`, because
 `knowledge.list` was already taken by the stored recipes and specialists. No dependency was added.
 
+Changed while integrating. Background reading used to leave no trace of what it cost, so
+`kb_collections` gained an `index_tokens` column that adds up every reading and the card says how
+much has been sent; a new `knowledge` settings record holds `maxIndexTokens` (400,000, zero for no
+limit) and `compareAtMost` (50,000). A reading that would go past the token limit is refused in one
+sentence on the card and word search carries on — only passages that were never read count towards
+it, worked out without touching the network by `CachedEmbeddings.missing`, so re-reading costs
+nothing and is never refused. `VectorBackend.search` gained a `scanAtMost` argument so the cosine
+loop's ceiling is the owner's setting rather than a constant. `/api/knowledge` answers now go through
+`hideSecrets` like every other route that can quote a person's files. `kb_collections` joined the
+backup tables, while `kb_chunks`, `vectors` and `embedding_cache` are documented as rebuilt by
+pressing "Read it again". The two deletions that dropped a collection's vectors were awaited rather
+than left floating. Four tests were added: a `.env`, `credentials.json`, `id_rsa` and `.pem` in an
+indexed folder reach neither the passage table nor the provider; the token limit refuses and then
+allows a re-read; the second nightly pass makes no network call at all; and a backup carries the
+knowledge bases but not their passages.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

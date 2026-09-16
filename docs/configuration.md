@@ -1462,12 +1462,33 @@ names. Up to 20 folders or files per knowledge base, 400 files in total, 5 MB a 
 can do it. An OpenAI-shaped connection is asked at its `/embeddings` route; a Gemini connection at
 `batchEmbedContents`; a model running on this computer through Ollama's own `/api/embeddings`, in
 which case **nothing leaves this computer**. LM Studio speaks the OpenAI shape and is reached the same
-way, also without leaving the machine. The card says which of those is happening. If none of your
+way, also without leaving the machine. **Your question goes to the same place as your files:** matching
+by meaning means the wording of each search — and the first 500 characters of a task when a knowledge
+base is ticked **Use this when answering** — is sent to that same connection, unless the model is on
+this computer, in which case nothing leaves it. The card says which of those is happening. If none of your
 connections can do it, Branch says so in one sentence and the knowledge base still works by its words
 alone. Every reading is kept here under a fingerprint of the passage and the model, so reading the
 same folder twice costs nothing, and the cost of a first reading is charged to the task that asked for
 it, exactly like a model answer. Background reading has no task to charge, so it is recorded as a
-`knowledge.index.progress` event instead.
+`knowledge.index.progress` event instead, and each knowledge base keeps a running total of how much
+reading it has been charged for, shown on its card.
+
+**What is never read.** A knowledge base can only point at folders and files inside your workspace,
+and the same guard that protects every other file tool applies: anything that looks like a secret —
+`.env` and `.env.*`, `.ssh`, `.aws`, anything named `credentials` or `secrets`, `id_rsa`,
+`id_ed25519`, and `.pem`, `.key`, `.p12` and `.pfx` files — is refused, as is any path that leaves
+the workspace or goes through a symbolic link or junction. Such a file is counted in the knowledge
+base's note as one that could not be read, so nothing is dropped in silence, and its words are never
+cut into passages or sent anywhere. Anything hidden by `.branchignore` is left out too.
+
+**What a reading may cost.** `POST /api/knowledge/settings` holds two numbers. `maxIndexTokens`
+(400,000 by default, which is roughly 1.5 MB of writing) is the most new reading one press of **Read
+it again** may do. A larger one is refused in a sentence on the card instead of running up a bill you
+did not ask for — or, with a model on this computer, an hour of work you did not ask for — and you
+either point the knowledge base at fewer files or raise the number; **0** means no limit. Passages
+already read never count towards it, so re-reading a folder nothing changed in is always allowed.
+`compareAtMost` (50,000 by default) is the most stored passages one search will compare, so a search
+always has a ceiling.
 
 **How a search works.** The passages are narrowed with SQLite's full-text search where this build has
 it, then ranked by BM25 worked out in Branch itself — so a rare word counts for far more than a common
@@ -1492,6 +1513,13 @@ chunk-to-fingerprint map that makes re-reading free — going through the existi
 be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
 written today.
 
+**In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
+each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
+`kb_search`), their vectors (`vectors`) and the store of readings (`embedding_cache`) are **not**: all
+three are worked out again from your own files, so after a restore each knowledge base is there but
+empty until you press **Read it again**. Leaving them out keeps a backup small; putting them in would
+make it many times larger for something a button rebuilds.
+
 **Saved facts.** Facts are compared by meaning as well as by their words through the same store of
 readings, so nothing is ever read twice. A quiet pass runs at most once a day on the scheduler's beat:
 it gives newly written facts their comparison by meaning and writes near-duplicates into the review
@@ -1503,7 +1531,8 @@ Routes: `GET /api/knowledge` (the list, which model reads passages, and anything
 now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
 `{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
 `POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
-`{ collection, attached }`, `POST /api/knowledge/source` with `{ collection, source }` or
+`{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/source` with `{ collection, source }` or
 `{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
 `knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
 `knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. The listing tool

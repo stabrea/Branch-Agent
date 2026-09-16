@@ -136,6 +136,7 @@ export async function knowledgeApi(
   method: string, path: string, body: () => Promise<unknown>,
 ): Promise<unknown> {
   if (method === "GET" && path === "/api/knowledge") return bases.view(owner);
+  if (method === "POST" && path === "/api/knowledge/settings") return bases.configure(owner, await body());
   if (method === "POST" && path === "/api/knowledge") return bases.create(owner, await body());
   if (method === "POST" && path === "/api/knowledge/search")
     return { results: bounded(await bases.search(owner, await body()), 10) };

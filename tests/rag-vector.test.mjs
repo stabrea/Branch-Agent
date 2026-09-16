@@ -254,7 +254,7 @@ test("R4 and R3 a folder becomes a searchable knowledge base with citations, and
   assert.equal(listed.documents, 2);
   assert.ok(listed.lastIndexedAt);
   assert.equal(listed.model, "text-embedding-3-small");
-  app.knowledgeBases.remove("local", made.id);
+  await app.knowledgeBases.remove("local", made.id);
   assert.deepEqual(app.knowledgeBases.list("local"), []);
   assert.equal(await app.knowledgeBases.vectors.count("local", made.id), 0, "its vectors go with it");
 });
@@ -402,6 +402,99 @@ test("R4 the panel's routes create, read, search and remove a knowledge base", a
   const found = await api("POST", "/api/knowledge/search", { query: "paid leave" });
   assert.match(found.body.results[0].text, /twenty days/);
   assert.equal((await api("POST", "/api/knowledge/attach", { collection: "Work", attached: true })).body.attached, true);
+  assert.equal((await api("POST", "/api/knowledge/settings", { maxIndexTokens: 1000 })).body.maxIndexTokens, 1000);
+  assert.equal((await api("GET", "/api/knowledge")).body.limits.maxIndexTokens, 1000);
   assert.equal((await api("DELETE", `/api/knowledge/${created.body.id}`)).body.removed, created.body.id);
   assert.equal((await api("POST", "/api/knowledge/reindex", { collection: "Work" })).status, 400);
+});
+
+test("R7 a secret file in the folder is never cut into passages or sent anywhere", async (t) => {
+  const service = await fakeProvider(t, "openai");
+  const { app, workspace } = await fixture(t, withOpenAI(service.endpoint));
+  await mkdir(join(workspace, "company"), { recursive: true });
+  await writeFile(join(workspace, "company", "handbook.md"), handbook, "utf8");
+  await writeFile(join(workspace, "company", ".env"), "OPENAI_API_KEY=sk-super-secret-value\n", "utf8");
+  await writeFile(join(workspace, "company", "credentials.json"), '{"token":"sk-also-secret"}', "utf8");
+  await writeFile(join(workspace, "company", "id_rsa"), "-----BEGIN PRIVATE KEY-----secret", "utf8");
+  await writeFile(join(workspace, "company", "server.pem"), "-----BEGIN CERTIFICATE-----secret", "utf8");
+
+  // A folder holding secrets, and the same secrets named one by one, must both come to nothing.
+  const made = app.knowledgeBases.create("local", { name: "Company", sources: [{ kind: "folder", path: "company" }] });
+  for (const path of ["company/.env", "company/credentials.json", "company/id_rsa", "company/server.pem"])
+    app.knowledgeBases.addSource("local", made.id, { kind: "file", path });
+  await app.knowledgeBases.reindex("local", made.id);
+
+  const stored = app.store.sqlite.prepare("SELECT doc_id, chunk_text FROM kb_chunks WHERE owner='local'").all();
+  assert.equal(stored.length > 0, true, "the handbook itself is read");
+  for (const row of stored) {
+    assert.equal(/\.env|credentials|id_rsa|\.pem/.test(String(row.doc_id)), false, `${row.doc_id} must not be read`);
+    assert.equal(/secret|PRIVATE KEY/.test(String(row.chunk_text)), false, "no secret wording is kept as a passage");
+  }
+  const sent = JSON.stringify(service.calls);
+  assert.equal(/sk-super-secret-value|sk-also-secret|PRIVATE KEY/.test(sent), false, "and none of it reaches the provider");
+  assert.match(app.knowledgeBases.one("local", made.id).note, /could not be read/);
+});
+
+test("R7 a reading that would cost more than the owner allowed is refused in one sentence", async (t) => {
+  const service = await fakeProvider(t, "openai");
+  const { app, workspace } = await fixture(t, withOpenAI(service.endpoint));
+  await writeFile(join(workspace, "handbook.md"), handbook, "utf8");
+  const made = app.knowledgeBases.create("local", { name: "Work", sources: [{ kind: "folder", path: "." }] });
+
+  assert.deepEqual(app.knowledgeBases.configure("local", { maxIndexTokens: 5 }), { maxIndexTokens: 5, compareAtMost: 50000 });
+  const refused = await app.knowledgeBases.reindex("local", made.id);
+  assert.equal(refused.embedded, 0);
+  assert.equal(refused.tokens, 0);
+  assert.match(refused.status, /about .* units of text/);
+  assert.match(refused.status, /raise the limit/i);
+  assert.equal(service.calls.length, 0, "nothing was sent while the limit stood");
+  assert.match((await app.knowledgeBases.search("local", { collection: made.id, query: "paid leave" }))[0].text,
+    /twenty days/, "and word search still answers");
+
+  app.knowledgeBases.configure("local", { maxIndexTokens: 400000 });
+  const allowed = await app.knowledgeBases.reindex("local", made.id);
+  assert.ok(allowed.embedded > 0);
+  assert.ok(allowed.tokens > 0, "what the reading cost is written down");
+  assert.equal(app.knowledgeBases.one("local", made.id).indexTokens, allowed.tokens, "and added to the total");
+
+  // Already-read passages cost nothing, so a tight limit must not block a second reading of them.
+  const sentSoFar = service.calls.length;
+  app.knowledgeBases.configure("local", { maxIndexTokens: 5 });
+  const again = await app.knowledgeBases.reindex("local", made.id);
+  assert.ok(again.embedded > 0, "re-reading what is already read is never refused");
+  assert.equal(again.tokens, 0);
+  assert.equal(service.calls.length, sentSoFar, "because nothing had to be sent");
+});
+
+test("R5 the second night sends nothing: the facts of the first night are already read", async (t) => {
+  const service = await fakeProvider(t, "openai");
+  const { app } = await fixture(t, withOpenAI(service.endpoint));
+  app.store.save("memory", "local", "fact-one", { text: "Staff may take holiday after three months." });
+  app.store.save("memory", "local", "fact-two", { text: "Every invoice is paid within thirty days." });
+
+  const first = await app.consolidation.run("local");
+  assert.equal(first.embedded, 2);
+  assert.ok(service.calls.length > 0, "the first pass does send the new facts once");
+  const afterFirst = service.calls.length;
+
+  const second = await app.consolidation.run("local", new Date(Date.now() + 25 * 3600 * 1000));
+  assert.equal(service.calls.length, afterFirst, "the second pass sends nothing at all");
+  assert.equal(second.deleted, 0);
+  assert.equal(app.store.list("memory", "local").length, 2, "and both facts are still there");
+});
+
+test("R7 a backup carries the knowledge bases themselves, and their passages are rebuilt", async (t) => {
+  const service = await fakeProvider(t, "openai");
+  const { app, workspace } = await fixture(t, withOpenAI(service.endpoint));
+  await writeFile(join(workspace, "handbook.md"), handbook, "utf8");
+  const made = app.knowledgeBases.create("local", { name: "Work", sources: [{ kind: "folder", path: "." }] });
+  await app.knowledgeBases.reindex("local", made.id);
+  app.knowledgeBases.attach("local", made.id, true);
+
+  const archive = app.store.backup("test");
+  assert.equal(archive.tables.kb_collections.length, 1, "the knowledge base is in the backup");
+  assert.equal(archive.tables.kb_collections[0].name, "Work");
+  assert.equal(archive.tables.kb_collections[0].attached, 1);
+  for (const derived of ["kb_chunks", "vectors", "embedding_cache"])
+    assert.equal(archive.tables[derived], undefined, `${derived} is rebuilt from your files, not backed up`);
 });

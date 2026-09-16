@@ -50,6 +50,8 @@ function card(entry) {
   node.append(el("h3", entry.name));
   node.append(el("p", `${entry.documents} file${entry.documents === 1 ? "" : "s"} · ${entry.chunks} passage${entry.chunks === 1 ? "" : "s"}` +
     (entry.embedded ? ` · ${entry.embedded} matched by meaning` : "") + ` · last read ${when(entry.lastIndexedAt)}`));
+  if (entry.indexTokens)
+    node.append(el("p", `Reading it has sent about ${entry.indexTokens.toLocaleString()} units of text to the model so far.`, "meta"));
   if (entry.model) node.append(el("p", `Read by ${entry.model}`, "meta"));
   if (entry.note) node.append(el("p", entry.note));
   node.append(el("p", entry.sources.map((source) => source.path).join(", ") || "No folders yet", "meta"));
