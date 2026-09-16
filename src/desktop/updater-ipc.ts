@@ -10,16 +10,27 @@ export const updateSource = {
 } as const;
 const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent"];
 
+/**
+ * What this launch can do before an update: take the safety copy, and close the engine that keeps
+ * working with the window closed. Both are supplied whether this window runs the engine itself or
+ * joined one that was already working, so an update behaves the same either way.
+ */
+export interface UpdateHooks {
+  backup: () => Promise<void>;
+  stopDaemon?: () => Promise<number | null>;
+}
+
 export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
-  backup?: () => Promise<void>,
+  hooks?: UpdateHooks,
 ): Updater {
   const updater = new Updater({
     ...updateSource,
     currentVersion: version,
     installDir: app.isPackaged ? dirname(process.execPath) : null,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
-    ...(backup ? { backup } : {}),
+    ...(hooks ? { backup: hooks.backup } : {}),
+    ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
     if (event.sender !== window.webContents ||
@@ -33,7 +44,13 @@ export function registerUpdaterIpc(
     authorized(event);
     if (updater.inProgress) return updater.status;
     const { script } = await updater.install();
-    await launchHandOver(script, process.pid);
+    // The background engine is already closed by this point, so say so if the hand-over cannot start.
+    await launchHandOver(script, process.pid).catch((error: unknown) => {
+      const why = error instanceof Error ? error.message : String(error);
+      throw new Error(hooks?.stopDaemon
+        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to Windows.`
+        : `The update could not be started: ${why}.`);
+    });
     const status = updater.applying();
     setTimeout(requestQuit, 750);
     // If a polite quit gets stuck, leave anyway: the hand-over script is already waiting for this process to end.

@@ -1,0 +1,218 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+
+import { requestUpdateBackup, stopBackgroundEngine } from "../dist/install/background-engine.js";
+import { writeRunning, readRunning } from "../dist/install/running.js";
+import { Updater } from "../dist/desktop/updater.js";
+
+async function scratch(t) {
+  const base = join(tmpdir(), "Codex-session-files");
+  await mkdir(base, { recursive: true });
+  const root = await mkdtemp(join(base, "branch-daemon-update-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+/** A release the updater can download, verify and unpack without touching the network. */
+function fakeRelease() {
+  const bytes = Buffer.from("pretend zip");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  return async (url) => {
+    if (String(url).includes("releases/latest"))
+      return new Response(JSON.stringify({
+        tag_name: "v2.0.0", name: "Branch Agent 2.0.0", body: "", published_at: null,
+        html_url: "https://github.com/x/y/releases/tag/v2.0.0",
+        assets: [
+          { name: "app.zip", browser_download_url: "https://example.invalid/app.zip", size: bytes.length },
+          { name: "app.zip.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    if (String(url).endsWith("app.zip")) return new Response(bytes, { status: 200 });
+    return new Response(`${digest}  app.zip\n`, { status: 200 });
+  };
+}
+
+async function updaterFor(root, name, extra = {}) {
+  const installDir = join(root, "installed");
+  await mkdir(installDir, { recursive: true });
+  return new Updater({
+    repo: "x/y", currentVersion: "1.0.0", installDir, executableName: "Branch Agent.exe",
+    assetName: "app.zip", scratchDir: join(root, name), fetch: fakeRelease(),
+    extract: async (_archive, into) => {
+      await mkdir(join(into, "app"), { recursive: true });
+      await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+    },
+    backup: async () => {},
+    ...extra,
+  });
+}
+
+// ------------------------------------------------- asking a background engine for the safety copy
+
+test("the window asks the engine it joined for the safety copy, with the session token", async () => {
+  const seen = [];
+  const answer = async (url, init) => {
+    seen.push({ url, method: init.method, auth: init.headers.authorization });
+    return new Response(JSON.stringify({ path: "C:\\data\\update-backups\\before.json", pruned: [] }), { status: 200 });
+  };
+  await requestUpdateBackup("http://127.0.0.1:4321", "a".repeat(64), { fetch: answer });
+  assert.deepEqual(seen, [{
+    url: "http://127.0.0.1:4321/api/deployment/backup",
+    method: "POST",
+    auth: `Bearer ${"a".repeat(64)}`,
+  }]);
+});
+
+test("whatever the engine says went wrong is what the owner is shown, word for word", async () => {
+  const tooBig = async () => new Response(
+    JSON.stringify({ error: "This copy holds more saved work than a safety copy can hold (64 MiB)." }),
+    { status: 400 });
+  await assert.rejects(requestUpdateBackup("http://127.0.0.1:1", "t", { fetch: tooBig }), /can hold \(64 MiB\)\.$/);
+  const silent = async () => new Response("<html>", { status: 503 });
+  await assert.rejects(requestUpdateBackup("http://127.0.0.1:1", "t", { fetch: silent }), /HTTP 503/);
+  const odd = async () => new Response(JSON.stringify({ pruned: [] }), { status: 200 });
+  await assert.rejects(requestUpdateBackup("http://127.0.0.1:1", "t", { fetch: odd }), /did not say where it put the copy/);
+});
+
+test("an update through a joined engine stops with advice when the copy cannot be made", async (t) => {
+  const root = await scratch(t);
+  const refuse = async () => new Response(
+    JSON.stringify({ error: "This copy holds more saved work than a safety copy can hold (64 MiB)." }),
+    { status: 400 });
+  const updater = await updaterFor(root, "scratch-too-big", {
+    backup: () => requestUpdateBackup("http://127.0.0.1:1", "t", { fetch: refuse }),
+  });
+  await assert.rejects(updater.install(),
+    /safety copy could not be made.*\(64 MiB\)\. Free some space on this drive, or move Branch's data folder somewhere it can write, then try the update again\./s);
+  assert.equal(updater.status.phase, "error");
+});
+
+// ------------------------------------------------------------------- closing the background engine
+
+const noteFor = (dataDir, pid, mode = "daemon") =>
+  writeRunning(dataDir, { port: 3210, pid, url: "http://127.0.0.1:3210", mode, version: "1.0.0" });
+
+test("the background engine is asked to close, forced if it will not, and the note is cleared", async (t) => {
+  const root = await scratch(t);
+  await noteFor(root, 40404);
+  const calls = [];
+  let living = true;
+  const report = await stopBackgroundEngine(root, {
+    run: async (file, args) => { calls.push([file, args]); living = false; return ""; },
+    alive: () => living,
+    sleep: async () => {},
+  });
+  assert.deepEqual(report, {
+    pid: 40404, stopped: true, forced: false,
+    message: "Branch stopped working in the background so the new version can replace the files.",
+  });
+  assert.equal(calls.length, 1, "asking politely was enough");
+  assert.ok(calls[0][0].endsWith("System32\\taskkill.exe"));
+  assert.deepEqual(calls[0][1], ["/PID", "40404", "/T"]);
+  assert.equal(await readRunning(root), null, "the note that an engine is running is cleared");
+});
+
+test("an engine that ignores the polite ask is ended, and one that never goes does not stop the update", async (t) => {
+  const root = await scratch(t);
+  await noteFor(root, 50505);
+  const args = [];
+  let living = true;
+  const forced = await stopBackgroundEngine(root, {
+    run: async (_file, called) => {
+      args.push(called);
+      if (!called.includes("/F")) throw new Error("This process can only be terminated forcefully");
+      living = false;
+      return "";
+    },
+    alive: () => living, sleep: async () => {},
+  });
+  assert.deepEqual(args, [["/PID", "50505", "/T"], ["/PID", "50505", "/T", "/F"]]);
+  assert.deepEqual([forced.pid, forced.stopped, forced.forced], [50505, true, true]);
+
+  await noteFor(root, 60606);
+  const stubborn = await stopBackgroundEngine(root, {
+    run: async () => "", alive: () => true, sleep: async () => {}, waitMs: 0,
+  });
+  assert.deepEqual([stubborn.pid, stubborn.stopped], [60606, false]);
+  assert.match(stubborn.message, /did not close in time; the update will close it/);
+  assert.notEqual(await readRunning(root), null, "a note for an engine still running is left alone");
+});
+
+test("a window that runs its own engine has nothing to close", async (t) => {
+  const root = await scratch(t);
+  assert.equal((await stopBackgroundEngine(root, { run: async () => "" })).pid, null, "no note at all");
+  await noteFor(root, 70707, "app");
+  assert.equal((await stopBackgroundEngine(root, { run: async () => "" })).pid, null, "the note is a window, not an engine");
+  await noteFor(root, process.pid);
+  assert.equal((await stopBackgroundEngine(root, { run: async () => "" })).pid, null, "the note is this very process");
+});
+
+test("waiting for the engine watches a real process until it is really gone", async (t) => {
+  const root = await scratch(t);
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore", windowsHide: true });
+  t.after(() => { try { child.kill(); } catch { /* already gone */ } });
+  await noteFor(root, child.pid);
+  const ended = once(child, "exit");
+  const report = await stopBackgroundEngine(root, { run: async () => { child.kill(); return ""; } });
+  await ended;
+  assert.deepEqual([report.pid, report.stopped], [child.pid, true]);
+  assert.equal(await readRunning(root), null);
+});
+
+// -------------------------------------------------------------- the hand-over waits for both of them
+
+test("the hand-over waits for the engine as well, and is unchanged when there is no engine", async (t) => {
+  const root = await scratch(t);
+  const alone = await readFile((await (await updaterFor(root, "scratch-alone")).install()).script, "utf8");
+  assert.ok(!alone.includes("background engine"), "nothing about an engine when there was none");
+  assert.ok(!alone.includes(":engine"), "no second wait loop");
+
+  const stopped = [];
+  const joined = await updaterFor(root, "scratch-joined", {
+    stopDaemon: async () => { stopped.push("asked"); return 4321; },
+  });
+  const text = await readFile((await joined.install()).script, "utf8");
+  assert.deepEqual(stopped, ["asked"], "the engine is closed before the hand-over script is written");
+  assert.match(text, /:wait[\s\S]*app closed[\s\S]*:engine[\s\S]*background engine closed[\s\S]*:drain/,
+    "the app is waited for, then the engine, then the leftovers");
+  assert.match(text, /tasklist\.exe \/FI "PID eq 4321" \/NH \/FO CSV/);
+  assert.match(text, /background engine still open after %EWAITED% waits[\s\S]*taskkill\.exe \/PID 4321 \/T \/F/,
+    "an engine that will not go is ended, so the copy never hits a locked file");
+  assert.ok(text.indexOf(":engine") < text.indexOf("keeping previous version"),
+    "both are gone before the previous version is mirrored");
+});
+
+test("cmd runs the two-wait script through to the copy", { skip: process.platform !== "win32" && "Windows batch" }, async (t) => {
+  const root = await scratch(t);
+  const installDir = join(root, "installed");
+  await mkdir(installDir, { recursive: true });
+  await writeFile(join(installDir, "Branch Agent.exe"), "old");
+  // Neither process id exists, so both waits fall straight through; "stay" stops before anything starts.
+  const updater = await updaterFor(root, "scratch-run", { stopDaemon: async () => 999998 });
+  const { script } = await updater.install();
+  await new Promise((resolve) => {
+    const child = spawn("cmd.exe", ["/d", "/c", script, "999999", "stay"], { stdio: "ignore", windowsHide: true });
+    child.on("close", resolve);
+    child.on("error", resolve);
+  });
+  assert.equal(await readFile(join(installDir, "Branch Agent.exe"), "utf8"), "new", "the new files landed");
+  assert.match(await readFile(join(root, "scratch-run", "apply-update.log"), "utf8"),
+    /app closed[\s\S]*background engine closed[\s\S]*copying new version, attempt 1/,
+    "both waits were passed, in order, before the copy");
+});
+
+test("an engine that refuses to close still lets the update go ahead", async (t) => {
+  const root = await scratch(t);
+  const updater = await updaterFor(root, "scratch-refused", {
+    stopDaemon: async () => { throw new Error("taskkill is missing"); },
+  });
+  const { script } = await updater.install();
+  assert.equal(updater.status.phase, "ready");
+  assert.ok(!(await readFile(script, "utf8")).includes(":engine"), "no pid to wait for, so no wait loop");
+});
