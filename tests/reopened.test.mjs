@@ -121,8 +121,8 @@ function taskContext(app, prompt = "a task") {
   const run = app.store.createRun(app.runtime.owner, prompt);
   return { run, context: app.runtime.context({ runId: run.id }) };
 }
-const allowScripts = (app) => app.store.save("settings", app.runtime.owner, "code-run",
-  { enabled: true, python: "", network: true, timeoutMs: 8000, maxMemoryMb: 256, maxCpuSeconds: 10, maxOutputBytes: 2048 });
+const allowScripts = (app, network = true) => app.store.save("settings", app.runtime.owner, "code-run",
+  { enabled: true, python: "", network, timeoutMs: 8000, maxMemoryMb: 256, maxCpuSeconds: 10, maxOutputBytes: 2048 });
 /** A script that prints where its way out to the internet points, or says it is open. */
 const proxyProbe = 'console.log(process.env.HTTPS_PROXY || "reachable")';
 
@@ -160,6 +160,29 @@ test("A0245/A2277 an approval rule picks how tightly a program is held, and code
   assert.equal(shapeChoice({ job: true, netless: true }), "no-internet");
   assert.match(ruleSentence({ tool: "code.run", match: "*", applies: "any", decision: "ask", sandbox: "no-internet" }),
     /Run it in a box .* no way out to the internet\./);
+});
+
+test("A2277 a rule holds a program more tightly than the settings, never more loosely", async (t) => {
+  const { app } = await fixture(t);
+  const { sandboxShape } = await import("../dist/index.js");
+  allowScripts(app, false); // The owner has switched the internet off for scripts, in Settings.
+  const { context } = taskContext(app);
+
+  for (const choice of ["limits-only", "none"]) {
+    const run = await app.registry.execute("code.run", { language: "javascript", source: proxyProbe },
+      { ...context, sandbox: choice });
+    assert.match(run.output, /127\.0\.0\.1:9/, `a "${choice}" rule must not re-open the internet the settings closed`);
+    assert.equal(run.network, false);
+  }
+
+  // The looser box still arrives: "none" asks Windows for no job at all, it just cannot add network.
+  const loose = await app.registry.execute("code.run", { language: "javascript", source: proxyProbe },
+    { ...context, sandbox: "none" });
+  assert.equal(loose.isolation, "sampling");
+
+  // And the rule can still tighten a tool the settings leave open.
+  assert.deepEqual(sandboxShape("no-internet", { job: true, netless: false }), { job: true, netless: true });
+  assert.deepEqual(sandboxShape("limits-only", { job: true, netless: true }), { job: true, netless: true });
 });
 
 test("A0245 the choice reaches the question the model's turn stops on, and an older rule list still reads back", async (t) => {

@@ -2880,6 +2880,11 @@ honour it — the result each of them hands back says which box it actually ran 
 security boundary: the program still runs on this computer as you. It is you deciding how much rope
 one tool gets.
 
+A rule can only tighten what the settings already say, never loosen it. If Settings says scripts may
+not reach the internet, a rule that asks for **in a box** or **no box** still leaves the internet
+shut off for them; the box gets looser, the way out stays closed. To let scripts reach the internet
+you turn that on in Settings, in one place, on purpose.
+
 ## Your own checks, before something happens (batch 26, wave 8)
 
 A hook used to be told about things after they had already happened. There is now one more moment,
