@@ -77,6 +77,7 @@ import { Flows, registerFlows } from "./flows.js";
 import { PluginCatalog } from "./plugin-catalog.js";
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
+import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
 import { MorningBrief, registerBrief } from "./brief.js";
@@ -87,6 +88,7 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
 import { KnowledgeBases } from "./knowledge-bases.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -312,6 +314,10 @@ export async function createBranch(options: {
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Asking a question of one document, and holding two up against each other. Tables inside a
+  // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
+  const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
+  registerDocumentAnalysis(registry, documentAnalysis);
   const research = new Research(store, web, files, documents, writeObserver);
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
@@ -374,6 +380,11 @@ export async function createBranch(options: {
     { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  // What was said in a conversation, written up as fact cards the owner can accept into a
+  // knowledge base. Accepting one indexes it exactly like a passage from a file.
+  registerKnowledgeCards(registry, new KnowledgeCards(store, knowledgeBases, runtime.models));
+  store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
+    { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
@@ -708,6 +719,7 @@ export * from "./vector-store.js";
 export * from "./chunking.js";
 export * from "./bm25.js";
 export * from "./knowledge-bases.js";
+export * from "./knowledge-cards.js";
 export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
 export * from "./citations.js";

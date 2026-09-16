@@ -238,10 +238,14 @@ export class KnowledgeBases {
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=?").run(owner, collection);
   }
   private async forgetDocument(owner: string, collection: string, docId: string): Promise<void> {
+    this.forgetChunkRows(owner, collection, docId);
+    await this.vectors.removeDocument(owner, collection, docId);
+  }
+  /** The passages of one document dropped from the database; the vectors are dealt with separately. */
+  private forgetChunkRows(owner: string, collection: string, docId: string): void {
     if (this.ranked) this.db.prepare(`DELETE FROM kb_search WHERE rowid IN
       (SELECT row_id FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?)`).run(owner, collection, docId);
     this.db.prepare("DELETE FROM kb_chunks WHERE owner=? AND collection=? AND doc_id=?").run(owner, collection, docId);
-    await this.vectors.removeDocument(owner, collection, docId);
   }
 
   /** Every file a collection's folders and files come to, as workspace-relative paths. */
@@ -263,6 +267,26 @@ export class KnowledgeBases {
       if (entry.type === "directory") await this.walk(path, found, depth + 1);
       else if (readableFile(path)) found.push(path);
     }
+  }
+
+  /**
+   * A fact card written into a collection and indexed exactly like a passage from a file, so a
+   * search finds it the same way and an answer can cite it. The card's own title is what a citation
+   * shows; `source` says where it came from, which for a card from a conversation is that turn.
+   */
+  addCard(
+    owner: string, collection: string, card: { title: string; body: string; source?: string },
+  ): { collection: string; docId: string; chunks: number } {
+    const current = this.one(owner, collection);
+    const docId = `card:${textFingerprint(`${card.title}\n${card.body}`, "card")}`;
+    const text = `# ${card.title.trim()}\n\n${card.body.trim()}${card.source ? `\n\nNoted from: ${card.source.trim()}` : ""}`;
+    this.forgetChunkRows(owner, current.id, docId);
+    const chunks = chunkDocument({ key: docId, title: card.title.trim().slice(0, 200), text, markdown: true });
+    this.writeChunks(owner, current.id, docId, chunks);
+    this.noteDocument(owner, current.id, docId, textFingerprint(text, "file"), "");
+    // The card is searchable by its words at once. Comparing it by meaning waits for the next
+    // reading of the collection or the nightly pass, so accepting a suggestion never stalls.
+    return { collection: current.id, docId, chunks: chunks.length };
   }
 
   /** The files of this collection that could not be read, with the reason for each. */
@@ -311,8 +335,9 @@ export class KnowledgeBases {
   /** Passages of files the collection no longer points at are dropped before anything is read. */
   private async forgetMissing(owner: string, collection: string, paths: string[]): Promise<void> {
     const wanted = new Set(paths);
+    // Cards the owner accepted have no file behind them, so a reading of the folders leaves them be.
     const gone = this.db.prepare("SELECT doc_id FROM kb_documents WHERE owner=? AND collection=?").all(owner, collection)
-      .map((row) => String(row.doc_id)).filter((docId) => !wanted.has(docId));
+      .map((row) => String(row.doc_id)).filter((docId) => !wanted.has(docId) && !docId.startsWith("card:"));
     for (const docId of gone) {
       await this.forgetDocument(owner, collection, docId);
       this.db.prepare("DELETE FROM kb_documents WHERE owner=? AND collection=? AND doc_id=?").run(owner, collection, docId);

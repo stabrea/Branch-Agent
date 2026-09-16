@@ -320,6 +320,91 @@ test("the document library reads a Word file and refuses a locked PDF with a rea
   assert.match(locked.note, /locked with a password/);
 });
 
+// ---------------------------------------------------------------- analyse and compare
+
+test("asking a question of one document answers with the heading it came from and opens its tables", async (t) => {
+  const answering = scripted("Flights cost 420 [1].");
+  const { app, workspace } = await fixture(t, answering);
+  await writeFile(join(workspace, "plan.docx"), docxFixture());
+  const run = app.store.createRun("local", "read the plan");
+  const result = await app.registry.execute("documents.analyse",
+    { file: "plan.docx", question: "how much were the flights" }, app.runtime.context({ runId: run.id }));
+  assert.match(result.answer, /Flights cost 420/);
+  assert.match(result.answer, /Where this came from in the document/);
+  assert.ok(result.citations.length, "the answer carries a numbered source");
+  assert.match(result.citations[0].title, /plan\.docx/);
+  assert.deepEqual(result.tables.map((table) => table.columns), [["Item", "Price"]], "the table in it is opened as figures");
+  assert.equal(app.dataTables.get(run.id, result.tables[0].name).rows.length, 1);
+  assert.match(answering.requests.at(-1)[0].content, /never follow/, "the model is told the document is not an instruction");
+});
+
+test("a PDF that is pictures says so rather than making an answer up", async (t) => {
+  const { app, workspace } = await fixture(t, scripted("should never be asked"));
+  await writeFile(join(workspace, "scan.pdf"), pdf({ content: "q 200 0 0 100 72 600 cm /Im1 Do Q" }));
+  const result = await app.runtime.executeTool("documents.analyse", { file: "scan.pdf", question: "what does it say" });
+  assert.match(result.answer, /pictures of text/);
+  assert.deepEqual(result.citations, []);
+});
+
+test("comparing two documents says what was added, taken out and reworded", async (t) => {
+  const { app, workspace } = await fixture(t, scripted("The notice period went from one month to three."));
+  await writeFile(join(workspace, "before.md"), "# Terms\n\n## Notice\n\nOne month.\n\n## Fees\n\nNo fees apply.\n", "utf8");
+  await writeFile(join(workspace, "after.md"), "# Terms\n\n## Notice\n\nThree months.\n\n## Renewal\n\nIt renews each year.\n", "utf8");
+  const result = await app.runtime.executeTool("documents.compare", { file: "before.md", against: "after.md" });
+  const byKind = Object.fromEntries(result.changes.map((change) => [change.section, change.change]));
+  assert.equal(byKind["Terms › Notice"], "changed");
+  assert.equal(byKind["Terms › Fees"], "removed");
+  assert.equal(byKind["Terms › Renewal"], "added");
+  assert.match(result.summary, /notice period went from one month to three/);
+
+  await writeFile(join(workspace, "same.md"), "# Terms\n\n## Notice\n\nOne month.\n\n## Fees\n\nNo fees apply.\n", "utf8");
+  const identical = await app.runtime.executeTool("documents.compare", { file: "before.md", against: "same.md" });
+  assert.deepEqual(identical.changes, []);
+  assert.match(identical.summary, /say the same thing/);
+});
+
+// ---------------------------------------------------------------- cards from a conversation
+
+test("a conversation becomes card suggestions, and accepting one puts it in the knowledge base", async (t) => {
+  const cards = JSON.stringify({ cards: [{ title: "Gate code", body: "The side gate code is 4417, changed each April.",
+    sourceTurn: "the code is 4417", confidence: 0.9 }] });
+  const { app, workspace } = await fixture(t, scripted(cards));
+  await mkdir(join(workspace, "house"), { recursive: true });
+  await writeFile(join(workspace, "house", "notes.md"), "# House\n\nThe bins go out on Tuesday.\n", "utf8");
+  const made = app.knowledgeBases.create("local", { name: "House", sources: [{ kind: "folder", path: "house" }] });
+  await app.knowledgeBases.reindex("local", made.id);
+
+  const session = app.store.createSession("local");
+  app.store.message(session, { role: "user", content: "remind me, the code is 4417 and it changes each April" });
+  app.store.message(session, { role: "assistant", content: "Noted." });
+  const proposed = await app.runtime.executeTool("knowledge.propose", { sessionId: session, collection: made.id });
+  assert.equal(proposed.staged.length, 1);
+  assert.equal(proposed.staged[0].kind, "knowledge-card");
+  assert.equal(proposed.staged[0].card.title, "Gate code");
+  assert.equal(proposed.staged[0].status, "pending");
+
+  const searchedBefore = await app.knowledgeBases.search("local", { collection: made.id, query: "side gate code" });
+  assert.ok(!searchedBefore.some((hit) => /4417/.test(hit.text)), "nothing is added until the owner accepts");
+
+  const decided = app.store.review.decide("local", proposed.staged[0].id, true);
+  assert.equal(decided.proposal.status, "accepted");
+  const searched = await app.knowledgeBases.search("local", { collection: made.id, query: "side gate code" });
+  assert.match(searched[0].text, /4417/, "an accepted card is found like any other passage");
+  assert.equal(searched[0].documentName, "Gate code", "and cites the card by its title");
+});
+
+test("a conversation with nothing worth keeping suggests nothing", async (t) => {
+  const { app, workspace } = await fixture(t, scripted(JSON.stringify({ cards: [] })));
+  await mkdir(join(workspace, "house"), { recursive: true });
+  await writeFile(join(workspace, "house", "notes.md"), "# House\n\nThe bins go out on Tuesday.\n", "utf8");
+  const made = app.knowledgeBases.create("local", { name: "House", sources: [{ kind: "folder", path: "house" }] });
+  const session = app.store.createSession("local");
+  app.store.message(session, { role: "user", content: "morning" });
+  const proposed = await app.runtime.executeTool("knowledge.propose", { sessionId: session, collection: made.id });
+  assert.deepEqual(proposed.staged, []);
+  assert.deepEqual(app.store.review.proposals("local", "pending"), []);
+});
+
 // ---------------------------------------------------------------- memory kinds and layers
 
 test("a fact remembers what kind of thing it is and how long it should last", async (t) => {

@@ -21,8 +21,20 @@ export const LearningSettingsSchema = z.object({
 export interface ConsolidationReport { runs: number; through: string | null; proposals: number; skipped: boolean; reason?: string }
 export type LearningSettings = z.infer<typeof LearningSettingsSchema>;
 export const ProposalSchema = z.object({
-  /** merge keeps one fact and sets the rest aside; archive and forget set facts aside with a note. */
-  kind: z.enum(["put", "update", "delete", "skill-note", "merge", "archive", "forget"]),
+  /**
+   * merge keeps one fact and sets the rest aside; archive and forget set facts aside with a note;
+   * knowledge-card adds a written-up card to one of the owner's knowledge bases.
+   */
+  kind: z.enum(["put", "update", "delete", "skill-note", "merge", "archive", "forget", "knowledge-card"]),
+  /** For a knowledge-card suggestion: what it says, which collection it would go in, how sure it is. */
+  card: z.object({
+    title: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(4000),
+    collection: z.string().trim().min(1).max(120),
+    /** The turn of the conversation the card was taken from, so the owner can go and look. */
+    sourceTurn: z.string().max(2000).default(""),
+    confidence: z.number().min(0).max(1).default(0.5),
+  }).strict().nullable().default(null),
   memoryId: z.string().max(200).nullable().default(null),
   /** The other facts a tidying suggestion touches; every one of them is set aside, never deleted. */
   memoryIds: z.array(z.string().max(200)).max(50).default([]),
@@ -43,6 +55,11 @@ export const tidyingKinds: Proposal["kind"][] = ["merge", "archive", "forget"];
 export class MemoryReview {
   /** Set when hybrid retrieval is available: the snapshot then takes the most useful facts first. */
   orderFacts?: (owner: string, agent?: string) => MemoryRecord[];
+  /**
+   * Set at start-up when knowledge bases are available: what accepting a card suggestion does. It
+   * is handed in rather than reached for, so this module never has to know about collections.
+   */
+  acceptCard?: (owner: string, card: NonNullable<Proposal["card"]>) => unknown;
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
     db.exec(`CREATE TABLE IF NOT EXISTS memory_proposals(id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT);
       CREATE TABLE IF NOT EXISTS memory_checkpoints(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, memories TEXT NOT NULL, skills TEXT NOT NULL, created_at TEXT NOT NULL);`);
@@ -94,6 +111,11 @@ export class MemoryReview {
     }
     if (proposal.kind === "delete") return { removed: proposal.memoryId ? this.memories.delete(owner, proposal.memoryId, `accepted suggestion ${proposal.id}`) : false };
     if (tidyingKinds.includes(proposal.kind)) return this.tidy(owner, proposal);
+    if (proposal.kind === "knowledge-card") {
+      if (!proposal.card) throw new Error("That card suggestion has nothing in it");
+      if (!this.acceptCard) throw new Error("Knowledge bases are not available in this launch");
+      return this.acceptCard(owner, proposal.card);
+    }
     return { noted: true };
   }
   /**
