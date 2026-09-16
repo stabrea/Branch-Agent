@@ -1,0 +1,394 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ShellProcess } from './shell-process.js';
+
+/**
+ * The one Windows script every screen action goes through, and the bounded way it is run.
+ *
+ * It is written once to a private temporary folder and then called with `-File`, so the arguments
+ * are handed over literally and nothing the model writes is ever pasted into a command line. The
+ * body of the request travels as base64, the answer comes back as a single line of JSON, and the
+ * whole thing runs through the same bounded child-process runner the host-command tool uses, so a
+ * hung script is stopped by time, by output size, or the moment the task is cancelled.
+ */
+export const powerShellPath = 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe';
+
+/** Windows actions; the script does exactly one of these per run and then exits. */
+export type DesktopAction = 'windows' | 'screenshot' | 'read' | 'click' | 'type' | 'key' | 'act' | 'open' | 'clipboard';
+
+export const desktopScript = String.raw`
+param([Parameter(Mandatory=$true)][string]$Action, [Parameter(Mandatory=$true)][string]$Payload)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public class BranchDesktop {
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassNameW(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint owner);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] static extern void mouse_event(uint f, uint x, uint y, uint d, IntPtr e);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public static string Title(IntPtr h) { var b = new StringBuilder(512); GetWindowTextW(h, b, 512); return b.ToString(); }
+  public static string ClassOf(IntPtr h) { var b = new StringBuilder(256); GetClassNameW(h, b, 256); return b.ToString(); }
+  public static List<IntPtr> Top() {
+    var found = new List<IntPtr>();
+    EnumWindows(delegate(IntPtr h, IntPtr l) { if (IsWindowVisible(h) && Title(h).Length > 0) found.Add(h); return true; }, IntPtr.Zero);
+    return found;
+  }
+  public static void Click(int x, int y) {
+    SetCursorPos(x, y);
+    mouse_event(0x0002, 0, 0, 0, IntPtr.Zero);
+    mouse_event(0x0004, 0, 0, 0, IntPtr.Zero);
+  }
+}
+'@
+
+$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Payload)) | ConvertFrom-Json
+$auto = [System.Windows.Automation.AutomationElement]
+
+function Get-Windows {
+  $list = New-Object System.Collections.ArrayList
+  foreach ($handle in [BranchDesktop]::Top()) {
+    $owner = 0
+    [void][BranchDesktop]::GetWindowThreadProcessId($handle, [ref]$owner)
+    $program = ''
+    try { $program = (Get-Process -Id $owner -ErrorAction Stop).ProcessName } catch { $program = '' }
+    $rect = New-Object BranchDesktop+RECT
+    [void][BranchDesktop]::GetWindowRect($handle, [ref]$rect)
+    [void]$list.Add([pscustomobject]@{
+      handle = $handle.ToInt64().ToString()
+      title = [BranchDesktop]::Title($handle)
+      className = [BranchDesktop]::ClassOf($handle)
+      program = $program
+      processId = $owner
+      minimised = [BranchDesktop]::IsIconic($handle)
+      width = $rect.Right - $rect.Left
+      height = $rect.Bottom - $rect.Top
+    })
+  }
+  return $list
+}
+
+function Get-Handle {
+  $handle = [IntPtr][int64]$request.handle
+  if (-not [BranchDesktop]::IsWindow($handle)) { throw 'That window is no longer open.' }
+  return $handle
+}
+
+function Save-Area($x, $y, $width, $height, $path) {
+  if ($width -lt 1 -or $height -lt 1) { throw 'That window has nothing to photograph.' }
+  $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $graphics.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($width, $height)))
+  $graphics.Dispose()
+  $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+  $bitmap.Dispose()
+  return @{ width = $width; height = $height }
+}
+
+function Save-Window($handle, $path) {
+  $rect = New-Object BranchDesktop+RECT
+  [void][BranchDesktop]::GetWindowRect($handle, [ref]$rect)
+  $width = $rect.Right - $rect.Left
+  $height = $rect.Bottom - $rect.Top
+  if ($width -lt 1 -or $height -lt 1) { throw 'That window has nothing to photograph.' }
+  $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $hdc = $graphics.GetHdc()
+  $printed = [BranchDesktop]::PrintWindow($handle, $hdc, 2)
+  $graphics.ReleaseHdc($hdc)
+  $method = 'window'
+  if (-not $printed) {
+    $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, (New-Object System.Drawing.Size($width, $height)))
+    $method = 'screen'
+  }
+  $graphics.Dispose()
+  $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+  $bitmap.Dispose()
+  return @{ width = $width; height = $height; method = $method }
+}
+
+function Read-Node($node) {
+  $value = ''
+  $pattern = $null
+  try { if ($node.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) { $value = [string]$pattern.Current.Value } } catch { $value = '' }
+  $role = $node.Current.ControlType.ProgrammaticName -replace '^ControlType\.', ''
+  return [pscustomobject]@{
+    role = $role
+    name = $node.Current.Name
+    value = $value
+    id = $node.Current.AutomationId
+    enabled = $node.Current.IsEnabled
+  }
+}
+
+function Read-Tree($root, $limit) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $nodes = New-Object System.Collections.ArrayList
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue($root)
+  $seen = 0
+  while ($queue.Count -gt 0 -and $nodes.Count -lt $limit) {
+    $node = $queue.Dequeue()
+    $seen = $seen + 1
+    try { [void]$nodes.Add((Read-Node $node)) } catch { continue }
+    try {
+      $child = $walker.GetFirstChild($node)
+      while ($child -ne $null) {
+        $queue.Enqueue($child)
+        $child = $walker.GetNextSibling($child)
+      }
+    } catch { }
+  }
+  return @{ nodes = $nodes; more = ($queue.Count -gt 0) }
+}
+
+function Find-Named($root, $name) {
+  $condition = New-Object System.Windows.Automation.PropertyCondition($auto::NameProperty, $name)
+  $found = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  if ($found -ne $null) { return $found }
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue($root)
+  $checked = 0
+  while ($queue.Count -gt 0 -and $checked -lt 400) {
+    $node = $queue.Dequeue()
+    $checked = $checked + 1
+    try { if ($node.Current.Name -like ('*' + $name + '*')) { return $node } } catch { continue }
+    try {
+      $child = $walker.GetFirstChild($node)
+      while ($child -ne $null) { $queue.Enqueue($child); $child = $walker.GetNextSibling($child) }
+    } catch { }
+  }
+  return $null
+}
+
+function Find-Writable($root, $name) {
+  if ($name) { return (Find-Named $root $name) }
+  foreach ($kind in @([System.Windows.Automation.ControlType]::Document, [System.Windows.Automation.ControlType]::Edit)) {
+    $condition = New-Object System.Windows.Automation.PropertyCondition($auto::ControlTypeProperty, $kind)
+    $found = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    if ($found -ne $null) { return $found }
+  }
+  return $null
+}
+
+function Bring-Forward($handle) {
+  [void][BranchDesktop]::ShowWindow($handle, 9)
+  [void][BranchDesktop]::SetForegroundWindow($handle)
+  Start-Sleep -Milliseconds 350
+  return ([BranchDesktop]::GetForegroundWindow() -eq $handle)
+}
+
+$result = $null
+switch ($Action) {
+  'windows' { $result = @{ windows = @(Get-Windows) } }
+  'screenshot' {
+    if ($request.handle) {
+      $handle = Get-Handle
+      if ([BranchDesktop]::IsIconic($handle)) { throw 'That window is minimised, so there is nothing to photograph. Bring it up first.' }
+      $size = Save-Window $handle $request.outPath
+      $result = @{ width = $size.width; height = $size.height; method = $size.method; title = [BranchDesktop]::Title($handle) }
+    } else {
+      $screens = [System.Windows.Forms.Screen]::AllScreens
+      $index = [int]$request.display - 1
+      if ($index -lt 0 -or $index -ge $screens.Length) { throw ('This computer has ' + $screens.Length + ' screen(s).') }
+      $bounds = $screens[$index].Bounds
+      $size = Save-Area $bounds.X $bounds.Y $bounds.Width $bounds.Height $request.outPath
+      $result = @{ width = $size.width; height = $size.height; title = ('Screen ' + $request.display) }
+    }
+  }
+  'read' {
+    $handle = Get-Handle
+    $tree = Read-Tree ($auto::FromHandle($handle)) ([int]$request.limit)
+    $result = @{ nodes = @($tree.nodes); more = $tree.more; title = [BranchDesktop]::Title($handle) }
+  }
+  'click' {
+    $handle = Get-Handle
+    $root = $auto::FromHandle($handle)
+    if ($request.name) {
+      $node = Find-Named $root $request.name
+      if ($node -eq $null) { throw ('Nothing in that window is called "' + $request.name + '". Use desktop.read to see what is there.') }
+      $pattern = $null
+      if ($node.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Invoke(); $result = @{ how = 'invoke'; name = $node.Current.Name }
+      } elseif ($node.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Toggle(); $result = @{ how = 'toggle'; name = $node.Current.Name }
+      } elseif ($node.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+        $pattern.Select(); $result = @{ how = 'select'; name = $node.Current.Name }
+      } elseif ($node.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Expand(); $result = @{ how = 'expand'; name = $node.Current.Name }
+      } else {
+        if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front, so nothing was clicked.' }
+        $box = $node.Current.BoundingRectangle
+        [BranchDesktop]::Click([int]($box.X + $box.Width / 2), [int]($box.Y + $box.Height / 2))
+        $result = @{ how = 'point'; name = $node.Current.Name }
+      }
+    } else {
+      $rect = New-Object BranchDesktop+RECT
+      [void][BranchDesktop]::GetWindowRect($handle, [ref]$rect)
+      $x = $rect.Left + [int]$request.x
+      $y = $rect.Top + [int]$request.y
+      if ($x -gt $rect.Right -or $y -gt $rect.Bottom) { throw 'That point is outside the window.' }
+      if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front, so nothing was clicked.' }
+      [BranchDesktop]::Click($x, $y)
+      $result = @{ how = 'point'; name = '' }
+    }
+  }
+  'type' {
+    $handle = Get-Handle
+    $root = $auto::FromHandle($handle)
+    $node = Find-Writable $root $request.name
+    if ($node -eq $null) { throw 'There is nothing to type into in that window.' }
+    $pattern = $null
+    if ($node.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -and -not $pattern.Current.IsReadOnly) {
+      $pattern.SetValue([string]$request.text)
+      Start-Sleep -Milliseconds 250
+      $again = $null
+      [void]$node.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$again)
+      $result = @{ how = 'set'; into = $node.Current.Name; value = [string]$again.Current.Value }
+    } else {
+      if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front, so nothing was typed.' }
+      $escaped = ''
+      foreach ($ch in ([string]$request.text).ToCharArray()) {
+        if ('+^%~()[]{}'.Contains($ch)) { $escaped = $escaped + '{' + $ch + '}' } else { $escaped = $escaped + $ch }
+      }
+      [System.Windows.Forms.SendKeys]::SendWait($escaped)
+      Start-Sleep -Milliseconds 250
+      $result = @{ how = 'keys'; into = $node.Current.Name; value = '' }
+    }
+  }
+  'key' {
+    $handle = Get-Handle
+    if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front, so no key was pressed.' }
+    [System.Windows.Forms.SendKeys]::SendWait([string]$request.keys)
+    Start-Sleep -Milliseconds 200
+    $result = @{ sent = [string]$request.keys; title = [BranchDesktop]::Title($handle) }
+  }
+  'act' {
+    $handle = Get-Handle
+    $title = [BranchDesktop]::Title($handle)
+    switch ($request.verb) {
+      'focus' { if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front.' } }
+      'minimise' { [void][BranchDesktop]::ShowWindow($handle, 6) }
+      'close' { [void][BranchDesktop]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+    }
+    Start-Sleep -Milliseconds 400
+    $result = @{ verb = [string]$request.verb; title = $title; stillOpen = [BranchDesktop]::IsWindow($handle) }
+  }
+  'open' {
+    if ($request.path) {
+      Start-Process -FilePath ([string]$request.path) -ErrorAction Stop
+      $started = $null
+    } else {
+      $started = Start-Process -FilePath ([string]$request.app) -PassThru -ErrorAction Stop
+    }
+    Start-Sleep -Milliseconds 900
+    $identifier = 0
+    if ($started -ne $null) { $identifier = $started.Id }
+    $result = @{ opened = [string]($request.path); app = [string]($request.app); processId = $identifier }
+  }
+  'clipboard' {
+    if ($request.mode -eq 'write') { Set-Clipboard -Value ([string]$request.text); $result = @{ written = $true } }
+    else { $text = Get-Clipboard -Raw; if ($text -eq $null) { $text = '' }; $result = @{ text = [string]$text } }
+  }
+  default { throw ('Unknown screen action: ' + $Action) }
+}
+[Console]::Out.Write((@{ ok = $true; result = $result } | ConvertTo-Json -Depth 8 -Compress))
+`;
+
+/** How long one screen action may take, and how much it may say. A tree of controls is the big one. */
+const timeoutMs = 25000;
+const maxOutputBytes = 512 * 1024;
+
+/**
+ * The few settings the script needs and nothing else: where Windows is, a place for temporary
+ * files, and just enough of the search path for Windows to find a program by name and to work out
+ * which program opens a given file. None of the owner's own environment is passed on.
+ */
+export function scriptEnvironment(root = process.env.SYSTEMROOT ?? 'C:\\Windows'): NodeJS.ProcessEnv {
+  return {
+    SYSTEMROOT: root, WINDIR: root, TEMP: tmpdir(), TMP: tmpdir(),
+    PATH: `${root}\\system32;${root}`,
+    PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    ...(process.env.USERPROFILE ? { USERPROFILE: process.env.USERPROFILE } : {}),
+    ...(process.env.SYSTEMDRIVE ? { SYSTEMDRIVE: process.env.SYSTEMDRIVE } : {}),
+  };
+}
+
+export class DesktopScriptRunner {
+  private folder: Promise<string> | undefined;
+  constructor(private readonly executable = powerShellPath) {}
+  /** Writes the script once, into a private folder of its own, and gives back its path. */
+  private async scriptPath(): Promise<string> {
+    this.folder ??= mkdtemp(join(tmpdir(), 'branch-desktop-')).then(async (folder) => {
+      await writeFile(join(folder, 'branch-desktop.ps1'), desktopScript, { mode: 0o600 });
+      return folder;
+    });
+    return join(await this.folder, 'branch-desktop.ps1');
+  }
+  /** A place for one screenshot to land before it is read back and kept as an artifact. */
+  async temporaryPng(name: string): Promise<string> {
+    await this.scriptPath();
+    return join(await this.folder!, `${name}.png`);
+  }
+  /** Writes one more script into the same private folder, for the on-screen notice. */
+  async materialise(name: string, content: string): Promise<string> {
+    await this.scriptPath();
+    const path = join(await this.folder!, name);
+    await writeFile(path, content, { mode: 0o600 });
+    return path;
+  }
+  /**
+   * Runs one action. The answer is a single JSON line; anything else (a crash, a refusal from
+   * Windows, a timeout) becomes a plain error the model can read.
+   */
+  async run(action: DesktopAction, payload: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const script = await this.scriptPath();
+    const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+    const child = new ShellProcess({
+      executable: this.executable,
+      args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Action', action, '-Payload', body],
+      cwd: tmpdir(), env: scriptEnvironment(),
+      signal, timeoutMs, maxOutputBytes, maxMemoryMb: 1024, maxCpuSeconds: 60,
+    });
+    const outcome = await child.run();
+    if (outcome.status !== 'completed' || outcome.exitCode !== 0)
+      throw new Error(failureText(outcome.status, outcome.stderr));
+    try {
+      const parsed = JSON.parse(outcome.stdout.trim()) as { ok?: boolean; result?: Record<string, unknown> };
+      if (!parsed.ok || !parsed.result) throw new Error('empty answer');
+      return parsed.result;
+    } catch {
+      throw new Error('Windows did not answer that in a way Branch could read.');
+    }
+  }
+  async close(): Promise<void> {
+    const folder = await this.folder?.catch(() => undefined);
+    if (folder) await rm(folder, { recursive: true, force: true });
+  }
+}
+
+/** Turns a stopped or failed script into one plain sentence. */
+function failureText(status: string, stderr: string): string {
+  if (status === 'cancelled') return 'That was stopped before it finished.';
+  if (status === 'timed_out') return 'Windows did not answer in time, so nothing was done.';
+  const detail = stderr.split('\n').map((line) => line.trim()).filter(Boolean)[0] ?? '';
+  return detail ? detail.slice(0, 300) : 'That did not work on this computer.';
+}

@@ -763,6 +763,19 @@
             <button id="policy-limits-save" type="button">Save these limits</button>
             <p id="policy-status" class="subtle" role="status"></p>
           </section>
+          <section id="desktop-card" class="card">
+            <h2>Using your screen and keyboard</h2>
+            <p>Branch can look at what is on this computer's screen and work the windows on it — read what a program is showing, press its buttons, type into its boxes. This is switched off, and nothing on this list happens until you switch it on.</p>
+            <label class="check-row"><input type="checkbox" id="desktop-enabled" /> Allow the assistant to use my screen and keyboard</label>
+            <p id="desktop-off-note" class="subtle">While this is off, Branch says so plainly instead of trying. Turning it off again stops anything that is going on right now.</p>
+            <p class="subtle">Whenever it is using your screen, a small notice sits on top of everything with a <strong>Stop</strong> button on it. Press that and Branch lets go at once. Password managers, sign-in boxes and the Windows lock screen are never photographed and never typed into, and it will not type a saved password for you. Every single action is written down in Activity with the name of the window it touched.</p>
+            <div id="desktop-cap-row" hidden>
+              <label for="desktop-cap">Most screen actions in one task</label>
+              <input id="desktop-cap" type="number" min="1" max="200" step="1" value="40" />
+              <button id="desktop-cap-save" type="button">Save this limit</button>
+            </div>
+            <p id="desktop-status" class="subtle" role="status"></p>
+          </section>
           <section id="policy-waiting-card" class="card" hidden>
             <h2>Waiting for your yes</h2>
             <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
@@ -958,6 +971,7 @@
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
+    <script src="/desktop.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
