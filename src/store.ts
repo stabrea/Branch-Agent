@@ -65,6 +65,8 @@ export class Store {
       );
     if (!this.db.prepare("PRAGMA table_info(sessions)").all().some((row) => row.name === "temporary"))
       this.db.exec("ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0");
+    if (!this.db.prepare("PRAGMA table_info(tasks)").all().some((row) => row.name === "source"))
+      this.db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'web'");
     this.memories = new MemoryFacts(this.db);
     this.review = new MemoryReview(this.db, this.memories);
     this.skills = new InstalledSkills(this.db);
@@ -118,7 +120,7 @@ export class Store {
   duplicateSession(owner: string, sessionId: string) {
     return this.library.duplicate(owner, sessionId);
   }
-  createRun(owner: string, prompt: string, sessionId?: string, temporary = false): Run {
+  createRun(owner: string, prompt: string, sessionId?: string, temporary = false, source = "web"): Run {
     const now = new Date().toISOString();
     if (
       sessionId &&
@@ -144,8 +146,8 @@ export class Store {
       updatedAt: now,
     };
     this.db
-      .prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?)")
-      .run(run.id, session, owner, prompt, run.status, "", now, now);
+      .prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?)")
+      .run(run.id, session, owner, prompt, run.status, "", now, now, source);
     this.db.prepare("INSERT INTO usage(run_id) VALUES(?)").run(run.id);
     return run;
   }

@@ -20,6 +20,12 @@ export interface UsageAggregate {
   byChannel: Array<{ source: string; runs: number }>;
 }
 
+export interface UsageStats {
+  currentMonthlyTokens: number;
+  monthStart: string;
+  budgetAlert80Percent: boolean;
+}
+
 export interface TimelineEntry {
   timestamp: string;
   type: "model.started" | "model.completed" | "tool.started" | "tool.completed" | "permission" | "retry" | "stall" | "delegation";
@@ -74,7 +80,7 @@ export class UsageStore {
 
     const runs = this.db
       .prepare(
-        `SELECT id, session_id, status, created_at FROM tasks
+        `SELECT id, session_id, status, created_at, source FROM tasks
          WHERE created_at >= ? AND status NOT IN ('running', 'needs_input')
          ORDER BY created_at DESC`
       )
@@ -83,6 +89,7 @@ export class UsageStore {
       session_id: string;
       status: string;
       created_at: string;
+      source: string;
     }>;
 
     const aggregates = new Map<string, UsageAggregate>();
@@ -144,6 +151,14 @@ export class UsageStore {
       }
 
       if (run.status === "failed" || run.status === "budget_exceeded") agg.failures += 1;
+
+      // Track by source
+      const sourceEntry = agg.byChannel.find((s) => s.source === run.source);
+      if (sourceEntry) {
+        sourceEntry.runs += 1;
+      } else {
+        agg.byChannel.push({ source: run.source, runs: 1 });
+      }
     }
 
     // Calculate costs
@@ -277,6 +292,38 @@ export class UsageStore {
     }
 
     return timeline;
+  }
+
+  getMonthlyStats(maxMonthlyTokens?: number): UsageStats {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const runs = this.db
+      .prepare(`SELECT id FROM tasks WHERE status NOT IN ('running', 'needs_input') AND created_at >= ? ORDER BY created_at DESC`)
+      .all(monthStart) as Array<{ id: string }>;
+
+    let total = 0;
+    for (const run of runs) {
+      const usage = this.db
+        .prepare(`SELECT estimated_input, estimated_output, reported_input, reported_output FROM usage WHERE run_id = ?`)
+        .get(run.id) as {
+        estimated_input: number;
+        estimated_output: number;
+        reported_input: number;
+        reported_output: number;
+      } | undefined;
+      if (usage) {
+        const inp = usage.reported_input || usage.estimated_input || 0;
+        const out = usage.reported_output || usage.estimated_output || 0;
+        total += inp + out;
+      }
+    }
+
+    const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;
+    return {
+      currentMonthlyTokens: total,
+      monthStart: monthStart.split("T")[0] || monthStart,
+      budgetAlert80Percent: alert80,
+    };
   }
 
   updateCache(date: string, aggregate: UsageAggregate, lastEventId: number): void {

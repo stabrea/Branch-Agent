@@ -309,7 +309,10 @@ async function api(
     const url = new URL(request.url ?? "/", "http://local");
     const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
     const by = (url.searchParams.get("by") ?? "day") as "day" | "model" | "conversation" | "source";
-    return app.store.usage().aggregateUsage(range, by);
+    const data = app.store.usage().aggregateUsage(range, by);
+    const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
+    const stats = app.store.usage().getMonthlyStats(budget?.maxMonthlyTokens);
+    return { data, stats };
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);

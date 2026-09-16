@@ -368,6 +368,16 @@ export class Runtime {
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
+    // Check token budget enforcement before creating the run
+    if (!parent) {
+      const budgetSetting = this.store.get("settings", this.owner, "usage_budget")?.data as { maxMonthlyTokens?: number; pauseAtBudget?: boolean } | undefined;
+      if (budgetSetting?.maxMonthlyTokens && budgetSetting.pauseAtBudget) {
+        const monthlyUsage = this.monthlyTokenUsage();
+        if (monthlyUsage >= budgetSetting.maxMonthlyTokens) {
+          throw new Error(`Token budget exceeded. This month's usage (${monthlyUsage.toLocaleString()} tokens) has reached the limit of ${budgetSetting.maxMonthlyTokens.toLocaleString()}. Visit the Usage screen to raise the budget.`);
+        }
+      }
+    }
     const budget = parent?.budget ?? new Budget(options.budget);
     const run = this.prepareRun(options);
     const controller = new AbortController();
@@ -431,6 +441,20 @@ export class Runtime {
     for (const m of memories) this.store.review.propose(context.owner, { kind: "put", text: String(m.text).slice(0, 4000), source: String(m.source ?? "Suggested after a task").slice(0, 500), runId: run.id });
     for (const s of skills) this.store.review.propose(context.owner, { kind: "skill-note", skillId: String(s.skillId).slice(0, 200), text: String(s.note).slice(0, 4000), runId: run.id });
     this.store.event(run.id, "learning.reviewed", { memories: memories.length, skills: skills.length });
+  }
+  /** Calculates total tokens used this calendar month. */
+  private monthlyTokenUsage(): number {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const runs = this.store.runs(this.owner);
+    let total = 0;
+    for (const run of runs) {
+      if (run.createdAt >= monthStart) {
+        const usage = this.store.usage(run.id);
+        total += (usage.reportedInput || usage.estimatedInput) + (usage.reportedOutput || usage.estimatedOutput);
+      }
+    }
+    return total;
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
