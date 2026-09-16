@@ -68,7 +68,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     await page.getByText("Connected", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
-    await page.getByLabel("API base URL", { exact: true }).fill(provider.endpoint);
+    await page.getByLabel("Web address of the service", { exact: true }).fill(provider.endpoint);
     await page.getByLabel("Model identifier", { exact: true }).fill("fixture-model");
     await page.getByLabel("API key", { exact: true }).fill("fixture-device-key-82743");
     await page.getByRole("button", { name: "Save model connection", exact: true }).click();

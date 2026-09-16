@@ -32,7 +32,7 @@ for (const view of views) {
   await shot(`10-${view}`);
 }
 // Settings sub-areas that shipped recently: sharing, voice, provider dropdown
-for (const id of ["mcp-card", "voice-settings", "provider-preset", "documents", "usage"]) {
+for (const id of ["mcp-card", "voice-settings-form", "voice-live-vad", "provider-preset", "documents", "usage"]) {
   const el = page.locator(`#${id}`).first();
   const present = await el.count();
   report.push({ check: id, present: present > 0, visible: present ? await el.isVisible().catch(() => false) : false });
