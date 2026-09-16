@@ -113,11 +113,15 @@ function Save-Window($handle, $path) {
   $hdc = $graphics.GetHdc()
   $printed = [BranchDesktop]::PrintWindow($handle, $hdc, 2)
   $graphics.ReleaseHdc($hdc)
-  if (-not $printed) { $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, (New-Object System.Drawing.Size($width, $height))) }
+  $method = 'window'
+  if (-not $printed) {
+    $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, (New-Object System.Drawing.Size($width, $height)))
+    $method = 'screen'
+  }
   $graphics.Dispose()
   $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
   $bitmap.Dispose()
-  return @{ width = $width; height = $height }
+  return @{ width = $width; height = $height; method = $method }
 }
 
 function Read-Node($node) {
@@ -200,7 +204,7 @@ switch ($Action) {
       $handle = Get-Handle
       if ([BranchDesktop]::IsIconic($handle)) { throw 'That window is minimised, so there is nothing to photograph. Bring it up first.' }
       $size = Save-Window $handle $request.outPath
-      $result = @{ width = $size.width; height = $size.height; title = [BranchDesktop]::Title($handle) }
+      $result = @{ width = $size.width; height = $size.height; method = $size.method; title = [BranchDesktop]::Title($handle) }
     } else {
       $screens = [System.Windows.Forms.Screen]::AllScreens
       $index = [int]$request.display - 1
@@ -261,8 +265,10 @@ switch ($Action) {
       $result = @{ how = 'set'; into = $node.Current.Name; value = [string]$again.Current.Value }
     } else {
       if (-not (Bring-Forward $handle)) { throw 'Windows would not bring that window to the front, so nothing was typed.' }
-      $escaped = [string]$request.text
-      foreach ($special in @('+', '^', '%', '~', '(', ')', '[', ']', '{', '}')) { $escaped = $escaped.Replace($special, '{' + $special + '}') }
+      $escaped = ''
+      foreach ($ch in ([string]$request.text).ToCharArray()) {
+        if ('+^%~()[]{}'.Contains($ch)) { $escaped = $escaped + '{' + $ch + '}' } else { $escaped = $escaped + $ch }
+      }
       [System.Windows.Forms.SendKeys]::SendWait($escaped)
       Start-Sleep -Milliseconds 250
       $result = @{ how = 'keys'; into = $node.Current.Name; value = '' }

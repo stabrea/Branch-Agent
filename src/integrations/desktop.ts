@@ -133,6 +133,9 @@ export class DesktopControl {
       const answer = input.window
         ? (await this.onWindow(input.window, signal, (target) => this.runner.run('screenshot', { handle: target.handle, outPath: temporary }, signal))).answer
         : await this.runner.run('screenshot', { display: input.display ?? 1, outPath: temporary }, signal);
+      // Some windows cannot be photographed on their own, and Windows copies that patch of the
+      // screen instead — which would show anything sitting on top. Check again before keeping it.
+      if (answer.method === 'screen') await this.assertNothingPrivateOnScreen(signal);
       const kept = await artifacts.write(context.runId, `desktop-${randomUUID().slice(0, 8)}.png`, 'image/png', await readFile(temporary));
       this.record(context, 'desktop.screenshot', String(answer.title ?? ''), { width: answer.width, height: answer.height });
       return { ...kept, window: String(answer.title ?? ''), width: answer.width, height: answer.height };
@@ -140,11 +143,11 @@ export class DesktopControl {
       await rm(temporary, { force: true }).catch(() => undefined);
     }
   }
-  /** A whole-screen picture cannot hide a password manager that is showing, so it is refused instead. */
+  /** A picture taken off the screen itself cannot hide a password manager that is showing, so it is refused instead. */
   private async assertNothingPrivateOnScreen(signal: AbortSignal): Promise<void> {
     const showing = (await this.windowList(signal)).filter((window) => window.restricted && !window.minimised);
     if (showing.length)
-      throw new Error(`A picture of the whole screen would show ${showing[0]!.title}, which handles passwords. Close or minimise it, or ask for one window instead.`);
+      throw new Error(`That picture would show ${showing[0]!.title}, which handles passwords. Close or minimise it and ask again.`);
   }
 
   /** What is in a window, as names and roles, so the assistant can work from words not pixels. */
