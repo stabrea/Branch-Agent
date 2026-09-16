@@ -1152,3 +1152,68 @@ given the secrets locker at all, so there is no path by which a saved password c
   down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
   my workspace". Running something has its own switch: the host-command tool.
 - **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
+
+## Rendering, looking inside a task, stepping in, the meter, the playground, the phone and languages
+
+**Markdown and code.** `/markdown.js` builds real elements and never HTML strings, so anything the
+model writes is shown, never run: a `<script>` in a reply appears as characters on the page. A
+reply gets the whole renderer — headings, lists, tables, quotes, horizontal rules, bold, italic,
+inline code, links and fenced code blocks, and a code block shows the language it was written in
+and has a Copy button. A saved memory fact and a document search passage are one line each, so they
+get `inlineNodes` only: bold, italic, inline code and links, with the search's own highlights left
+intact. A link only opens if it is `http`, `https` or `mailto`; inside the desktop app it goes
+through that app's own allowlist, elsewhere it opens a new tab.
+
+**Look inside a task.** `GET /api/runs/:id/inspect` answers everything the panel shows in one call:
+the task, how long it took, each model round (which model, how long, the size of the prompt, the
+tokens in and out), each tool call (what went in, what came back, both clipped, and whether its
+proof checked out), the plan it worked through, the reviewer's verdicts, anything you told it
+mid-task, the questions it stopped on, the step-by-step timeline, usage and cost. The panel opens
+from any run in Activity or from the row in a conversation that says what it worked with, and
+**Save this as a file** writes the same answer out as JSON. `GET /api/runs/:id/timeline` and
+`GET /api/runs/:id/receipts` still answer on their own.
+
+**Stepping into a task.** While a task is working, a row appears above the message box with the
+step it has reached and how long it has been going, fed by the run's WebSocket at
+`/api/runs/:id/ws` and checked against `GET /api/activity` every second. **Pause** sends a steering
+note telling it to hold; **Tell it something** sends your own note to `POST /api/runs/:id/steer`;
+**Stop** calls `POST /api/runs/:id/cancel`. When the approval rules make a task stop and ask, the
+question appears in the same place with **Yes, just now**, **Yes, for this conversation**, **Yes,
+always** and **No**, each answered through `POST /api/policy/approve`. "Yes, always" is only
+offered for a task you started yourself, and writes a rule into your settings.
+
+**The meter.** Under the message box, a quiet bar shows how much of this conversation's room has
+been used against the model's context window, and roughly what it has cost so far. Clicking it
+opens the numbers: messages, tasks, words in, words out and the cost. A model with no price on
+file is said so in words; it is never shown as costing nothing. On a phone the cost moves into the
+popover so the bar still fits.
+
+**Try things out.** Settings → Developer → Try things out lists every tool. `GET /api/tools/forms`
+returns each tool's description and its JSON schema, and the screen builds the form from that.
+**Run it** posts to `POST /api/tools/try`, which checks the same approval rules the assistant works
+under: a tool your settings refuse comes back refused, a tool they say to ask about comes back as a
+question and only runs after you say yes, and the result is shown exactly as the tool returned it.
+Below that, one question can be put to two models using the evaluation route where that is
+configured.
+
+**On a phone.** `/manifest.webmanifest` and `/service-worker.js` make the page installable. The
+worker keeps the app's own files (stylesheets, scripts, icons, the English words) so it opens
+quickly and shows the app rather than a browser error when the connection drops. Nothing under
+`/api/`, `/v1/` or `/webhooks/` is ever cached: your assistant is live or it is nothing, and an
+unreachable computer puts a plain banner on the screen. The worker is never registered inside the
+desktop app or when the page is opened with `?desktop=1`, and the desktop app never offers to
+install itself.
+
+**Languages.** Labels go through `t(key)` in `/i18n.js`, reading `/locales/en.json`. The rail, the
+sections, the owner menu, the message box and the screens described above are covered; the older
+section screens still carry their English copy in the markup and are the next thing to move.
+`/locales/fr.json` is a machine draft and says so; a key it does not answer falls back to English
+rather than leaving a blank. Markup carries the key in `data-t` (text) or `data-t-label`,
+`data-t-placeholder`, `data-t-title` (attributes). The language is chosen in Settings → Appearance
+and kept in this browser, not in the workspace. Dates and numbers are written with `Intl` in the
+chosen language.
+
+The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.js`, `/live-run.js`,
+`/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
+`/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
+as the rest of the interface.

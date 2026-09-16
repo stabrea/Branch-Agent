@@ -20,8 +20,21 @@ test("every file the page loads is on the server's allowlist and answers 200", a
     const source = await readFile(new URL(file, publicDir), "utf8");
     for (const m of source.matchAll(/import\(\s*["']\.\/([a-z0-9-]+\.js)["']\s*\)/g)) referenced.add("/" + m[1]);
     for (const m of source.matchAll(/^import\s+[^"']*["']\.\/([a-z0-9-]+\.js)["']/gm)) referenced.add("/" + m[1]);
+    /* Wave 6 modules import each other by the path the browser asks for, e.g. "/markdown.js". */
+    for (const m of source.matchAll(/^import\s+[^"']*["'](\/[a-z0-9-]+\.js)["']/gm)) referenced.add(m[1]);
+    for (const m of source.matchAll(/import\(\s*["'](\/[a-z0-9-]+\.js)["']\s*\)/g)) referenced.add(m[1]);
+    /* Anything the page fetches for itself: the language files, and the worker it registers. */
+    for (const m of source.matchAll(/["'`](\/(?:locales\/[a-z-]+\.json|service-worker\.js))["'`]/g)) referenced.add(m[1]);
+    for (const m of source.matchAll(/fetch\(`(\/locales\/)\$\{\w+\}(\.json)`/g)) for (const id of ["en", "fr"]) referenced.add(m[1] + id + m[2]);
   }
+  /* The worker names the files it keeps; every one of them has to be served too. */
+  const worker = await readFile(new URL("service-worker.js", publicDir), "utf8");
+  const shell = /const SHELL = \[([\s\S]*?)\];/.exec(worker);
+  assert.ok(shell, "the worker lists the files it keeps");
+  for (const m of shell[1].matchAll(/"([^"]+)"/g)) referenced.add(m[1]);
   assert.ok(referenced.has("/app.js") && referenced.has("/usage.js"), "the scan found the page's scripts");
+  for (const path of ["/markdown.js", "/i18n.js", "/locales/en.json", "/locales/fr.json", "/service-worker.js", "/manifest.webmanifest"])
+    assert.ok(referenced.has(path), `the scan found ${path}`);
   const missing = [];
   for (const path of referenced) {
     if (path.startsWith("/api/") || path.startsWith("//")) continue;
