@@ -193,26 +193,26 @@ export class BackgroundProcesses {
 
 export function registerProcesses(registry: ToolRegistry, processes: BackgroundProcesses): void {
   registry.register({
-    name: "process.start", permission: "shell.execute", group: "code",
+    name: "process.start", permission: "process.manage", group: "code",
     description: "Start one of the programs the owner allows to be left running (a preview server, a watcher) and leave it going after this step is over. What it prints is kept in a rolling buffer you can read later. It stops when this conversation ends or the app closes.",
     parameters: StartInputSchema,
     target: (args) => `${args.program} ${args.args.join(" ")}`.trim().slice(0, 300),
     execute: (args, context) => processes.start(args, context),
   });
   registry.register({
-    name: "process.list", permission: "shell.execute", group: "code",
+    name: "process.list", permission: "process.read", group: "code",
     description: "What is still running, what each one is, and whether it is still going.",
     parameters: z.object({}).strict(),
     execute: async () => ({ processes: processes.list() }),
   });
   registry.register({
-    name: "process.read", permission: "shell.execute", group: "code",
+    name: "process.read", permission: "process.read", group: "code",
     description: "Read what a running program has printed so far. Only the most recent part is kept; the answer says when older output was dropped.",
     parameters: z.object({ id: z.string().uuid(), characters: z.number().int().min(100).max(8000).default(4000) }).strict(),
     execute: async (args) => processes.read(args.id, args.characters),
   });
   registry.register({
-    name: "process.stop", permission: "shell.execute", group: "code",
+    name: "process.stop", permission: "process.manage", group: "code",
     description: "Stop a running program and everything it started.",
     parameters: z.object({ id: z.string().uuid() }).strict(),
     execute: (args, context) => processes.stop(args.id, context),

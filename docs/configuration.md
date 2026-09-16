@@ -1406,7 +1406,10 @@ the system enforces its memory and processor limits and kills whatever it left b
 kept in a small rolling buffer, oldest dropped first. Everything started in a conversation stops
 when that conversation is thrown away, and everything stops when the app closes — nothing is left
 running for the next launch to find. `GET /api/processes` lists them and `POST /api/processes` with
-an id stops one. Starting one is approved the way a host command is.
+an id stops one. Starting or stopping one needs the `process.manage` permission and is approved the
+way a host command is; listing and reading need only `process.read`, which changes nothing. Running
+a small script needs `code.execute`. These are separate from `shell.execute`, so allowing one does
+not quietly allow the others.
 
 ## Running a small script (batch 20, wave 7)
 

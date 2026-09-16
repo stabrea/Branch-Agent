@@ -85,7 +85,7 @@ export class CodeRunner {
 
 export function registerCodeRun(registry: ToolRegistry, runner: CodeRunner): void {
   registry.register({
-    name: "code.run", permission: "shell.execute", group: "code",
+    name: "code.run", permission: "code.execute", group: "code",
     description: "Run a small script you have just written (JavaScript, or Python when the owner has one) in a program of its own, started in the workspace, with a time, memory and output limit and no way out to the internet unless the owner allows it. Use it for a calculation or a quick check, not for changing files.",
     parameters: CodeRunInputSchema,
     target: (args) => `a small ${args.language === "python" ? "Python" : "JavaScript"} script`,
