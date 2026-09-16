@@ -193,7 +193,7 @@ test("the same suite runs against two model choices and comes back as one table"
   assert.deepEqual(table.rows.map((row) => [row.preset, row.model, row.accuracy]), [["fast", "gpt-4o-mini", 1], ["careful", "gpt-4o", 1]]);
   assert.ok(table.rows.every((row) => row.dollars > 0 && row.costConfidence === "table"));
   assert.ok(table.rows[1].dollars > table.rows[0].dollars, "the dearer model costs more for the same work");
-  assert.equal(table.best, "fast", "same accuracy, so the quicker one wins");
+  assert.equal(table.best, "fast", "same accuracy, so the cheaper one wins");
   // Read-only means the tools that change things were never offered to the model.
   assert.ok(!app.evaluationSuites.history("cost")[0].tasks.some((task) => !task.passed));
 
@@ -201,6 +201,7 @@ test("the same suite runs against two model choices and comes back as one table"
   const corrected = await app.evaluationSuites.compare({ suite: "cost", presets: ["fast", "careful"] });
   assert.equal(corrected.rows[0].costConfidence, "override");
   assert.ok(corrected.rows[0].dollars > corrected.rows[1].dollars, "the owner's own price is used");
+  assert.equal(corrected.best, "careful", "the correction makes the other model the cheaper one");
 });
 
 test("a suite that writes files is refused the tools that change things when it is compared", async (t) => {
@@ -293,4 +294,26 @@ test("the command line prints a suite as a table and as JSON", async (t) => {
   assert.equal(parsed.summary.energy, "unavailable");
 
   await assert.rejects(run(process.execPath, [cli, "eval", "--suite", "nope", "--json"], { env }), /no evaluation suite called nope/);
+});
+
+test("the command line compares one suite across two model choices", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-eval-cli-compare-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  const env = {
+    ...process.env, BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_DATA_DIR: join(root, "data"),
+    BRANCH_MODEL_PRESETS: JSON.stringify([
+      { id: "a", name: "Quick", provider: "demo", model: "gpt-4o-mini" },
+      { id: "b", name: "Careful", provider: "demo", model: "gpt-4o" },
+    ]),
+  };
+  const cli = resolve("dist/cli.js");
+  const { stdout } = await run(process.execPath, [cli, "eval", "--suite", "cost", "--compare", "a,b"], { env });
+  assert.match(stdout, /^model choice\tright\taccuracy\tmean ms\ttokens\tcost$/m);
+  assert.match(stdout, /^a\t\d\/2\t[\d.]+\t\d+\t\d+\t\$[\d.]+$/m);
+  assert.match(stdout, /^b\t\d\/2\t[\d.]+\t\d+\t\d+\t\$[\d.]+$/m);
+  assert.match(stdout, /Best on this suite: [ab]/);
+
+  const asJson = JSON.parse((await run(process.execPath, [cli, "eval", "--suite", "cost", "--compare", "a,b", "--json"], { env })).stdout);
+  assert.equal(asJson.readOnly, true);
+  assert.deepEqual(asJson.rows.map((row) => [row.preset, row.model]), [["a", "gpt-4o-mini"], ["b", "gpt-4o"]]);
 });

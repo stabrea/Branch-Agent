@@ -373,7 +373,9 @@ task that passed in each of the three runs before this one and has just failed i
 each model choice and returns one table of accuracy, mean time and cost. A comparison only offers
 the tools that change nothing unless you pass `allowChanges`, and every run stays inside the step
 and token budget you give it. Money is never invented: a model with no price on file reports no
-amount, and energy is always reported unavailable.
+amount, and energy is always reported unavailable. One thing the figures leave out: a task graded by
+a judge asks the model a second question, and those tokens are not added to the task's own, so a
+judged suite costs roughly twice what its summary shows.
 
 A suite can run on a schedule: `schedules.create` accepts `kind: "evaluation"` with `suite` and an
 optional `preset`, alongside the usual `dailyAt`/`timezone`. The result is recorded as an ordinary

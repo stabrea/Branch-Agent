@@ -25,6 +25,11 @@ export interface SuiteRun {
   /** Tasks that passed in each of the three runs before this one and have just failed. */
   regressions: { taskId: string; problem: string | null }[];
 }
+/** One model choice's line in a side-by-side comparison. */
+export interface CompareRow {
+  preset: string; model: string; accuracy: number; passed: number; total: number;
+  meanMs: number; tokens: number; dollars: number | null; costConfidence: CostConfidence; runId: string;
+}
 export const RunSuiteSchema = z.object({
   suite: z.string().min(1).max(64),
   /** The model choice to use; the one in use otherwise. */
@@ -192,12 +197,16 @@ export class SuiteRunner {
   /** The same suite against several model choices, side by side. */
   async compare(input: unknown) {
     const request = CompareSchema.parse(input);
-    const rows = [];
+    const rows: CompareRow[] = [];
     for (const preset of request.presets) {
       const run = await this.run({ suite: request.suite, preset, readOnly: !request.allowChanges, maxSteps: request.maxSteps, maxTokens: request.maxTokens });
       rows.push({ preset: run.preset, model: run.model, accuracy: run.summary.accuracy, passed: run.summary.passed, total: run.summary.total, meanMs: run.summary.latencyMs.mean, tokens: run.summary.tokens, dollars: run.summary.dollars, costConfidence: run.summary.costConfidence, runId: run.id });
     }
-    const best = rows.slice().sort((a, b) => b.accuracy - a.accuracy || a.meanMs - b.meanMs)[0];
+    // Most right answers first; then the cheaper one, counting "no price on file" as dearest so a
+    // known cheap model is never passed over for one nobody can price; then the quicker one.
+    const cost = (row: CompareRow) => row.dollars ?? Number.POSITIVE_INFINITY;
+    const best = rows.slice().sort((a, b) =>
+      b.accuracy - a.accuracy || (cost(a) === cost(b) ? 0 : cost(a) - cost(b)) || a.meanMs - b.meanMs)[0];
     return { suite: request.suite, readOnly: !request.allowChanges, rows, best: best?.preset ?? null };
   }
 }
@@ -208,5 +217,7 @@ export function summaryLine(result: SuiteRun): string {
   const regressions = result.regressions.length
     ? ` Something that used to work has stopped: ${result.regressions.map((entry) => entry.taskId).join(", ")}.`
     : "";
-  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}, ${result.summary.latencyMs.mean} ms each on average, ${money}.${regressions}`;
+  // A skipped task is never quietly dropped from the denominator; it is said out loud.
+  const skipped = result.summary.skipped ? `, ${result.summary.skipped} skipped` : "";
+  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}${skipped}, ${result.summary.latencyMs.mean} ms each on average, ${money}.${regressions}`;
 }
