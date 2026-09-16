@@ -63,7 +63,10 @@ export function builtInSuites(): SuiteEntry[] {
     let names: string[];
     try { names = readdirSync(directory).filter((name) => name.endsWith(".json")); } catch { continue; }
     for (const name of names.sort()) {
-      const parsed = SuiteSchema.safeParse(JSON.parse(readFileSync(join(directory, name), "utf8")));
+      let contents: unknown;
+      try { contents = JSON.parse(readFileSync(join(directory, name), "utf8")); }
+      catch { throw new Error(`The evaluation suite ${name} is not readable JSON`); }
+      const parsed = SuiteSchema.safeParse(contents);
       if (!parsed.success) throw new Error(`The evaluation suite ${name} is not valid: ${parsed.error.issues[0]?.message ?? "unknown problem"}`);
       if (!found.has(parsed.data.id)) found.set(parsed.data.id, { ...parsed.data, source: "built-in" });
     }
