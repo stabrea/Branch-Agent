@@ -22,6 +22,11 @@ export const AttachSettingsSchema = z.object({
   runId: z.string().max(80).default(''),
   /** When the permission was given, so a stale one can be ignored. */
   grantedAt: z.string().max(40).default(''),
+  /**
+   * More websites of the owner's own that their browser may never be pointed at. These are added
+   * to the built-in list of banks and password sites; nothing here can take one off it.
+   */
+  extraRefusedHosts: z.array(z.string().trim().min(1).max(253)).max(200).default([]),
 }).strict();
 export type AttachSettings = z.infer<typeof AttachSettingsSchema>;
 export const AttachSettingsInputSchema = AttachSettingsSchema.partial();
@@ -93,16 +98,17 @@ export async function attach(port: number,
 /**
  * Whether the owner's own browser may be pointed at this address. Websites that handle money or
  * passwords are refused, and so is anything whose page is titled like a sign-in box — the same
- * refusals the screen control uses, extended to website names.
+ * refusals the screen control uses, extended to website names. The owner's own extra sites are
+ * added to that list and can never shorten it.
  */
-export function attachedAddressRefusal(url: string, pageTitle = ''): string | null {
+export function attachedAddressRefusal(url: string, pageTitle = '', extraRefused: readonly string[] = []): string | null {
   let host: string;
   try {
     const target = new URL(url);
     if (!['http:', 'https:'].includes(target.protocol)) return 'Only ordinary web addresses may be opened.';
     host = target.hostname;
   } catch { return 'That is not a web address.'; }
-  const site = hostRefusalFor(host);
+  const site = hostRefusalFor(host, extraRefused);
   if (site) return site;
   return pageTitle ? refusalFor({ title: pageTitle, program: '' }) : null;
 }

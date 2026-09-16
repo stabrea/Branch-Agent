@@ -26,6 +26,12 @@ export const DebugSettingsSchema = z.object({
   maxMemoryMb: z.number().int().min(64).max(16384).default(2048),
   maxCpuSeconds: z.number().int().min(10).max(36000).default(600),
   timeoutMs: z.number().int().min(1000).max(120000).default(20000),
+  /**
+   * "Keep a program being debugged running between tasks". Off, a program a task started debugging
+   * stops when that task ends, the same way a program started in a conversation stops when the
+   * conversation does, so nothing is left running that nobody is watching.
+   */
+  keepRunning: z.boolean().default(false),
 }).strict();
 export type DebugSettings = z.infer<typeof DebugSettingsSchema>;
 
@@ -120,6 +126,8 @@ export const DebugStartSchema = z.object({
 
 export class DebugAdapters {
   private session: Session | null = null;
+  /** The task that started what is being debugged, so it stops again when that task is over. */
+  private startedByRun = "";
   constructor(
     private readonly store: Store, private readonly owner: string,
     private readonly files: WorkspaceFiles, private readonly jobs: JobObjects = defaultJobObjects(),
@@ -140,6 +148,7 @@ export class DebugAdapters {
     }, this.jobs);
     const session = new Session(input.adapter, channel, settings.timeoutMs, 16384);
     this.session = session;
+    this.startedByRun = context.runId;
     await this.handshake(session, adapter.launch, program, input);
     if (context.runId)
       this.store.event(context.runId, "debug.started", { adapter: input.adapter, program: input.program, breakpoints: input.breakpoints.length });
@@ -207,6 +216,18 @@ export class DebugAdapters {
     const session = this.session;
     this.session = null;
     await session?.stop().catch(() => undefined);
+  }
+  /**
+   * A program a task started debugging stops when that task is over, unless the owner asked for it
+   * to be kept running with "Keep a program being debugged running between tasks" in Settings.
+   */
+  async closeRun(runId: string): Promise<number> {
+    if (!runId || this.startedByRun !== runId || !this.session || this.settings().keepRunning) return 0;
+    const session = this.session;
+    this.session = null;
+    this.startedByRun = "";
+    await session.stop().catch(() => undefined);
+    return 1;
   }
   private view(action: string): unknown {
     const session = this.session!;

@@ -39,10 +39,14 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+// Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
+import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
+  webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
 import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
@@ -55,7 +59,7 @@ import { scorerKinds } from "./evaluation-scorers.js";
 import { benchmarkAdapters } from "./benchmark-adapters.js";
 import { notIntegratedBenchmarks } from "./benchmarks.js";
 import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
-import { runToolEvaluations } from "./tool-evaluations.js";
+import { runToolChecksSafely } from "./tool-evaluations.js";
 
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
@@ -237,6 +241,8 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the composer's live-conversation button and everything behind it.
+    "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
@@ -800,6 +806,9 @@ async function api(
   if (request.method === "GET" && path === "/api/studies")
     return { studies: app.studies.list(), results: app.studies.results().map(studySummary) };
   if (request.method === "POST" && path === "/api/studies") return app.studies.save(await readBody(request));
+  // Batch 20 (wave 8): the one folder outside the workspace a study may read a benchmark from.
+  if (path === "/api/studies/settings")
+    return { settings: request.method === "POST" ? app.studies.configure(await readBody(request)) : app.studies.settings() };
   if (request.method === "POST" && path === "/api/studies/run") {
     const body = z.object({ id: z.string().min(1).max(64), fresh: z.boolean().default(false) }).strict().parse(await readBody(request));
     const result = await app.studies.run(body.id, { fresh: body.fresh });
@@ -814,7 +823,9 @@ async function api(
     return { comparison, table: comparisonTable(comparison) };
   }
   if (request.method === "POST" && path === "/api/evaluation/tools")
-    return runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
+    // The checks really write files and really save facts, so they do it in a project and under a
+    // name of their own: nothing they do reaches the owner's folder or the owner's memory.
+    return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
@@ -1255,8 +1266,12 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
  * expects echoed back as plain text, and signs every later request with the app secret.
  */
 async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
-  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
+  // The random word on the end of the address is what makes it unguessable. Checked before the
+  // channel is even looked up, so a wrong address tells nobody which names exist.
+  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
+  if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
   if (request.method === "GET") {
@@ -1281,13 +1296,17 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
  * so the signature check is the only thing letting a post through.
  */
 async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
-  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})$/.exec(path);
+  const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
   const from = requestSource(request.socket?.remoteAddress);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
+  // The random word on the end of the address is what makes it unguessable. Checked before the
+  // channel is even looked up, so a wrong address tells nobody which channel names exist.
+  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
+  if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
@@ -1465,7 +1484,32 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
   }
   if (request.method === "POST" && path === "/api/channels/pairings/remove") return app.channels.remove(owner, await readBody(request));
+  // Batch 20 (wave 8): the address each chat service posts to, with its own unguessable word on the
+  // end. Shown on the Connections card with a button that copies it, and rotatable.
+  if (request.method === "GET" && path === "/api/channels/addresses") return channelAddresses(app, owner);
+  if (request.method === "POST" && path === "/api/channels/addresses/rotate") {
+    const { channel } = z.object({ channel: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/) }).strict().parse(await readBody(request));
+    rotateWebhookSecret(app.store, owner, channel);
+    return channelAddresses(app, owner);
+  }
+  if (request.method === "POST" && path === "/api/channels/addresses/settings")
+    return { ...channelAddresses(app, owner), settings: saveWebhookAddressSettings(app.store, owner, await readBody(request)) };
   throw new HttpError(404, "Endpoint not found");
+}
+/** Every connected channel that is posted to, with the whole address to paste into that service. */
+function channelAddresses(app: Branch, owner: string): {
+  addresses: { channel: string; kind: string; address: string }[];
+  settings: ReturnType<typeof webhookAddressSettings>;
+} {
+  const addresses = app.channels.summary().channels
+    .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter)
+    .map((channel) => ({
+      channel: channel.id, kind: channel.kind,
+      address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
+        webhookSecret(app.store, owner, channel.id)),
+    }));
+  return { addresses, settings: webhookAddressSettings(app.store, owner) };
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const auth = app.chatgpt, owner = app.runtime.owner;
@@ -1990,7 +2034,9 @@ export async function startServer(
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
-      await serveRunSocket(app.store, run.id, request, socket);
+      // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
+      // one. Nothing is opened until it does, so an ordinary task is unchanged.
+      await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
   });
   configureLimits(server);

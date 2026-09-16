@@ -93,11 +93,17 @@ export const refusedHosts = [
 /** Words in a website's name that mean it handles money or sign-ins, whoever runs it. */
 const refusedHostWords = [/\bbank\b/i, /\bbanking\b/i, /\bcredit-?union\b/i, /\bvault\b/i, /password/i];
 
-/** Why this website is out of bounds for the owner's own browser, or null when it may be opened. */
-export function hostRefusalFor(host: string): string | null {
+/**
+ * Why this website is out of bounds for the owner's own browser, or null when it may be opened.
+ * The owner may name more sites of their own (`extraRefusedHosts` in Settings); those are added to
+ * the list above and can never take anything off it, so widening what Branch may reach in the
+ * owner's own browser is not something this setting can do.
+ */
+export function hostRefusalFor(host: string, extra: readonly string[] = []): string | null {
   const name = host.trim().toLowerCase().replace(/:\d+$/, '');
   if (!name) return 'No website was named.';
-  const listed = refusedHosts.find((entry) => name === entry || name.endsWith('.' + entry));
+  const mine = extra.map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+  const listed = [...refusedHosts, ...mine].find((entry) => name === entry || name.endsWith('.' + entry));
   if (listed)
     return `${listed} handles money or passwords, so Branch will not use your own browser there. Ask it to do this in its own browser, or do it yourself.`;
   if (refusedHostWords.some((pattern) => pattern.test(name)))

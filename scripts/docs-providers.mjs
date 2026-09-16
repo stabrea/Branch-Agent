@@ -16,6 +16,7 @@ const plain = {
   embeddings: "compare passages",
   audio: "speech",
   images: "pictures out",
+  realtime: "live conversation",
 };
 const shapes = {
   "openai-chat": "OpenAI",

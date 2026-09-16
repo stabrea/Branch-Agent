@@ -180,7 +180,8 @@ export class AcpConnection {
       ],
     }));
     const allowed = answer.outcome.outcome === "selected" && answer.outcome.optionId === "allow";
-    this.runtime.approve(sessionId, allowed ? "allow" : "deny", "session");
+    // Bound to the exact request the editor was shown, the same as every other answer route.
+    this.runtime.approve(sessionId, allowed ? "allow" : "deny", "session", waiting.fingerprint);
     return allowed;
   }
 }

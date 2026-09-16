@@ -242,6 +242,9 @@
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
               ><!-- Wave 7: hold to talk, then hear the answer. Everything it does lives in public/voice-talk.js. -->
               <button id="voice-talk" type="button" class="text-button" title="Hold the button and speak; let go and Branch answers out loud. Press again to stop it talking.">Talk</button
+              ><!-- Wave 8: the same button, live. It only appears when the connection you are using
+                   can hold a live conversation; everything it does lives in public/voice-live.js. -->
+              <button id="voice-live" type="button" class="text-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
@@ -253,6 +256,7 @@
             </div>
           </form>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
+          <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
           <!-- Wave 8: the helper line and the room meter share one quiet row under the box. -->
           <div class="composer-foot">
             <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
@@ -798,6 +802,17 @@
               <option value="openai">Your model provider</option>
               <option value="gemini">Gemini</option>
             </select>
+            <!-- Wave 8: the limits a live conversation runs under. Wired in public/voice-talk.js. -->
+            <label for="voice-live-minutes">A live conversation stops itself after this many minutes</label>
+            <input id="voice-live-minutes" type="number" min="1" max="120" step="1" value="10" />
+            <label for="voice-live-dollars">…or once it has cost this much (US dollars)</label>
+            <input id="voice-live-dollars" type="number" min="0.1" max="100" step="0.1" value="1" />
+            <label class="check-row">
+              <input id="voice-live-vad" type="checkbox" checked /> Let the service work out when you have stopped speaking
+            </label>
+            <label class="check-row">
+              <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
+            </label>
             <label for="voice-language">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe">Speech program on this computer</label>
@@ -951,7 +966,7 @@
             </details>
             <details class="card-list">
               <summary>WhatsApp</summary>
-              <p class="subtle">You need a WhatsApp Business account on Meta's developer site. Save the access token as <code>WHATSAPP_TOKEN</code>, the app secret as <code>WHATSAPP_APP_SECRET</code>, and a word of your own choosing as <code>WHATSAPP_VERIFY_TOKEN</code>, then add <code>{"channels":[{"type":"whatsapp","phoneNumberId":"your number id"}]}</code>. In Meta's settings, point the webhook at <code>&lt;this computer's address&gt;/webhooks/whatsapp/whatsapp</code> and give it the same verify word. WhatsApp only lets the assistant answer within a day of your message; later replies wait in the list below.</p>
+              <p class="subtle">You need a WhatsApp Business account on Meta's developer site. Save the access token as <code>WHATSAPP_TOKEN</code>, the app secret as <code>WHATSAPP_APP_SECRET</code>, and a word of your own choosing as <code>WHATSAPP_VERIFY_TOKEN</code>, then add <code>{"channels":[{"type":"whatsapp","phoneNumberId":"your number id"}]}</code>. In Meta's settings, point the webhook at the address shown on this channel's card above — it ends in a long word made on this computer, so nobody can find it by guessing — and give it the same verify word. WhatsApp only lets the assistant answer within a day of your message; later replies wait in the list below.</p>
             </details>
             <details class="card-list">
               <summary>Email</summary>
@@ -1053,6 +1068,9 @@
             <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
             <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
             <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
+            <label for="browser-attach-refused">More websites it must never open in your browser (one per line)</label>
+            <textarea id="browser-attach-refused" rows="3" placeholder="my-credit-union.example"></textarea>
+            <p class="subtle">These are added to the banking and password websites Branch already refuses. Nothing you type here can take one of those off the list.</p>
             <p id="browser-attach-status" class="subtle" role="status"></p>
           </section>
           <section id="mcp-card" class="card">
@@ -1142,6 +1160,9 @@
               <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
               <label for="dbg-list">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
+              <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
+              <label class="check-row"><input type="checkbox" id="ls-keep" /> Keep a language server running between tasks</label>
+              <label class="check-row"><input type="checkbox" id="dbg-keep" /> Keep a program being debugged running between tasks</label>
               <button id="code-ide-save" type="button">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
@@ -1330,6 +1351,7 @@
     <script src="/deployment.js" type="module"></script>
     <script src="/voice.js"></script>
     <script src="/voice-talk.js" type="module"></script>
+    <script src="/voice-live.js" type="module"></script>
     <script src="/model-profiles.js" type="module"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>

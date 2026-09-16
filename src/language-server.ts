@@ -35,6 +35,13 @@ export const LanguageServerSettingsSchema = z.object({
   maxCpuSeconds: z.number().int().min(10).max(36000).default(1800),
   /** How long to wait for one answer before giving up on it. */
   timeoutMs: z.number().int().min(1000).max(120000).default(20000),
+  /**
+   * "Keep a language server running between tasks". Off, a server a task started stops when that
+   * task ends, the same way a program started in a conversation stops when the conversation does,
+   * so nothing the owner did not ask for is left running. On, it stays up and the next task that
+   * needs it starts sooner.
+   */
+  keepRunning: z.boolean().default(false),
 }).strict();
 export type LanguageServerSettings = z.infer<typeof LanguageServerSettingsSchema>;
 
@@ -61,6 +68,8 @@ class Server {
   private readonly diagnostics = new Map<string, Diagnostic[]>();
   private readonly opened = new Set<string>();
   private stderr = "";
+  /** The task that started it, so it can be stopped again when that task is over. */
+  startedByRun = "";
   constructor(readonly name: string, private readonly channel: StdioChannel, private readonly root: string, timeoutMs: number) {
     this.table = new RequestTable(timeoutMs);
     channel.listeners.add((message) => this.receive(message));
@@ -171,14 +180,14 @@ export class LanguageServers {
   }
 
   /** Starts one server if it is not already up, and waits for it to say it is ready. */
-  private async serverFor(path: string): Promise<Server> {
+  private async serverFor(path: string, runId: string): Promise<Server> {
     const name = this.aliasFor(path);
     const existing = this.servers.get(name);
     if (existing?.running) return existing;
     if (existing) this.servers.delete(name);
-    return this.startNamed(name);
+    return this.startNamed(name, runId);
   }
-  private async startNamed(name: string): Promise<Server> {
+  private async startNamed(name: string, runId = ""): Promise<Server> {
     const settings = this.settings();
     const config = settings.servers[name]!;
     const root = this.files.base;
@@ -195,53 +204,56 @@ export class LanguageServers {
       capabilities: { textDocument: { publishDiagnostics: {}, hover: { contentFormat: ["plaintext"] }, rename: {} } },
     }).catch((error: Error) => { void channel.stop(); throw new Error(`The language server "${name}" did not start: ${error.message}`); });
     server.notify("initialized", {});
+    // Which task started it, so it can be stopped again when that task is over unless the owner
+    // asked for servers to be kept running between tasks.
+    server.startedByRun = runId;
     this.servers.set(name, server);
     return server;
   }
 
   /** The file, opened at the server, and the server itself. */
-  private async at(path: string): Promise<{ server: Server; uri: string }> {
+  private async at(path: string, runId: string): Promise<{ server: Server; uri: string }> {
     const absolute = await this.files.checked(path);
-    const server = await this.serverFor(path);
+    const server = await this.serverFor(path, runId);
     return { server, uri: await server.open(path, absolute) };
   }
   private position(line: number, character: number) { return { line: Math.max(0, line - 1), character: Math.max(0, character - 1) }; }
 
   /** Mistakes and warnings for one file, or for every file already looked at. */
-  async diagnostics(input: { path?: string | undefined; waitMs: number }): Promise<{ diagnostics: Diagnostic[]; server: string }> {
+  async diagnostics(input: { path?: string | undefined; waitMs: number }, runId = ""): Promise<{ diagnostics: Diagnostic[]; server: string }> {
     if (!input.path) {
       const any = [...this.servers.values()].find((server) => server.running);
       if (!any) throw new Error("No language server is running yet; ask about one file first.");
       return { server: any.name, diagnostics: any.diagnosticsFor(null) };
     }
-    const { server, uri } = await this.at(input.path);
+    const { server, uri } = await this.at(input.path, runId);
     await new Promise((resolve) => setTimeout(resolve, input.waitMs));
     return { server: server.name, diagnostics: server.diagnosticsFor(uri) };
   }
 
-  async definition(input: { path: string; line: number; character: number }): Promise<{ places: Place[] }> {
-    const { server, uri } = await this.at(input.path);
+  async definition(input: { path: string; line: number; character: number }, runId = ""): Promise<{ places: Place[] }> {
+    const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/definition", {
       textDocument: { uri }, position: this.position(input.line, input.character),
     });
     return { places: places(this.files.base, answer) };
   }
-  async references(input: { path: string; line: number; character: number; includeDeclaration: boolean }): Promise<{ places: Place[] }> {
-    const { server, uri } = await this.at(input.path);
+  async references(input: { path: string; line: number; character: number; includeDeclaration: boolean }, runId = ""): Promise<{ places: Place[] }> {
+    const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/references", {
       textDocument: { uri }, position: this.position(input.line, input.character),
       context: { includeDeclaration: input.includeDeclaration },
     });
     return { places: places(this.files.base, answer) };
   }
-  async hover(input: { path: string; line: number; character: number }): Promise<{ text: string }> {
-    const { server, uri } = await this.at(input.path);
+  async hover(input: { path: string; line: number; character: number }, runId = ""): Promise<{ text: string }> {
+    const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/hover", { textDocument: { uri }, position: this.position(input.line, input.character) });
     return { text: hoverText(answer).slice(0, 4000) };
   }
   /** What a rename would change, as whole files, for the ordinary change-set gate to settle. */
-  async renameEdits(input: { path: string; line: number; character: number; newName: string }): Promise<{ path: string; before: string; after: string }[]> {
-    const { server, uri } = await this.at(input.path);
+  async renameEdits(input: { path: string; line: number; character: number; newName: string }, runId = ""): Promise<{ path: string; before: string; after: string }[]> {
+    const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/rename", {
       textDocument: { uri }, position: this.position(input.line, input.character), newName: input.newName,
     });
@@ -281,6 +293,18 @@ export class LanguageServers {
     this.servers.clear();
     await Promise.allSettled(running.map((server) => server.stop()));
     return running.length;
+  }
+  /**
+   * A server a task started goes when that task is over, the same way a program started in a
+   * conversation goes when the conversation does. The owner can keep them running instead, with
+   * "Keep a language server running between tasks" in Settings, under Developer.
+   */
+  async closeRun(runId: string): Promise<number> {
+    if (!runId || this.settings().keepRunning) return 0;
+    const mine = [...this.servers.entries()].filter(([, server]) => server.startedByRun === runId);
+    for (const [name] of mine) this.servers.delete(name);
+    await Promise.allSettled(mine.map(([, server]) => server.stop()));
+    return mine.length;
   }
 }
 

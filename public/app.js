@@ -576,6 +576,9 @@ function channelState(health) {
 async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
+  // The address each chat service posts to, with its own unguessable word on the end.
+  let posting = { addresses: [], settings: {} };
+  try { posting = await api("channels/addresses"); } catch { /* older copies have none */ }
   const deliver = $("schedule-deliver");
   if (document.activeElement !== deliver) {
     const current = deliver.value;
@@ -598,6 +601,24 @@ async function renderChannels() {
       const now = (await api("channels")).channels.find((c) => c.id === channel.id);
       toast(now ? channelState(now.health) : "That connection is no longer set up.");
     }));
+    // Where this service posts to. It carries a long word made on this computer, so nobody can
+    // find the address by guessing the name you gave the channel.
+    const posts = posting.addresses.find((entry) => entry.channel === channel.id);
+    if (posts) {
+      node.append(el("p", "This service posts to this address. Paste it into the service's own settings; it is not something anyone can guess, so keep it to yourself.", "meta"));
+      node.append(el("code", `${location.origin}${posts.address}`, "meta"));
+      node.append(button("Copy this address", async () => {
+        try { await navigator.clipboard.writeText(`${location.origin}${posts.address}`); toast("Address copied."); }
+        catch { toast("Copying is not allowed here; select the address and copy it yourself."); }
+      }));
+      node.append(button("Give it a new address", async () => {
+        await api("channels/addresses/rotate", { channel: channel.id });
+        toast("New address made. Paste it into the service, or it will stop hearing from you.");
+        await renderChannels();
+      }));
+      if (posting.settings.acceptOldAddresses)
+        node.append(el("p", `Addresses without that word on the end still work${posting.settings.oldAddressesEndOn ? ` until ${posting.settings.oldAddressesEndOn}` : ""}, so you have time to change them over.`, "meta"));
+    }
     for (const chat of summary.chats.filter((c) => c.channel === channel.id))
       node.append(button(`Send a test message to ${chat.title}`, async () => {
         try { const r = await api("channels/test", { channel: chat.channel, chatId: chat.chatId }); toast(r.messageId ? "Test message sent." : "Test message queued; it goes out when the channel is reachable."); }
@@ -1476,10 +1497,24 @@ globalThis.branchRunSpoken = async (text) => {
     await new Promise((done) => setTimeout(done, 500));
   return lastReply;
 };
+/* Wave 8: a live conversation belongs to the conversation on screen, and what was said on either
+   side goes into it as an ordinary message. public/voice-live.js calls these two. */
+globalThis.branchSessionId = () => sessionId;
+globalThis.branchAdoptSession = (id) => { if (!sessionId && id) { sessionId = id; $("temporary-toggle").disabled = true; } };
+globalThis.branchAddSpokenMessage = (role, text) => { if (text) message(role, text); };
+
 $("chat-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const typed = $("prompt").value.trim();
-  if (!typed || conversationBusy) return;
+  if (!typed) return;
+  /* Wave 8: typing while it is talking sends the line straight into the live conversation, which
+     answers out loud without you waiting for it to finish what it was saying. */
+  if (globalThis.branchLiveState?.() !== "idle" && globalThis.branchSayLive?.(typed)) {
+    message("user", typed);
+    $("prompt").value = "";
+    return;
+  }
+  if (conversationBusy) return;
   /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
   if (await runSlashCommand(typed)) { $("prompt").value = ""; return; }
   /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */

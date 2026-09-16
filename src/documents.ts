@@ -11,6 +11,7 @@ import { documentType } from "./document-text.js";
 import { picturesMessage, readDocument, tryReadDocument } from "./document-readers.js";
 import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector, type Embedder } from "./document-embeddings.js";
 import { localEmbedder } from "./local-models.js";
+import { embeddingFetch } from "./embeddings.js";
 import { providerEmbeddings } from "./providers.js";
 import { errorText } from "./contracts.js";
 import { Citations, type Citation } from "./citations.js";
@@ -86,6 +87,12 @@ export class DocumentLibrary {
    * set once at start-up; without it the search's own order is used, exactly as before.
    */
   reranker: PassageReranker | undefined;
+  /**
+   * The app's guarded fetch, set once at start-up. Every passage sent to a provider off this
+   * computer goes through the owner's network rules first, exactly as every other provider call
+   * does; a reader on this computer is reached directly.
+   */
+  embeddingFetch: typeof fetch = globalThis.fetch;
   /** False only where this build of SQLite has no full-text search; word search then falls back. */
   readonly ranked: boolean;
   constructor(private readonly store: Store, private readonly models?: ModelRouter, private readonly files?: WorkspaceFiles) {
@@ -154,7 +161,8 @@ export class DocumentLibrary {
     // A model on this computer reads passages through Ollama's own route, not the OpenAI one.
     const here = localEmbedder(route, model);
     if (here) return here;
-    try { return new EmbeddingClient(route.endpoint, route.apiKey, model); } catch { return null; }
+    try { return new EmbeddingClient(route.endpoint, route.apiKey, model, embeddingFetch(route.endpoint, this.embeddingFetch)); }
+    catch { return null; }
   }
   meaningSearchReady(owner: string): boolean { return this.client(owner) !== null; }
 

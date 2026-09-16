@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import { makeScorer, scoreAll, type Evaluator, type ScoredTask, type ScoredTrajectory, type ScorerContext, type ScoreResult } from "./evaluation-scorers.js";
+import { estimateCost, pricingSettings } from "./pricing.js";
 
 /**
  * One finished task read back in the shape a scorer understands. Tool calls and their arguments
@@ -37,12 +38,30 @@ export function readTrajectory(
  * A way to ask the model one question, for the rubric scorer. It is undefined when no connection
  * has been chosen, and the scorer then refuses to guess rather than quietly passing the task.
  */
-export function runtimeJudge(runtime: Runtime | null): ScorerContext["judge"] {
+export function runtimeJudge(
+  runtime: Runtime | null,
+  /**
+   * What the grader itself cost. Grading with a model is a model call like any other, so a study
+   * that does it must count it: without this the grader's tokens are spent on the owner's account
+   * and appear nowhere, and a task held to a spending limit would pass a limit it actually broke.
+   */
+  spent?: (cost: { tokens: number; dollars: number | null }) => void,
+): ScorerContext["judge"] {
   if (!runtime) return undefined;
   return async (prompt: string): Promise<string> => {
     const run = await runtime.run({ prompt, permissions: [], budget: { maxSteps: 2, maxTokens: 20000 } });
+    if (spent) spent(judgeCost(runtime, run.id));
     return run.status === "completed" ? run.output : `{"score": 0, "reason": "The grader did not finish (${run.status})"}`;
   };
+}
+/** What one grading run used, read from the same place every other task's usage is read. */
+function judgeCost(runtime: Runtime, runId: string): { tokens: number; dollars: number | null } {
+  const usage = runtime.store.usage(runId);
+  const input = usage.estimatedInput ?? 0, output = usage.estimatedOutput ?? 0;
+  // A grader always runs on whichever model the owner's plan would pick, so that is what it costs.
+  const preset = runtime.models.plan(runtime.owner, "").choice.presetId;
+  const dollars = estimateCost(preset, { input, output }, pricingSettings(runtime.store, runtime.owner).overrides).amount;
+  return { tokens: input + output, dollars };
 }
 
 /** Builds the scorers one task asks for. An empty list means the task is decided some other way. */
