@@ -21,6 +21,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["files", ["files.", "workspace.", "folders."]],
   ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process.", "debug.", "artifacts."]],
   ["git", ["git.", "github.", "gitlab."]],
+  // Another computer reached over SSH: its files and the few programs it is allowed to run. It has
+  // a box of its own rather than sharing "files", because everything in it is somewhere else.
+  ["remote", ["remote."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],

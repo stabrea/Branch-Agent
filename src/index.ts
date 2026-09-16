@@ -83,6 +83,8 @@ import { VoiceService, registerVoice } from "./voice-service.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
+import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
+import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
@@ -229,8 +231,26 @@ export async function createBranch(options: {
   });
   registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
-  const git = new GitTools(files, new GitRunner());
+  const gitRunner = new GitRunner();
+  const git = new GitTools(files, gitRunner);
   registerGit(registry, git);
+  // Batch 26 (wave 8): a way back to before a set of changes was written, a project that carries
+  // its own line of work, and folders on other computers reached with the OpenSSH client Windows
+  // already has. All three are the owner's own tools, borrowed rather than installed.
+  const gitRun: GitRun = async (cwd, args, signal) => {
+    const out = await gitRunner.run({ cwd, args }, signal);
+    return { status: out.status, stdout: out.stdout, stderr: out.stderr, exitCode: out.exitCode };
+  };
+  const checkpoints = new GitCheckpoints(store, options.owner ?? "local", gitRun);
+  codeChanges.checkpoints = checkpoints;
+  const gitWorkspaces = new GitWorkspaces(checkpoints, gitRun);
+  store.projects.onSwitched((owner, project) => {
+    if (!project.branch) return;
+    void gitWorkspaces.switchTo(join(workspace, project.folder), project.branch, AbortSignal.timeout(30_000))
+      .catch(() => undefined);
+  });
+  const remotes = new RemoteWorkspaces(store, options.owner ?? "local", sshRunner());
+  registerRemoteWorkspaces(registry, remotes);
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
