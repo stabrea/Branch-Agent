@@ -321,6 +321,15 @@
             <h3>Set aside</h3>
             <div id="archived-list" class="card-list"></div>
           </div>
+          <div class="card" id="memory-tidy-all-card">
+            <h2>Tidy my memory</h2>
+            <p>One look over everything saved: the same thing saved twice, a newer fact that disagrees with an older one, facts not touched in a long time, facts never used, and notes left over from a job. Nothing is removed &mdash; anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
+            <div class="input-row">
+              <button id="memory-tidy-all-look" type="button">Look over my memory</button>
+              <button id="memory-tidy-all-suggest" type="button">Turn what it found into suggestions</button>
+            </div>
+            <div id="memory-tidy-all-result" role="status"></div>
+          </div>
           <div class="card" id="memory-tidy-card">
             <h2>Repeats, disagreements and facts you never use</h2>
             <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
@@ -578,7 +587,25 @@
           <div class="card" id="documents-drop">
             <h3>Or drop files here</h3>
             <p class="subtle">Drag files onto this box, or choose them below. Up to 20 MB each.</p>
-            <input id="documents-file" type="file" multiple accept=".txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pdf" />
+            <input id="documents-file" type="file" multiple accept=".txt,.md,.html,.htm,.csv,.json,.docx,.xlsx,.pptx,.odt,.ods,.epub,.rtf,.pdf" />
+          </div>
+          <div class="card" id="document-ask-card">
+            <h3>Ask about one file</h3>
+            <p class="subtle">Point at a file in your workspace and ask a question about it. The answer says which heading or page it came from, and any table in the file is opened so you can ask about the figures.</p>
+            <div class="input-row">
+              <input id="document-ask-file" type="text" maxlength="500" placeholder="notes/handbook.docx" />
+              <input id="document-ask-question" type="text" maxlength="500" placeholder="how much paid leave do staff get?" />
+              <button id="document-ask-go" type="button">Ask</button>
+            </div>
+            <div id="document-ask-result" role="status"></div>
+            <h3>Compare two files</h3>
+            <p class="subtle">What was added, taken out or reworded between two versions, section by section.</p>
+            <div class="input-row">
+              <input id="document-compare-a" type="text" maxlength="500" placeholder="contracts/old.docx" />
+              <input id="document-compare-b" type="text" maxlength="500" placeholder="contracts/new.docx" />
+              <button id="document-compare-go" type="button">Compare</button>
+            </div>
+            <div id="document-compare-result" role="status"></div>
           </div>
           <form id="documents-search-form" class="card">
             <h3>Search your documents</h3>
@@ -1302,6 +1329,7 @@
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
+    <script src="/docs-memory-2.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->

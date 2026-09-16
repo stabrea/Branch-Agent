@@ -229,6 +229,7 @@ async function staticFile(
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -566,6 +567,10 @@ async function api(
       base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
       token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
     });
+  // A phone-sized list of conversations. It goes through the same door and needs the same key as
+  // everything else, so a paired phone can pick up what was started at the computer.
+  if (request.method === "GET" && path === "/api/sessions")
+    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -851,7 +856,7 @@ async function api(
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
-      health: await healthReport(app), version: app.version,
+      health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
     });
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
@@ -1041,6 +1046,12 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
       .strict().parse(await readBody(request));
     return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
   }
+  // "Tidy my memory" in one screen: the four checks together, and the same call with stage on.
+  if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
+  if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
   if (request.method === "POST" && path === "/api/memory/tidy") {
     z.object({}).strict().parse(await readBody(request));

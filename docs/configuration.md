@@ -2582,3 +2582,139 @@ somebody handed you, holding `branch-plugin.json` and the plugin's own `.mjs` be
 
 Installing switches nothing on: turning a plugin on is still a separate, deliberate step, and that
 is the step that runs its code.
+
+## Reading documents (batch 25, wave 7)
+
+Branch reads the files people actually have, using nothing but Node's own building blocks. No file
+is ever executed, and no address written inside a file is ever fetched: a document is read, never
+obeyed. Every read is capped — a file larger than 20 MB is refused before a byte is parsed, and a
+file still being walked after 20 seconds is cut short and says so in the "could not be read" list.
+Unpacking is capped too, because a few hundred kilobytes of file can be built to unpack into
+gigabytes: one Word, spreadsheet, slide, OpenDocument or e-book file may unpack to at most 64 MB and
+list at most 5,000 parts, and one PDF may unpack to at most 64 MB. Past either, the file is refused
+in a sentence rather than left to fill the machine's memory. A PDF is checked against its time
+allowance before each page, so a long one stops and says how many pages it managed.
+
+**What can be read**
+
+| Kind | What comes out |
+| --- | --- |
+| Notes, Markdown, web pages, tables, JSON | The text, headings kept where there are any |
+| Word (`.docx`, `.docm`) | Headings at the level the document gives them, paragraphs, tables, footnotes |
+| Spreadsheets (`.xlsx`, `.xlsm`) | Every sheet under its own heading, one line per row; a formula gives the value it last worked out |
+| Slides (`.pptx`, `.pptm`) | Each slide numbered, with its title, its words and the speaker's notes |
+| OpenDocument (`.odt`, `.ods`) | The same, from what a free office suite writes |
+| E-books (`.epub`) | The chapters in reading order, each under a heading |
+| Rich text (`.rtf`) | The words, with the type-setting instructions dropped |
+| PDF (`.pdf`) | The words, page by page, reconstructed from where they sit on the page |
+
+**What cannot be read, said plainly**
+
+- A PDF locked with a password is refused outright: open it with the password and save an unlocked
+  copy first. Branch never tries to guess or break a password.
+- A PDF that is pictures of text has no words to lift out. It says so, and you can ask for it to be
+  read with a vision model instead, which sends the pages to whichever provider you have connected.
+- A PDF written an unusual way — text drawn with an encoding the file does not describe, or streams
+  packed in a way this reader does not unpack (only FlateDecode is unpacked) — comes back with those
+  parts listed rather than silently missing. Lines are rebuilt from where text sits on the page, so
+  a heavily designed page can come out in an odd order.
+- `.doc`, `.xls` and `.ppt` — the formats before the current ones — are not read. Save as the newer
+  format first. OpenDocument presentations (`.odp`) are not read either.
+- Anything with no reader is listed on the knowledge base with a reason, never quietly skipped.
+
+**What is sent where.** Reading happens entirely on this computer. What may leave it is exactly what
+left it before: the passages sent to your provider's embeddings route so they can be compared by
+meaning, under the same network policy as every other provider call, and only when you have such a
+connection. Turning meaning search off keeps everything here. Asking a vision model to look at a
+scanned PDF sends those pages to your provider, and only when you ask for it.
+
+**Into a knowledge base.** A collection now walks every kind above. Passages are cut at headings,
+slides, sheets and pages, so a citation says which one it came from. Reading a folder again compares
+each file by its contents and leaves the ones that have not changed, so a second reading of a large
+folder is quick; the progress line says how many were left alone (`unchanged`). Every file that could
+not be read is kept against the collection with its reason, and `GET /api/knowledge` returns them as
+`unread`.
+
+**Asking about one file.** `documents.analyse` takes `{ file, question }`: it reads the file with the
+right reader, finds the passages that fit, and answers with the heading and page each claim came
+from. Tables inside the file are opened as figures the `data.*` tools can be pointed at, under the
+names the answer lists. `documents.compare` takes `{ file, against }` and says in plain language what
+was added, taken out or reworded, section by section. Both are under `documents.read`; the panel
+under **Documents** has a box for each.
+
+**Cards from a conversation.** `knowledge.propose` takes `{ sessionId, collection }`, reads a finished
+conversation and writes up what is worth looking up again as fact cards: a title, a few sentences,
+the turn it came from and how sure it is. Every card is a suggestion. Nothing reaches a knowledge
+base until you accept it under "What it learns", and an accepted card is indexed and cited exactly
+like a passage from a file. It is under `documents.write`. A conversation can repeat whatever a
+document or a web page said, so every card is put through the same check that guards what comes back
+from the web: a card that reads like an order to the assistant is never offered, and is refused again
+if something else puts it in the queue — otherwise that order would outlive the conversation.
+
+## How memory is organised (batch 25, wave 7)
+
+Every saved fact now says two things about itself.
+
+**What kind of thing it is.** A *preference* (how you like things done), a *fact about a person*, a
+*fact about the world*, a *procedure hint* (how to do something), a *project note*, or *task scratch*
+— a note the assistant made for itself while doing one job. A fact saved before this arrived, or
+saved without a kind, counts as a fact about the world, which is exactly how it behaved before.
+
+**How long it is meant to last.** *Working* is this conversation. *Task* is this job and no longer:
+a task-scratch note is cleared when the job that made it ends, unless you asked to keep it. *Long
+term* is everything else, kept until you forget it. A fact with no layer of its own is long-term.
+
+Keeping a note (the `memory.keep` tool, or `POST /api/memory/{id}/keep`) moves it to long-term, which
+is what spares it when the job ends. A cleared note keeps its last wording as a version, so it can
+still be brought back. Facts can also belong to a **project**, and a fact tied to one project is left
+out while another is being worked on.
+
+**What reaches a task.** The facts put in front of a task are taken layer by layer in this order and
+budget: working first (at most 6 facts), then task (at most 4), then long-term — stopping at 20 facts
+or 2000 characters, whichever comes first. Within a layer the most useful facts come first, which is
+the same ordering the Memory screen shows.
+
+**Tidying.** "Tidy my memory" runs every check at once: the same thing saved twice, a newer fact that
+disagrees with an older one, facts not touched in 180 days, facts never drawn on, and notes left over
+from a job. It shows everything in one screen and **removes nothing** — each finding becomes a
+suggestion you accept or reject under "What it learns", and accepting one sets the fact aside in the
+archive where it can be brought back. A leftover note from a job has a **Keep this** button beside
+it, so you can keep one for good instead of setting it aside.
+
+It also ships as a recipe called **Tidy my memory**, so the steps are written down where you can read
+them. That recipe stays a proposal on purpose: the recipe checker compares a step's whole result
+against a fixed expectation, and a tidy report says what it found, which differs every time — so it
+cannot be certified that way. Run tidying from the Memory screen, or by calling `memory.tidy`.
+
+**Counts you can see.** `GET /api/memory/health` gives counts only — how
+many of each kind and layer, how many are notes from a job, how many have never been used, how many
+are set aside. No wording of any fact is included, which is why the same line goes into the
+diagnostics folder as `memory.json`.
+
+**Is it finding the right fact?** `branch eval memory` measures it. It loads the labelled set in
+`data/memory-retrieval.json` under a scope of its own, asks every question, runs the nightly pass,
+asks again, and reports the hit rate before and after. The set is a plain file: replace it with your
+own facts and questions to measure your own kind of memory. The scope is emptied afterwards, so
+nothing you actually saved is touched.
+
+**Where facts are kept.** In this computer's own database, and only there. What that database has to
+promise is written down as the `MemoryBackend` contract in `src/memory-backend.ts` — read, list,
+write, search, forget and count, with owners never seeing each other's facts and nothing leaving this
+computer unless you asked for it. The SQLite implementation is the only one that ships.
+
+**Taking memory elsewhere.** The export is one fact per line, and it now carries the kind, the layer
+and the project too, so a file written out and read back in comes back the same. Reading a file back
+never makes a second copy of something already saved.
+
+**Picking a conversation up on your phone.** Conversations already persist, and a paired phone
+already reaches the whole app through the same door with the same key. `GET /api/sessions` is the
+list that makes that practical on a small screen: the recent conversations with how each one started,
+what was last said and who said it. `GET /api/sessions/{id}` then gives the messages. Both need the
+same key as everything else, and remote access still listens only on the private Tailscale address,
+so nothing here widens what can reach this computer.
+
+New routes: `GET|POST /api/memory/tidy/all` (every check; `{ "stage": true }` turns findings into
+suggestions), `GET /api/memory/health`, `POST /api/memory/{id}/keep`, and `GET /api/sessions`. New
+tools: `memory.tidy` and `memory.keep` under `memory.write`,
+`documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
+`documents.write`.
