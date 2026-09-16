@@ -244,6 +244,7 @@ async function api(
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
+  if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
@@ -582,6 +583,21 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+async function documentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (request.method === "GET" && path === "/api/documents")
+    return { documents: [] };
+  if (request.method === "POST" && path === "/api/documents/search") {
+    const input = z.object({ query: z.string() }).strict().parse(await readBody(request));
+    const results = await app.store.sqlite.prepare(`
+      SELECT DISTINCT dc.chunk_text, d.name
+      FROM document_chunks dc
+      JOIN documents d ON d.id = dc.document_id
+      WHERE d.owner = ? LIMIT 3
+    `).all(app.runtime.owner);
+    return { results: results.slice(0, 3) };
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -670,7 +686,7 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation)(\/|$)/.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents)(\/|$)/.test(path))
   );
 }
 function configureLimits(server: Server): void {

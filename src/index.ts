@@ -29,6 +29,7 @@ import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
+import { DocumentLibrary, registerDocuments } from "./documents.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -90,6 +91,8 @@ export async function createBranch(options: {
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
+  const documents = new DocumentLibrary(store.sqlite);
+  registerDocuments(registry, documents, files);
   registry.register({
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
