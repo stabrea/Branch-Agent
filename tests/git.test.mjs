@@ -181,9 +181,9 @@ test('parallel copies stay inside .branch-worktrees', { ...needsGit }, async (t)
   await f.file('one.txt', 'a\n');
   await f.app.registry.execute('git.commit', { message: 'start' }, context);
 
-  const added = await f.app.registry.execute('git.worktree', { action: 'add', name: 'experiment', branch: 'experiment' }, context);
+  const added = await f.app.registry.execute('git.worktree_add', { name: 'experiment', branch: 'experiment' }, context);
   assert.equal(added.path, '.branch-worktrees/experiment');
-  const listed = await f.app.registry.execute('git.worktree', { action: 'list' }, context);
+  const listed = await f.app.registry.execute('git.worktree_list', {}, context);
   assert.deepEqual(listed.copies, [{ name: 'experiment' }]);
   assert.ok((await readdir(join(f.app.runtime.workspace, '.branch-worktrees'))).includes('experiment'));
 
@@ -193,11 +193,11 @@ test('parallel copies stay inside .branch-worktrees', { ...needsGit }, async (t)
   assert.deepEqual(saved.files, ['two.txt']);
   assert.equal((await f.app.registry.execute('git.status', {}, context)).changes.length, 0);
 
-  await assert.rejects(f.app.registry.execute('git.worktree', { action: 'add', name: '../escape' }, context));
-  await assert.rejects(f.app.registry.execute('git.worktree', { action: 'add', name: 'C:/elsewhere' }, context));
-  const removed = await f.app.registry.execute('git.worktree', { action: 'remove', name: 'experiment' }, context);
+  await assert.rejects(f.app.registry.execute('git.worktree_add', { name: '../escape' }, context));
+  await assert.rejects(f.app.registry.execute('git.worktree_add', { name: 'C:/elsewhere' }, context));
+  const removed = await f.app.registry.execute('git.worktree_remove', { name: 'experiment' }, context);
   assert.equal(removed.removed, true);
-  assert.deepEqual((await f.app.registry.execute('git.worktree', { action: 'list' }, context)).copies, []);
+  assert.deepEqual((await f.app.registry.execute('git.worktree_list', {}, context)).copies, []);
 });
 
 test('sending work needs the git.remote permission and asks before touching main', { ...needsGit }, async (t) => {

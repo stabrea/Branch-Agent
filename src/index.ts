@@ -96,6 +96,7 @@ import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
+import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -236,6 +237,9 @@ export async function createBranch(options: {
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
+  // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
+  const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
+  registerOpenApiTools(registry, openApiTools);
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
   media.artifacts = artifacts;
   registerMedia(registry, media);
@@ -512,6 +516,8 @@ export async function createBranch(options: {
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
     projectMap,
+    /** Services turned into tools from their own OpenAPI description. */
+    openApiTools,
     /** Files a task produced that are not text, kept version by version. */
     keptArtifacts,
     /** Language servers and debuggers the owner set up; both stop when the app closes. */
@@ -758,3 +764,5 @@ export * from "./language-server-tools.js";
 export * from "./debug-adapter.js";
 export * from "./checkpoints.js";
 export * from "./build-artifacts.js";
+export * from "./openapi.js";
+export * from "./openapi-tools.js";

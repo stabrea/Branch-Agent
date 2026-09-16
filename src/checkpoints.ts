@@ -19,34 +19,22 @@ export function sessionOf(store: Store, context: ToolContext): string {
   return session;
 }
 
+/**
+ * Only three tools reach the model. Listing the points kept and putting a whole one back are the
+ * owner's own choices, made from the timeline in Activity through the existing history routes, so
+ * they cost the model's catalog nothing.
+ */
 export function registerCheckpoints(registry: ToolRegistry, store: Store, history: WorkspaceHistory): void {
   registry.register({
     name: "workspace.checkpoint", permission: "files.write", group: "files",
-    description: "Keep a point you can come back to: the exact bytes of every file changed in this conversation so far, under a name. Nothing is changed by taking one.",
+    description: "Keep a point to come back to: the bytes of every file changed in this conversation.",
     parameters: z.object({ label: z.string().trim().min(1).max(120).default("Checkpoint") }).strict(),
     target: () => "",
     execute: async (args, context) => history.checkpoint(sessionOf(store, context), args.label),
   });
   registry.register({
-    name: "workspace.points", permission: "files.read", group: "files",
-    description: "The points kept so far — checkpoints and whole-workspace snapshots — newest first, with how many files each holds.",
-    parameters: z.object({}).strict(),
-    execute: async () => ({ points: history.snapshots() }),
-  });
-  registry.register({
-    name: "workspace.restore_point", permission: "files.write", group: "files",
-    description: "Put every file in a kept point back to its exact bytes. Files made since are left where they are.",
-    parameters: z.object({ id: z.string().uuid() }).strict(),
-    target: (args) => `restore point ${args.id}`,
-    execute: async (args) => history.restoreSnapshot(args.id),
-  });
-  registerUndo(registry, store, history);
-}
-
-function registerUndo(registry: ToolRegistry, store: Store, history: WorkspaceHistory): void {
-  registry.register({
     name: "workspace.undo", permission: "files.write", group: "files",
-    description: "Put the last file change in this conversation back as it was. Ask with preview first to see which file it is and what would change.",
+    description: "Put the last file change in this conversation back. preview shows what would change.",
     parameters: z.object({ preview: z.boolean().default(false) }).strict(),
     target: (args) => (args.preview ? "" : "undo the last change"),
     execute: async (args, context) => {
@@ -57,7 +45,7 @@ function registerUndo(registry: ToolRegistry, store: Store, history: WorkspaceHi
   });
   registry.register({
     name: "workspace.redo", permission: "files.write", group: "files",
-    description: "Put the last undone change forward again. Ask with preview first to see what would change.",
+    description: "Put the last undone change forward again. preview shows what would change.",
     parameters: z.object({ preview: z.boolean().default(false) }).strict(),
     target: (args) => (args.preview ? "" : "redo the last undone change"),
     execute: async (args, context) => {

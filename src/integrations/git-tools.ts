@@ -53,24 +53,19 @@ export function registerGit(registry: ToolRegistry, git: GitTools): void {
     parameters: z.object({ folder, message: z.string().trim().min(1).max(2000), paths: z.array(filePath).max(50).optional() }).strict(),
     execute: (input, context: ToolContext) => git.commit(input, context.signal),
   });
-  registry.register({
-    name: "git.worktree", permission: "git.write",
-    description: "Keep a parallel copy of the repository for an experiment. Copies live only in the .branch-worktrees folder inside the workspace, so they never spread elsewhere.",
-    parameters: z.object({ folder, action: z.enum(["add", "remove", "list"]).default("list"), name: copyName.optional(), branch: branchName.optional() }).strict(),
-    execute: (input, context: ToolContext) => git.worktree(input, context.signal),
-  });
   registerWorktrees(registry, git);
   registerPlanBranches(registry, git);
 }
 
 /**
- * The same parallel copies, one tool per thing you might want to do, because "add", "list" and
- * "remove" behind one name is a step the model has to think about rather than read.
+ * Parallel copies, one tool per thing you might want to do, because "add", "list" and "remove"
+ * behind one name is a step the model has to work out rather than read. Copies live only in
+ * .branch-worktrees inside the workspace, so an experiment never spreads elsewhere.
  */
 function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
   registry.register({
     name: "git.worktree_add", permission: "git.write",
-    description: "Make a parallel copy of the repository for an experiment, on a line of work of its own. Copies live only in the .branch-worktrees folder inside the workspace.",
+    description: "Make a parallel copy of the repository for an experiment, in .branch-worktrees.",
     parameters: z.object({ folder, name: copyName, branch: branchName.optional() }).strict(),
     target: (args) => `parallel copy ${args.name}`,
     execute: (input, context: ToolContext) => git.worktree({ ...input, action: "add" }, context.signal),
@@ -92,26 +87,27 @@ function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
 
 /**
  * Plan branches: try something risky in a parallel copy, look at exactly what it changed, and only
- * then bring it back. The copy and its line of work are named after the plan, so nothing the owner
- * is working on is touched until the merge is asked for.
+ * then bring it back. These sit with plans and procedures rather than with everyday version
+ * control, because that is what they are for — and because the everyday version-control box should
+ * not grow every time a way of trying something is added to it.
  */
 function registerPlanBranches(registry: ToolRegistry, git: GitTools): void {
   registry.register({
-    name: "git.plan_start", permission: "git.write",
-    description: "Start trying a plan in a parallel copy of the repository, on a line of work named after it. Nothing the person is working on is touched.",
+    name: "plans.try", permission: "git.write",
+    description: "Try a plan in a parallel copy of the repository, on a line of work named after it.",
     parameters: z.object({ folder, name: copyName, from: branchName.optional() }).strict(),
     target: (args) => `try "${args.name}" in a parallel copy`,
     execute: (input, context: ToolContext) => git.planStart(input, context.signal),
   });
   registry.register({
-    name: "git.plan_diff", permission: "git.read",
-    description: "What trying a plan changed, compared with where it started. Look at this before merging it back.",
+    name: "plans.diff", permission: "git.read",
+    description: "What trying a plan changed, compared with where it started. Read this before merging.",
     parameters: z.object({ folder, name: copyName, against: branchName.optional() }).strict(),
     execute: (input, context: ToolContext) => git.planDiff(input, context.signal),
   });
   registry.register({
-    name: "git.plan_merge", permission: "git.write",
-    description: "Bring a plan's work back onto the line of work you are on, and put the parallel copy away. The person is asked first.",
+    name: "plans.merge", permission: "git.write",
+    description: "Bring a plan's work back onto the line of work you are on and put the copy away.",
     parameters: z.object({ folder, name: copyName, message: z.string().trim().max(200).optional(), remove: z.boolean().default(true) }).strict(),
     target: (args) => `merge "${args.name}" back into the current line of work`,
     execute: (input, context: ToolContext) => git.planMerge(input, context.signal),

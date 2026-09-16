@@ -134,6 +134,8 @@ const readOnlyPermissions = new Set([
   "scratch.read",
   // Looking at what a program left running has printed changes nothing; starting or stopping one does.
   "process.read",
+  // GitLab is read-only here: issues, releases and how the checks went.
+  "gitlab.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 
