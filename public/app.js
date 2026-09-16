@@ -1508,6 +1508,9 @@ $("chat-form").addEventListener("submit", async (event) => {
     sessionId = run.sessionId;
     $("temporary-toggle").disabled = true;
     $("conversation").dataset.sessionId = sessionId;
+    /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's
+       number has to be somewhere the artifact card can find it. */
+    if (run.id) globalThis.branchLastRunId = run.id;
     message("assistant", run.output);
     /* Wave 7: talk mode reads this out loud once the reply is on the screen. */
     lastReply = run.output;

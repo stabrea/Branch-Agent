@@ -66,6 +66,8 @@ import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js
 import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
+import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
@@ -280,6 +282,10 @@ async function staticFile(
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
     "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
+    // Wave 8: artifacts out of a reply, charts drawn in the page, the flow editor, reports, the
+    // to-do list, the log view and the page a local page of the owner's own can include.
+    "/artifacts.js": ["artifacts.js", "text/javascript; charset=utf-8"],
+    "/charts.js": ["charts.js", "text/javascript; charset=utf-8"],
     "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
@@ -569,6 +575,15 @@ async function api(
       await tryTool(app.registry, app.store, app.runtime.owner,
         app.runtime.context({ signal: AbortSignal.timeout(120000) }),
         TryToolSchema.parse(await readBody(request))));
+  // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
+  // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
+  if (request.method === "POST" && path === "/api/artifacts/page")
+    return { url: `/artifact/${holdArtifactPage(ArtifactPageSchema.parse(await readBody(request, 512_000)))}` };
+  if (request.method === "POST" && path === "/api/artifacts/save") {
+    const wanted = ArtifactSaveSchema.parse(await readBody(request, 512_000));
+    const kept = await app.artifacts.write(wanted.runId, wanted.name, wanted.mediaType, Buffer.from(wanted.code, "utf8"));
+    return { ...kept, name: wanted.name, runId: wanted.runId };
+  }
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -1890,6 +1905,9 @@ export async function startServer(
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
       // A frame cannot carry the session key, so the address itself is the one-time secret.
       if (mcpAppPage(request, response, path)) return;
+      // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
+      // first fetch, so the frame may reload and "open larger" may show the same one again.
+      if (artifactPageRoute(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -2286,7 +2304,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

@@ -87,6 +87,9 @@ await Promise.all([
   import("./tool-catalog.js").then((module) => {
     $("tool-catalog")?.addEventListener("toggle", () => void module.renderToolCatalog());
   }),
+  /* Wave 8: a page, a drawing or a chart the assistant wrote, shown rather than left as markup;
+     the flow editor; reports; the to-do list; and the event log with its filters. */
+  import("./artifacts.js"),
 ]);
 wireOfflineBanner();
 registerServiceWorker();
