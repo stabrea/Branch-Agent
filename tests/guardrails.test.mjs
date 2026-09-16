@@ -118,7 +118,7 @@ test("a run's events stream in order over a WebSocket and a channel can send a t
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(() => server.close());
   assert.equal(frame("hi").toString("hex"), "81026869");
-  assert.deepEqual(readFrame(Buffer.from([0x88, 0x80, 1, 2, 3, 4])), { opcode: 8, payload: Buffer.alloc(0), consumed: 6 });
+  assert.deepEqual(readFrame(Buffer.from([0x88, 0x80, 1, 2, 3, 4])), { fin: true, opcode: 8, payload: Buffer.alloc(0), consumed: 6 });
   assert.equal(acceptKey("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
   let release; provider.holds.set("watch", new Promise((r) => { release = r; }));
   const pending = app.runtime.run({ prompt: "watch this" });
