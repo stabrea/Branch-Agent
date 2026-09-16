@@ -88,6 +88,9 @@ import { Workflows, registerWorkflows } from "./workflows.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
+// Wave 7 (a coder's toolbox): the project map, language servers, debug adapters, plan branches,
+// checkpoints with undo and redo, kept build outputs, agent export and OpenAPI-defined tools.
+import { ProjectMap, registerProjectMap } from "./code-map.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -149,6 +152,9 @@ export async function createBranch(options: {
   registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
   registerCodeSearch(registry, new WorkspaceSearch(files));
+  // The project map: built once, then kept up to date file by file, and ordered around a request.
+  const projectMap = new ProjectMap(files);
+  registerProjectMap(registry, projectMap);
   const editor = new CodeEditor(files, writeObserver);
   registerCodeEdit(registry, files, editor);
   // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
@@ -487,6 +493,8 @@ export async function createBranch(options: {
     flows,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
+    /** The project map, for the screens that show it and for the tests. */
+    projectMap,
     /** Programs left running, and the switch that stops them all when the app closes. */
     processes,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
@@ -716,3 +724,6 @@ export * from "./run-queue.js";
 export * from "./execution-limit.js";
 export * from "./calendar.js";
 export * from "./profiles.js";
+// Wave 7 (a coder's toolbox).
+export * from "./code-scanners.js";
+export * from "./code-map.js";
