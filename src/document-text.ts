@@ -5,10 +5,13 @@ import { inflateRawSync } from "node:zlib";
  * ZIP containers of XML, so a small reader for stored and deflated entries is enough; nothing here
  * runs code from the file or reaches the network. PDFs are reported as needing a helper.
  */
-export type DocumentType = "txt" | "md" | "html" | "csv" | "json" | "docx" | "xlsx" | "pdf";
+export type DocumentType =
+  | "txt" | "md" | "html" | "csv" | "json" | "docx" | "xlsx" | "pdf"
+  | "pptx" | "odt" | "ods" | "epub" | "rtf";
 const byExtension: Record<string, DocumentType> = {
   txt: "txt", text: "txt", log: "txt", md: "md", markdown: "md", html: "html", htm: "html",
   csv: "csv", tsv: "csv", json: "json", docx: "docx", docm: "docx", xlsx: "xlsx", xlsm: "xlsx", pdf: "pdf",
+  pptx: "pptx", pptm: "pptx", odt: "odt", ods: "ods", epub: "epub", rtf: "rtf",
 };
 /** The kind of file a name points at; anything unknown is read as plain text. */
 export function documentType(name: string): DocumentType {
@@ -33,6 +36,22 @@ export class ZipReader {
       pos += 46 + nameLength + this.data.readUInt16LE(pos + 30) + this.data.readUInt16LE(pos + 32);
     }
     return null;
+  }
+  /** Every entry name in the container, in the order the container lists them. */
+  names(): string[] {
+    const found: string[] = [];
+    let pos = this.centralDirectory();
+    while (pos + 46 <= this.data.length && this.data.readUInt32LE(pos) === 0x02014b50) {
+      const nameLength = this.data.readUInt16LE(pos + 28);
+      found.push(this.data.toString("utf8", pos + 46, pos + 46 + nameLength));
+      pos += 46 + nameLength + this.data.readUInt16LE(pos + 30) + this.data.readUInt16LE(pos + 32);
+      if (found.length >= 5000) break;
+    }
+    return found;
+  }
+  /** The text of one entry, or an empty string when the container has no such entry. */
+  text(path: string): string {
+    return this.entry(path)?.toString("utf8") ?? "";
   }
   private read(header: number): Buffer {
     if (this.data.readUInt32LE(header) !== 0x04034b50) throw new Error("Damaged document entry");
