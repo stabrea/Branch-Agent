@@ -1458,11 +1458,24 @@ way round the screen one. `web.search` gained pluggable backends (`web-search.ts
 Tavily, Exa, Serper, DuckDuckGo fallback) as pure request/parse functions — note the type-only
 import back into `web.ts`, which would otherwise be a cycle. Three skill packages ship as string
 constants in `src/browser-skills.ts` (`/api/skills/browser`). `tests/browser-2.test.mjs` covers it
-in 12 tests against local fixtures and a headless Chromium the test itself starts with a debugging
+in 14 tests against local fixtures and a headless Chromium the test itself starts with a debugging
 port. Pre-existing and left alone: `browser.upload` already confined paths through `files.checked`
 (A1639) and `browser.screenshot` already returned the `RunArtifacts.imageIn` shape the runtime
 shows the model, selector included (A2129). Not built: remote/cloud browsers, Python `browser-use`.
 Covers browser-automation (#62).
+
+Fixed while merging: a mark number is no longer something a page can claim for itself — the mark
+attributes are stripped from the document before any number is handed out, a place claimed by two
+elements is stamped on neither, and `browser.act {mark}` insists on a single match instead of
+taking the first, with a fixture that plants a decoy to prove it. Locking Branch now gives back a
+borrowed browser, through a new `onLock` hook on `ChannelHost` and `BranchBrowser.releaseBorrowed()`
+(run end and app close already let go). A switch turned on with no task number is taken by the first
+task that borrows, so the next has to ask again. `web.searchKey` was never wired, so every paid
+search backend refused; it now resolves from the active project's locker with an audit line. Webmail
+joined `refusedHosts`. `tests/tool-loading.test.mjs` measured its small-scale case over the first 90
+tools in registration order, where the tiered and toolbox-only catalogs are within a few tokens of
+each other; three new tools registered early flipped it, so it now measures the product's whole
+catalog.
 
 
 ## Next work (local until a checkpoint worth publishing)
