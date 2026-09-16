@@ -10,10 +10,13 @@ import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
+import { CredentialResolver } from "./credential-cli.js";
+import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
+import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -62,6 +65,8 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { SessionTokens } from "./session-tokens.js";
+import { CommandSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -90,6 +95,8 @@ import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
+// Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
+import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -118,6 +125,9 @@ import type { IssueAccess } from "./integrations/issue-tools.js";
 // Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
+// Wave 8: the to-do list, and reports saved in several forms.
+import { Todos, registerTodos } from "./todos.js";
+import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
@@ -241,6 +251,11 @@ export async function createBranch(options: {
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
+  // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
+  // there looks like nothing happening at all. The screen is probed by asking for the window list;
+  // the microphone and the camera are read out of what the person already chose.
+  const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
+  desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
@@ -260,6 +275,15 @@ export async function createBranch(options: {
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();
+  // Batch 26 (wave 8): the owner's own password manager, asked at the call boundary and only when
+  // they have switched it on. It waits for the same unlock the locker does.
+  const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
+  credentials.gate = () => sessionLock.require();
+  store.secrets.credentials = credentials;
+  // Batch 20 (wave 8): a password fetched by a command of the owner's own, behind the same lock.
+  const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
+  commandSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(commandSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -298,6 +322,9 @@ export async function createBranch(options: {
   registerKnowledge(registry, knowledge);
   // Working with several specialists at once, handing work over, and the shared scratch area.
   registerOrchestration(registry, runtime, knowledge);
+  // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
+  // that sorts a request to the one specialist it belongs to.
+  registerOrchestrationModes(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -437,6 +464,9 @@ export async function createBranch(options: {
   runtime.notifyEvent = guardedNotify;
   channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
+  // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
+  // make the answer stricter — hold it for a yes, or refuse it.
+  runtime.askHooks = (runId, about) => hooks.decide(runId, about);
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
@@ -454,6 +484,11 @@ export async function createBranch(options: {
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
+  // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
+  // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
+  const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
+    () => desktop.enabled(runtime.owner), deliverMessage);
+  registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
@@ -476,6 +511,14 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
+  // items in one place, with a due day handed on to the schedules rather than timed here.
+  const todos = new Todos(store.sqlite);
+  registerTodos(registry, todos, runtime.owner);
+  // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
+  // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
+  const obsidian = new ObsidianBridge(store, runtime.owner);
+  registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -601,6 +644,9 @@ export async function createBranch(options: {
     fillSecrets: (headers) =>
       store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
   });
+  // Short-lived, scoped keys for anything that is not the app window. The master session key is
+  // never one of these; see src/session-tokens.ts.
+  const sessionTokens = new SessionTokens(store.sqlite, store);
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -611,6 +657,13 @@ export async function createBranch(options: {
     if (!spans.length) return;
     const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
     const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    // Batch 20 (wave 8): the same send carries the task's own story as OpenTelemetry log records,
+    // tied to the trace by its id, so a collector shows the words beside the shape.
+    const root = spans.find((span) => !span.parentSpanId) ?? spans[0];
+    await traceExport.sendLogs(store.events(runId).map((event) => ({
+      runId, kind: event.kind, createdAt: event.createdAt, data: event.data,
+      ...(root ? { traceId: root.traceId, spanId: root.spanId } : {}),
+    }))).catch(() => null);
     const failed = results.find((result) => !result.ok);
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
@@ -671,6 +724,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
+    osPermissions,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -734,6 +789,12 @@ export async function createBranch(options: {
     calendar,
     /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
     flows,
+    /** Wave 8: the things still to be done, written down where the owner can see them. */
+    todos,
+    /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
+    obsidian,
+    /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
+    screenWatches,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
@@ -786,6 +847,8 @@ export async function createBranch(options: {
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
+    /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
+    sessionTokens,
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
       // Wave 8: a connection that stays open must not outlive the app either.
@@ -988,7 +1051,21 @@ export * from "./code-change.js";
 export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
+export * from "./credential-cli.js";
+export * from "./sandbox.js";
+export * from "./os-permissions.js";
+export * from "./profile-roles.js";
+export * from "./replay.js";
+export * from "./orchestration-modes.js";
 export * from "./flows.js";
+// Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
+export * from "./todos.js";
+export * from "./reports.js";
+export * from "./artifact-pages.js";
+export * from "./dashboards.js";
+export * from "./obsidian.js";
+export * from "./embeds.js";
+export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
@@ -1053,6 +1130,8 @@ export * from "./integrations/mcp-oauth.js";
 // identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
 // make, what each project has cost, and watching a folder.
 export * from "./api-openapi.js";
+// The owner's handbook, which the app serves to itself so Help opens beside the screen you are on.
+export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
 export * from "./lockdown.js";
@@ -1074,3 +1153,13 @@ export * from "./knowledge-pictures.js";
 export * from "./knowledge-more.js";
 export * from "./memory-mirror.js";
 export * from "./memory-ephemeral.js";
+// Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
+// may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
+export * from "./session-tokens.js";
+export * from "./vault-sources.js";
+export * from "./channels/allowlist.js";
+export * from "./remote/gateway-auth.js";
+export * from "./providers/cli-agent.js";
+export * from "./cli-attach.js";
+export * from "./cli-completion.js";
+export * from "./cli-run.js";

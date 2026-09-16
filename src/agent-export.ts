@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { audit } from "./audit.js";
 import { zipRead, zipWrite, type ZipLimits } from "./skill-package.js";
 
 /**
@@ -90,6 +91,13 @@ export function exportAgent(store: Store, owner: string, appVersion: string, opt
     format: "branch-agent", version: 1, exportedAt: new Date().toISOString(),
     appVersion: appVersion.slice(0, 40), sections, memoryRedacted: !!(options.memory && options.redact),
   };
+  // Batch 20 (wave 8): handing the whole assistant to somebody else is the largest export there
+  // is, so it is written into the record of what it was allowed to do like every smaller one.
+  audit(store, owner, {
+    action: "data.exported", actor: owner, subject: "the whole assistant, as one file",
+    reason: `${sections.map((section) => section.name).join(", ")}${options.memory ? "" : "; what it remembers was left out"}`,
+    outcome: "saved",
+  });
   return { bytes: zipWrite([[agentManifestEntry, JSON.stringify(manifest, null, 1)], ...entries]), manifest };
 }
 

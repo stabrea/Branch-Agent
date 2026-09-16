@@ -7,6 +7,7 @@ import type { Store } from "./store.js";
 import { catalogEntry, modelsAddress } from "./provider-catalog.js";
 import { buildConnection } from "./provider-factory.js";
 import { countModels } from "./provider-probe.js";
+import { audit } from "./audit.js";
 
 /**
  * Adding a model connection in plain language: pick a service, paste the key, answer whatever else
@@ -98,6 +99,10 @@ function rememberConnection(deps: FromPresetDeps, record: ConnectionRecord): voi
   const kept = savedConnections(deps.store, deps.owner).filter((saved) => saved.id !== record.id);
   kept.push(ConnectionRecordSchema.parse(record));
   deps.store.save("settings", deps.owner, connectionsSetting, { connections: kept.slice(-32) });
+  // Batch 20 (wave 8): adding a model service widens where the assistant's words go, so it belongs
+  // in the record of what it was allowed to do beside every other such moment.
+  audit(deps.store, deps.owner, { action: "connection.changed", actor: deps.owner,
+    subject: `${record.name} (${record.id})`, reason: "A connection to a model service was added", outcome: "added" });
 }
 
 /**
@@ -117,6 +122,8 @@ export async function forgetConnection(deps: FromPresetDeps, id: string): Promis
   deps.locker.remove(deps.owner, connectionProject, secretNameFor(id));
   // Exactly this one, never everything whose name begins the same way.
   deps.models.remove(id);
+  audit(store, deps.owner, { action: "connection.changed", actor: deps.owner, subject: id,
+    reason: "A connection to a model service was removed, and its key taken out of the locker", outcome: "removed" });
   return { id, removed: true };
 }
 

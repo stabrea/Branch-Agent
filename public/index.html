@@ -79,7 +79,8 @@
         <div id="owner-menu" class="menu" hidden role="menu" aria-label="Workspace menu">
           <button id="menu-settings" type="button" role="menuitem" data-t="menu.settings">Settings and connections</button>
           <button id="menu-appearance" type="button" role="menuitem" data-t="menu.appearance">Change the appearance</button>
-          <button id="lock" type="button" role="menuitem" hidden>Lock session</button>
+          <button id="lock" type="button" role="menuitem" hidden data-t="action.lock-session">Lock session</button>
+          <button id="menu-help" type="button" role="menuitem" data-t="menu.help">Help</button>
           <button id="menu-updates" type="button" role="menuitem" data-t="menu.updates">Check for updates</button>
           <button id="menu-about" type="button" role="menuitem" data-t="menu.about">About Branch Agent</button>
         </div>
@@ -112,7 +113,7 @@
           connect this browser to your assistant.
         </p>
         <form id="login-form">
-          <label for="token">Session token</label>
+          <label for="token" data-t="field.session-token">Session token</label>
           <div class="input-row">
             <input
               id="token"
@@ -120,7 +121,7 @@
               autocomplete="off"
               required
               placeholder="Your local session token"
-            /><button>Connect</button>
+            /><button data-t="action.connect">Connect</button>
           </div>
         </form>
         <p class="subtle">
@@ -142,12 +143,12 @@
             </div>
             <p id="first-run-status" role="status"></p>
             <div class="identity-actions">
-              <button id="first-run-test" type="button" class="quiet-button">Test the connection</button>
-              <button id="first-run-done" type="button" hidden>Done, start chatting</button>
+              <button id="first-run-test" type="button" class="quiet-button" data-t="action.test-the-connection">Test the connection</button>
+              <button id="first-run-done" type="button" hidden data-t="action.done-start-chatting">Done, start chatting</button>
             </div>
             <div id="first-run-extras" class="first-run-extras">
-              <label><input id="first-run-autostart" type="checkbox" /> Open Branch when I sign in to Windows</label>
-              <label><input id="first-run-phone" type="checkbox" /> Let me reach Branch from my phone</label>
+              <label><input id="first-run-autostart" type="checkbox" /> <span data-t="field.open-branch-when-i-sign">Open Branch when I sign in to Windows</span></label>
+              <label><input id="first-run-phone" type="checkbox" /> <span data-t="field.let-me-reach-branch-from">Let me reach Branch from my phone</span></label>
               <p id="first-run-extras-status" role="status"></p>
             </div>
           </section>
@@ -155,21 +156,21 @@
             <h2 data-t="chat.card.somewhere-safe-to-try-things">Somewhere safe to try things</h2>
             <p>Before you point Branch at the folder your real work is in, you can give it a practice workspace: a handful of made-up files and a short conversation already in the history. Read one, change one, ask it to search — nothing here is real, so nothing you care about can come to harm. One click takes you back to your own folder, and the practice workspace stays behind in case you want it again.</p>
             <p id="practice-state" class="subtle" role="status"></p>
-            <button id="practice-toggle" type="button">Try the practice workspace</button>
+            <button id="practice-toggle" type="button" data-t="action.try-the-practice-workspace">Try the practice workspace</button>
           </section>
           <details id="saved-conversations" class="card saved-conversations">
             <summary>Saved conversations</summary>
             <p>Find a conversation, make a copy, or export its history. These actions copy messages only; workspace files and saved memory remain shared.</p>
             <form id="saved-search-form" class="saved-search">
-              <label for="saved-query">Find a saved conversation</label>
+              <label for="saved-query" data-t="field.find-a-saved-conversation">Find a saved conversation</label>
               <input id="saved-query" type="search" maxlength="500" placeholder="Search messages, or leave blank for recent conversations" />
-              <button id="saved-search">Search saved conversations</button>
+              <button id="saved-search" data-t="action.search-saved-conversations">Search saved conversations</button>
             </form>
-            <button id="import-conversation" type="button" class="text-button conversation-switch">Import conversation JSON</button>
+            <button id="import-conversation" type="button" class="text-button conversation-switch" data-t="action.import-conversation-json">Import conversation JSON</button>
             <input id="conversation-import" type="file" accept="application/json,.json" hidden />
             <p class="meta">Imported messages are untrusted history. Importing never runs saved tool calls.</p>
             <div id="saved-list" class="card-list" aria-live="polite"></div>
-            <button id="saved-more" type="button" class="text-button" hidden>Load more conversations</button>
+            <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
           </details>
           <div id="demo-notice" class="notice" hidden>
             <strong>No model connected yet</strong
@@ -187,7 +188,7 @@
             <div id="live-line" class="live-line"></div>
             <div id="live-controls-slot"></div>
             <div id="live-steer-box" class="live-steer-box" hidden>
-              <label class="sr-only" for="live-steer-text">Tell it something</label>
+              <label class="sr-only" for="live-steer-text" data-t="field.tell-it-something">Tell it something</label>
               <textarea id="live-steer-text" maxlength="2000" rows="1" placeholder="Change of plan: …"
                 data-t-placeholder="live.steerPlaceholder"></textarea>
               <button id="live-steer-send" type="button" data-t="live.steerSend">Send</button>
@@ -199,24 +200,24 @@
             <h2 id="greeting">What would you like to do?</h2>
             <p>Ask for anything, or start from one of these.</p>
             <div class="chips" id="suggestions">
-              <button id="demo-prompt" class="chip" type="button">Try the file workflow</button>
-              <button class="chip" type="button" data-prompt="Look through my workspace files and tell me what changed most recently.">Catch me up on my files</button>
-              <button class="chip" type="button" data-prompt="Remember this for later: ">Save something to memory</button>
-              <button class="chip" type="button" data-prompt="Make a short plan for ">Plan a piece of work</button>
+              <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
+              <button class="chip" type="button" data-prompt="Look through my workspace files and tell me what changed most recently." data-t="action.catch-me-up-on-my">Catch me up on my files</button>
+              <button class="chip" type="button" data-prompt="Remember this for later: " data-t="action.save-something-to-memory">Save something to memory</button>
+              <button class="chip" type="button" data-prompt="Make a short plan for " data-t="action.plan-a-piece-of-work">Plan a piece of work</button>
             </div>
           </div>
           <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
           <div id="model-controls" class="model-controls" hidden>
-            <label for="session-model">Model for this conversation</label>
+            <label for="session-model" data-t="field.model-for-this-conversation">Model for this conversation</label>
             <select id="session-model"></select>
-            <label for="session-reasoning">Thinking</label>
+            <label for="session-reasoning" data-t="field.thinking">Thinking</label>
             <select id="session-reasoning">
               <option value="">Workspace default</option>
               <option value="low">Quick</option>
               <option value="medium">Balanced</option>
               <option value="high">Thorough</option>
             </select>
-            <label for="session-skill">Pinned skill</label>
+            <label for="session-skill" data-t="field.pinned-skill">Pinned skill</label>
             <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
@@ -249,10 +250,13 @@
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
                 ><input id="ask-first-toggle" type="checkbox" /> Ask me questions first</label
+              ><label class="check composer-specialist" title="Put this one message to a specialist instead of your assistant. The reply says which one answered."
+                ><span class="sr-only" data-t="field.who-should-answer">Who should answer</span
+                ><select id="composer-specialist" aria-label="Who should answer"><option value="" data-t="composer.assistantItself">Your assistant</option></select></label
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
               ><button id="send">Send ↗</button
-              ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes">Send when it finishes</button>
+              ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes" data-t="action.send-when-it-finishes">Send when it finishes</button>
             </div>
           </form>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
@@ -284,6 +288,47 @@
             <h2 data-t="activity.feed">Happening now</h2>
             <div id="activity-feed" class="card-list" aria-live="polite"></div>
           </article>
+          <!-- Wave 8: a task written out to keep or hand on (public/reports.js), and the event
+               log with its filters and a saved copy (public/logs.js). -->
+          <article id="report-card" class="card">
+            <h2 data-t="reports.title">Save a task as a report</h2>
+            <p class="meta" data-t="reports.intro">
+              Write one task out to keep or hand on: as notes, as a single page, or laid out for
+              printing, which is how you make a PDF. Anything that looks like a key is blanked out
+              first.
+            </p>
+            <label for="report-run" data-t="field.which-task">Which task</label>
+            <select id="report-run"></select>
+            <div id="report-buttons" class="report-actions"></div>
+            <p id="report-status" class="meta" role="status" aria-live="polite"></p>
+          </article>
+          <article id="logs-card" class="card">
+            <h2 data-t="logs.title">The record of what happened</h2>
+            <p class="meta" data-t="logs.intro">
+              Every step every task took, newest first. Narrow it down by the kind of step, by the
+              task, or by when it happened, and save what is left as a file of one line each.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="log-kind" data-t="field.kind-of-step">Kind of step</label>
+                <select id="log-kind"></select>
+              </div>
+              <div>
+                <label for="log-run" data-t="field.task-number">Task number</label>
+                <input id="log-run" type="text" maxlength="36" />
+              </div>
+              <div>
+                <label for="log-since" data-t="field.since">Since</label>
+                <input id="log-since" type="datetime-local" />
+              </div>
+            </div>
+            <div class="report-actions">
+              <button id="log-refresh" type="button" class="quiet" data-t="action.show-the-record">Show the record</button>
+              <button id="log-export" type="button" class="quiet" data-t="action.save-the-record">Save the record</button>
+            </div>
+            <p id="log-status" class="meta" role="status" aria-live="polite"></p>
+            <div id="log-list" class="card-list"></div>
+          </article>
           <div id="runs-list" class="card-list"></div>
           <article id="run-detail" class="card" hidden></article>
         </section>
@@ -293,13 +338,13 @@
           <form id="history-search-form" class="card form-grid">
             <h2 data-t="memory.card.find-an-earlier-conversation">Find an earlier conversation</h2>
             <p>Search everything you have said and been told, back to the first day.</p>
-            <div><label for="history-query">Search past conversations</label>
+            <div><label for="history-query" data-t="field.search-past-conversations">Search past conversations</label>
               <input id="history-query" required maxlength="500" placeholder="Project name or a few keywords" />
             </div>
-            <div><label for="history-match">Match keywords</label>
+            <div><label for="history-match" data-t="field.match-keywords">Match keywords</label>
               <select id="history-match"><option value="all">All keywords</option><option value="any">Any keyword</option></select>
             </div>
-            <button>Search conversations</button>
+            <button data-t="action.search-conversations">Search conversations</button>
           </form>
           <div id="history-results" class="card-list" role="region" aria-live="polite" aria-label="Conversation search results"></div>
           <article id="history-message" class="card" hidden></article>
@@ -322,12 +367,12 @@
             /><label for="memory-entity">Who or what this is about</label
             ><input id="memory-entity" maxlength="120" placeholder="e.g. Mum — leave empty if it is about nobody in particular" /><label for="memory-attribute">Which detail</label
             ><input id="memory-attribute" maxlength="80" placeholder="e.g. phone number — leave empty unless one newer detail should replace an older one" /><label class="check-row"><input type="checkbox" id="memory-shared" /> Specialists may see this fact too</label
-            ><button>Save memory</button>
+            ><button data-t="action.save-memory">Save memory</button>
           </form>
           <div class="card">
             <h2 data-t="memory.card.tidy-up">Tidy up</h2>
             <p>Facts you have not touched for a while can be set aside. Set-aside facts are kept and can be brought back.</p>
-            <div class="input-row"><label for="tidy-days" class="sr-only">Older than (days)</label><input id="tidy-days" type="number" min="1" max="3650" value="180" /><span>days untouched</span><button id="tidy-preview" type="button">Show what would be set aside</button><button id="tidy-archive" type="button">Set them aside</button></div>
+            <div class="input-row"><label for="tidy-days" class="sr-only" data-t="field.older-than-days">Older than (days)</label><input id="tidy-days" type="number" min="1" max="3650" value="180" /><span>days untouched</span><button id="tidy-preview" type="button" data-t="action.show-what-would-be-set">Show what would be set aside</button><button id="tidy-archive" type="button" data-t="action.set-them-aside">Set them aside</button></div>
             <div id="tidy-list" class="card-list" aria-live="polite"></div>
             <h3>Set aside</h3>
             <div id="archived-list" class="card-list"></div>
@@ -336,8 +381,8 @@
             <h2>Tidy my memory</h2>
             <p>One look over everything saved: the same thing saved twice, a newer fact that disagrees with an older one, facts not touched in a long time, facts never used, and notes left over from a job. Nothing is removed &mdash; anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
             <div class="input-row">
-              <button id="memory-tidy-all-look" type="button">Look over my memory</button>
-              <button id="memory-tidy-all-suggest" type="button">Turn what it found into suggestions</button>
+              <button id="memory-tidy-all-look" type="button" data-t="action.look-over-my-memory">Look over my memory</button>
+              <button id="memory-tidy-all-suggest" type="button" data-t="action.turn-what-it-found-into">Turn what it found into suggestions</button>
             </div>
             <div id="memory-tidy-all-result" role="status"></div>
           </div>
@@ -345,17 +390,17 @@
             <h2 data-t="memory.card.repeats-disagreements-and-facts-you">Repeats, disagreements and facts you never use</h2>
             <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
             <div class="input-row">
-              <button id="memory-tidy-look" type="button">Look for problems</button>
-              <button id="memory-tidy-suggest" type="button">Turn them into suggestions</button>
+              <button id="memory-tidy-look" type="button" data-t="action.look-for-problems">Look for problems</button>
+              <button id="memory-tidy-suggest" type="button" data-t="action.turn-them-into-suggestions">Turn them into suggestions</button>
             </div>
-            <label class="check-row"><input type="checkbox" id="memory-meaning" /> Also match facts by meaning, not only by their words</label>
+            <label class="check-row"><input type="checkbox" id="memory-meaning" /> <span data-t="field.also-match-facts-by-meaning">Also match facts by meaning, not only by their words</span></label>
             <p id="memory-meaning-note" class="subtle"></p>
-            <div class="input-row"><button id="memory-index" type="button">Prepare facts for matching by meaning</button></div>
+            <div class="input-row"><button id="memory-index" type="button" data-t="action.prepare-facts-for-matching-by">Prepare facts for matching by meaning</button></div>
             <h3>Take facts elsewhere</h3>
             <p class="subtle">One note per line, in the plain form other assistants read and write. Bringing notes back in never makes a second copy of something already saved.</p>
             <div class="input-row">
-              <button id="memory-jsonl-export" type="button">Save facts to a file</button>
-              <button id="memory-jsonl-import" type="button">Bring facts in from a file</button>
+              <button id="memory-jsonl-export" type="button" data-t="action.save-facts-to-a-file">Save facts to a file</button>
+              <button id="memory-jsonl-import" type="button" data-t="action.bring-facts-in-from-a">Bring facts in from a file</button>
               <input id="memory-jsonl-file" type="file" accept=".jsonl,application/jsonl,text/plain" hidden />
             </div>
             <p id="memory-tidy-status" role="status"></p>
@@ -365,9 +410,9 @@
             <p>Set how many notes your assistant may hold at once, and move them between computers.</p>
             <p id="memory-count" role="status"></p>
             <form id="memory-capacity-form" class="form-grid">
-              <div><label for="memory-capacity">Maximum saved facts</label>
+              <div><label for="memory-capacity" data-t="field.maximum-saved-facts">Maximum saved facts</label>
                 <input id="memory-capacity" type="number" min="1" max="500" required /></div>
-              <button>Update memory limit</button>
+              <button data-t="action.update-memory-limit">Update memory limit</button>
             </form>
             <div id="memory-transfer" class="message-actions"></div>
             <input id="memory-import" type="file" accept="application/json,.json" hidden />
@@ -376,14 +421,14 @@
           </div>
           <form id="learning-form" class="card">
             <h2 data-t="memory.card.what-it-learns">What it learns</h2>
-            <label class="check-row"><input type="checkbox" id="learning-review" /> After each task, suggest what is worth remembering. You accept or reject each suggestion.</label>
-            <label class="check-row"><input type="checkbox" id="learning-approval" /> Ask me before the assistant saves, changes or removes a memory on its own.</label>
-            <label class="check-row"><input type="checkbox" id="learning-consolidate" /> Once a day, look over what happened and suggest what is worth remembering. <button id="consolidate-now" type="button">Look now</button></label>
+            <label class="check-row"><input type="checkbox" id="learning-review" /> <span data-t="field.after-each-task-suggest-what">After each task, suggest what is worth remembering. You accept or reject each suggestion.</span></label>
+            <label class="check-row"><input type="checkbox" id="learning-approval" /> <span data-t="field.ask-me-before-the-assistant">Ask me before the assistant saves, changes or removes a memory on its own.</span></label>
+            <label class="check-row"><input type="checkbox" id="learning-consolidate" /> Once a day, look over what happened and suggest what is worth remembering. <button id="consolidate-now" type="button" data-t="action.look-now">Look now</button></label>
             <h3>Suggested changes</h3>
             <div id="memory-proposals" class="card-list" aria-live="polite"></div>
             <h3>Checkpoints</h3>
             <p class="subtle">A checkpoint keeps every memory and which skill versions are enabled, so you can put everything back exactly as it was.</p>
-            <div class="input-row"><input id="checkpoint-label" maxlength="120" aria-label="Name this checkpoint" placeholder="Name this checkpoint (optional)" /><button id="checkpoint-save" type="button">Save a checkpoint</button></div>
+            <div class="input-row"><input id="checkpoint-label" maxlength="120" aria-label="Name this checkpoint" placeholder="Name this checkpoint (optional)" /><button id="checkpoint-save" type="button" data-t="action.save-a-checkpoint">Save a checkpoint</button></div>
             <div id="memory-checkpoints" class="card-list"></div>
           </form>
           <div id="memory-list" class="card-list"></div>
@@ -409,7 +454,7 @@
                 rows="12"
                 spellcheck="false"
               ></textarea
-              ><button>Save candidate</button>
+              ><button data-t="action.save-candidate">Save candidate</button>
             </form>
           </details>
           <div id="specialists-list" class="card-list"></div>
@@ -430,7 +475,7 @@
                 rows="12"
                 spellcheck="false"
               ></textarea
-              ><button>Save proposal</button>
+              ><button data-t="action.save-proposal">Save proposal</button>
             </form>
           </details>
           <div id="procedures-list" class="card-list"></div>
@@ -439,8 +484,64 @@
             A flow is a list of steps the app works through on its own. Here is
             what each saved flow does, step by step, and where it has got to.
           </p>
-          <button id="flows-refresh" class="secondary">Show the flows</button>
+          <button id="flows-refresh" class="secondary" data-t="action.show-the-flows">Show the flows</button>
           <div id="flows-list" class="card-list"></div>
+          <!-- Wave 8: changing a flow rather than only looking at one (public/flow-editor.js). -->
+          <article id="flow-editor" class="card">
+            <h2 data-t="editor.title">Change a flow</h2>
+            <p class="meta" data-t="editor.intro">
+              Add a step, take one away, move one earlier or later, and fill in what that kind of
+              step needs. The picture above the list changes as you go; nothing is saved until you
+              press Save.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="editor-flow" data-t="field.which-flow">Which flow</label>
+                <select id="editor-flow"></select>
+              </div>
+              <div>
+                <label for="editor-name" data-t="field.name">Name</label>
+                <input id="editor-name" type="text" maxlength="80" />
+              </div>
+            </div>
+            <label for="editor-description" data-t="field.what-this-flow-does">What this flow does</label>
+            <input id="editor-description" type="text" maxlength="500" />
+            <div id="editor-picture" class="editor-picture"></div>
+            <div id="editor-steps" class="card-list"></div>
+            <div class="row-fields">
+              <div>
+                <label for="editor-kind" data-t="field.kind-of-step">Kind of step</label>
+                <select id="editor-kind"></select>
+              </div>
+            </div>
+            <div class="report-actions">
+              <button id="editor-add" type="button" class="quiet" data-t="action.add-a-step">Add a step</button>
+              <button id="editor-save" type="button" class="quiet" data-t="action.save-this-flow">Save this flow</button>
+              <button id="editor-run" type="button" class="quiet" data-t="action.run-this-flow">Run this flow</button>
+            </div>
+            <p id="editor-status" class="meta" role="status" aria-live="polite"></p>
+            <h3 data-t="editor.timeline">While it runs</h3>
+            <div id="editor-timeline" class="card-list"></div>
+          </article>
+          <!-- Wave 8: how often a task repeats, in plain words (A2093). -->
+          <article id="repeat-picker" class="card">
+            <h2 data-t="repeat.title">How often should it repeat?</h2>
+            <p class="meta" data-t="repeat.intro">
+              Choose a rhythm and see it written out in plain words before you use it.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="repeat-every" data-t="field.every">Every</label>
+                <select id="repeat-every"></select>
+              </div>
+              <div>
+                <label for="repeat-at" data-t="field.at-what-time">At what time</label>
+                <input id="repeat-at" type="time" value="09:00" />
+              </div>
+            </div>
+            <p id="repeat-preview" class="meta" role="status" aria-live="polite"></p>
+            <button id="repeat-use" type="button" class="quiet" data-t="action.use-this-rhythm">Use this rhythm</button>
+          </article>
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro" data-t="schedules.intro.tasks-your-assistant-starts-on">
@@ -495,9 +596,9 @@
               ><select id="schedule-deliver"><option value="">Nowhere (Activity only)</option></select>
             </div>
             <div>
-              <label class="check"><input id="schedule-webhook" type="checkbox" /> Allow a webhook to trigger this</label>
+              <label class="check"><input id="schedule-webhook" type="checkbox" /> <span data-t="field.allow-a-webhook-to-trigger">Allow a webhook to trigger this</span></label>
             </div>
-            <button>Schedule</button>
+            <button data-t="action.schedule">Schedule</button>
           </form>
           <div id="schedules-list" class="card-list"></div>
           <div id="automations-container"></div>
@@ -509,7 +610,7 @@
           <div class="card">
             <h2 data-t="skills.card.when-a-skill-looks-risky">When a skill looks risky</h2>
             <p>Some skills arrive carrying a pasted key, telling the assistant to send your work somewhere, or trying to talk it out of your rules. Choose what should happen then.</p>
-            <label for="skill-policy">What to do</label>
+            <label for="skill-policy" data-t="field.what-to-do">What to do</label>
             <select id="skill-policy"><option value="block">Block it (recommended)</option><option value="review">Let me review it first</option></select>
           </div>
           <div class="card" id="set-aside-card">
@@ -524,7 +625,7 @@
               skill it used. Try it against your last few tasks first — nothing
               is really done during the try — then keep it or throw it away.
             </p>
-            <button id="skill-revisions-refresh" type="button">Show suggestions</button>
+            <button id="skill-revisions-refresh" type="button" data-t="action.show-suggestions">Show suggestions</button>
             <div id="skill-revisions-list" class="card-list"></div>
           </div>
           <div id="skills-list" class="card-list"></div>
@@ -532,24 +633,24 @@
             <h2 id="skill-editor-title">Install a skill</h2>
             <p>Write the instructions out, or open a file someone sent you. Saving keeps the version already in use, so you can always go back to it.</p>
             <div class="skill-actions">
-              <button id="skill-new" type="button">New skill</button>
-              <button id="skill-import-button" type="button">Open a skill file</button>
-              <button id="skill-reload" type="button" hidden>Reload saved skill</button>
+              <button id="skill-new" type="button" data-t="action.new-skill">New skill</button>
+              <button id="skill-import-button" type="button" data-t="action.open-a-skill-file">Open a skill file</button>
+              <button id="skill-reload" type="button" hidden data-t="action.reload-saved-skill">Reload saved skill</button>
             </div>
             <input id="skill-import" type="file" accept=".md,text/markdown,text/plain" hidden />
-            <label for="skill-document">The instructions</label>
+            <label for="skill-document" data-t="field.the-instructions">The instructions</label>
             <textarea id="skill-document" rows="15" maxlength="16000" required spellcheck="false"></textarea>
-            <button id="skill-save">Install skill</button>
+            <button id="skill-save" data-t="action.install-skill">Install skill</button>
             <div id="skill-version-controls" hidden>
-              <label for="skill-version">Retained version</label>
+              <label for="skill-version" data-t="field.retained-version">Retained version</label>
               <select id="skill-version"></select>
               <div id="skill-findings" class="card-list"></div>
-              <label id="skill-acknowledge-row" class="check-row" hidden><input type="checkbox" id="skill-acknowledge" /> I read the warnings above and still want to enable this version</label>
+              <label id="skill-acknowledge-row" class="check-row" hidden><input type="checkbox" id="skill-acknowledge" /> <span data-t="field.i-read-the-warnings-above">I read the warnings above and still want to enable this version</span></label>
               <div class="skill-actions">
-                <button id="skill-read" type="button">Load version into editor</button>
-                <button id="skill-activate" type="button">Activate selected version</button>
-                <button id="skill-disable" type="button">Disable skill</button>
-                <button id="skill-remove" type="button">Remove skill and all versions</button>
+                <button id="skill-read" type="button" data-t="action.load-version-into-editor">Load version into editor</button>
+                <button id="skill-activate" type="button" data-t="action.activate-selected-version">Activate selected version</button>
+                <button id="skill-disable" type="button" data-t="action.disable-skill">Disable skill</button>
+                <button id="skill-remove" type="button" data-t="action.remove-skill-and-all-versions">Remove skill and all versions</button>
               </div>
             </div>
             <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
@@ -559,17 +660,17 @@
           <div class="card" id="skill-share-card">
             <h2 data-t="skills.card.share-a-skill-or-open">Share a skill, or open one someone sent you</h2>
             <p class="subtle">A skill package is one file holding the instructions and, if the author added them, the web addresses it may call and the events it reacts to. You see everything it asks for before anything is installed.</p>
-            <label for="skill-package-which">Skill to save</label>
+            <label for="skill-package-which" data-t="field.skill-to-save">Skill to save</label>
             <select id="skill-package-which"></select>
-            <label for="skill-package-author">Your name, for a package you make</label>
+            <label for="skill-package-author" data-t="field.your-name-for-a-package">Your name, for a package you make</label>
             <input id="skill-package-author" type="text" maxlength="120" placeholder="Your name" />
             <div class="skill-actions">
-              <button id="skill-package-save" type="button">Save the open skill as a package</button>
-              <button id="skill-package-open" type="button">Open a package file</button>
+              <button id="skill-package-save" type="button" data-t="action.save-the-open-skill-as">Save the open skill as a package</button>
+              <button id="skill-package-open" type="button" data-t="action.open-a-package-file">Open a package file</button>
             </div>
             <input id="skill-package-file" type="file" accept=".branchskill" hidden />
             <div id="skill-package-preview" class="card-list"></div>
-            <button id="skill-package-install" type="button" hidden>Install it with what it asks for</button>
+            <button id="skill-package-install" type="button" hidden data-t="action.install-it-with-what-it">Install it with what it asks for</button>
             <p id="skill-package-status" role="status"></p>
           </div>
           <div class="card" id="skill-updates-card">
@@ -590,19 +691,19 @@
           </div>
         </section>
         <section id="documents" class="view" hidden>
-          <p class="section-intro" data-t="documents.intro.your-own-documents-kept-on">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, web pages, notes, tables and plain text can be read. PDFs are listed but need a helper first.</p>
+          <p class="section-intro" data-t="documents.intro.your-own-documents-kept-on">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, slide decks, OpenDocument files, e-books, rich text, web pages, notes, tables, plain text and PDFs are all read here. A PDF that is pictures of text has no words to lift out, and says so.</p>
           <div class="card">
             <h2 data-t="documents.card.answering-from-your-documents">Answering from your documents</h2>
             <p>While this is on, your assistant looks through the documents below before it answers, and says which one it took each line from.</p>
-            <label class="check-row"><input type="checkbox" id="documents-use" /> Use my documents when answering</label>
+            <label class="check-row"><input type="checkbox" id="documents-use" /> <span data-t="field.use-my-documents-when-answering">Use my documents when answering</span></label>
             <p class="subtle" id="documents-meaning"></p>
           </div>
           <form id="documents-path-form" class="card">
             <h2 data-t="documents.card.add-a-file-from-your">Add a file from your workspace</h2>
-            <label for="documents-path">Where the file is, inside your workspace</label>
+            <label for="documents-path" data-t="field.where-the-file-is-inside">Where the file is, inside your workspace</label>
             <div class="input-row">
               <input id="documents-path" type="text" maxlength="500" placeholder="notes/handbook.docx" />
-              <button type="submit">Add this file</button>
+              <button type="submit" data-t="action.add-this-file">Add this file</button>
             </div>
           </form>
           <div class="card" id="documents-drop">
@@ -618,7 +719,7 @@
             <div class="input-row">
               <input id="document-ask-file" type="text" aria-label="Which file to ask about" maxlength="500" placeholder="notes/handbook.docx" />
               <input id="document-ask-question" type="text" aria-label="Your question about that file" maxlength="500" placeholder="how much paid leave do staff get?" />
-              <button id="document-ask-go" type="button">Ask</button>
+              <button id="document-ask-go" type="button" data-t="action.ask">Ask</button>
             </div>
             <div id="document-ask-result" role="status"></div>
             <h3>Compare two files</h3>
@@ -626,16 +727,16 @@
             <div class="input-row">
               <input id="document-compare-a" type="text" aria-label="The earlier file" maxlength="500" placeholder="contracts/old.docx" />
               <input id="document-compare-b" type="text" aria-label="The later file" maxlength="500" placeholder="contracts/new.docx" />
-              <button id="document-compare-go" type="button">Compare</button>
+              <button id="document-compare-go" type="button" data-t="action.compare">Compare</button>
             </div>
             <div id="document-compare-result" role="status"></div>
           </div>
           <form id="documents-search-form" class="card">
             <h2 data-t="documents.card.search-your-documents">Search your documents</h2>
-            <label for="documents-query">What are you looking for?</label>
+            <label for="documents-query" data-t="field.what-are-you-looking-for">What are you looking for?</label>
             <div class="input-row">
               <input id="documents-query" type="search" maxlength="500" placeholder="holiday policy" />
-              <button type="submit">Search</button>
+              <button type="submit" data-t="action.search">Search</button>
             </div>
             <div id="documents-results" class="card-list"></div>
           </form>
@@ -645,21 +746,21 @@
             <h2 data-t="documents.card.knowledge">Knowledge</h2>
             <p class="subtle" id="knowledge-meaning">A knowledge base is a name you give to whole folders of your work, so the assistant can find the right page and tell you where it came from.</p>
             <form id="knowledge-create-form">
-              <label for="knowledge-name">Name this knowledge base</label>
+              <label for="knowledge-name" data-t="field.name-this-knowledge-base">Name this knowledge base</label>
               <div class="input-row">
                 <input id="knowledge-name" type="text" maxlength="120" placeholder="Handbook" />
                 <input id="knowledge-folder" type="text" aria-label="Folder to read" maxlength="500" placeholder="notes" />
-                <button type="submit">Create</button>
+                <button type="submit" data-t="action.create">Create</button>
               </div>
               <p class="subtle">The second box is the folder inside your workspace to read. You can add more folders afterwards.</p>
             </form>
             <p id="knowledge-status" role="status"></p>
             <div id="knowledge-list" class="card-list"></div>
             <form id="knowledge-search-form">
-              <label for="knowledge-query">Ask your knowledge bases</label>
+              <label for="knowledge-query" data-t="field.ask-your-knowledge-bases">Ask your knowledge bases</label>
               <div class="input-row">
                 <input id="knowledge-query" type="search" maxlength="500" placeholder="what does the handbook say about holiday?" />
-                <button type="submit">Search</button>
+                <button type="submit" data-t="action.search">Search</button>
               </div>
               <div id="knowledge-results" class="card-list"></div>
             </form>
@@ -699,7 +800,7 @@
           <div class="card">
             <h2 data-t="documents.card.made-by-the-assistant">Made by the assistant</h2>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
-            <button id="gallery-refresh" type="button">Look again</button>
+            <button id="gallery-refresh" type="button" data-t="action.look-again">Look again</button>
             <div id="gallery-list" class="card-list"></div>
           </div>
         </section>
@@ -708,38 +809,38 @@
           <section id="deployment-card" class="card">
             <h2 data-t="settings.card.how-branch-runs-on-this">How Branch runs on this computer</h2>
             <p id="deployment-note" role="status">Choose when Branch starts, whether it keeps working with the window closed, and whether your phone can reach it.</p>
-            <label><input id="start-with-windows" type="checkbox" /> Start Branch when I sign in to Windows</label>
-            <label><input id="start-minimised" type="checkbox" checked /> Start quietly in the corner of the taskbar, without opening the window</label>
+            <label><input id="start-with-windows" type="checkbox" /> <span data-t="field.start-branch-when-i-sign">Start Branch when I sign in to Windows</span></label>
+            <label><input id="start-minimised" type="checkbox" checked /> <span data-t="field.start-quietly-in-the-corner">Start quietly in the corner of the taskbar, without opening the window</span></label>
             <p id="start-with-windows-status" role="status" class="meta"></p>
-            <label><input id="keep-running" type="checkbox" /> Keep Branch working when the window is closed</label>
+            <label><input id="keep-running" type="checkbox" /> <span data-t="field.keep-branch-working-when-the">Keep Branch working when the window is closed</span></label>
             <p id="keep-running-status" role="status" class="meta">Timed jobs, chat replies and triggers only happen while Branch is working.</p>
-            <label><input id="phone-switch" type="checkbox" /> Reach Branch from my phone</label>
+            <label><input id="phone-switch" type="checkbox" /> <span data-t="field.reach-branch-from-my-phone">Reach Branch from my phone</span></label>
             <p id="phone-status" role="status" class="meta"></p>
             <p class="meta">Your phone reaches Branch over Tailscale, the private network you already sign in to on both devices. Branch never opens itself to the internet or to the network you happen to be on.</p>
-            <button id="phone-invite" type="button" class="quiet-button" hidden>Show the square code for my phone</button>
+            <button id="phone-invite" type="button" class="quiet-button" hidden data-t="action.show-the-square-code-for">Show the square code for my phone</button>
             <canvas id="phone-qr" width="240" height="240" aria-label="Square code to scan with your phone" hidden></canvas>
             <p id="phone-code" role="status" class="meta"></p>
             <h3>Safety copies</h3>
             <p id="restore-points" class="meta"></p>
             <div id="restore-offer" hidden>
               <p id="restore-offer-note" role="status"></p>
-              <button id="restore-previous" type="button" class="quiet-button">Put back the previous version's saved work</button>
+              <button id="restore-previous" type="button" class="quiet-button" data-t="action.put-back-the-previous-version">Put back the previous version's saved work</button>
             </div>
             <h3>Check this computer is ready</h3>
-            <button id="run-doctor" type="button" class="quiet-button">Check and repair what I can</button>
+            <button id="run-doctor" type="button" class="quiet-button" data-t="action.check-and-repair-what-i">Check and repair what I can</button>
             <pre id="doctor-report" class="meta"></pre>
           </section>
           <form id="identity-form" class="card">
             <h2 data-t="settings.card.assistant-identity">Assistant identity</h2>
             <p>Changes apply to the next task, including the next message in an existing conversation. Tasks already running keep their current instructions.</p>
             <fieldset id="identity-fields">
-              <label for="identity-name">Assistant name</label>
+              <label for="identity-name" data-t="field.assistant-name">Assistant name</label>
               <input id="identity-name" maxlength="80" required />
-              <label for="identity-instructions">Working instructions</label>
+              <label for="identity-instructions" data-t="field.working-instructions">Working instructions</label>
               <textarea id="identity-instructions" maxlength="4000" rows="5" placeholder="Describe how you want your assistant to work."></textarea>
               <div class="identity-actions">
-                <button id="identity-save">Save identity</button>
-                <button id="identity-reload" type="button">Reload saved identity</button>
+                <button id="identity-save" data-t="action.save-identity">Save identity</button>
+                <button id="identity-reload" type="button" data-t="action.reload-saved-identity">Reload saved identity</button>
               </div>
             </fieldset>
             <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
@@ -805,11 +906,11 @@
             <label class="check-row">
               <input id="auto-read-aloud" type="checkbox" /> Read replies aloud automatically
             </label>
-            <label for="voice-select">Voice</label>
+            <label for="voice-select" data-t="field.voice">Voice</label>
             <select id="voice-select">
               <option value="default">Default</option>
             </select>
-            <label for="speech-rate">Speech speed</label>
+            <label for="speech-rate" data-t="field.speech-speed">Speech speed</label>
             <input id="speech-rate" type="range" min="0.5" max="2" step="0.1" value="1" />
             <label class="check-row">
               <input id="use-provider-voice" type="checkbox" /> Use higher-quality voice from my provider
@@ -820,14 +921,14 @@
             <label class="check-row">
               <input id="voice-keep-local" type="checkbox" /> Keep audio on this computer (never send a recording anywhere)
             </label>
-            <label for="voice-stt-route">Who writes out what you say</label>
+            <label for="voice-stt-route" data-t="field.who-writes-out-what-you">Who writes out what you say</label>
             <select id="voice-stt-route">
               <option value="auto">Whatever your model provider offers</option>
               <option value="openai">Your model provider</option>
               <option value="gemini">Gemini</option>
               <option value="local">A speech program on this computer</option>
             </select>
-            <label for="voice-tts-route">Who reads replies aloud</label>
+            <label for="voice-tts-route" data-t="field.who-reads-replies-aloud">Who reads replies aloud</label>
             <select id="voice-tts-route">
               <option value="auto">Whatever suits</option>
               <option value="windows">The voice that comes with Windows (free, works offline)</option>
@@ -835,9 +936,9 @@
               <option value="gemini">Gemini</option>
             </select>
             <!-- Wave 8: the limits a live conversation runs under. Wired in public/voice-talk.js. -->
-            <label for="voice-live-minutes">A live conversation stops itself after this many minutes</label>
+            <label for="voice-live-minutes" data-t="field.a-live-conversation-stops-itself">A live conversation stops itself after this many minutes</label>
             <input id="voice-live-minutes" type="number" min="1" max="120" step="1" value="10" />
-            <label for="voice-live-dollars">…or once it has cost this much (US dollars)</label>
+            <label for="voice-live-dollars" data-t="field.or-once-it-has-cost">…or once it has cost this much (US dollars)</label>
             <input id="voice-live-dollars" type="number" min="0.1" max="100" step="0.1" value="1" />
             <label class="check-row">
               <input id="voice-live-vad" type="checkbox" checked /> Let the service work out when you have stopped speaking
@@ -845,60 +946,60 @@
             <label class="check-row">
               <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
             </label>
-            <label for="voice-language">Language (leave empty to let it work that out)</label>
+            <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
-            <label for="voice-local-exe">Speech program on this computer</label>
+            <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
             <p class="field-note">If you have installed whisper.cpp or faster-whisper, say where it is; otherwise leave this empty.</p>
             <input id="voice-local-exe" maxlength="400" placeholder="Leave empty if you have not installed one" />
-            <label for="voice-local-model">Its model file or model name</label>
+            <label for="voice-local-model" data-t="field.its-model-file-or-model">Its model file or model name</label>
             <input id="voice-local-model" maxlength="400" placeholder="for example ggml-base.en.bin" />
             <label class="check-row">
               <input id="voice-reply-audio" type="checkbox" /> Answer a voice note on a chat app with a voice note back
             </label>
             <p class="subtle" id="voice-where"></p>
             <p class="subtle" id="voice-prices"></p>
-            <button type="button" id="voice-test-speak">Test reading aloud</button>
-            <button type="button" id="voice-test-record">Test the microphone</button>
-            <button type="button" id="voice-settings-save">Save voice settings</button>
+            <button type="button" id="voice-test-speak" data-t="action.test-reading-aloud">Test reading aloud</button>
+            <button type="button" id="voice-test-record" data-t="action.test-the-microphone">Test the microphone</button>
+            <button type="button" id="voice-settings-save" data-t="action.save-voice-settings">Save voice settings</button>
             <p id="voice-status" role="status"></p>
           </form>
           <!-- Wave 7: named routing profiles and a live check of each connection (public/model-profiles.js). -->
           <section id="model-profiles-card" class="card">
             <h2 data-t="settings.card.which-model-does-what">Which model does what</h2>
             <p>A profile is a named order of connections: the first one that is set up and working answers. Nothing is routed until you switch one on.</p>
-            <label for="model-profile-active">Profile in use</label>
+            <label for="model-profile-active" data-t="field.profile-in-use">Profile in use</label>
             <select id="model-profile-active"><option value="">None — use my usual choice</option></select>
             <div id="model-profile-list"></div>
             <p id="model-profile-why" class="subtle"></p>
-            <button type="button" id="model-profile-save">Save profile choice</button>
+            <button type="button" id="model-profile-save" data-t="action.save-profile-choice">Save profile choice</button>
           </section>
           <section id="model-probe-card" class="card">
             <h2 data-t="settings.card.check-your-connections">Check your connections</h2>
             <p>Asks each connection what it can do right now: whether the key still works, how many models it lists, and whether it can handle speech, pictures and comparing passages.</p>
-            <button type="button" id="model-probe-run">Check every connection</button>
+            <button type="button" id="model-probe-run" data-t="action.check-every-connection">Check every connection</button>
             <div id="model-probe-list"></div>
           </section>
           <!-- Wave 7: signing in with Google for Gemini, beside the ordinary key flow. -->
           <section id="gemini-signin-card" class="card">
             <h2 data-t="settings.card.gemini">Gemini</h2>
             <p id="gemini-signin-note" class="subtle"></p>
-            <label for="gemini-client-id">Your Google sign-in client id</label>
+            <label for="gemini-client-id" data-t="field.your-google-sign-in-client">Your Google sign-in client id</label>
             <input id="gemini-client-id" maxlength="300" placeholder="From your own Google Cloud project" />
-            <label for="gemini-signin-model">Gemini model</label>
+            <label for="gemini-signin-model" data-t="field.gemini-model">Gemini model</label>
             <input id="gemini-signin-model" maxlength="200" placeholder="gemini-2.5-flash" />
-            <button type="button" id="gemini-signin">Sign in with Google</button>
+            <button type="button" id="gemini-signin" data-t="action.sign-in-with-google">Sign in with Google</button>
             <p id="gemini-signin-status" class="subtle" role="status"></p>
           </section>
           <form id="media-form" class="card">
             <h2 data-t="settings.card.pictures-and-sound">Pictures and sound</h2>
             <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>
-            <label for="media-image-model">Picture model</label>
+            <label for="media-image-model" data-t="field.picture-model">Picture model</label>
             <input id="media-image-model" maxlength="200" placeholder="Leave empty to use your provider's usual one" />
-            <label for="media-folder">Where to save pictures and sound</label>
+            <label for="media-folder" data-t="field.where-to-save-pictures-and">Where to save pictures and sound</label>
             <input id="media-folder" maxlength="100" placeholder="media" />
             <p class="subtle" id="media-prices"></p>
             <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
-            <button type="submit">Save picture and sound settings</button>
+            <button type="submit" data-t="action.save-picture-and-sound-settings">Save picture and sound settings</button>
             <p id="media-status" role="status"></p>
           </form>
           <section id="chatgpt-card" class="card">
@@ -910,13 +1011,13 @@
               <p id="chatgpt-code" class="code-display" aria-live="polite"></p>
               <div class="identity-actions">
                 <a id="chatgpt-open" class="button-link" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer">Open the sign-in page ↗</a>
-                <button id="chatgpt-copy" type="button">Copy code</button>
+                <button id="chatgpt-copy" type="button" data-t="action.copy-code">Copy code</button>
               </div>
               <p class="subtle">Waiting for you to finish in the browser. This page updates by itself.</p>
             </div>
             <div class="identity-actions">
-              <button id="chatgpt-login" type="button">Sign in with ChatGPT</button>
-              <button id="chatgpt-logout" type="button" hidden>Sign out</button>
+              <button id="chatgpt-login" type="button" data-t="action.sign-in-with-chatgpt">Sign in with ChatGPT</button>
+              <button id="chatgpt-logout" type="button" hidden data-t="action.sign-out">Sign out</button>
             </div>
             <p class="subtle">Access through a ChatGPT plan is provided by OpenAI for its own tools and may change. Branch identifies itself as Branch Agent and never pretends to be another app.</p>
           </section>
@@ -926,44 +1027,44 @@
             <p id="updates-status" role="status"></p>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
-              <button id="updates-check" type="button">Check for updates</button>
-              <button id="updates-install" type="button" hidden>Update and restart</button>
+              <button id="updates-check" type="button" data-t="action.check-for-updates">Check for updates</button>
+              <button id="updates-install" type="button" hidden data-t="action.update-and-restart">Update and restart</button>
             </div>
             <p class="subtle">Updates come from the Branch Agent releases on GitHub. Each download is checked against its published fingerprint before anything changes.</p>
           </section>
           <form id="projects-form" class="card">
             <h2 data-t="settings.card.projects">Projects</h2>
             <p>A project keeps its own instructions, preferred model and secrets. Switch the active project to change all three at once.</p>
-            <label for="project-active">Active project</label>
+            <label for="project-active" data-t="field.active-project">Active project</label>
             <select id="project-active"></select>
             <p class="subtle">Edit a project below. Choosing a project in the list loads it; save writes it back.</p>
-            <label for="project-id">Short id</label>
+            <label for="project-id" data-t="field.short-id">Short id</label>
             <input id="project-id" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. client-site" />
-            <label for="project-name">Name</label>
+            <label for="project-name" data-t="field.name">Name</label>
             <input id="project-name" maxlength="80" placeholder="Client website" />
-            <label for="project-folder">Folder inside the workspace (optional)</label>
+            <label for="project-folder" data-t="field.folder-inside-the-workspace-optional">Folder inside the workspace (optional)</label>
             <input id="project-folder" maxlength="200" placeholder="e.g. clients/acme — files for this project stay inside it" />
-            <label for="project-instructions">Instructions for this project</label>
+            <label for="project-instructions" data-t="field.instructions-for-this-project">Instructions for this project</label>
             <textarea id="project-instructions" maxlength="4000" rows="3" placeholder="What the assistant should keep in mind while working on this project."></textarea>
-            <label for="project-preset">Preferred model</label>
+            <label for="project-preset" data-t="field.preferred-model">Preferred model</label>
             <select id="project-preset"></select>
             <div class="identity-actions">
-              <button id="project-save">Save project</button>
-              <button id="project-new" type="button">New project</button>
-              <button id="project-remove" type="button">Remove project</button>
+              <button id="project-save" data-t="action.save-project">Save project</button>
+              <button id="project-new" type="button" data-t="action.new-project">New project</button>
+              <button id="project-remove" type="button" data-t="action.remove-project">Remove project</button>
             </div>
             <p id="project-status" role="status"></p>
           </form>
           <form id="secrets-form" class="card">
             <h2 data-t="settings.card.secrets">Secrets</h2>
             <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
-            <label for="secret-project">Project</label>
+            <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
-            <label for="secret-name">Name (as an environment variable)</label>
+            <label for="secret-name" data-t="field.name-as-an-environment-variable">Name (as an environment variable)</label>
             <input id="secret-name" maxlength="64" pattern="[A-Z][A-Z0-9_]{0,63}" placeholder="DEPLOY_TOKEN" autocomplete="off" />
-            <label for="secret-value">Value</label>
+            <label for="secret-value" data-t="field.value">Value</label>
             <input id="secret-value" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false" />
-            <button id="secret-save">Save secret</button>
+            <button id="secret-save" data-t="action.save-secret">Save secret</button>
             <div id="secrets-list" class="card-list" aria-live="polite"></div>
           </form>
           <section id="channels-card" class="card">
@@ -971,9 +1072,9 @@
             <p>Talk to your assistant from Telegram. Each chat keeps its own conversation. People you don't know get a six-digit code the first time they write; approve it here and they're in. In groups, the assistant answers when it is mentioned or replied to.</p>
             <div id="channels-list" class="card-list"></div>
             <form id="pairing-form" class="input-row">
-              <label class="sr-only" for="pairing-code">Approval code</label>
+              <label class="sr-only" for="pairing-code" data-t="field.approval-code">Approval code</label>
               <input id="pairing-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit code from the person" />
-              <button>Approve</button>
+              <button data-t="action.approve">Approve</button>
             </form>
             <div id="pairings-list" class="card-list" aria-live="polite"></div>
             <h3>Messages still to send</h3>
@@ -1013,7 +1114,7 @@
           <section id="policy-card" class="card">
             <h2 data-t="settings.card.when-to-check-with-me">When to check with me</h2>
             <p>Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages. Whatever you pick, it never applies to the tools you run yourself from this app.</p>
-            <label for="policy-preset">How should Branch behave?</label>
+            <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
             <p id="policy-description" class="subtle"></p>
             <h3>What that means</h3>
@@ -1021,18 +1122,18 @@
             <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
             <h3>How fast one conversation may work</h3>
             <p class="subtle">If a conversation goes past one of these, it waits a moment and then carries on. Leave a box at 0 for no limit.</p>
-            <label for="policy-tool-limit">Most tools used in a minute</label>
+            <label for="policy-tool-limit" data-t="field.most-tools-used-in-a">Most tools used in a minute</label>
             <input id="policy-tool-limit" type="number" min="0" max="1000" step="1" value="0" />
-            <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
+            <label for="policy-round-limit" data-t="field.most-times-it-goes-back">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
-            <button id="policy-limits-save" type="button">Save these limits</button>
+            <button id="policy-limits-save" type="button" data-t="action.save-these-limits">Save these limits</button>
             <h3>Rules about one particular thing</h3>
             <p class="subtle">A rule can be about one folder, one website, one messaging account or one command, rather than everything at once. Rules like these are looked at before the broader ones above.</p>
             <ul id="rules-list" class="check-list"></ul>
             <p id="rules-empty" class="subtle" hidden>You have not set any rules of your own yet.</p>
-            <label for="rules-tool">Which tool, or * for all of them</label>
+            <label for="rules-tool" data-t="field.which-tool-or-for-all">Which tool, or * for all of them</label>
             <input id="rules-tool" maxlength="100" placeholder="e.g. files.write" value="*" />
-            <label for="rules-kind">What is it about?</label>
+            <label for="rules-kind" data-t="field.what-is-it-about">What is it about?</label>
             <select id="rules-kind">
               <option value="any">Anything it touches</option>
               <option value="path">A folder or file</option>
@@ -1040,22 +1141,22 @@
               <option value="channel">A messaging account</option>
               <option value="command">A command</option>
             </select>
-            <label for="rules-pattern">Which one? Leave empty for all</label>
+            <label for="rules-pattern" data-t="field.which-one-leave-empty-for">Which one? Leave empty for all</label>
             <input id="rules-pattern" maxlength="300" placeholder="e.g. finance" />
-            <label for="rules-decision">And then?</label>
+            <label for="rules-decision" data-t="field.and-then">And then?</label>
             <select id="rules-decision">
               <option value="ask">Check with me first</option>
               <option value="deny">Never allow it</option>
               <option value="allow">Always allow it</option>
             </select>
-            <button id="rules-add" type="button">Add this rule</button>
+            <button id="rules-add" type="button" data-t="action.add-this-rule">Add this rule</button>
             <h3>Try a decision out</h3>
             <p class="subtle">See what would happen before anything really does. Nothing is saved or run.</p>
-            <label for="rules-test-tool">Tool</label>
+            <label for="rules-test-tool" data-t="field.tool">Tool</label>
             <input id="rules-test-tool" maxlength="100" placeholder="e.g. files.write" />
-            <label for="rules-test-target">What it would touch</label>
+            <label for="rules-test-target" data-t="field.what-it-would-touch">What it would touch</label>
             <input id="rules-test-target" maxlength="500" placeholder="e.g. finance/report.xlsx" />
-            <button id="rules-test-run" type="button">What would happen?</button>
+            <button id="rules-test-run" type="button" data-t="action.what-would-happen">What would happen?</button>
             <p id="rules-test-answer" class="subtle" role="status"></p>
             <p id="rules-status" class="subtle" role="status"></p>
             <h3>Or decide a whole kind of thing at once</h3>
@@ -1066,13 +1167,13 @@
           <section id="desktop-card" class="card">
             <h2 data-t="settings.card.using-your-screen-and-keyboard">Using your screen and keyboard</h2>
             <p>Branch can look at what is on this computer's screen and work the windows on it — read what a program is showing, press its buttons, type into its boxes. This is switched off, and nothing on this list happens until you switch it on.</p>
-            <label class="check-row"><input type="checkbox" id="desktop-enabled" /> Allow the assistant to use my screen and keyboard</label>
+            <label class="check-row"><input type="checkbox" id="desktop-enabled" /> <span data-t="field.allow-the-assistant-to-use">Allow the assistant to use my screen and keyboard</span></label>
             <p id="desktop-off-note" class="subtle">While this is off, Branch says so plainly instead of trying. Turning it off again stops anything that is going on right now.</p>
             <p class="subtle">Whenever it is using your screen, a small notice sits on top of everything with a <strong>Stop</strong> button on it. Press that and Branch lets go at once. Password managers, sign-in boxes and the Windows lock screen are never photographed and never typed into, and it will not type a saved password for you. Every single action is written down in Activity with the name of the window it touched.</p>
             <div id="desktop-cap-row" hidden>
-              <label for="desktop-cap">Most screen actions in one task</label>
+              <label for="desktop-cap" data-t="field.most-screen-actions-in-one">Most screen actions in one task</label>
               <input id="desktop-cap" type="number" min="1" max="200" step="1" value="40" />
-              <button id="desktop-cap-save" type="button">Save this limit</button>
+              <button id="desktop-cap-save" type="button" data-t="action.save-this-limit">Save this limit</button>
             </div>
             <p id="desktop-status" class="subtle" role="status"></p>
           </section>
@@ -1084,23 +1185,23 @@
           <section id="browser-card" class="card">
             <h2 data-t="settings.card.websites-you-stay-signed-in">Websites you stay signed in to</h2>
             <p>Some websites only show your own information once you are signed in. Sign in here once, in a real browser window, and Branch can use that website later without asking you again. <strong>You type your password into that window yourself — Branch never sees it, and only the small file the website uses to remember you is kept, scrambled, on this computer.</strong></p>
-            <label for="browser-name">Short name for this website</label>
+            <label for="browser-name" data-t="field.short-name-for-this-website">Short name for this website</label>
             <input id="browser-name" maxlength="40" pattern="[a-z0-9][a-z0-9-]{0,39}" placeholder="e.g. my-bank" />
-            <label for="browser-url">Address of its sign-in page</label>
+            <label for="browser-url" data-t="field.address-of-its-sign-in">Address of its sign-in page</label>
             <input id="browser-url" type="url" maxlength="300" placeholder="https://example.com/login" />
-            <div class="identity-actions"><button id="browser-signin" type="button">Sign in once</button></div>
+            <div class="identity-actions"><button id="browser-signin" type="button" data-t="action.sign-in-once">Sign in once</button></div>
             <p id="browser-status" class="subtle" role="status"></p>
             <div id="browser-profiles" class="card-list"></div>
             <hr />
             <h3>Letting Branch use the browser you already have open</h3>
             <p>Instead of its own fresh browser, Branch can work in the browser <em>you</em> are already using, so every website you are signed in to already knows you. <strong>Be careful with this one.</strong> While it is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. It is only on for one task, it turns itself off after fifteen minutes, and banks and password websites are always refused. Branch works in a new tab of its own and closes only that tab; your own tabs are never touched, and it still never types a password.</p>
             <p class="subtle">To use this, start Chrome or Edge yourself with its debugging door open — close it first, then start it with <code>--remote-debugging-port=9222</code> — and put that same number below.</p>
-            <label for="browser-attach-port">Debugging door number</label>
+            <label for="browser-attach-port" data-t="field.debugging-door-number">Debugging door number</label>
             <input id="browser-attach-port" type="number" min="1024" max="65535" step="1" value="9222" />
-            <label for="browser-attach-run">Which task is this for? (paste the task number, or leave empty for the next one)</label>
+            <label for="browser-attach-run" data-t="field.which-task-is-this-for">Which task is this for? (paste the task number, or leave empty for the next one)</label>
             <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
-            <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> Let Branch use my browser for this task</label>
-            <label for="browser-attach-refused">More websites it must never open in your browser (one per line)</label>
+            <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> <span data-t="field.let-branch-use-my-browser">Let Branch use my browser for this task</span></label>
+            <label for="browser-attach-refused" data-t="field.more-websites-it-must-never">More websites it must never open in your browser (one per line)</label>
             <textarea id="browser-attach-refused" rows="3" placeholder="my-credit-union.example"></textarea>
             <p class="subtle">These are added to the banking and password websites Branch already refuses. Nothing you type here can take one of those off the list.</p>
             <p id="browser-attach-status" class="subtle" role="status"></p>
@@ -1108,7 +1209,7 @@
           <section id="mcp-card" class="card">
             <h2 data-t="settings.card.sharing-with-other-ai-tools">Sharing with other AI tools</h2>
             <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
-            <div class="check-list"><label class="check"><input type="checkbox" id="mcp-enabled" /> Let other AI tools use Branch</label></div>
+            <div class="check-list"><label class="check"><input type="checkbox" id="mcp-enabled" /> <span data-t="field.let-other-ai-tools-use">Let other AI tools use Branch</span></label></div>
             <p id="mcp-status" class="subtle" role="status"></p>
             <details id="mcp-choose" hidden>
               <summary>Choose which of Branch's tools they may use</summary>
@@ -1128,29 +1229,29 @@
             <h3>Other people's servers</h3>
             <p class="subtle">Branch can also use somebody else's AI-tool server. Its tools are in the list either way; this only decides when the server itself is started.</p>
             <div class="field-row">
-              <label for="mcp-connect-when">Start these servers</label>
+              <label for="mcp-connect-when" data-t="field.start-these-servers">Start these servers</label>
               <select id="mcp-connect-when">
                 <option value="startup">When Branch starts</option>
                 <option value="on-demand">Only when a task needs one</option>
               </select>
-              <label for="mcp-keep-warm">Keep an unused connection open for (minutes)</label>
+              <label for="mcp-keep-warm" data-t="field.keep-an-unused-connection-open">Keep an unused connection open for (minutes)</label>
               <input id="mcp-keep-warm" type="number" min="0" max="120" step="1" />
-              <label for="mcp-max-servers">Most servers connected at once</label>
+              <label for="mcp-max-servers" data-t="field.most-servers-connected-at-once">Most servers connected at once</label>
               <input id="mcp-max-servers" type="number" min="1" max="20" step="1" />
-              <button id="mcp-connections-save" type="button">Save</button>
+              <button id="mcp-connections-save" type="button" data-t="action.save">Save</button>
             </div>
             <div id="mcp-health" class="card-list"></div>
             <details id="mcp-try">
               <summary>Try a server</summary>
               <p class="subtle">Paste a web address, or the command that starts the server. Branch asks it what it offers, you fill in the boxes for one of its tools, and you see exactly what came back. Every try is written down in Activity.</p>
-              <label for="mcp-try-url">Address or command</label>
+              <label for="mcp-try-url" data-t="field.address-or-command">Address or command</label>
               <input id="mcp-try-url" type="text" maxlength="300" placeholder="https://example.com/mcp" />
-              <button id="mcp-try-go" type="button">See what it offers</button>
+              <button id="mcp-try-go" type="button" data-t="action.see-what-it-offers">See what it offers</button>
               <div id="mcp-try-run-row" hidden>
-                <label for="mcp-try-tool">Which tool</label>
+                <label for="mcp-try-tool" data-t="field.which-tool">Which tool</label>
                 <select id="mcp-try-tool"></select>
                 <div id="mcp-try-form"></div>
-                <button id="mcp-try-call" type="button">Run it once</button>
+                <button id="mcp-try-call" type="button" data-t="action.run-it-once">Run it once</button>
               </div>
               <p id="mcp-try-status" class="subtle" role="status"></p>
               <pre id="mcp-try-result" hidden></pre>
@@ -1159,12 +1260,51 @@
           <section id="health-card" class="card">
             <h2 data-t="settings.card.health-check">Health check</h2>
             <p>Checks the pieces this app depends on and tells you what to do if one is not right.</p>
-            <label class="check-row"><input type="checkbox" id="health-probe" /> Also send a tiny test message to the default model</label>
-            <button id="health-run" type="button">Check now</button>
+            <label class="check-row"><input type="checkbox" id="health-probe" /> <span data-t="field.also-send-a-tiny-test">Also send a tiny test message to the default model</span></label>
+            <button id="health-run" type="button" data-t="action.check-now">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
           </section>
           <!-- Wave 6: Developer → Try things out (public/playground.js). Everything here goes
                through the same permission rules the assistant works under. -->
+          <!-- Wave 8: the owner's notes folder, and the two ways of reaching Branch from a page
+               or a browser of their own (public/misc.js wires both; src/obsidian.ts, src/embeds.ts). -->
+          <section id="obsidian-card" class="card">
+            <h2 data-t="obsidian.title">Your notes folder</h2>
+            <p class="subtle" data-t="obsidian.intro">
+              Branch can write what it remembers, what it has learned and the reports you save into
+              a folder of Markdown notes — the kind of folder Obsidian keeps. It never writes over a
+              note you have edited yourself: the new version goes beside it instead. It reads back
+              only the notes you have tagged #branch. Nothing is installed into Obsidian.
+            </p>
+            <label><input id="obsidian-enabled" type="checkbox" />
+              <span data-t="field.write-notes-into-a-folder">Write notes into a folder of mine</span></label>
+            <label for="obsidian-vault" data-t="field.the-folder-in-full">The folder, in full</label>
+            <input id="obsidian-vault" type="text" maxlength="1000" />
+            <label for="obsidian-folder" data-t="field.subfolder-for-branchs-own-notes">Subfolder for Branch's own notes</label>
+            <input id="obsidian-folder" type="text" maxlength="120" />
+            <button id="obsidian-save" type="button" data-t="action.save-notes-folder">Save notes folder</button>
+            <p id="obsidian-status" class="subtle" role="status" aria-live="polite"></p>
+          </section>
+          <section id="embeds-card" class="card">
+            <h2 data-t="embeds.title">Reaching Branch from other pages</h2>
+            <p class="subtle" data-t="embeds.intro">
+              Two ways to reach Branch from outside its own window, both for your own pages and your
+              own browser. Both are off until you switch them on, and both work only through the
+              address and key that pairing gave you — never the key this page uses on this computer.
+            </p>
+            <label><input id="embed-widget" type="checkbox" />
+              <span data-t="field.let-a-page-of-mine">Let a page of mine include the small ask box</span></label>
+            <label><input id="embed-extension" type="checkbox" />
+              <span data-t="field.let-the-browser-extension-send">Let the browser extension send me pages</span></label>
+            <label for="embed-sites" data-t="field.pages-that-may-carry-the-box">Pages that may carry the box, one address a line</label>
+            <textarea id="embed-sites" rows="3" spellcheck="false" placeholder="https://notes.example.com"></textarea>
+            <p class="subtle" data-t="embeds.sitesNote">
+              Your browser asks Branch for permission before a page of yours may send anything to it,
+              and only a page listed here is allowed. Leave it empty and no page may ask.
+            </p>
+            <button id="embeds-save" type="button" data-t="action.save-these-switches">Save these switches</button>
+            <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
+          </section>
           <section id="developer-card" class="card">
             <h2 data-t="settings.card.developer">Developer</h2>
             <details id="playground">
@@ -1177,7 +1317,7 @@
               <p id="play-status" class="subtle" role="status"></p>
               <div id="play-result" class="play-result"></div>
               <h3 data-t="playground.comparePrompt">Ask two models the same thing</h3>
-              <label class="sr-only" for="play-compare-text">Ask two models the same thing</label>
+              <label class="sr-only" for="play-compare-text" data-t="field.ask-two-models-the-same">Ask two models the same thing</label>
               <textarea id="play-compare-text" maxlength="4000" rows="3" placeholder="Write one short question."></textarea>
               <button id="play-compare-run" type="button" data-t="playground.compareRun">Ask both</button>
               <div id="play-compare-result"></div>
@@ -1186,16 +1326,16 @@
             <details id="code-ide">
               <summary>Help with code</summary>
               <p class="subtle">Branch can use a language server or a debugger you already have on this computer — the same kind of program a code editor uses to underline mistakes, jump to where something is defined, rename a name everywhere at once, or stop your code on a line. Nothing is ever downloaded, and nothing starts until you switch it on.</p>
-              <label class="check-row"><input type="checkbox" id="ls-enabled" /> Let Branch use my language servers</label>
-              <label for="ls-list">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
+              <label class="check-row"><input type="checkbox" id="ls-enabled" /> <span data-t="field.let-branch-use-my-language">Let Branch use my language servers</span></label>
+              <label for="ls-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, anything that goes after it, and the kinds of file it handles</label>
               <textarea id="ls-list" rows="3" spellcheck="false" placeholder="typescript | C:\Users\me\AppData\Roaming\npm\node_modules\typescript-language-server\lib\cli.mjs | --stdio | TypeScript, JavaScript"></textarea>
-              <label class="check-row"><input type="checkbox" id="dbg-enabled" /> Let Branch run my debuggers</label>
-              <label for="dbg-list">One per line: a short name, the full address of the program, and anything that goes after it</label>
+              <label class="check-row"><input type="checkbox" id="dbg-enabled" /> <span data-t="field.let-branch-run-my-debuggers">Let Branch run my debuggers</span></label>
+              <label for="dbg-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
               <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
-              <label class="check-row"><input type="checkbox" id="ls-keep" /> Keep a language server running between tasks</label>
-              <label class="check-row"><input type="checkbox" id="dbg-keep" /> Keep a program being debugged running between tasks</label>
-              <button id="code-ide-save" type="button">Save</button>
+              <label class="check-row"><input type="checkbox" id="ls-keep" /> <span data-t="field.keep-a-language-server-running">Keep a language server running between tasks</span></label>
+              <label class="check-row"><input type="checkbox" id="dbg-keep" /> <span data-t="field.keep-a-program-being-debugged">Keep a program being debugged running between tasks</span></label>
+              <button id="code-ide-save" type="button" data-t="action.save">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
@@ -1206,7 +1346,7 @@
               <div id="tool-catalog-summary" aria-live="polite"></div>
               <div id="tool-catalog-lists"></div>
               <div id="tool-catalog-meaning"></div>
-              <button id="tool-catalog-forget" type="button">Forget what it has learned about tools</button>
+              <button id="tool-catalog-forget" type="button" data-t="action.forget-what-it-has-learned">Forget what it has learned about tools</button>
               <p id="tool-catalog-status" class="subtle" role="status"></p>
             </details>
           </section>
@@ -1214,33 +1354,33 @@
             <h2 data-t="settings.card.diagnostics">Diagnostics</h2>
             <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
             <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
-            <button id="diagnostics-save" type="button">Save a diagnostics folder</button>
+            <button id="diagnostics-save" type="button" data-t="action.save-a-diagnostics-folder">Save a diagnostics folder</button>
             <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
             <h3>Trace files for a tracing viewer</h3>
             <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
-            <label class="check-row"><input type="checkbox" id="trace-enabled" /> Write a trace file for every finished task</label>
-            <label for="trace-folder">Folder for the trace files</label>
+            <label class="check-row"><input type="checkbox" id="trace-enabled" /> <span data-t="field.write-a-trace-file-for">Write a trace file for every finished task</span></label>
+            <label for="trace-folder" data-t="field.folder-for-the-trace-files">Folder for the trace files</label>
             <input id="trace-folder" maxlength="4096" spellcheck="false" placeholder="A full path inside your own user folder or your workspace" />
-            <button id="trace-save" type="button">Save trace settings</button>
+            <button id="trace-save" type="button" data-t="action.save-trace-settings">Save trace settings</button>
             <p id="trace-status" class="subtle" aria-live="polite"></p>
           </section>
           <section id="backup-card" class="card">
             <h2 data-t="settings.card.backup">Backup</h2>
             <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
-            <button id="backup-run" type="button">Save a backup file</button>
+            <button id="backup-run" type="button" data-t="action.save-a-backup-file">Save a backup file</button>
           </section>
           <section id="snapshots-card" class="card">
             <h2 data-t="settings.card.workspace-snapshots">Workspace snapshots</h2>
             <p>Keep a copy of every file in your workspace and put them all back later. Each change the assistant makes to a file can also be undone one at a time from Activity.</p>
-            <div class="input-row"><input id="snapshot-label" maxlength="120" aria-label="Name this snapshot" placeholder="Name this snapshot (optional)" /><button id="snapshot-save" type="button">Take a snapshot</button></div>
+            <div class="input-row"><input id="snapshot-label" maxlength="120" aria-label="Name this snapshot" placeholder="Name this snapshot (optional)" /><button id="snapshot-save" type="button" data-t="action.take-a-snapshot">Take a snapshot</button></div>
             <div id="snapshots-list" class="card-list"></div>
           </section>
           <form id="models-form" class="card">
             <h2 data-t="settings.card.models">Models</h2>
             <p>Choose which model answers by default. Each conversation can pick its own. If a model is unavailable, Branch tries the next one on your list and rests the failed one for a while.</p>
-            <label for="models-active">Default model</label>
+            <label for="models-active" data-t="field.default-model">Default model</label>
             <select id="models-active"></select>
-            <label for="models-reasoning">Default thinking</label>
+            <label for="models-reasoning" data-t="field.default-thinking">Default thinking</label>
             <select id="models-reasoning">
               <option value="">Model's own default</option>
               <option value="low">Quick</option>
@@ -1249,10 +1389,10 @@
             </select>
             <p class="subtle">If the default fails, try these in order</p>
             <div id="models-fallback" class="check-list"></div>
-            <label for="models-cooldown">Rest a failed model for (seconds)</label>
+            <label for="models-cooldown" data-t="field.rest-a-failed-model-for">Rest a failed model for (seconds)</label>
             <input id="models-cooldown" type="number" min="0" max="3600" step="1" />
             <p id="models-note" class="subtle"></p>
-            <button>Save model settings</button>
+            <button data-t="action.save-model-settings">Save model settings</button>
           </form>
           <section id="local-models-card" class="card">
             <h2 data-t="settings.card.models-on-this-computer">Models on this computer</h2>
@@ -1262,48 +1402,48 @@
             <div id="local-models-suggestions" class="card-list"></div>
             <div class="input-row">
               <input id="local-model-name" maxlength="160" aria-label="Model name" placeholder="Or type a model name, for example llama3.2:3b" />
-              <button id="local-model-get" type="button">Get this model</button>
+              <button id="local-model-get" type="button" data-t="action.get-this-model">Get this model</button>
             </div>
             <div id="local-models-downloads" class="card-list"></div>
             <div id="local-models-installed" class="card-list"></div>
             <h3>Which model answers which task</h3>
             <p class="subtle">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
-            <label><input id="local-routing-enabled" type="checkbox" /> Choose the model for me, task by task</label>
-            <label><input id="local-routing-private" type="checkbox" /> Keep tasks that mention personal details on this computer</label>
-            <label><input id="local-routing-hard" type="checkbox" /> Send long or fiddly tasks to the cloud model</label>
-            <label for="local-routing-ceiling">Use the free model here when a simple task would cost more than (US dollars)</label>
+            <label><input id="local-routing-enabled" type="checkbox" /> <span data-t="field.choose-the-model-for-me">Choose the model for me, task by task</span></label>
+            <label><input id="local-routing-private" type="checkbox" /> <span data-t="field.keep-tasks-that-mention-personal">Keep tasks that mention personal details on this computer</span></label>
+            <label><input id="local-routing-hard" type="checkbox" /> <span data-t="field.send-long-or-fiddly-tasks">Send long or fiddly tasks to the cloud model</span></label>
+            <label for="local-routing-ceiling" data-t="field.use-the-free-model-here">Use the free model here when a simple task would cost more than (US dollars)</label>
             <input id="local-routing-ceiling" type="number" min="0" max="100" step="0.01" />
-            <button id="local-routing-save" type="button">Save these rules</button>
+            <button id="local-routing-save" type="button" data-t="action.save-these-rules">Save these rules</button>
           </section>
           <form id="model-settings-form" class="card" hidden>
             <h2 data-t="settings.card.model-connection">Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
             <fieldset id="model-settings-fields">
-              <label for="provider-preset">Choose a provider</label>
+              <label for="provider-preset" data-t="field.choose-a-provider">Choose a provider</label>
               <select id="provider-preset"></select>
               <div class="provider-actions">
-                <button id="provider-test" type="button" class="secondary">Test this connection</button>
-                <button id="provider-local" type="button" class="secondary">Use the model running on this computer</button>
+                <button id="provider-test" type="button" class="secondary" data-t="action.test-this-connection">Test this connection</button>
+                <button id="provider-local" type="button" class="secondary" data-t="action.use-the-model-running-on">Use the model running on this computer</button>
               </div>
-              <label for="model-provider">Provider</label>
+              <label for="model-provider" data-t="field.provider">Provider</label>
               <select id="model-provider">
                 <option value="demo">Offline demonstration</option>
                 <option value="openai">OpenAI compatible</option>
                 <option value="anthropic">Anthropic</option>
               </select>
               <div id="model-connection-fields" hidden>
-                <label for="model-endpoint">Web address of the service</label>
+                <label for="model-endpoint" data-t="field.web-address-of-the-service">Web address of the service</label>
                 <input id="model-endpoint" type="url" maxlength="2048"
                   placeholder="https://api.openai.com/v1" />
-                <label for="model-name">Model identifier</label>
+                <label for="model-name" data-t="field.model-identifier">Model identifier</label>
                 <input id="model-name" maxlength="256" autocomplete="off" list="provider-model-suggestions" />
                 <datalist id="provider-model-suggestions"></datalist>
-                <label for="model-key">API key</label>
+                <label for="model-key" data-t="field.api-key">API key</label>
                 <input id="model-key" type="password" maxlength="8192"
                   autocomplete="new-password" spellcheck="false" />
                 <p id="model-key-note" class="subtle"></p>
               </div>
-              <button>Save model connection</button>
+              <button data-t="action.save-model-connection">Save model connection</button>
             </fieldset>
           </form>
         </section>
@@ -1311,11 +1451,17 @@
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </main>
     <aside class="context-panel" id="context-panel" aria-label="This conversation" data-connected="false">
+      <!-- Help in the app: one chapter of the owner's handbook (public/help.js). Hidden until asked. -->
+      <div class="context-block" id="context-help" hidden>
+        <h2 class="context-head" id="context-help-title">Help</h2>
+        <div id="context-help-body" class="markdown context-help-body"></div>
+        <button id="context-help-close" class="context-help-close" type="button" data-t="help.close">Close help</button>
+      </div>
       <div class="context-block">
         <h2 class="context-head">Model</h2>
         <div class="context-provider" id="context-provider">Connect to begin</div>
-        <button id="context-connect" class="context-primary" type="button">Connect a model</button>
-        <button id="context-change-model" class="context-link" type="button">Change the model</button>
+        <button id="context-connect" class="context-primary" type="button" data-t="action.connect-a-model">Connect a model</button>
+        <button id="context-change-model" class="context-link" type="button" data-t="action.change-the-model">Change the model</button>
       </div>
       <div class="context-block">
         <h2 class="context-head">What we are doing</h2>
@@ -1329,6 +1475,21 @@
       <div class="context-block">
         <h2 class="context-head" data-t="allowed.title">What is allowed right now</h2>
         <div id="context-allowed" class="context-rows"></div>
+      </div>
+      <!-- Wave 8: what is still to be done (public/todos.js). The assistant writes its plan here
+           and the owner can add a line of their own; a day on an item becomes a reminder. -->
+      <div class="context-block">
+        <h2 class="context-head" data-t="todos.title">Still to do</h2>
+        <div id="context-todos" class="context-rows"></div>
+        <form id="todo-form" class="context-form">
+          <label class="sr-only" for="todo-text" data-t="field.something-to-do">Something to do</label>
+          <input id="todo-text" type="text" maxlength="300" data-t-placeholder="todos.placeholder"
+            placeholder="Something to do" />
+          <label class="sr-only" for="todo-due" data-t="field.wanted-by-optional">Wanted by (optional)</label>
+          <input id="todo-due" type="datetime-local" />
+          <button id="todo-add" type="submit" class="quiet" data-t="action.add-to-the-list">Add to the list</button>
+        </form>
+        <p id="todo-status" class="context-empty" role="status" aria-live="polite"></p>
       </div>
       <div class="context-block">
         <h2 class="context-head">Receipts</h2>
@@ -1351,7 +1512,7 @@
         <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
           aria-label="KeepOak acorn. Drag or use arrow keys to turn it." aria-describedby="acorn-hint"></canvas>
         <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
-        <button id="acorn-motion" class="acorn-motion" type="button">Pause rotation</button>
+        <button id="acorn-motion" class="acorn-motion" type="button" data-t="action.pause-rotation">Pause rotation</button>
       </div>
     </aside>
     <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
@@ -1373,6 +1534,8 @@
           <button id="inspect-export" type="button" class="text-button" data-t="inspector.export">Save this as a file</button>
           <!-- Wave 7: the whole record, messages and spans included, in the documented shape. -->
           <button id="inspect-trajectory" type="button" class="text-button" data-t="inspector.trajectory">Save trajectory</button>
+          <!-- Batch 26 (wave 8): the same words, the same tools, the same model — then the two side by side. -->
+          <button id="inspect-replay" type="button" class="text-button" data-t="action.do-this-again">Do this again</button>
           <button id="inspect-close" type="button" class="text-button" data-t="inspector.close">Close</button>
         </div>
         <div id="inspect-body" class="inspect-body"></div>
@@ -1386,6 +1549,7 @@
     <script src="/voice-live.js" type="module"></script>
     <script src="/model-profiles.js" type="module"></script>
     <script src="/app.js" type="module"></script>
+    <script src="/help.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
     <script src="/evaluation.js" type="module"></script>
     <script src="/studies.js" type="module"></script>

@@ -1,0 +1,17 @@
+# Wave 6 task: sharing, durable workflows and calendar-aware schedules
+
+Rules: docs/agents/briefs/wave1/BUILD.md. Branch: wave6/collab-workflows from the local branch wave2/integration. Themes: multi-user-and-teams (#90), scheduling-and-automation (#89), inventory "Collaboration" (#17) and "Automation" (#10) leftovers. Backend plus small additive UI in the existing Schedules and Projects areas.
+
+Read: src/scheduler*.ts, src/recipes*.ts, src/templates.ts, src/teams.ts, src/runtime.ts (follow-ups, resume, plan steps from wave 3), src/memory-export.ts (Markdown export), src/session-library.ts, src/projects*.ts, src/channels/deliveries.ts, docs/configuration.md.
+
+Build:
+1. Shareable conversation pages (A1901/A1999): export a conversation as a single self-contained HTML file (tokens inlined, KeepOak look, no scripts) with an optional redaction pass (secrets, PII guard if present) and a "what was shared" receipt; plus, when phone access/pairing exists, a read-only share link with a one-time code and expiry served by the app itself. No public hosting.
+2. Project comments and labels (A2226): labels on conversations, procedures and documents (`labels` table, filters in the rail search and Ctrl+K); comments on a project (owner notes with timestamps) shown in the project switcher details; export/import them with the backup.
+3. Durable workflows (A0862, A0632): a workflow is a saved sequence of steps (recipe, prompt, tool call, wait-for-approval, wait-until time, branch on a check) stored as data with per-step retries, timeouts and resume after restart (state per step in a table); `workflows.create/list/run/pause/resume`, events for the context pane; the existing plan-then-act runner executes prompt steps. Include one shipped example: "Weekly review" (collect finished tasks → summarise → save to memory → deliver).
+4. Queued sessions (A2073): a per-conversation and global queue for runs when limits are hit (instead of refusing), with position shown in the UI and a "cancel queued" action; ordered by priority (owner UI first, schedules and triggers after).
+5. Holiday and quiet-hours aware schedules (A0697): a simple holiday list per country from a bundled JSON (a few countries, clearly marked as data the owner can edit) plus owner-defined days off and quiet hours; a schedule can be set to skip or shift to the next working day; deliveries respect quiet hours by holding messages until they end.
+6. Team roles for the household (multi-user family, scoped small): a second local person (e.g. a family member) can be given a named profile with a PIN, their own memory scope and conversation list, and no access to the owner's secrets or projects; switching profiles from the owner row menu. Keep it honest in the docs: this is separation on one computer, not multi-account sync.
+
+Tests (tests/collab-workflows.test.mjs): HTML export contains no script and redacts a planted secret; share link needs the code and expires; labels filter search; workflow runs, pauses at approval, resumes after a simulated restart, retries a failing step; queue ordering and cancel; holiday skip/shift and quiet-hours hold; profile switch isolates memory and blocks secrets.
+
+Acceptance: W1 export proven safe; W2 labels/comments proven; W3 workflow resume proven; W4 queue proven; W5 holidays/quiet hours proven; W6 profiles isolation proven; W7 docs sections; W8 no new dependency. Report the ids you consider done.

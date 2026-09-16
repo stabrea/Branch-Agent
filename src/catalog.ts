@@ -26,7 +26,14 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
   ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs."]],
-  ["documents", ["documents.", "pdf.", "library."]],
+  // Wave 8: the to-do list is a box of its own rather than a corner of memory. Filing it under
+  // memory reads tidier, but it put three more tools into a box almost every task opens, and the
+  // opened-catalog budget in tests/catalog-diet.test.mjs is there to stop exactly that. A box of
+  // its own costs one line while it is closed and is opened only when the owner wants a to-do.
+  ["todos", ["todos."]],
+  // Wave 8: the Obsidian bridge writes documents into a folder and reads them back, so it is a
+  // documents tool under a different name.
+  ["documents", ["documents.", "pdf.", "library.", "obsidian."]],
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],

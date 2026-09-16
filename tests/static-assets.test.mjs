@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranch } from "../dist/index.js";
+import { createBranch, saveEmbedSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 /** Every script, stylesheet and font the page refers to, including dynamic imports, must actually be served. */
@@ -35,6 +35,13 @@ test("every file the page loads is on the server's allowlist and answers 200", a
   assert.ok(referenced.has("/app.js") && referenced.has("/usage.js"), "the scan found the page's scripts");
   for (const path of ["/markdown.js", "/i18n.js", "/locales/en.json", "/locales/fr.json", "/service-worker.js", "/manifest.webmanifest"])
     assert.ok(referenced.has(path), `the scan found ${path}`);
+  /* Wave 8: the small box is included by a page of the owner's OWN, so nothing here imports it and
+     the scan above cannot see it. It is served only while the owner has switched it on, so switching
+     it off takes the box off their page rather than only hiding the setting. */
+  assert.equal((await fetch(server.url + "/widget.js")).status, 404,
+    "the small box's script is served even though the owner never switched it on");
+  saveEmbedSettings(app.store, app.runtime.owner, { widget: true });
+  referenced.add("/widget.js");
   const missing = [];
   for (const path of referenced) {
     if (path.startsWith("/api/") || path.startsWith("//")) continue;

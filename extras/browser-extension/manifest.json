@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Send to Branch",
+  "version": "1.0.0",
+  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_title": "Send to Branch",
+    "default_popup": "popup.html"
+  }
+}

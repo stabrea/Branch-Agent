@@ -31,8 +31,11 @@ export class DesktopControl {
   private readonly banner: DesktopBanner;
   /** Where screenshots are kept; without it, taking one is refused rather than lost. */
   artifacts: RunArtifacts | undefined;
-  constructor(private readonly store: Store, options: { artifacts?: RunArtifacts; runner?: DesktopScriptRunner; banner?: DesktopBanner } = {}) {
+  /** What Windows itself allows. Left unset, only Branch's own switch is consulted, as before. */
+  permissions: { check(capability: 'screen'): Promise<{ allowed: boolean; message: string }> } | undefined;
+  constructor(private readonly store: Store, options: { artifacts?: RunArtifacts; runner?: DesktopScriptRunner; banner?: DesktopBanner; permissions?: DesktopControl['permissions'] } = {}) {
     this.artifacts = options.artifacts;
+    this.permissions = options.permissions;
     this.runner = options.runner ?? new DesktopScriptRunner();
     this.banner = options.banner ?? new DesktopBanner(this.runner);
   }
@@ -48,6 +51,10 @@ export class DesktopControl {
   private async begin(context: ToolContext, tool: string): Promise<AbortSignal> {
     const settings = readDesktopSettings(this.store, context.owner);
     if (!settings.enabled) throw new Error(switchedOffMessage);
+    // The owner's switch is not the only one: Windows has its own, and a refusal there looks like
+    // nothing happening. Ask before touching the screen, and say plainly what to turn on.
+    const windows = await this.permissions?.check('screen');
+    if (windows && !windows.allowed) throw new Error(windows.message);
     const state = this.runs.get(context.runId) ?? { actions: 0, stopped: false, controller: new AbortController() };
     this.runs.set(context.runId, state);
     if (state.stopped) throw new Error('You pressed Stop, so Branch has let go of your screen and keyboard.');
@@ -56,6 +63,14 @@ export class DesktopControl {
     await this.banner.show(() => this.stop(context.runId));
     this.store.event(context.runId, 'desktop.started', { tool, action: state.actions, of: settings.maxActionsPerRun });
     return AbortSignal.any([context.signal, state.controller.signal]);
+  }
+  /**
+   * The smallest thing screen control does, on its own and with no notice put up: ask Windows for
+   * the list of open windows. It is how `OsPermissions` finds out whether Windows will let this app
+   * touch other programs' windows at all, since Windows keeps no switch it can simply be asked for.
+   */
+  async probe(timeoutMs = 5000): Promise<number> {
+    return (await this.windowList(AbortSignal.timeout(timeoutMs))).length;
   }
   /** The Stop button, and the same thing the cancel route does: let go of the screen at once. */
   stop(runId: string): void {
@@ -139,6 +154,23 @@ export class DesktopControl {
       const kept = await artifacts.write(context.runId, `desktop-${randomUUID().slice(0, 8)}.png`, 'image/png', await readFile(temporary));
       this.record(context, 'desktop.screenshot', String(answer.title ?? ''), { width: answer.width, height: answer.height });
       return { ...kept, window: String(answer.title ?? ''), width: answer.width, height: answer.height };
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+  /**
+   * Wave 8: the bytes of one rectangle of the screen, for a screen watch. Nothing is kept: the
+   * caller reduces these to a fingerprint and throws them away, and the temporary file goes at
+   * once. The same refusal applies as to any other picture of the screen — a password manager on
+   * screen stops it outright.
+   */
+  async captureRegion(region: { x: number; y: number; width: number; height: number }): Promise<Uint8Array> {
+    const signal = AbortSignal.timeout(20000);
+    await this.assertNothingPrivateOnScreen(signal);
+    const temporary = await this.runner.temporaryPng(`watch-${randomUUID().slice(0, 8)}`);
+    try {
+      await this.runner.run('screenshot', { display: 1, outPath: temporary, region }, signal);
+      return new Uint8Array(await readFile(temporary));
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined);
     }

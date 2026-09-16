@@ -9,6 +9,8 @@ import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.js";
 import { defaultJobObjects, jobWithin, type Job, type JobObjects } from "./integrations/job-object.js";
+import { netlessEnvironment } from "./integrations/shell-config.js";
+import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 
 /**
  * Some programs are meant to keep going: a website being built as you edit it, a watcher, a little
@@ -142,23 +144,29 @@ export class BackgroundProcesses {
   ) {}
   settings(): BackgroundSettings { return backgroundSettings(this.store, this.owner); }
   /** Starts a program and leaves it running; the tool call is over long before the program is. */
-  async start(input: z.infer<typeof StartInputSchema>, context: ToolContext): Promise<ProcessView> {
+  async start(input: z.infer<typeof StartInputSchema>, context: ToolContext): Promise<ProcessView & { sandbox: SandboxChoice }> {
     const settings = this.settings();
     const program = Object.hasOwn(settings.programs, input.program) ? settings.programs[input.program] : undefined;
     if (!program) throw new Error(`"${input.program}" is not one of the programs allowed to be left running. The owner adds those in Settings.`);
     if (this.list({ active: true }).length >= settings.maxRunning)
       throw new Error(`${settings.maxRunning} programs are already running; stop one before starting another.`);
     const cwd = await new WorkspaceFiles(this.workspace).checked(input.cwd, true);
-    const job = await jobWithin(this.jobs, { maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds }, 1500);
+    // An approval rule may say how tightly a program left running is held. Without one it is held
+    // to its limits and left able to reach the internet, exactly as it was before.
+    const shape = sandboxShape(context.sandbox, { job: true, netless: false });
+    const job = shape.job
+      ? await jobWithin(this.jobs, { maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds }, 1500)
+      : null;
     const child = spawn(program.path, [...program.args, ...input.args], { cwd, shell: false, windowsHide: true,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
-      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "" } });
+      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
+        ...(shape.netless ? netlessEnvironment() : {}) } });
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const entry = new Running(input.name, input.program, this.sessionOf(context), context.runId, child, job,
       settings.bufferBytes, settings.maxMinutes);
     this.running.set(entry.id, entry);
-    if (context.runId) this.store.event(context.runId, "process.started", { id: entry.id, name: entry.name, program: entry.program, pid: child.pid ?? null });
-    return entry.view();
+    if (context.runId) this.store.event(context.runId, "process.started", { id: entry.id, name: entry.name, program: entry.program, pid: child.pid ?? null, sandbox: shapeChoice(shape) });
+    return { ...entry.view(), sandbox: shapeChoice(shape) };
   }
   /** The conversation a task belongs to: what a program is filed under and read back by. */
   sessionOf(context: ToolContext): string {

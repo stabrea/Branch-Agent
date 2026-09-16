@@ -1,4 +1,96 @@
-# Branch Agent checkpoint — 2026-09-15 (late evening)
+# Branch Agent checkpoint
+
+## Checkpoint 2026-09-16 — how to resume
+
+**State.** Released **0.16.0**, installed on the owner's PC and running (its own `running.json` says
+0.16.0), with 0.15.0 kept beside it as `Branch Agent.previous`. Staging `wave2/integration` carries,
+since the release: web UI pass 3, the auth/tracing/CLI rows and the owner's handbook, all three
+reviewed and merged, plus the release commits merged back. Full suite on that tip: 1279 tests, 0
+failures, 2 environment skips. **Nothing finished is waiting for review.** The two branches left are
+both unfinished builder work, and need a builder rather than an integrator: `wave8/sandbox-remote`
+(Docker/WSL/Windows-Sandbox backends, SSH workspaces, A2027/A2233/A2344 remain) and `wave8/docs-3`
+(stopped part-way; catalog width trim pending).
+
+**One job carried forward from the handbook merge.** That branch reorganised `docs/configuration.md`
+into ten chapters. The reference had grown by about five hundred lines since it forked, so keeping
+the reorganisation would have dropped the sandbox, short-lived key, tracing and "what Branch is not"
+sections. The current reference was kept instead and the branch's *new* writing — settings that had
+never been documented anywhere — was lifted across. `scripts/check-docs.mjs` now holds every settings
+field to account (131 named, every handbook link resolving), so redoing the reorganisation against
+the current file is safe work for whoever picks it up: the checker will say if anything falls out.
+
+**To resume the loop** (details in `docs/agents/README.md`):
+1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with environment skips.
+2. For each unfinished branch in `git branch --list 'wave8/*'`, either continue it or spawn an integrator with `docs/agents/briefs/INTEGRATOR.md`; merge the reviewed `integrate/*` branch onto staging.
+3. Release when four to six branches have landed: follow `docs/agents/scripts/publish-template.sh`, and before creating the tag check that `origin/main` really carries the fixes the zip contains.
+4. Tick ledger ids only from integrator VERIFIED verdicts (`docs/agents/scripts/tick_theme.py <version> <issue>=<ids>`), and re-run a verification pass after every two releases.
+5. Check `gh pr list --state open` and issues from other people each loop; review with `docs/agents/briefs/PR-REVIEW.md`.
+
+**Numbers.** 786 pieces in the audit; **honest remaining 336** (292 single items + 44 grouped rows).
+See `docs/ROADMAP.md` for what ships in 0.17–0.18 and what 1.0 means.
+
+**Do not.** Run desktop or screen-control tests from an agent; force-remove a worktree with a
+node_modules junction; raise the catalog width literal; tick on a builder's word; rebuild `dist/` in
+a checkout while a suite is running there; leave a walked copy of the app running.
+
+## Released 0.16.0 (2026-09-16)
+
+Five reviewed branches and three fixes found while verifying the release: realtime voice, hardening
+pass 2, the long tail in "other", the design QA pass, and the re-opened rows.
+
+**What the release verification caught, which the branches had not.**
+
+- *A sandbox rule could re-open the internet the settings had closed.* `sandboxShape` replaced the
+  shape the settings asked for, so a rule carrying `limits-only` or `none` handed a script the way
+  out that Settings said it must not have. The choice on a rule now composes with the settings
+  instead of replacing it (`netless: shapes[choice].netless || fallback.netless`): a rule tightens,
+  never loosens. `src/sandbox.ts`, test in `tests/reopened.test.mjs` ("A2277 a rule holds a program
+  more tightly than the settings, never more loosely"), documented in `docs/configuration.md`.
+- *A folder watched by its short Windows name stopped the whole program.* `fs.watch` hands the path
+  to the operating system, which compares the name it reports back against the one it was given; a
+  short name ("C:\\Users\\RUNNER~1\\...") fails that comparison with an assertion inside libuv that
+  aborts the process rather than raising an error anything can catch. The CI run died inside the
+  watch tests for exactly this reason while every local run passed, because this machine's volume
+  keeps no short names. `src/watch.ts` now calls `realpathSync.native` before watching. The test
+  asks the disk for a short name and skips with a stated reason when there is none, so it proves
+  something on a build machine rather than passing everywhere by doing nothing.
+- *The packaged settings test named a field the design pass had renamed.* "API base URL" became
+  "Web address of the service" so a non-technical owner can read it; the test still asked for the old
+  words and timed out on a screen that was correct.
+
+**Release chain.** Full non-desktop suite 1209 tests, 0 failures, 2 environment skips. Packaged
+0.16.0; walkthrough of ten screens with 0 console errors and every element check present; 8 packaged
+desktop tests; zip and checksum; CI green on the second run. The update was rehearsed from a staged
+0.15.0: found 0.16.0, window gone after 12 s, old process dead, **0 new console windows**, 0.16.0 at
+40 s, previous copy kept. Installed over the owner's copy with `dist/install/install-cli.js install`
+(the app has to be stopped first; it holds its own exe) and started again: 0.16.0, with 0.15.0 kept
+beside it as `Branch Agent.previous`. Tag v0.16.0 -> 5c1fb50, checked to carry both fixes and to
+match the zip before the release was created.
+
+**A trap in the release tooling itself.** `scripts/walkthrough.mjs` wrote the install path with
+doubled backslashes in its cleanup, so PowerShell's `-like` matched nothing and every walked copy of
+the app stayed running with its debugging port open. A borrowed-browser test in a later run then
+borrowed one of those copies and failed on a branch that had not touched the browser at all. The
+cleanup now writes the path properly and prints how many copies are left, which must read 0.
+
+**Ticked, 19 ids**, each named by a test that asserts behaviour rather than existence:
+#55 A0317, A0372, A1093, A1278 · #58 A0638, A1481 · #60 A0615 · #65 A1995, A1212, A2293 ·
+#66 A0245, A0824, A1126, A1465, A1629, A2006 · #69 A1519, A1841 · #80 A2277.
+The four branches that did not name ids in their test titles were deliberately not credited: their
+integrator verdicts were lost when this session's context was compacted, and a tick on a builder's
+word is exactly what the two verification passes had to undo. They are re-verified in a later pass. A0797 ("Code execution policy") was nearly ticked on the
+strength of the sandbox work matching the row's wording, and was deliberately left open: no test
+names it, and reasoning from a row's description to code is exactly what produced the phantom ticks
+the two verification passes had to undo.
+
+**Left open on purpose.** `usageLine` in `src/terminal-tui.ts` is exported and tested but nothing in
+the product calls it: the terminal uses `answerLine`. The wave-8 merge kept both sides of a conflict.
+It should be removed rather than kept alive by its own test, but not during a release window.
+
+**Housekeeping to know about.** There are 99 git worktrees under `.claude/worktrees/`. Each holds a
+`node_modules` junction into `Branch-build/node_modules`; removing one with `git worktree remove
+--force` deletes *through* the junction and empties the shared install for every running agent.
+Remove the junction first with `cmd /c rmdir node_modules`, one at a time, never with a wildcard.
 
 ## Batch 19 (wave 7) — traces you can export, and permission rules you can read
 
@@ -1607,6 +1699,44 @@ those jobs spend one to two rounds finding tools, and never a wasted one). `Tool
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
 
+## Batch 26 (wave 8) — finishing the rows the ledger verification re-opened
+
+The 2026-09-17 verification (`docs/audit/verification-2026-09-17.md`) re-opened 24 ticked audit ids
+whose code was partial or missing. Fifteen are now built and pinned by `tests/reopened.test.mjs`
+(17 tests, one or two per id, each asserting the behaviour rather than that a symbol exists); nine
+are written down instead — seven as deliberate non-goals under "What Branch is not" in
+`docs/configuration.md`, and two as patterns this codebase already covers another way.
+
+**Secrets.** `src/credential-cli.ts` resolves `secret://bitwarden/<item>` and
+`secret://1password/<vault/item/field>` through the owner's own `bw` and `op` command lines at the
+call boundary, remembers every value in the shared scrubber and stores none. Off by default,
+per-service opt-in, read-only, and a plain refusal when the command line is absent or the vault is
+locked. `Secrets.fill` asks it before the locker, so a vault item never reads as a project name.
+
+**Policy.** An approval rule now carries a `sandbox` choice (`no-internet`, `limits-only`, `none`,
+`src/sandbox.ts`) that reaches the tool on `ToolContext` and is honoured by `code.run`,
+`process.start` and the host-command tool; a rule that says nothing leaves every tool exactly as it
+was. A host command no rule matches is now **asked** rather than run, with `remember: always` so one
+yes settles that command — the one behaviour change an existing owner will notice, written up as a
+migration note. A `tool.before` lifecycle hook may answer `{decision, reason}` and turn an allow
+into a question or a refusal; it can only make the answer stricter, and a check that times out holds
+the call rather than letting it through. Household profiles have roles (owner, adult, child) with
+grants — which tool kinds, which projects, a daily allowance — enforced at the top of `checkPolicy`.
+
+**Seeing what happened.** Windows' own privacy switches are read before the screen and the
+microphone (`src/os-permissions.ts`), with one plain sentence and the `ms-settings:` link when one is
+missing; only an outright refusal stops anything. The terminal prints what each answer cost under it
+(the running totals were already on the status line, in `src/terminal-commands.ts`). "Look inside"
+has **Do this again**: `POST /api/runs/{id}/replay` re-runs the same prompt with the same recorded
+permissions and the same model preset, and the pair opens on the existing side-by-side screen.
+
+**Orchestration.** `delegate.supervise` (a named supervisor over named workers, with the goal-split
+kept as its own separately tested function), `delegate.swarm` (several workers over one shared
+claim-and-release list) and `delegate.route` (classify, then dispatch). `delegate.handoff` takes a
+reason that is written into the conversation, and the owner can write down who each specialist may
+hand work on to. A per-turn second model, a separate decomposition step and a sequential
+action-planning node inside a role loop are documented as not built rather than half-built.
+
 ## Batch 26 (wave 7) — the hardening pass: closing the gaps the integrators handed back
 Twelve specific things the reviewers wrote down as "not fixed". Every one is now fixed and pinned
 by a test in `tests/hardening.test.mjs` (17 tests: fakes, plus the real stdio MCP fixture).
@@ -1740,6 +1870,60 @@ Known gap: a task is not filed under a project anywhere in the ledger, so there 
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
 (Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
 adds the figures up a project at a time.)
+
+## Batch 20 (wave 8) — the rest of secrets and auth, tracing, and the command line
+
+The open rows of three themes at once: secrets-and-auth (#69), tracing-and-telemetry (#63) and
+cli-and-tui (#72). Backend and command line; no new dependency.
+
+**Keys that run out.** The local session key never expires and may do everything, which is the
+wrong thing to paste into a script. `branch token create --scope read --minutes 60` makes a second
+kind of key that may only look at things (or, with `--scope run`, also start a task), stops working
+at a stated minute, and can be taken back at once. Only its hash is kept. The master key is checked
+first in `authorize`, so a mistake here can hold up a script and never the owner; a wrong one is
+counted by the same rate limit. `src/session-tokens.ts`.
+
+**Where a password comes from.** `src/vault-sources.ts` writes down the one contract every source
+follows — the locker, the environment, a file, a password manager, and now a command of the owner's
+own. `secret://cmd/<name>` runs exactly one of the programs they listed in Settings: no shell, no
+window, a stripped environment, a time limit, and a name that is not in the list never starts a
+process at all. The locker asks these sources before it looks at its own projects.
+
+**One list of who may message.** `src/channels/allowlist.ts` replaces the per-channel lists with one
+shape (channel, sender, allow/block) where a block anywhere wins. The old per-channel lists still
+work and are read after it.
+
+**A chain for the extra door.** `src/remote/gateway-auth.ts` turns "who is this phone" into named
+steps — the key, having paired, and the phone's own secret — where every step in the chain must
+pass, so adding one can only make the door harder to open. OIDC and WebAuthn stay out on purpose
+and the reason is written down in docs/configuration.md.
+
+**The third OpenTelemetry signal, and the logs route.** A finished task's own story now goes out as
+OTLP log records at `/v1/logs`, carrying the trace id, beside the spans and the counters. `GET
+/api/logs` answers JSON Lines behind the local key for a log shipper; Grafana and Loki are reached
+by pointing a collector at OTLP rather than by teaching Branch a second protocol.
+
+**Spans that cover the whole task.** `retrieval` and `delivery` spans were declared but never
+written. Looking something up in the owner's documents now opens one, and the answer going back out
+to a chat app opens another — joined to the task's own trace through `Tracer.startAfter`, because by
+then the task has settled and let go of its ids. A coverage test asserts all six kinds.
+
+**More moments in the record.** A short-lived key made or taken back, a model connection added or
+removed, Lockdown, a borrowed browser window, handing the whole assistant over, and switching who is
+using the computer.
+
+**The command line.** `branch <command> --help` says what a command does without doing it (nothing
+is opened at all). `branch run` takes `--session`, `--resume` and `--fork`. `branch chat --attach`
+joins the conversation the running engine is already having, so two terminals share one conversation.
+`branch schedule add|list|remove` works over `/api/schedules`. `branch trace <task>` prints the trace
+id and whether it was sent. `package.json` now carries `bin: { branch }` and `npm run pack:cli`
+writes a tarball; installing it is the owner's own step.
+
+**A coding assistant as a model.** `src/providers/cli-agent.ts` runs Claude Code, Codex or the
+GitHub Copilot CLI as a model backend: prompt on stdin, JSON out where the tool offers it, stripped
+environment, a time limit, and no sign-in of Branch's own — every row says so in as many words.
+
+Tests: `tests/auth-tracing-cli.test.mjs` (19).
 
 ## Batch 21 (wave 8) — the long tail in "other"
 
@@ -1933,3 +2117,52 @@ that is cached until a file changes; merge/split/export/import round-tripping th
 conversation fact retrieved later with the knowledge base named as its source. RAGFlow (A1426),
 embedded knowledge bases (A2343) and QMD (A2168) are documented as not applicable — all three are
 external services to run alongside.
+
+## The audit rows that were already done under another name
+
+### Already covered elsewhere
+
+These rows of the audit are done, by a feature that exists under another name.
+
+- **A1011 local studio / playground** — the developer playground: `GET /api/tools/forms` gives a form
+  for every tool and `POST /api/tools/try` runs one by hand, through the same approval gate, scrubbed
+  on the way out.
+- **A0279 human-in-the-loop executor** and **A0624 approval-gated side effects** — the approval gate
+  (`src/approvals.ts`): a task stops, the question is kept with what it is about, and the owner's yes
+  is remembered for this conversation or as a standing rule. Whole kinds of thing can be decided at
+  once (`POST /api/approvals/categories`), and "ask me questions first" runs before a task starts.
+- **A0323 OAuth login flows** — `src/oauth.ts` is the standard authorization-code flow with PKCE:
+  the service's own page opens in the default browser, the answer lands on a tiny page on this
+  computer, the key goes straight into the locker. Branch never sees the password.
+- **A0354 Answer Engine**, **A0355 shareable pages**, **A0840 metadata filtering**, **A1745 retriever
+  pipeline** — knowledge bases with word and meaning search, a second ranking pass
+  (`src/retrieval.ts`), numbered sources on every answer (`src/citations.ts`), and a conversation
+  shared as one page that can do nothing (`src/conversation-share.ts`).
+- **A0847 chat engines** — the runtime is the chat engine: conversations, compaction, tool rounds,
+  per-conversation model choice and working styles.
+- **A1410 structured output** — a delegated task may be required to match a JSON shape
+  (`resultSchema`), checked before the answer is accepted. Pydantic is a Python library; the same job
+  is done here by zod and JSON Schema.
+- **A1509 SDKs** — the TypeScript client is `packages/sdk`, and its types are generated from the app's
+  own checks by `scripts/generate-sdk-types.mjs`. Other languages need no library of ours: the
+  OpenAPI description above is enough to generate one.
+- **A1561 action trace recording** and **A1589 bounded visual trajectory** — a task's whole trajectory
+  is written as one JSON file (`src/trajectory.ts`), spans and all, with secrets scrubbed; pictures
+  are capped per turn and never written into the conversation store, so they are not replayed.
+- **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
+  well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
+  `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
+- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
+  carry one between installs (`src/templates.ts`).
+- **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
+  naming which programs may be left running at all.
+- **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
+  a script can read; `branch mcp-serve` and `branch acp-serve` speak over standard input and output.
+  Nothing needs a window.
+- **A2334 artifact file operations** — `src/artifacts.ts` for what a task produced and
+  `src/build-artifacts.ts` for kept versions with sizes and checksums.
+- **A2377 fallback dispatch** — a failed connection is passed over for the next one in the fallback
+  order, with a cool-off and a sentence saying why (`src/provider-retry.ts`, `src/provider-health.ts`).
+- **A1193 bidirectional live streaming** — talk mode plus the per-task WebSocket already carry speech
+  and text both ways. A provider's own realtime socket stays deferred, as recorded in wave 7.
+

@@ -1,0 +1,25 @@
+# Wave 7 task: close the gaps the reviewers handed back (hardening pass)
+
+Rules: docs/agents/briefs/wave1/BUILD.md. Branch: wave7/hardening from the local branch wave2/integration (current tip: it has everything through tool loading, MCP mode and orchestration pass 2). This is not a feature task: every item below is a specific gap an integrator found and documented as "not fixed". Backend only unless an item says otherwise. No new dependency. Keep each fix small and test it; if an item turns out to be large, say so in the report and skip it rather than half-build it.
+
+Read the relevant code for each item before touching it; the CHECKPOINT sections for waves 6 and 7 describe the current state honestly.
+
+Items:
+1. MCP connections open lazily (src/mcp-lifecycle.ts `McpConnections.acquire` exists; `loadIntegrations` still connects every configured server at startup and registers its tools then). Make the lazy path real behind a setting `mcp.connect: "startup" | "on-demand"` defaulting to "startup" (nothing changes for existing users): on-demand registers a server's tools into the tool INDEX from a cached tool list (persisted at last connect) so `tools.search` can find them, and connects only when one is called or expanded; refresh the cache on connect; health shows "not connected yet". Update README/docs/index.html/mcp-workbench.js wording that the integrator corrected, so they are true again for on-demand mode.
+2. MCP `ask` becomes an answerable pause: when an outside MCP client's call needs approval, keep the JSON-RPC call open for up to N seconds (setting, default 120) while the owner answers in the app (same pending approval, exact-bytes fingerprint); after the timeout answer with a plain "waiting for the owner" error the client can retry. Test with a fake client and a scripted owner answer.
+3. MCP apps get a surface: the context pane shows an "Open in Branch" card for an app resource the model or a server offers, opening the sandboxed iframe route; one-time id, no token, CSP as built. Small UI, tokens only.
+4. SSE sessions expire after idle N minutes (setting), in addition to the cap.
+5. `process.list` / `process.read` are session-scoped: a conversation sees only programs it started unless the owner asks for all in the Activity screen.
+6. Skill revision `accept({force})` from HTTP skips the mandatory trial: require the owner's explicit `--i-understand` style confirm in the UI (a second click with plain wording) and audit it; the model can never pass force.
+7. Telegram adapter gets `fetch: guardedFetch` like Discord/WhatsApp, with a test proving Telegram still works when the network policy allows api.telegram.org and refuses an off-host URL; the voice-note download goes through it.
+8. `provider-probe.ts` honours the Gemini `bearer` flag (never puts an OAuth token in `x-goog-api-key`); Gemini image path (`media-images.ts`) moves from `?key=` to the header like chat/audio; tests/media.test.mjs updated honestly.
+9. Tool search gets the embeddings half: when the embeddings service is configured AND the owner enables "meaning search for tools" (default off, plain sentence about what is sent), tool descriptions are embedded once (cached by sha256 of description+model), fused with BM25 by reciprocal rank; test with a fake embedder that makes a paraphrase ("make a graphic") find `data.chart` where BM25 alone does not. Stay within the tool token budget.
+10. Unhandled promise rejections in the server are recorded as spans without changing Node's default behaviour (record in `unhandledRejection` and rethrow/`process.exitCode` as appropriate; document the decision), and the desktop main process records crashes through the same tracer via IPC (small change in src/desktop/main.ts is allowed for this item only).
+11. `flows` catalog prefix: `flows.list` declares `group: "agents"`; remove the cosmetic `"flows."` schedules prefix or make the tool consistent, whichever keeps the relevance table honest.
+12. Household profiles: the assistant's own saves during a profile's task land in the owner's memory (documented). Make facts saved during a profile's task land in that profile's scope, and refuse profile tasks from reading owner-only facts, with a test; keep the docs honest about what still runs as the owner (models, settings).
+
+Tests (tests/hardening.test.mjs plus updates to the suites each item touches). All existing suites green after your final merge of `wave2/integration`. New tools (if any) filed in src/catalog.ts.
+
+Acceptance: one line per item: done / skipped (why). Report under 40 lines with branch + head SHA and test counts.
+
+Housekeeping: your worktree has no node_modules; create a junction with PowerShell `New-Item -ItemType Junction -Path <worktree>/node_modules -Target C:/Users/bishi/Documents/Codex/Branch-build/node_modules`. Never run tests/desktop*.test.mjs, tests/screen-control.test.mjs, or start Electron; never open a window on the desktop. Before your final commit, merge the current `wave2/integration` into your branch and re-run your tests. Do not remove the worktree when done.
