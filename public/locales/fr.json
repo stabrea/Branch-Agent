@@ -472,5 +472,11 @@
   "todos.title": "Encore à faire",
   "usage.card.limit": "Limite mensuelle",
   "usage.card.limitPurpose": "Arrêter de lancer de nouvelles tâches une fois atteint un nombre de mots, un montant, ou l'un ou l'autre. Laissez une case vide pour ne pas l'utiliser.",
-  "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches."
+  "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches.",
+  "field.a-live-conversation-stops-itself": "Une conversation en direct s'arrête d'elle-même après ce nombre de minutes",
+  "field.or-once-it-has-cost": "…ou une fois qu'elle a coûté ce montant (en dollars américains)",
+  "field.more-websites-it-must-never": "Autres sites qu'il ne doit jamais ouvrir dans votre navigateur (un par ligne)",
+  "field.keep-a-language-server-running": "Garder un serveur de langage en marche entre les tâches",
+  "field.keep-a-program-being-debugged": "Garder un programme en cours de débogage entre les tâches",
+  "action.do-this-again": "Refaire ceci"
 }

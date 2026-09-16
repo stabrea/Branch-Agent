@@ -471,5 +471,11 @@
   "todos.title": "Still to do",
   "usage.card.limit": "Monthly limit",
   "usage.card.limitPurpose": "Stop starting new tasks once this month reaches a number of words, an amount of money, or either. Leave a box empty to not use it.",
-  "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks."
+  "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks.",
+  "field.a-live-conversation-stops-itself": "A live conversation stops itself after this many minutes",
+  "field.or-once-it-has-cost": "…or once it has cost this much (US dollars)",
+  "field.more-websites-it-must-never": "More websites it must never open in your browser (one per line)",
+  "field.keep-a-language-server-running": "Keep a language server running between tasks",
+  "field.keep-a-program-being-debugged": "Keep a program being debugged running between tasks",
+  "action.do-this-again": "Do this again"
 }

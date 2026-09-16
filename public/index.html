@@ -903,9 +903,9 @@
               <option value="gemini">Gemini</option>
             </select>
             <!-- Wave 8: the limits a live conversation runs under. Wired in public/voice-talk.js. -->
-            <label for="voice-live-minutes">A live conversation stops itself after this many minutes</label>
+            <label for="voice-live-minutes" data-t="field.a-live-conversation-stops-itself">A live conversation stops itself after this many minutes</label>
             <input id="voice-live-minutes" type="number" min="1" max="120" step="1" value="10" />
-            <label for="voice-live-dollars">…or once it has cost this much (US dollars)</label>
+            <label for="voice-live-dollars" data-t="field.or-once-it-has-cost">…or once it has cost this much (US dollars)</label>
             <input id="voice-live-dollars" type="number" min="0.1" max="100" step="0.1" value="1" />
             <label class="check-row">
               <input id="voice-live-vad" type="checkbox" checked /> Let the service work out when you have stopped speaking
@@ -1168,7 +1168,7 @@
             <label for="browser-attach-run" data-t="field.which-task-is-this-for">Which task is this for? (paste the task number, or leave empty for the next one)</label>
             <input id="browser-attach-run" maxlength="80" placeholder="e.g. 4f1c…" />
             <label class="check-row"><input type="checkbox" id="browser-attach-enabled" /> <span data-t="field.let-branch-use-my-browser">Let Branch use my browser for this task</span></label>
-            <label for="browser-attach-refused">More websites it must never open in your browser (one per line)</label>
+            <label for="browser-attach-refused" data-t="field.more-websites-it-must-never">More websites it must never open in your browser (one per line)</label>
             <textarea id="browser-attach-refused" rows="3" placeholder="my-credit-union.example"></textarea>
             <p class="subtle">These are added to the banking and password websites Branch already refuses. Nothing you type here can take one of those off the list.</p>
             <p id="browser-attach-status" class="subtle" role="status"></p>
@@ -1294,8 +1294,8 @@
               <label for="dbg-list" data-t="field.one-per-line-a-short">One per line: a short name, the full address of the program, and anything that goes after it</label>
               <textarea id="dbg-list" rows="2" spellcheck="false" placeholder="python | C:\Python312\python.exe | -m debugpy.adapter"></textarea>
               <p class="subtle">Anything Branch starts here stops again when the task that started it is done, so nothing is left running that nobody is watching. Tick these to keep them up between tasks instead, which makes the next task start sooner.</p>
-              <label class="check-row"><input type="checkbox" id="ls-keep" /> Keep a language server running between tasks</label>
-              <label class="check-row"><input type="checkbox" id="dbg-keep" /> Keep a program being debugged running between tasks</label>
+              <label class="check-row"><input type="checkbox" id="ls-keep" /> <span data-t="field.keep-a-language-server-running">Keep a language server running between tasks</span></label>
+              <label class="check-row"><input type="checkbox" id="dbg-keep" /> <span data-t="field.keep-a-program-being-debugged">Keep a program being debugged running between tasks</span></label>
               <button id="code-ide-save" type="button" data-t="action.save">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
@@ -1490,7 +1490,7 @@
           <!-- Wave 7: the whole record, messages and spans included, in the documented shape. -->
           <button id="inspect-trajectory" type="button" class="text-button" data-t="inspector.trajectory">Save trajectory</button>
           <!-- Batch 26 (wave 8): the same words, the same tools, the same model — then the two side by side. -->
-          <button id="inspect-replay" type="button" class="text-button">Do this again</button>
+          <button id="inspect-replay" type="button" class="text-button" data-t="action.do-this-again">Do this again</button>
           <button id="inspect-close" type="button" class="text-button" data-t="inspector.close">Close</button>
         </div>
         <div id="inspect-body" class="inspect-body"></div>
