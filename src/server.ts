@@ -16,6 +16,9 @@ import { liveActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
+import { PackageInstallSchema } from "./skill-packages.js";
+import { draftFromRuns, testSkill } from "./skill-authoring.js";
+import { suggestSkills } from "./skill-suggest.js";
 import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
@@ -138,6 +141,7 @@ async function staticFile(
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -481,6 +485,17 @@ async function api(
     const { url, skillId } = z.object({ url: z.string().url().max(2000), skillId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.skillRegistry.install(url, skillId);
   }
+  // Wave 4: newer versions of skills installed from a registry, and a way back to the old one.
+  if (request.method === "GET" && path === "/api/registry/updates") return app.skillRegistry.updates();
+  if (request.method === "POST" && (path === "/api/registry/update" || path === "/api/registry/rollback")) {
+    const { skillId } = z.object({ skillId: z.string().uuid() }).strict().parse(await readBody(request));
+    return path.endsWith("update") ? app.skillRegistry.update(skillId) : app.skillRegistry.rollback(skillId);
+  }
+  if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
+  const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
+  if (plugin && request.method === "POST")
+    return plugin[2] === "inspect" ? app.plugins.inspect(plugin[1]!)
+      : plugin[2] === "enable" ? app.plugins.enable(plugin[1]!) : app.plugins.disable(plugin[1]!);
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
   // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
@@ -991,7 +1006,19 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
-  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft))?$/.exec(path);
+  // Wave 4: packages people share, help with writing a skill, and suggestions from recent tasks.
+  if (request.method === "GET" && path === "/api/skills/packages") return { packages: app.skillPackages.list(), problems: app.packageProblems };
+  if (request.method === "GET" && path === "/api/skills/suggest") return suggestSkills(app.store, owner);
+  if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
+    const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
+    const bytes = Buffer.from(body.file, "base64");
+    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+  }
+  if (request.method === "POST" && path === "/api/skills/draft-from-runs")
+    return draftFromRuns(app.store, owner, app.runtime, await readBody(request));
+  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft|pack|test))?$/.exec(path);
+  if (match && request.method === "POST" && match[2] === "pack") return app.skillPackages.pack(match[1]!, await readBody(request));
+  if (match && request.method === "POST" && match[2] === "test") return testSkill(app.store, owner, app.runtime, match[1]!, await readBody(request));
   if (match && request.method === "POST" && match[2] === "benchmark") return app.store.governance.benchmark(app.runtime, { ...(await readBody(request) as Record<string, unknown>), skillId: match[1]! });
   if (match && request.method === "POST" && match[2] === "draft") {
     const { runId } = z.object({ runId: z.string().uuid() }).strict().parse(await readBody(request));
@@ -1004,7 +1031,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
       case "update": return skills.update(owner, id, input);
       case "activate": return skills.activate(owner, id, input);
       case "disable": return skills.disable(owner, id, input);
-      case "remove": return skills.remove(owner, id, input);
+      case "remove": { const removed = skills.remove(owner, id, input); app.skillPackages.forget(id); return removed; }
       case "read": return skills.read(owner, id, input);
     }
   }
@@ -1367,7 +1394,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

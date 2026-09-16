@@ -441,6 +441,39 @@
             <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
             <p id="skill-status" role="status"></p>
           </form>
+          <!-- Wave 4: sharing skills as one file, newer versions, suggestions and plugins. -->
+          <div class="card" id="skill-share-card">
+            <h3>Share a skill, or open one someone sent you</h3>
+            <p class="subtle">A skill package is one file holding the instructions and, if the author added them, the web addresses it may call and the events it reacts to. You see everything it asks for before anything is installed.</p>
+            <label for="skill-package-which">Skill to save</label>
+            <select id="skill-package-which"></select>
+            <label for="skill-package-author">Your name, for a package you make</label>
+            <input id="skill-package-author" type="text" maxlength="120" placeholder="Your name" />
+            <div class="skill-actions">
+              <button id="skill-package-save" type="button">Save the open skill as a package</button>
+              <button id="skill-package-open" type="button">Open a package file</button>
+            </div>
+            <input id="skill-package-file" type="file" accept=".branchskill" hidden />
+            <div id="skill-package-preview" class="card-list"></div>
+            <button id="skill-package-install" type="button" hidden>Install it with what it asks for</button>
+            <p id="skill-package-status" role="status"></p>
+          </div>
+          <div class="card" id="skill-updates-card">
+            <h3>Newer versions</h3>
+            <p class="subtle" id="skill-updates-summary">Checking the registries you follow…</p>
+            <div id="skill-updates-list" class="card-list"></div>
+          </div>
+          <div class="card" id="skill-suggest-card">
+            <h3>Might have helped lately</h3>
+            <p class="subtle">Worked out on this computer from the words in your recent tasks. Nothing is installed or switched on for you.</p>
+            <div id="skill-suggest-list" class="card-list"></div>
+          </div>
+          <div class="card" id="plugins-card">
+            <h3>Plugins</h3>
+            <p class="subtle">Files a developer put in your plugins folder. A plugin runs as part of the assistant with the same reach over this computer, so only switch on files you trust. Nothing is loaded until you do.</p>
+            <div id="plugins-list" class="card-list"></div>
+            <p id="plugins-status" role="status"></p>
+          </div>
         </section>
         <section id="documents" class="view" hidden>
           <p class="section-intro">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, web pages, notes, tables and plain text can be read. PDFs are listed but need a helper first.</p>
@@ -854,5 +887,6 @@
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
+    <script src="/skills-extra.js" type="module"></script>
   </body>
 </html>

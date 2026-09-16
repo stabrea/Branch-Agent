@@ -36,6 +36,8 @@ import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { SkillRegistry } from "./registry-install.js";
+import { SkillPackages } from "./skill-packages.js";
+import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
@@ -153,6 +155,12 @@ export async function createBranch(options: {
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
+  // Skill packages people can hand to each other, and single-file plugins the owner switches on.
+  const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
+  skillPackages.replayRecipe = (recipe, _event, runId) => replayNamedRecipe(knowledge, store, runtime, recipe, runId);
+  const packageProblems = skillPackages.restore();
+  const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
+  const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
@@ -212,6 +220,14 @@ export async function createBranch(options: {
     hooks,
     teams,
     skillRegistry,
+    /** Skill packages: opening, installing and rebuilding the single file people share. */
+    skillPackages,
+    /** Installed packages whose tools could not be put back this time. */
+    packageProblems,
+    /** Single-file plugins from the data folder, off until the owner switches one on. */
+    plugins,
+    /** Plugins that were on but could not be loaded this time. */
+    pluginProblems,
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
@@ -232,8 +248,21 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
-    close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
+    close: () => (closing ??= (async () => {
+      plugins.stop();
+      skillPackages.stop();
+      await closeBranch(scheduler, runtime, store, channels);
+    })()),
   };
+}
+/** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
+async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Runtime, recipe: string, runId: string): Promise<void> {
+  const match = store.list("procedures", runtime.owner).find((record) => {
+    const state = record.data as unknown as { status?: string; definition?: { name?: string } };
+    return state.definition?.name === recipe && state.status === "verified";
+  });
+  if (!match) throw new Error(`No verified recipe called "${recipe}"`);
+  await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
 async function closeBranch(
   scheduler: Scheduler,
@@ -305,6 +334,12 @@ export * from "./integrations/process-usage.js";
 export * from "./skill-governance.js";
 export * from "./teams.js";
 export * from "./registry-install.js";
+export * from "./skill-package.js";
+export * from "./skill-packages.js";
+export * from "./skill-http-tools.js";
+export * from "./skill-suggest.js";
+export * from "./skill-authoring.js";
+export * from "./plugins.js";
 export * from "./evaluation.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
