@@ -137,6 +137,17 @@ async function post(
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
+/** OpenAI-shaped picture parts: a data URL alongside the text of the same message. */
+function openaiContent(message: Message): unknown {
+  if (!message.images?.length) return message.content;
+  return [
+    ...(message.content ? [{ type: "text", text: message.content }] : []),
+    ...message.images.map((image) => ({
+      type: "image_url",
+      image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+    })),
+  ];
+}
 function openaiMessage(message: Message): Record<string, unknown> {
   if (message.role === "tool")
     return {
@@ -146,7 +157,7 @@ function openaiMessage(message: Message): Record<string, unknown> {
     };
   return {
     role: message.role,
-    content: message.content,
+    content: openaiContent(message),
     ...(message.toolCalls
       ? {
           tool_calls: message.toolCalls.map((c) => ({
@@ -160,6 +171,8 @@ function openaiMessage(message: Message): Record<string, unknown> {
 }
 export class OpenAIProvider implements Provider {
   readonly name = "openai-compatible";
+  /** OpenAI-shaped endpoints take a picture as a data URL in the message. */
+  readonly acceptsImages = true;
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
   }
@@ -241,6 +254,10 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
             ...(message.content
               ? [{ type: "text", text: message.content }]
               : []),
+            ...(message.images ?? []).map((image) => ({
+              type: "image",
+              source: { type: "base64", media_type: image.mediaType, data: image.data },
+            })),
             ...(message.toolCalls ?? []).map((c: ToolCall) => ({
               type: "tool_use",
               id: c.id,
@@ -256,6 +273,8 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
 }
 export class AnthropicProvider implements Provider {
   readonly name = "anthropic";
+  /** Claude models take a picture as a base64 image block. */
+  readonly acceptsImages = true;
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
   }

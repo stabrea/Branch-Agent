@@ -8,11 +8,21 @@ export const ToolCallSchema = z
   })
   .strict();
 export type ToolCall = z.infer<typeof ToolCallSchema>;
+/** A picture shown to the model, such as a screenshot of a web page. Base64, under the size cap. */
+export interface MessageImage {
+  mediaType: string;
+  /** Base64 bytes; never written to the conversation store, so it is not replayed later. */
+  data: string;
+}
+/** The most a single picture may weigh once encoded, so one screenshot cannot fill a request. */
+export const maxImageBytes = 4 * 1024 * 1024;
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
+  /** Pictures that travel with this message; only user messages carry them. */
+  images?: MessageImage[];
 }
 export interface Usage {
   input: number;
@@ -55,6 +65,8 @@ export class ProviderStreamError extends Error {
 }
 export interface Provider {
   readonly name: string;
+  /** True when this model can be shown a picture; otherwise the text snapshot is used instead. */
+  readonly acceptsImages?: boolean;
   complete(request: CompletionRequest): Promise<Completion>;
   /** Optional audio endpoints (OpenAI-compatible transcription and speech); null if unavailable. */
   audio?(): { endpoint: string; apiKey: string } | null;
@@ -168,6 +180,12 @@ export const RunInputSchema = z
     dryRun: z.boolean().optional(),
   })
   .strict();
+/** The same message without its pictures, for storing and for measuring how full the context is. */
+export function textOnly(message: Message): Message {
+  if (!message.images?.length) return message;
+  const { images: _images, ...rest } = message;
+  return rest;
+}
 export const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 export const estimateTokens = (value: unknown): number =>

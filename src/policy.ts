@@ -77,6 +77,8 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
       { tool: "shell.execute", decision: "ask", remember: "session" },
       { tool: "browser.click", decision: "ask", remember: "session" },
       { tool: "browser.fill", decision: "ask", remember: "session" },
+      // Sending one of your own files to a website is always worth a question, whatever site it is.
+      { tool: "browser.upload", decision: "ask", remember: "session" },
       { tool: "browser.navigate", decision: "ask", remember: "always" },
       { tool: "web.*", decision: "ask", remember: "always" },
     ],

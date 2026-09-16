@@ -158,6 +158,7 @@ async function start(): Promise<void> {
       branch.channelHost,
     );
     integrationClose = integrations.close;
+    branch.browser = integrations.hosted.browser ?? null;
     const server = await startServer(branch, { dataDir, port: 0 });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings);
