@@ -11,6 +11,7 @@ import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
 import type { ModelPreset } from "./models.js";
+export { GeminiProvider } from "./providers/gemini.js";
 
 export interface ProviderOptions {
   endpoint: string;
@@ -75,9 +76,14 @@ function validateOptions(options: ProviderOptions): void {
     throw new Error(
       "Provider endpoint requires HTTPS (HTTP is allowed only on loopback)",
     );
-  if (url.username || url.password || url.search || url.hash)
+  if (url.username || url.password || url.hash)
     throw new Error(
-      "Provider endpoint must not contain credentials, query, or fragment",
+      "Provider endpoint must not contain credentials or fragment",
+    );
+  // Allow api-version query parameter for Azure OpenAI only
+  if (url.search && !url.hostname.endsWith(".openai.azure.com"))
+    throw new Error(
+      "Provider endpoint must not contain query string",
     );
   if (!options.model || !options.apiKey)
     throw new Error("Provider model and API key are required");
