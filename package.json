@@ -1,6 +1,6 @@
 {
   "name": "branch-agent",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
   "type": "module",
@@ -20,7 +20,8 @@
     "demo": "npm run build && node dist/cli.js demo",
     "doctor": "npm run build && node dist/cli.js doctor",
     "desktop": "npm run build && electron .",
-    "package:desktop": "npm run build && electron scripts/prepare-icon.cjs && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs"
+    "package:desktop": "npm run build && electron scripts/prepare-icon.cjs && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs",
+    "docs:providers": "node scripts/docs-providers.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

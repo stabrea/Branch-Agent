@@ -24,11 +24,15 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { connectFromPreset, forgetConnection } from "./connections-preset.js";
+import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
-import { streamRunEvents } from "./streams.js";
+import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
+import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -75,7 +79,7 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
-import { audit } from "./audit.js";
+import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
 // Wave 6 (collaboration and workflows): sharing pages and links, labels and notes, workflows,
@@ -236,6 +240,11 @@ async function staticFile(
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
+    // Wave 7: what a conversation is allowed to do right now, and the observability screens.
+    "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
+    "/labels-ui.js": ["labels-ui.js", "text/javascript; charset=utf-8"],
+    "/compare.js": ["compare.js", "text/javascript; charset=utf-8"],
+    "/activity-feed.js": ["activity-feed.js", "text/javascript; charset=utf-8"],
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
     "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
@@ -584,7 +593,8 @@ async function api(
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
-      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe"
+      || path === "/api/models/gemini-signin")
     return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
@@ -776,7 +786,9 @@ async function api(
     const data = app.store.usageStore().aggregateUsage(range, by, overrides);
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data as { maxMonthlyTokens?: number } | undefined;
     const stats = app.store.usageStore().getMonthlyStats(budget?.maxMonthlyTokens, overrides);
-    return { data, stats, pricing: pricingTableInUse(app.store, app.runtime.owner) };
+    // Wave 7: the few numbers that say how it is behaving, beside what it cost.
+    const statistics = app.store.usageStore().statistics(app.runtime.owner, range === "7d" ? 7 : range === "90d" ? 90 : 30);
+    return { data, stats, statistics, pricing: pricingTableInUse(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/pricing")
     return pricingTableInUse(app.store, app.runtime.owner);
@@ -801,19 +813,17 @@ async function api(
   if (request.method === "GET" && inspectMatch) {
     const run = app.store.run(inspectMatch[1]!);
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
-    const receipts = await receiptsView(app, run.id);
-    const { overrides } = pricingSettings(app.store, app.runtime.owner);
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
-    return app.runtime.hideSecrets(inspectRun(app.store, run.id, {
-      receipts, version: app.version, cost: receipts.cost,
-      timeline: app.store.usageStore().getRunTimeline(run.id),
-      /* Each round is priced with the workspace's own table, the same one the Usage screen uses. */
-      price: (model, tokens) => {
-        const estimate = estimateCost(model, tokens, overrides);
-        return { amount: estimate.amount, display: formatCost(estimate) };
-      },
-    }));
+    return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Wave 7: the same task as a trajectory — "Look inside" plus the conversation's messages and the
+  // spans — in the documented shape, for keeping or for feeding an evaluation run.
+  const trajectory = /^\/api\/runs\/([a-f0-9-]{36})\/trajectory$/.exec(path);
+  if (request.method === "GET" && trajectory) {
+    const run = app.store.run(trajectory[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return app.runtime.hideSecrets(buildTrajectory(app.store, run.id, await trajectoryOptions(app, run.id)));
   }
   if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
     const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
@@ -821,6 +831,21 @@ async function api(
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.store.profiles.scope()) throw new HttpError(404, "Run not found");
     return { timeline: app.store.usageStore().getRunTimeline(run.id) };
+  }
+  // Wave 7: writing the month's usage out as a spreadsheet, on a schedule, into your workspace.
+  if (path === "/api/usage/metering") {
+    const deps = meteringDeps(app);
+    if (request.method === "GET") return { metering: meteringSettings(app.store, app.runtime.owner) };
+    if (request.method === "POST") {
+      const settings = saveMeteringSettings(app.store, app.runtime.owner, await readBody(request));
+      /* A folder that would climb out of the workspace is refused now, not at the next beat. */
+      meteringFolder(deps.workspace, settings.folder);
+      return { metering: settings };
+    }
+  }
+  if (request.method === "POST" && path === "/api/usage/metering/now") {
+    const written = await writeMeteringFile(meteringDeps(app));
+    return { ...written, metering: meteringSettings(app.store, app.runtime.owner) };
   }
   if (request.method === "GET" && path === "/api/usage/budget") {
     const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data;
@@ -1048,6 +1073,22 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
     await app.oauth.cancel(cancel[1]!);
     return { cancelled: cancel[1] };
   }
+  // Batch 19 (wave 7): adding a model service from the catalog, checked before anything is saved.
+  if (request.method === "POST" && path === "/api/connections/from-preset")
+    return connectFromPreset(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      await readBody(request, 16 * 1024),
+    );
+  // Taking one back out again: the model list, the written-down record and the key, all at once.
+  if (request.method === "POST" && path === "/api/connections/forget") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request, 4 * 1024));
+    return forgetConnection(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      id,
+    );
+  }
+  if (request.method === "GET" && path === "/api/connections/catalog")
+    return { pricedAt: providerCatalog().pricedAt, services: catalogEntries() };
   const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);
   if (status && request.method === "GET") {
     const tokens = await app.oauth.saved(status[1]!);
@@ -1764,6 +1805,23 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
+  // Wave 7: everything happening on this computer, filtered by kind, as one live stream.
+  if (request.method === "GET" && path === "/api/events/stream") {
+    const query = new URL(request.url ?? "/", "http://local").searchParams;
+    const kinds = (query.get("kind") ?? "").split(",").map((kind) => kind.trim()).filter(Boolean).slice(0, 20);
+    // "after=0" means "everything you have"; leaving it out means "only what happens from now on",
+    // so zero has to be told apart from absent rather than treated as nothing.
+    const asked = query.get("after");
+    const after = asked === null || !/^\d+$/.test(asked) ? undefined : Number(asked);
+    await streamOwnerEvents(app.store, app.store.profiles.scope(), response, {
+      ...(after === undefined ? {} : { after }), kinds,
+      // The stream carries tool arguments and results, so nothing goes out of it carrying a saved
+      // password or key; how long it may run and how much it may send are both capped inside.
+      scrub: app.runtime.hideSecrets,
+      ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
+    });
+    return true;
+  }
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
@@ -1890,12 +1948,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const { overrides } = pricingSettings(app.store, app.runtime.owner);
     const data = app.store.usageStore().aggregateUsage(range, "day", overrides);
     // estimatedCostUsd covers only the tasks with a price; runsWithoutPrice says how many had none.
-    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,runsWithoutPrice,failures"]
+    // Wave 7: the money columns a spreadsheet needs — what the day cost, what one task cost on
+    // average, and the model that cost the most — with an empty cell wherever nobody knows.
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,costPerRunUsd,dearestModel,dearestModelCostUsd,runsWithPrice,runsWithoutPrice,failures"]
       .concat(
-        data.map((d) =>
-          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
-            d.pricedRuns ? d.estimatedCost.toFixed(4) : "", d.unpricedRuns, d.failures].join(",")
-        )
+        data.map((d) => {
+          const dearest = [...d.presets].filter((p) => p.cost !== null).sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))[0];
+          return [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output,
+            d.pricedRuns ? d.estimatedCost.toFixed(4) : "",
+            d.pricedRuns ? (d.estimatedCost / d.pricedRuns).toFixed(6) : "",
+            csvCell(dearest?.id ?? ""), dearest ? (dearest.cost ?? 0).toFixed(4) : "",
+            d.pricedRuns, d.unpricedRuns, d.failures].join(",");
+        })
       )
       .join("\n");
     response.writeHead(200, {
@@ -1908,6 +1972,11 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
   }
   if (request.method === "GET" && path === "/api/audit/export.csv") {
     auditCsvResponse(app, request, response);
+    return true;
+  }
+  // Wave 7: many tasks as JSON Lines, one trajectory per line, for feeding an evaluation run.
+  if (request.method === "GET" && path === "/api/runs/trajectories.jsonl") {
+    await trajectoriesResponse(app, request, response);
     return true;
   }
   if (request.method === "POST" && path === "/v1/chat/completions") {
@@ -1963,10 +2032,58 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   return true;
 }
 /** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+/**
+ * Every task in the range as JSON Lines, written one line at a time so a thousand of them never
+ * become one enormous string first. Only this person's own tasks are in it.
+ */
+async function trajectoriesResponse(app: Branch, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  // Every task at once, messages and tool arguments included, is the owner's own record: a second
+  // person's profile may not have it, not even the part of it that belongs to them.
+  app.store.profiles.requireOwner("Saved records of your tasks");
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const limit = Math.min(Math.max(Number(query.get("limit") ?? 50) || 50, 1), 500);
+  const runs = app.store.runs(app.runtime.owner).slice(0, limit);
+  const options = new Map<string, Awaited<ReturnType<typeof trajectoryOptions>>>();
+  for (const run of runs) options.set(run.id, await trajectoryOptions(app, run.id));
+  response.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "content-disposition": `attachment; filename="branch-trajectories.jsonl"`,
+    "cache-control": "no-store",
+  });
+  for (const line of trajectoryLines(app.store, runs.map((run) => run.id), (id) => options.get(id)!,
+    app.runtime.hideSecrets))
+    response.write(line + "\n");
+  response.end();
+}
+/**
+ * Everything "Look inside" and a trajectory both need about one task: its receipts, its timeline,
+ * and the workspace's own price table so each model round is costed the way the Usage screen does.
+ */
+export async function trajectoryOptions(app: Branch, runId: string) {
+  const receipts = await receiptsView(app, runId);
+  const { overrides } = pricingSettings(app.store, app.runtime.owner);
+  return {
+    receipts, version: app.version, cost: receipts.cost,
+    timeline: app.store.usageStore().getRunTimeline(runId),
+    price: (model: string, tokens: { input: number; output: number }) => {
+      const estimate = estimateCost(model, tokens, overrides);
+      return { amount: estimate.amount, display: formatCost(estimate) };
+    },
+  };
+}
+/** What the metering export needs: the ledger, the workspace it may write into, and the prices. */
+function meteringDeps(app: Branch) {
+  return {
+    store: app.store, owner: app.runtime.owner, workspace: app.files.root,
+    overrides: () => pricingSettings(app.store, app.runtime.owner).overrides,
+  };
+}
 function voiceDeps(app: Branch) {
   return {
     store: app.store, models: app.runtime.models, owner: app.runtime.owner,
     voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+    // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
+    oauth: app.oauth,
   };
 }
 function isExecution(request: IncomingMessage, path: string): boolean {

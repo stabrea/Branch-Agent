@@ -72,11 +72,14 @@ applyLanguage();
 wireLanguagePicker();
 watchForNewText();
 document.addEventListener("branch-language", () => wireLanguagePicker());
-/* These four draw into markup that is already on the page, so they load after the words are set. */
+/* These draw into markup that is already on the page, so they load after the words are set. */
 await Promise.all([
   import("./inspector.js"),
   import("./live-run.js"),
   import("./token-meter.js"),
+  /* Wave 7: two tasks side by side, and the live feed of what is happening now. */
+  import("./compare.js"),
+  import("./activity-feed.js"),
   import("./playground.js").then((module) => {
     $("playground")?.addEventListener("toggle", () => void module.renderPlayground());
   }),

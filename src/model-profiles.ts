@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ModelRouter } from "./models.js";
 import type { Store } from "./store.js";
 import { tablePrice } from "./pricing.js";
+import type { Capability } from "./provider-catalog.js";
 
 /**
  * Routing profiles: a named set of choices about which connection answers which kind of work. A
@@ -110,17 +111,22 @@ export function chooseFromProfile(
   kind: TaskKind,
   known: (id: string) => boolean,
   resting: (id: string) => boolean,
+  /** Whether a connection can do this kind of work at all; everything is allowed when not given. */
+  capable: (id: string, kind: TaskKind) => boolean = () => true,
 ): ProfileChoice {
   if (!profile) return { preset: null, profile: null, kind, reason: "No routing profile is switched on, so your usual choice answered" };
   const choice = profile.routes[kind] ?? profile.fallback;
   const named = profile.routes[kind] ? `for ${kind}` : "for anything it does not name";
   if (!choice) return { preset: null, profile: profile.id, kind, reason: `The "${profile.name}" profile has nothing set up ${named}, so your usual choice answered` };
   const order = [choice.preset, ...choice.fallbacks];
-  const usable = order.filter(known);
+  const here = order.filter(known);
+  const usable = here.filter((id) => capable(id, kind));
   const first = usable.find((id) => !resting(id));
-  if (!first)
+  if (!first) {
+    const why = here.length && !usable.length ? `cannot do ${kind} work` : "resting or no longer set up";
     return { preset: null, profile: profile.id, kind,
-      reason: `Every connection the "${profile.name}" profile lists ${named} is resting or no longer set up, so your usual choice answered` };
+      reason: `Every connection the "${profile.name}" profile lists ${named} is ${why}, so your usual choice answered` };
+  }
   if (first === order[0])
     return { preset: first, profile: profile.id, kind, reason: `The "${profile.name}" profile sends ${kind} work to ${first}` };
   const skipped = order.slice(0, order.indexOf(first));
@@ -128,9 +134,25 @@ export function chooseFromProfile(
     reason: `The "${profile.name}" profile asked for ${skipped.join(", ")} first ${named}, but ${skipped.length > 1 ? "none were" : "it was not"} available, so ${first} took it` };
 }
 
+/**
+ * What each kind of work asks of a model. A connection Branch set up from the catalog is only
+ * offered work its catalog line says it can do; anything else is left alone, because Branch has
+ * nothing to go on and will not assume a connection is worse than it is.
+ */
+const needsOf: Record<TaskKind, Capability> = {
+  chat: "chat", plan: "chat", code: "chat", summarise: "chat",
+  vision: "vision", voice: "audio", embeddings: "embeddings",
+};
+
 /** The whole decision for one piece of work: reads the saved profiles and resolves the candidates. */
 export function routeByProfile(store: Store, models: ModelRouter, owner: string, kind: TaskKind): ProfileChoice {
   const settings = profileSettings(store, owner, models);
   const active = settings.profiles.find((entry) => entry.id === settings.active) ?? null;
-  return chooseFromProfile(active, kind, (id) => models.presets.has(id), (id) => models.coolingDown(id));
+  return chooseFromProfile(
+    active, kind, (id) => models.presets.has(id), (id) => models.coolingDown(id),
+    (id, forKind) => {
+      const preset = models.presets.get(id);
+      return preset ? models.canDo(preset, needsOf[forKind]) : false;
+    },
+  );
 }

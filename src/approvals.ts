@@ -116,6 +116,13 @@ export class ApprovalGate {
     for (const [key, grant] of forSession) if (Date.parse(grant.expiresAt) <= now) forSession.delete(key);
     return [...forSession.values()].sort((a, b) => a.grantedAt.localeCompare(b.grantedAt));
   }
+  /**
+   * Takes one remembered yes back. The conversation asks again the next time that tool wants that
+   * thing, which is what the "Take this back" button beside it does.
+   */
+  revoke(sessionId: string, tool: string, target: string): boolean {
+    return this.answers.get(sessionId)?.delete(answerKey(tool, target)) === true;
+  }
   /** Ends every standing yes, in every conversation: what "Lock" does. */
   forgetAll(): number {
     const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
