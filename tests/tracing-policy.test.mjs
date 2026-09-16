@@ -419,6 +419,11 @@ test("T1: a second person's profile cannot read the owner's steps or rules", asy
   assert.equal((await api("POST", "/api/rules/add",
     { tool: "*", decision: "allow", resource: { kind: "path", pattern: "*" } })).status, 400,
   "nor may Sam loosen the owner's rules");
+  // What Sam's own conversation is allowed to do is Sam's to see: the answers are kept per
+  // conversation, so this one stays open to whoever is having it.
+  const mine = await api("GET", "/api/rules/allowed?session=" + run.sessionId);
+  assert.equal(mine.status, 200, "but everyone may ask what their own conversation is allowed");
+  assert.deepEqual(mine.body.grants, [], "and sees only what was answered in that conversation");
   await api("POST", "/api/profiles/switch", { profileId: null });
   assert.equal((await api("GET", "/api/rules")).status, 200, "the owner reads them as before");
 });

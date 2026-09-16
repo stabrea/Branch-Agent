@@ -28,9 +28,6 @@ export async function tracingApi(
   app: Branch, request: IncomingMessage, path: string,
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
 ): Promise<unknown> {
-  // The steps of a task and the approval rules are the owner's own. A second person's profile on
-  // this computer is refused here, the same way saved workflows and the owner's settings are.
-  app.store.profiles.requireOwner("Traces and permission rules");
   if (path.startsWith("/api/tracing")) return tracing(app, request, path, readBody);
   if (path.startsWith("/api/rules")) return rules(app, request, path, readBody);
   return notFound();
@@ -40,6 +37,9 @@ async function tracing(
   app: Branch, request: IncomingMessage, path: string,
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
 ): Promise<unknown> {
+  // The steps of a task and where they are sent are the owner's own: a second person's profile on
+  // this computer is refused here, the same way saved workflows and the owner's secrets are.
+  app.store.profiles.requireOwner("The steps of a task and where they are sent");
   const owner = app.runtime.owner;
   if (path === "/api/tracing/settings") {
     if (request.method === "GET") return { settings: traceExportSettings(app.store, owner), destinations: destinationHelp() };
@@ -83,6 +83,14 @@ async function rules(
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
 ): Promise<unknown> {
   const owner = app.runtime.owner;
+  // What a conversation is allowed to do right now belongs to whoever is having it: the answers are
+  // kept per conversation, so anybody may ask about their own. Everything below this line is the
+  // owner's rule list, which a second person's profile may neither read nor loosen.
+  if (path === "/api/rules/allowed" && request.method === "GET") {
+    const sessionId = new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "";
+    return { session: sessionId, grants: sessionId ? app.runtime.allowedNow(sessionId) : [] };
+  }
+  app.store.profiles.requireOwner("The approval rules");
   if (path === "/api/rules" && request.method === "GET") {
     const policy = readPolicy(app.store, owner);
     return { rules: policy.rules.map((rule, index) => ({ index, rule, sentence: ruleSentence(rule) })) };
@@ -113,10 +121,6 @@ async function rules(
       because: outcome.rule ? ruleSentence(outcome.rule) : "No rule covers this, so it goes ahead.",
       resource,
     };
-  }
-  if (path === "/api/rules/allowed" && request.method === "GET") {
-    const sessionId = new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "";
-    return { session: sessionId, grants: sessionId ? app.runtime.allowedNow(sessionId) : [] };
   }
   return notFound();
 }
