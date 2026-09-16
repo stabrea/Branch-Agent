@@ -6,14 +6,14 @@ Steps:
 1. In your worktree: `git checkout -b integrate/<branch-short> <staging>` then `git merge --no-edit <branch>`. Resolve conflicts by keeping both sides' additions; for a route pattern such as `/^\/api\/(a|b|c)(\/|$)/` take the union of alternatives; for duplicate declarations keep one; never drop a closing brace. After resolving run `npm run build`, `npx tsc --noEmit`, and a brace check by reading the compiler output.
 2. Run the builder's own test file plus the suites for every area it touched (read `git diff --stat <staging>..<branch>` and pick tests by name), plus `tests/static-assets.test.mjs`, `tests/server.test.mjs`, `tests/ui.test.mjs`, `tests/shell-ui.test.mjs`. Never run `tests/desktop*.test.mjs` or anything that starts Electron.
 3. Review the diff as a sceptical senior engineer: security (secrets in logs, missing network policy, unauthenticated routes, path confinement), correctness (unhandled promise, wrong default, off-by-one in caps), honesty (does the report's acceptance list match the code? are tests real or tautological?), plain-language UI copy, functions under 50 lines, no new dependency. Fix small problems yourself in a follow-up commit on the integrate branch; list anything larger as a finding.
-4. Commit the merge on `integrate/<branch-short>` (Conventional Commit, Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>). Do not push. Do not touch `<staging>` itself.
+4. Commit the merge on `integrate/<branch-short>` (Conventional Commit, the Co-Authored-By line your session is told to use). Do not push. Do not touch `<staging>` itself.
 
 Report (your final message): the integrate branch name and head SHA; tests run and results; conflicts and how you resolved them; review findings ranked (blocking / should fix / note); your verdict: MERGE, MERGE WITH FIXES (list them, already applied), or HOLD (why). Keep it under 40 lines.
 
 
 Worktree cleanup: a worktree whose node_modules is a junction to Branch-build/node_modules must have the junction removed first (`cmd /c rmdir node_modules`); `git worktree remove --force` deletes THROUGH the junction and empties the shared node_modules. Or simply leave the worktree in place.
 
-Tool catalog rule: every new tool name must map to a toolbox in src/catalog.ts `groupPrefixes` (add the prefix if needed) and tests/catalog-diet.test.mjs must pass after your merge; unrecognised tools pile into the "other" box and break that suite. Also run tests/automation.test.mjs and tests/screen-control.test.mjs ALONE (both are flaky under concurrency).
+Tool catalog rule: every new tool name must map to a toolbox in src/catalog.ts `groupPrefixes` (add the prefix if needed) and tests/catalog-diet.test.mjs must pass after your merge; unrecognised tools pile into the "other" box and break that suite. Also run tests/automation.test.mjs ALONE (it is flaky under concurrency).
 
 NEVER run tests/screen-control.test.mjs (it drives a real Notepad window and shows the Stop banner on the owner's screen). It is now opt-in behind BRANCH_SCREEN_TESTS=1; do not set that variable. The same goes for anything else that opens a window on the desktop.
 
