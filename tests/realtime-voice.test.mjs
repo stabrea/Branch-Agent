@@ -400,6 +400,55 @@ test("a refused tool comes back as a refusal, and the standing rules are in what
   live.closeAll();
 });
 
+test("a yes given in a live conversation covers the request it was given for and nothing else", async (t) => {
+  const service = await fakeSocketService(t);
+  const app = await fixture(t);
+  livePreset(app, "live-openai", "openai", service.endpoint);
+  addPolicyRule(app.store, "local", { tool: "files.write", match: "*", decision: "ask" });
+  const live = conversations(app, openPolicy());
+  const run = liveRun(app);
+  await live.start(run.id, run.sessionId, collector().out);
+  await settle();
+  const output = (id) => service.of("conversation.item.create").find((m) => m.item.call_id === id)?.item.output ?? "";
+
+  // The model asks to write one thing; the owner says yes to that, for this conversation.
+  service.say({ type: "response.function_call_arguments.done", call_id: "a", name: "files.write", arguments: '{"path":"note.txt","content":"hello"}' });
+  await settle(250);
+  assert.match(output("a"), /Waiting for your yes/);
+  const asked = app.runtime.approvals.waiting(run.sessionId).at(-1);
+  assert.ok(asked.fingerprint, "the question is bound to the exact bytes the model asked for");
+  assert.match(asked.bytes, /hello/, "and the owner is shown those bytes");
+  app.runtime.approve(run.sessionId, "allow", "session", asked.fingerprint);
+
+  // The same request again is covered by that yes and goes through.
+  service.say({ type: "response.function_call_arguments.done", call_id: "b", name: "files.write", arguments: '{"path":"note.txt","content":"hello"}' });
+  await settle(250);
+  assert.doesNotMatch(output("b"), /Waiting for your yes/, "the same request is covered by the yes");
+
+  // A different thing written to the same file is a different request, so it is asked about again.
+  service.say({ type: "response.function_call_arguments.done", call_id: "c", name: "files.write", arguments: '{"path":"note.txt","content":"something else entirely"}' });
+  await settle(250);
+  assert.match(output("c"), /Waiting for your yes/, "a changed request is not covered by the earlier yes");
+  live.closeAll();
+});
+
+test("the last piece of a sentence is not said twice, whichever way the service sends it", async (t) => {
+  const service = await fakeSocketService(t);
+  const app = await fixture(t);
+  livePreset(app, "live-openai", "openai", service.endpoint);
+  const live = conversations(app, openPolicy());
+  const run = liveRun(app);
+  await live.start(run.id, run.sessionId, collector().out);
+  await settle();
+  // OpenAI's own documentation has the closing message carry the whole sentence again, not just
+  // the rest of it. Either way what lands in the conversation is the sentence, once.
+  service.say({ type: "response.audio_transcript.delta", delta: "It is " });
+  service.say({ type: "response.audio_transcript.done", transcript: "It is half past four" });
+  await settle();
+  assert.deepEqual(app.store.messages(run.sessionId).map((m) => m.content), ["It is half past four"]);
+  live.closeAll();
+});
+
 test("what was said on both sides lands in the conversation, and the sound is not kept", async (t) => {
   const service = await fakeSocketService(t);
   const app = await fixture(t);

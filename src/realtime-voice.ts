@@ -6,7 +6,7 @@ import { catalogEntry } from "./provider-catalog.js";
 import { GeminiLiveSession } from "./realtime-gemini.js";
 import { OpenAiRealtimeSession } from "./realtime-openai.js";
 import type { RealtimeSession, RealtimeSettings, RealtimeTool } from "./realtime.js";
-import type { Runtime } from "./runtime.js";
+import { argumentFingerprint, type Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import type { OpenSpan } from "./tracing.js";
 import { voiceSettings, type VoiceSettings } from "./voice.js";
@@ -188,10 +188,18 @@ export class LiveConversation {
     if (!text) return;
     this.out.notice("voice.live.transcript", { who, text, final });
     if (!final) { this.partial[who] += text; return; }
-    const whole = (this.partial[who] + text).trim();
+    // One service sends the rest of the sentence at the end, the other sends the whole of it again.
+    // Joining the pieces blindly would say it twice, so a last piece that already contains what came
+    // before it stands on its own.
+    const heardSoFar = this.partial[who];
+    const whole = (text.startsWith(heardSoFar) ? text : heardSoFar + text).trim();
     this.partial[who] = "";
     if (!whole) return;
-    this.deps.store.message(this.sessionId, { role: who === "person" ? "user" : "assistant", content: whole });
+    // Anything the owner has saved as a password or key is taken back out before what was said
+    // becomes an ordinary message, which is kept and shown like any other.
+    this.deps.store.message(this.sessionId, {
+      role: who === "person" ? "user" : "assistant", content: this.deps.runtime.hideSecrets(whole),
+    });
     this.deps.store.event(this.runId, "voice.live.said", { who, characters: whole.length });
   }
 
@@ -207,15 +215,20 @@ export class LiveConversation {
     let args: unknown = {};
     try { args = JSON.parse(argumentText || "{}"); } catch { args = {}; }
     const context = this.deps.runtime.context({ runId: this.runId, source: "owner", approvalKey: this.sessionId });
+    // The exact bytes the model asked for, with any saved password or key taken out. A yes is bound
+    // to them here exactly as it is for a typed request, so a yes given for one command cannot
+    // stand in for a different one that happens to touch the same thing.
+    const bytes = this.deps.runtime.hideSecrets(JSON.stringify(args));
+    const fingerprint = argumentFingerprint(bytes);
     try {
-      const check = this.deps.runtime.checkPolicy(name, args, context);
-      this.out.notice("voice.live.tool", { name, target: check.target, decision: check.decision });
+      const check = this.deps.runtime.checkPolicy(name, args, context, fingerprint);
+      this.out.notice("voice.live.tool", { name, target: this.deps.runtime.hideSecrets(check.target), decision: check.decision });
       if (check.decision === "deny") {
         this.deps.store.event(this.runId, "policy.denied", { name, label: check.label, target: check.target });
         session.toolResult(callId, name, { ok: false, error: `Your settings do not allow this: ${check.label}.` });
         return;
       }
-      if (check.decision === "ask") { this.askFirst(session, callId, name, check); return; }
+      if (check.decision === "ask") { this.askFirst(session, callId, name, check, bytes, fingerprint); return; }
       const result = await this.deps.runtime.executeTool(name, args);
       this.deps.store.event(this.runId, "voice.live.tool_done", { name, target: check.target });
       session.toolResult(callId, name, result);
@@ -227,14 +240,20 @@ export class LiveConversation {
   private askFirst(
     session: RealtimeSession, callId: string, name: string,
     check: { label: string; target: string; remember: "session" | "always" | "never" },
+    bytes: string, fingerprint: string,
   ): void {
-    const question = `Before I go ahead: ${check.label}${check.target ? ` (${check.target})` : ""}. Is that all right?`;
+    // A saved password or key can end up inside what the model asked for, and the question is put
+    // on screen and kept in memory, so the secrets come back out here exactly as they do for a
+    // typed request.
+    const label = this.deps.runtime.hideSecrets(check.label), target = this.deps.runtime.hideSecrets(check.target);
+    const question = `Before I go ahead: ${label}${target ? ` (${target})` : ""}. Is that all right?`;
     this.deps.runtime.approvals.ask({
-      runId: this.runId, sessionId: this.sessionId, tool: name, target: check.target,
-      label: check.label, question, source: "owner", remember: check.remember, askedAt: new Date().toISOString(),
+      runId: this.runId, sessionId: this.sessionId, tool: name, target,
+      label, question, source: "owner", remember: check.remember, askedAt: new Date().toISOString(),
+      bytes: bytes.slice(0, 2000), fingerprint,
     });
     this.deps.store.event(this.runId, "policy.ask", {
-      name, label: check.label, target: check.target, remember: check.remember, question, bytes: "", fingerprint: "",
+      name, label, target, remember: check.remember, question, bytes: bytes.slice(0, 2000), fingerprint,
     });
     session.toolResult(callId, name, {
       ok: false, waiting: true,
