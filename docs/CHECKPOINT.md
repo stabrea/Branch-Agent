@@ -631,6 +631,40 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+## Batch 23 (wave 4) — a terminal worth using, and a command line scripts can rely on
+
+`branch chat` now opens a real terminal view built from Node's own readline and escape sequences
+(`src/terminal-tui.ts`, `src/terminal-input.ts`, `src/terminal-style.ts`, `src/terminal-commands.ts`):
+a status line that stays above the line being typed (model, tokens and money this conversation has
+used, which approval preset is in force), answers wrapped to the window as they stream, one short
+row per step with Ctrl+E to expand them, Enter to send and Alt+Enter to add a line, the up arrow to
+bring a message back, Ctrl+C to stop the task without closing the terminal and Ctrl+D to leave. The
+slash commands are `/help`, `/model`, `/think`, `/preset`, `/memory`, `/skills`, `/plan`, `/verify`,
+`/dry-run`, `/attach`, `/history`, `/export`, `/new` and `/exit`. When a task pauses for a yes the
+question is shown with the tool and the exact target and takes y / n / a / s, answered through
+`Runtime.approve` — the same route the settings screen uses — after which the task carries on in the
+same conversation. `src/terminal.ts` is untouched apart from exporting `progressLine`, and stays the
+fallback: the full view is entered only when stdout is a terminal (or `FORCE_TTY=1`) and `--plain`
+was not passed. One capability switch (`resolveStyle`) governs colour, cursor movement, the window
+title and the Windows Terminal progress indicator, so `NO_COLOR` or `TERM=dumb` produces output with
+no escape sequence in it at all.
+
+The command line grew the parts a script needs (`src/cli-run.ts`, `src/cli-completion.ts`):
+`branch run` takes `--json` (JSON Lines on stdout, human wording on stderr), `--attach`, `--plan`,
+`--verify`, `--dry-run`, `--preset`, `--budget` and `--timeout`, and exits 0 finished / 2 stopped to
+ask / 3 failed / 4 out of budget; `branch status` shows the running tasks, the questions waiting and
+the health summary; `branch logs <id>` prints the timeline; `branch approve <id> yes|no` answers a
+paused task by writing the answer into the approval policy as a standing rule, because the program
+run that stopped has already ended (documented as such — a one-time yes belongs in the terminal view
+or the app); `branch completion bash|powershell` prints a completion script and needs no database,
+so it short-circuits before the workspace is opened. `tests/cli-tui.test.mjs` drives the whole view
+through a child process with `FORCE_TTY=1` and asserts on ANSI-stripped output.
+
+Deliberately left alone: multi-client attach to a running server, a setup wizard, and per-project
+custom slash commands — all named in this theme but each is its own piece of work. Covers A0007,
+A0012, A0136, A0183, A0205, A0249, A0620 and A1211; the rest of the theme's 23 entries are other
+projects' CLIs and are not ours to tick.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

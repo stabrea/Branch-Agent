@@ -12,6 +12,13 @@ import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
+import { startTui } from "./terminal-tui.js";
+import { looksInteractive } from "./terminal-style.js";
+import { completionScript, usageText } from "./cli-completion.js";
+import {
+  answerFromCommand, applyPreset, exitCodeFor, parseRunArgs, runForScripts, statusSnapshot,
+  timelineLines, type RunFlags,
+} from "./cli-run.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { healthReport } from "./health.js";
 import { readFile, writeFile } from "node:fs/promises";
@@ -73,10 +80,11 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
-    throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
-    );
+  // Printing a completion script or the command list needs no workspace, database or integrations.
+  if (command === "completion") { console.log(completionScript(process.argv[3] ?? "")); return; }
+  if (["help", "--help", "-h"].includes(command)) { console.log(usageText()); return; }
+  if (!["start", "run", "chat", "status", "logs", "approve", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
+    throw new Error(`${usageText()}\n\nI do not know the command "${command}".`);
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
   const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
@@ -104,9 +112,14 @@ async function main(): Promise<void> {
       syncChatGPTPresets(app.runtime.models, app.chatgpt!, false, app.userAgent);
       console.log("Signed out of ChatGPT.");
     } else if (command === "chat") {
-      await startTerminal(app.runtime);
+      // The full view needs a terminal that can be drawn on; anything else gets the plain stream.
+      const full = looksInteractive(process.env, process.stdout.isTTY) && !process.argv.includes("--plain");
+      await (full ? startTui(app.runtime) : startTerminal(app.runtime));
       return;
-    } else if (command === "mcp-serve") {
+    } else if (command === "status") { await printStatus(app); return; }
+    else if (command === "logs") { printLogs(app); return; }
+    else if (command === "approve") { printApproval(app); return; }
+    else if (command === "mcp-serve") {
       await serveMcpStdio(app.mcpServer);
       return;
     }
@@ -136,23 +149,59 @@ async function main(): Promise<void> {
     await close();
   }
 }
+/**
+ * `branch run` and `branch demo`. With `--json` every event goes to stdout as one JSON object per
+ * line while the task works, and the human wording goes to stderr, so a script can read one and a
+ * person can watch the other. The exit code says what happened: see `exitCodeFor`.
+ */
 async function runOnce(
   app: Awaited<ReturnType<typeof createBranch>>,
   command: string,
 ): Promise<void> {
-  const dryRun = process.argv.includes("--dry-run");
-  const prompt = command === "demo"
-    ? "Run the deterministic file write/read/verify fixture."
-    : process.argv.slice(3).filter((word) => word !== "--dry-run").join(" ");
-  if (!prompt)
-    throw new Error('Provide a prompt: node dist/cli.js run "your request"');
-  const run = await app.runtime.run({ prompt, ...(dryRun ? { dryRun: true } : {}) });
-  console.log(JSON.stringify({
-    run,
-    usage: app.store.usage(run.id),
-    events: app.store.events(run.id),
-  }, null, 2));
-  if (run.status !== "completed") process.exitCode = 1;
+  const flags: RunFlags = parseRunArgs(process.argv.slice(3));
+  if (command === "demo") flags.prompt = "Run the deterministic file write/read/verify fixture.";
+  if (!flags.prompt) throw new Error('Provide a prompt: branch run "your request"');
+  if (flags.preset) console.error(`[when to check with me: ${applyPreset(app.store, app.runtime.owner, flags.preset)}]`);
+  const writer = {
+    line: (value: unknown) => { if (flags.json) process.stdout.write(JSON.stringify(value) + "\n"); },
+    note: (text: string) => console.error(text),
+  };
+  const run = await runForScripts(app.runtime, flags, writer);
+  if (flags.json) {
+    writer.line({ type: "run", run, usage: app.store.usage(run.id), exitCode: exitCodeFor(run.status) });
+    writer.note(run.status === "completed" ? run.output : `[task ${run.status}] ${run.output}`);
+  } else console.log(JSON.stringify({ run, usage: app.store.usage(run.id), events: app.store.events(run.id) }, null, 2));
+  process.exitCode = exitCodeFor(run.status);
+}
+/** Tasks working now, questions waiting for an answer, and the health summary. */
+async function printStatus(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const snapshot = statusSnapshot(app.runtime);
+  const health = await healthReport(app, { probeProvider: false });
+  if (process.argv.includes("--json")) { console.log(JSON.stringify({ ...snapshot, health }, null, 2)); return; }
+  console.log(`When to check with me: ${snapshot.approvalPreset}`);
+  console.log(snapshot.running.length ? "Working now:" : "Nothing is working right now.");
+  for (const run of snapshot.running) console.log(`  ${run.id} — ${run.prompt}`);
+  for (const waiting of snapshot.waitingForYou) console.log(`  waiting for you: ${waiting.id} — ${waiting.question}`);
+  console.log(health.ok ? "Everything checks out." : "Some checks need attention:");
+  for (const check of health.items) console.log(`  ${check.ok ? "ok" : "x "} ${check.name}: ${check.summary}`);
+}
+function printLogs(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const runId = process.argv[3];
+  if (!runId) throw new Error("Name a task: branch logs <task id>");
+  if (process.argv.includes("--json")) {
+    for (const event of app.store.events(runId)) process.stdout.write(JSON.stringify(event) + "\n");
+    return;
+  }
+  for (const line of timelineLines(app.store, runId)) console.log(line);
+}
+function printApproval(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const [, , , id, answer] = process.argv;
+  if (!id || !answer) throw new Error("Answer a task: branch approve <task id> yes|no");
+  const result = answerFromCommand(app.runtime, id, answer);
+  if (process.argv.includes("--json")) { console.log(JSON.stringify(result)); return; }
+  console.log(result.decision === "allow"
+    ? `Noted: ${result.rule} may go ahead from now on. Run the task again to carry on.`
+    : `Noted: ${result.rule} is not allowed from now on.`);
 }
 async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const auth = app.chatgpt!;
