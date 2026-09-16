@@ -17,6 +17,8 @@ import { SkillScanPolicySchema } from "./skill-scan.js";
 import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
+import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
+import { allPresets, findPreset } from "./providers/presets.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
@@ -159,103 +161,43 @@ async function testModel(app: Branch, body: unknown): Promise<unknown> {
 }
 
 function providersCatalog(): unknown {
-  const { allPresets } = require("./providers/presets.js");
   return { presets: allPresets() };
 }
 
+const providerTestInput = z.object({
+  preset: z.string().min(1).max(64).optional(), endpoint: z.string().url().max(2048).optional(),
+  model: z.string().min(1).max(256).optional(), apiKey: z.string().min(1).max(4096).optional(),
+}).strict();
+
+/** Sends one tiny request through the same provider classes the assistant uses, so URL rules and errors match real use. */
 async function testProvider(body: unknown): Promise<unknown> {
-  const { preset, endpoint, model, apiKey } = z
-    .object({
-      preset: z.string().min(1).max(64).optional(),
-      endpoint: z.string().url().max(2048).optional(),
-      model: z.string().min(1).max(256).optional(),
-      apiKey: z.string().min(1).max(4096).optional(),
-    })
-    .strict()
-    .parse(body);
-
-  if (!preset && !endpoint)
-    throw new HttpError(400, "Provide either a preset name or an endpoint URL");
-
-  let providerName: string, providerEndpoint: string, providerModel: string, providerKey: string;
-
-  if (preset) {
-    const { findPreset } = require("./providers/presets.js");
-    const presetData = findPreset(preset);
-    if (!presetData) throw new HttpError(400, `Unknown preset: ${preset}`);
-    providerName = presetData.displayName;
-    providerEndpoint = presetData.baseUrl;
-    providerModel = model || presetData.modelIds[0] || "";
-    providerKey = apiKey || "";
-  } else {
-    providerName = "Custom";
-    providerEndpoint = endpoint || "";
-    providerModel = model || "";
-    providerKey = apiKey || "";
-  }
-
-  if (!providerModel || !providerKey)
-    throw new HttpError(400, "Model and API key are required");
-
-  // Validate endpoint: HTTPS or loopback HTTP
-  const url = new URL(providerEndpoint);
-  if (
-    url.protocol !== "https:" &&
-    !(
-      url.protocol === "http:" &&
-      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-    )
-  ) {
-    throw new HttpError(400, "Endpoint requires HTTPS (HTTP allowed only on localhost)");
-  }
-
-  // Try a test request
+  const input = providerTestInput.parse(body);
+  const chosen = input.preset ? findPreset(input.preset) : undefined;
+  if (input.preset && !chosen) throw new HttpError(400, "Unknown provider preset");
+  const endpoint = input.endpoint ?? chosen?.baseUrl, model = input.model ?? chosen?.modelIds[0];
+  if (!endpoint || !model || !input.apiKey) throw new HttpError(400, "Provide the address, a model name and the key to test");
   const started = Date.now();
   try {
-    const testBody = {
-      model: providerModel,
-      max_tokens: 16,
-      messages: [
-        { role: "system", content: "You are an assistant. Reply with OK." },
-        { role: "user", content: "Test" },
-      ],
-    };
-
-    const response = await fetch(new URL(providerEndpoint).origin + "/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${providerKey}` },
-      body: JSON.stringify(testBody),
-      signal: AbortSignal.timeout(30000),
-      redirect: "error",
+    const options = { endpoint, model, apiKey: input.apiKey };
+    const provider = chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
+      : chosen?.headerStyle === "x-api-key" ? new AnthropicProvider(options) : new OpenAIProvider(options);
+    const completion = await provider.complete({
+      messages: [{ role: "system", content: "You are Branch Agent. Reply with the single word OK." }, { role: "user", content: "Connection test" }],
+      tools: [], maxTokens: 16, signal: AbortSignal.timeout(20000),
     });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      let reason = "Request failed";
-      if (response.status === 401 || response.status === 403) reason = "Invalid API key";
-      else if (response.status === 404) reason = "Model not found";
-      else if (response.status >= 500) reason = "Provider error";
-      throw new HttpError(502, reason);
-    }
-
-    const data = await response.json().catch(() => ({}));
-    const content = (data as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content || "OK";
-
-    return {
-      ok: true,
-      provider: providerName,
-      model: providerModel,
-      reply: content.slice(0, 80),
-      ms: Date.now() - started,
-    };
+    return { ok: true, model, reply: completion.content.slice(0, 80), ms: Date.now() - started };
   } catch (error) {
-    if (error instanceof HttpError) throw error;
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes("ECONNREFUSED")) throw new HttpError(502, "Connection refused (endpoint not running?)");
-    if (msg.includes("ETIMEDOUT") || msg.includes("timeout")) throw new HttpError(502, "Request timeout");
-    if (msg.includes("ERR_HTTP_REQUEST_TIMEOUT")) throw new HttpError(502, "Request timeout");
-    throw new HttpError(502, `Connection failed: ${msg}`);
+    return { ok: false, reason: providerFailureReason(error), ms: Date.now() - started };
   }
+}
+
+function providerFailureReason(error: unknown): string {
+  const text = errorText(error);
+  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
+  if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
+  return "The provider answered with an error: " + text.slice(0, 160);
 }
 
 async function localProviders(): Promise<unknown> {
