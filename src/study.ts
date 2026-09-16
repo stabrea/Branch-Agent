@@ -120,6 +120,8 @@ export class StudyRunner {
   /** Runs a study. Anything already finished is kept, so this is also how a study is resumed. */
   async run(id: string, options: { fresh?: boolean } = {}): Promise<StudyRunResult> {
     const study = this.find(id);
+    // A grader's answer is only reused within one study; two studies may be grading different work.
+    this.judgeCache.clear();
     if (options.fresh) this.clearCheckpoints(study.id);
     const tasks = await this.tasksFor(study);
     const startedAt = new Date().toISOString();

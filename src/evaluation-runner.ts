@@ -75,6 +75,8 @@ export class SuiteRunner {
     const request = RunSuiteSchema.parse(input);
     const suite = findSuite(this.store, this.owner, request.suite);
     const readOnly = request.readOnly ?? suite.readOnly;
+    // A grader's answer is only reused within one run; two runs may be grading different work.
+    this.judgeCache.clear();
     const choice = this.runtime.models.plan(this.owner, "evaluation", request.preset ? { preset: request.preset } : {}).choice;
     const startedAt = new Date().toISOString();
     const tasks: TaskOutcome[] = [];
@@ -111,8 +113,11 @@ export class SuiteRunner {
       { id: task.id, prompt: task.prompt, expected: task.expected }, trajectory, answer);
     if (!scored) return outcome;
     const passed = outcome.passed && scored.pass;
+    // A task that already failed its checks keeps "checks" as how it was decided, so the report
+    // never blames a scorer for something the checks caught first.
     return {
-      ...outcome, passed, method: "scorers", score: Math.round(((outcome.score + scored.score) / 2) * 1000) / 1000,
+      ...outcome, passed, method: outcome.passed ? "scorers" : outcome.method,
+      score: Math.round(((outcome.score + scored.score) / 2) * 1000) / 1000,
       problem: outcome.problem ?? (scored.pass ? null : scored.reasons[0] ?? "A scorer failed"),
       scores: scored.parts, reasons: scored.reasons,
     };

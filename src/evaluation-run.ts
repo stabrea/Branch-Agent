@@ -26,8 +26,11 @@ export function readTrajectory(
       try { parsed = JSON.parse(call.arguments); } catch { parsed = {}; }
       calls.push({ name: call.name, arguments: (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown> });
     }
-  const steps = store.events(runId).filter((event) => event.kind === "model.selected").length;
-  return { runId, calls, steps: steps || messages.filter((m) => m.role === "assistant").length, ...extras };
+  // A round is one turn with the model, counted the way the Look inside screen counts them: from
+  // the events the runtime writes as each round starts. "model.selected" is written once per task,
+  // not once per round, so counting that would make every budget on rounds pass.
+  const steps = store.events(runId).filter((event) => event.kind === "model.started").length;
+  return { runId, calls, steps: steps || messages.filter((message) => message.role === "assistant").length, ...extras };
 }
 
 /**

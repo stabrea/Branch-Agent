@@ -13,7 +13,7 @@ import {
   createBranch, makeScorer, scoreAll, applyGates, normaliseAnswer, scorerKinds,
   benchmarkAdapters, findBenchmarkAdapter, notIntegratedBenchmarks,
   compareStudies, comparisonTable, studyTable, studyLines,
-  runToolEvaluations, builtInToolSuites, toolEvaluationLine,
+  runToolEvaluations, builtInToolSuites, toolEvaluationLine, readTrajectory, saveSuite,
   ScriptedProvider, say, callTool, findBash,
 } from "../dist/index.js";
 
@@ -127,7 +127,6 @@ test("gates mark a run failed and say exactly why", () => {
 
 test("a suite run records its scorers, its gate, and a trace tagged with the suite and task", async (t) => {
   const { app } = await fixture(t, [["capital city of France", [say("Paris is the capital city of France.")]]]);
-  app.evaluationSuites.constructor;
   const suite = {
     id: "wave7-scored", name: "Scored suite", description: "One task decided by scorers.",
     tasks: [{ id: "capital", prompt: "What is the capital city of France?", scorers: [{ kind: "contains", phrases: ["Paris"] }, { kind: "budget", maxSteps: 10 }] }],
@@ -148,6 +147,43 @@ test("a suite run records its scorers, its gate, and a trace tagged with the sui
   const failed = await app.evaluationSuites.run({ suite: "wave7-scored", gates: { mustPass: ["a-task-that-is-not-there"] } });
   assert.equal(failed.gate.passed, false);
   assert.match(failed.gate.failures[0], /not in this set of tasks/);
+});
+
+test("a task whose checks fail is still failed when its scorers pass, and the checks are blamed", async (t) => {
+  const { app } = await fixture(t, [["capital city of France", [say("Paris is the capital city of France.")]]]);
+  const { saveSuite } = await import("../dist/index.js");
+  saveSuite(app.store, app.runtime.owner, {
+    id: "wave7-both", name: "Checks and scorers", description: "The checks fail; the scorers do not.",
+    tasks: [{
+      id: "capital", prompt: "What is the capital city of France?",
+      checks: { files: ["a-file-nothing-writes.txt"] },
+      scorers: [{ kind: "contains", phrases: ["Paris"] }],
+    }],
+  });
+  const result = await app.evaluationSuites.run({ suite: "wave7-both" });
+  assert.equal(result.tasks[0].passed, false);
+  assert.equal(result.tasks[0].method, "checks", "the checks caught it first, so they are what decided it");
+  assert.match(result.tasks[0].problem, /a-file-nothing-writes\.txt/);
+  assert.equal(result.summary.accuracy, 0);
+});
+
+test("a task's rounds are counted from its record, so a budget on rounds really bites", async (t) => {
+  const { app } = await fixture(t, [["write two notes", [
+    callTool("files.write", { path: "one.txt", content: "one" }),
+    callTool("files.write", { path: "two.txt", content: "two" }),
+    say("Both notes are written."),
+  ]]]);
+  const run = await app.runtime.run({ prompt: "Please write two notes for me.", permissions: ["files.write"] });
+  assert.equal(run.status, "completed");
+  const { readTrajectory } = await import("../dist/index.js");
+  const trajectory = readTrajectory(app.store, run.id, { ms: 10, tokens: 10, dollars: 0 });
+  assert.equal(trajectory.steps, 3, "three turns with the model");
+  assert.deepEqual(trajectory.calls.map((call) => call.arguments.path), ["one.txt", "two.txt"]);
+  const within = await makeScorer({ kind: "budget", maxSteps: 3 }, { workspace: app.runtime.workspace }).score(task, trajectory, run.output);
+  assert.equal(within.pass, true);
+  const over = await makeScorer({ kind: "budget", maxSteps: 2 }, { workspace: app.runtime.workspace }).score(task, trajectory, run.output);
+  assert.equal(over.pass, false);
+  assert.match(over.reasons[0], /took 3 rounds/);
 });
 
 /* ------------------------------------------------------------ E2 adapters */
