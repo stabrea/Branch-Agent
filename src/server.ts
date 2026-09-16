@@ -401,7 +401,7 @@ async function api(
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
-    return packagesApi(app, request, path);
+    return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
@@ -1061,10 +1061,10 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   throw new HttpError(404, "Endpoint not found");
 }
 /**
- * The reports the assistant has written, the watches that are running, and the morning brief. The
- * reports list is what the Documents panel shows: a title, when it was written, and where the file is.
+ * The reports the assistant has written, the watches that are running, and the morning brief.
+ * These are the routes only; no screen in the app calls them yet.
  */
-async function packagesApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+async function researchApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/research") return { reports: app.research.list(owner) };
   if (request.method === "GET" && path === "/api/monitors") return { monitors: app.monitors.list(owner) };

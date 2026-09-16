@@ -102,7 +102,6 @@ export class Scheduler {
   }
   async tick(now = new Date()): Promise<Run[]> {
     const results: Run[] = [];
-    for (const listener of this.onTick) await listener(now).catch(() => undefined);
     if (this.store.review.dreamDue(this.runtime.owner, now)) await this.store.review.consolidate(this.runtime, this.runtime.owner).catch(() => undefined);
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
@@ -110,6 +109,9 @@ export class Scheduler {
       const run = await this.execute(claimed, now, "schedule", undefined, true);
       if (run) results.push(run);
     }
+    // Last, so that work the person actually asked for is never left waiting behind a watch
+    // that is slow to answer. A beat that overlaps the one before it is normal here.
+    for (const listener of this.onTick) await listener(now).catch(() => undefined);
     return results;
   }
   /** Runs a saved schedule now (webhook or local script) without moving its next due time. */

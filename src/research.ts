@@ -6,6 +6,7 @@ import type { Store } from "./store.js";
 import type { WorkspaceFiles, WriteObserver } from "./files.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WebAccess } from "./integrations/web.js";
+import { applyContentPolicy, detectInjection } from "./content-guard.js";
 import type { DocumentLibrary } from "./documents.js";
 import { Citations } from "./citations.js";
 import { agreements, findingsFrom, type Finding } from "./research-claims.js";
@@ -134,7 +135,12 @@ export class Research {
       state.visited.push(url);
       try {
         const page = await this.web.fetchPage(url, 20000);
-        state.findings.push(...findingsFrom(input.question, page.url, page.title || page.url, page.text));
+        // The owner's injection policy applies here exactly as it does to `web.read`: a page whose
+        // lines read like orders to the assistant is redacted or refused before it can be quoted.
+        const warnings = detectInjection(page.text);
+        if (warnings.length) this.store.event(context.runId, "research.flagged", { url: page.url, warnings: warnings.length, policy: this.web.injectionPolicy });
+        const guarded = applyContentPolicy(page.text, warnings, this.web.injectionPolicy);
+        state.findings.push(...findingsFrom(input.question, page.url, page.title || page.url, guarded.text));
       } catch (error) {
         this.store.event(context.runId, "research.skipped", { url, reason: errorText(error).slice(0, 200) });
       }

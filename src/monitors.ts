@@ -5,6 +5,7 @@ import { errorText } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WebAccess } from "./integrations/web.js";
+import { applyContentPolicy, detectInjection } from "./content-guard.js";
 import type { DeliveryHandler } from "./scheduler.js";
 
 /**
@@ -47,6 +48,8 @@ export function everyMinutes(value: number | string): number {
 
 export class Monitors {
   private readonly db: DatabaseSync;
+  /** Watches being looked at right now: a beat that overlaps the last one must not look again. */
+  private readonly inFlight = new Set<string>();
   constructor(private readonly store: Store, private readonly web: WebAccess, private readonly deliver?: DeliveryHandler) {
     this.db = store.sqlite;
     this.db.exec(`CREATE TABLE IF NOT EXISTS monitors(id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL,
@@ -82,7 +85,12 @@ export class Monitors {
   /** What the watch is looking at right now, as plain text. */
   private async observe(kind: string, target: string, signal?: AbortSignal): Promise<string> {
     signal?.throwIfAborted();
-    if (kind === "page") return (await this.web.fetchPage(target, snapshotChars)).text;
+    // A search only ever yields titles and addresses, so only a page's own words need the owner's
+    // injection policy applied: the same one `web.read` uses, before any of it is quoted at them.
+    if (kind === "page") {
+      const text = (await this.web.fetchPage(target, snapshotChars)).text;
+      return applyContentPolicy(text, detectInjection(text), this.web.injectionPolicy).text;
+    }
     return (await this.web.search(target, 8)).map((result) => `${result.title} — ${result.url}`).join("\n");
   }
 
@@ -92,15 +100,18 @@ export class Monitors {
     if (!row) throw new Error("There is no watch with that number");
     const record = toRecord(row);
     const next = new Date(now.getTime() + record.everyMinutes * 60000).toISOString();
-    const text = await this.observe(record.kind, record.target, signal);
-    const changed = digest(text) !== String(row.hash ?? "");
-    const summary = changed ? describeChange(record, String(row.snapshot ?? ""), text) : `No change at ${record.label}.`;
-    // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
-    // place, so the same change is noticed again next time instead of being lost silently.
-    const delivered = changed ? await this.announce(owner, record, summary) : null;
-    this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
-      .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
-    return { id, changed, summary, delivered };
+    this.inFlight.add(id);
+    try {
+      const text = await this.observe(record.kind, record.target, signal);
+      const changed = digest(text) !== String(row.hash ?? "");
+      const summary = changed ? describeChange(record, String(row.snapshot ?? ""), text) : `No change at ${record.label}.`;
+      // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
+      // place, so the same change is noticed again next time instead of being lost silently.
+      const delivered = changed ? await this.announce(owner, record, summary) : null;
+      this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
+        .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
+      return { id, changed, summary, delivered };
+    } finally { this.inFlight.delete(id); }
   }
   /** Every watch that is due; each one's own failure is recorded and does not stop the others. */
   async tick(owner: string, now = new Date(), signal?: AbortSignal): Promise<MonitorCheck[]> {
@@ -108,6 +119,9 @@ export class Monitors {
     const results: MonitorCheck[] = [];
     for (const row of due) {
       const id = String(row.id);
+      // A watch whose last look has not come back yet is left alone: a beat every few seconds
+      // must not fetch the same page over and over, nor announce one change several times.
+      if (this.inFlight.has(id)) continue;
       try { results.push(await this.check(owner, id, now, signal)); }
       catch (error) {
         this.db.prepare("UPDATE monitors SET next_at=? WHERE id=?").run(new Date(now.getTime() + 3600000).toISOString(), id);
