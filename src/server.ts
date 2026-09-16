@@ -2408,8 +2408,8 @@ function voiceDeps(app: Branch) {
  */
 function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
-  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets"))
-    return "A short-lived key cannot name a program for Branch to run, or change the locker. Do that in the app window.";
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
+    return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {

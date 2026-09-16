@@ -333,6 +333,9 @@ test("S1a a short-lived key never names a program for Branch to run, nor touches
   assert.equal(registered.status, 401);
   assert.match((await registered.json()).error, /cannot name a program/);
   assert.equal((await post("/api/secrets", { project: "default", name: "X", value: "y" })).status, 401);
+  // Adding a model service puts a key in the locker and widens where the words go, so it is the
+  // owner's step too, even though /api/connections otherwise counts as starting work.
+  assert.equal((await post("/api/connections/from-preset", { preset: "openai", apiKey: "x" })).status, 401);
   // The owner's own key still does both, so nothing was closed off to the app window.
   const asOwner = await fetch(server.url + "/api/providers/cli-agents", {
     method: "POST",
@@ -380,6 +383,30 @@ test("S2 a password may come from a command the owner listed, and from no other 
   // And the locker fills them too, because the command source is wired in front of its projects.
   const throughLocker = await app.store.secrets.fill(owner, "default", { token: commandReference("deploy") }, { purpose: "a call" });
   assert.equal(throughLocker.token, "super-secret-value");
+});
+
+test("S2b a password a command printed never leaves the computer in a trace, a log record or the record", async (t) => {
+  const { app, root } = await fixture(t);
+  const sink = await collector(t);
+  const owner = app.runtime.owner;
+  const prints = await fakeProgram(root, "prints.mjs", "process.stdout.write('SUPER-SECRET-VALUE')");
+  saveSecretCommandSettings(app.store, owner, {
+    enabled: true, commands: [{ name: "deploy", command: prints.command, args: prints.args, note: "" }],
+  });
+  const source = new CommandSecrets(app.store, owner, app.store.secrets.scrubber);
+  const filled = await source.fill({ token: commandReference("deploy") }, { purpose: "a test" });
+  assert.equal(filled.token, "SUPER-SECRET-VALUE", "the caller still gets the real value");
+
+  saveTraceExportSettings(app.store, owner, { enabled: true, destination: "otlp", endpoint: sink.url });
+  const task = await app.runtime.run({ prompt: "use SUPER-SECRET-VALUE now", source: "owner" });
+  app.store.event(task.id, "tool.finished", { output: "here is SUPER-SECRET-VALUE in the output" });
+  await app.runtime.exportSpans(task.id);
+  for (let i = 0; i < 200 && !sink.seen.some((one) => one.path === "/v1/logs"); i++) await delay(20);
+  const sent = JSON.stringify(sink.seen);
+  assert.ok(sink.seen.some((one) => one.path === "/v1/logs"), "no log records were sent at all");
+  assert.ok(!sent.includes("SUPER-SECRET-VALUE"), "the password left this computer in an OTLP body");
+  assert.ok(!JSON.stringify(app.store.audit.list(owner, { limit: 200 })).includes("SUPER-SECRET-VALUE"),
+    "the password reached the record of what the assistant was allowed to do");
 });
 
 test("S3 the sources a saved password can come from are one written-down contract", () => {
