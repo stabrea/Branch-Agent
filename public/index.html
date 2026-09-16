@@ -635,6 +635,20 @@
             <button id="health-run" type="button">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
           </section>
+          <section id="diagnostics-card" class="card">
+            <h2>Diagnostics</h2>
+            <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
+            <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
+            <button id="diagnostics-save" type="button">Save a diagnostics folder</button>
+            <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
+            <h3>Trace files for a tracing viewer</h3>
+            <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
+            <label class="check-row"><input type="checkbox" id="trace-enabled" /> Write a trace file for every finished task</label>
+            <label for="trace-folder">Folder for the trace files</label>
+            <input id="trace-folder" maxlength="4096" spellcheck="false" placeholder="A full path inside your own user folder or your workspace" />
+            <button id="trace-save" type="button">Save trace settings</button>
+            <p id="trace-status" class="subtle" aria-live="polite"></p>
+          </section>
           <section id="backup-card" class="card">
             <h2>Backup</h2>
             <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
@@ -741,7 +755,8 @@
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
-    <script src="/usage.js"></script>
+    <script src="/usage.js" type="module"></script>
+    <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>

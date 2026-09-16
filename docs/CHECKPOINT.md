@@ -410,6 +410,41 @@ optional per-conversation limits on tool calls and model rounds a minute that pa
 than fail; and a `file.invalid_json` warning after writing a `.json` file that will not parse. New
 files `src/policy.ts`, `src/approvals.ts`, `public/approvals.js`, `tests/approvals.test.mjs`. Covers
 A0048, A0152, A0245, A0262, A0636, A0701, A1521, A1629, A1685, A2028.
+## Batch 20 (wave 2) — real costs, trace export, privacy-safe diagnostics
+`src/pricing.ts` holds per-million-token list prices for the common models of OpenAI, Anthropic,
+Gemini, Groq, Mistral and DeepSeek (plus zero for local runners), with a `pricedAt` date and an
+owner override map in `settings/pricing` (`GET|POST /api/pricing`). `estimateCost(model, usage,
+overrides)` returns `{ amount, currency, confidence: table | override | unknown, note }`; an unknown
+model returns `amount: null` and reads "no price on file" rather than $0.00, which is reserved for
+models that genuinely cost nothing. Costs now appear wherever tokens already did: the run list, a
+task's detail and receipts views, the usage aggregates by day/model/conversation/source, the Usage
+screen, the monthly stats, and a new `estimatedCostUsd` + `runsWithoutPrice` pair of CSV columns.
+Two latent bugs fixed on the way: `model.completed` now carries `preset`/`provider`/`model` (so
+cost attribution, the run timeline titles and the trace span names all name the real model), and
+the old cost pass multiplied a task's whole usage row by its number of model rounds. The monthly
+budget may now be tokens, dollars or both (`maxMonthlyDollars`), and both the monthly refusal and
+the per-task token refusal quote the dollar figure when a price is on file (A0857).
+`src/trace.ts` writes each finished task as one OpenTelemetry-shaped JSON document (resourceSpans →
+scopeSpans → spans; a task span with a child per model round and per tool call, deterministic
+32-hex traceId and 16-hex spanIds). Off by default, `settings/trace` via `GET|POST
+/api/trace/settings`; the folder must resolve inside the owner's home or the workspace, checked
+with `relative()` rather than a prefix test, and UNC paths are refused. `GET /api/runs/:id/trace`
+returns the same document on demand. Files only — there is no network exporter — and a write
+failure records a `trace.failed` event instead of failing the task.
+`src/diagnostics.ts` backs a new Settings → Diagnostics card that states "Branch sends no usage data
+to anyone" and saves a plain folder (health, versions, last 200 events, the price table, a README)
+under the data directory for the owner to share by hand. Event data goes through an allow-list, so
+tool arguments, results, diffs and file contents are dropped rather than trimmed, and the fields
+that survive are scrubbed for keys, tokens and bearer headers. `public/usage.js` was rewritten: it
+was entirely dead before (it called `api`/`el` that app.js never exposed, hooked a `window.displayView`
+that does not exist, read `{data, stats}` as an array, and `/usage.js` was not even in the server's
+static allow-list). `public/providers.js` has the same missing-allow-list problem and was left for
+the providers branch. Covers A0202, A0269, A0346, A0420, A0459, A0565, A0773, A1419, A0857, and
+A0031/A0597/A0972 as **file export only — there is no OTLP network exporter**, so the tracing
+theme is not finished. A1441 (cache-aware cost accounting) is explicitly *not* covered: a cached
+price can be recorded but nothing populates cached token counts. The `usage_cache` table is still
+unused by any caller and records no price confidence, so a cached row reports its tasks as
+unpriced rather than inventing a figure.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

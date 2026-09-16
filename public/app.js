@@ -88,6 +88,7 @@ function displayView(view) {
       node.classList.toggle("active", node.dataset.view === view),
     );
   $("page-title").textContent = titles[view];
+  if (view === "usage") void window.branchUsage?.render();
 }
 document
   .querySelectorAll(".nav")
@@ -127,6 +128,7 @@ function renderRuns() {
             ? `Provider reported: ${run.usage.reportedInput} in / ${run.usage.reportedOutput} out`
             : "Provider usage: not reported",
         ),
+        el("span", `Estimated cost: ${run.cost?.display ?? "no price on file"}`),
       );
       node.append(
         usage,
@@ -476,6 +478,7 @@ async function refresh() {
   renderAttention();
   void window.branchMcp?.render();
   void window.branchApprovals?.render();
+  void window.branchDiagnostics?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {

@@ -310,6 +310,21 @@ export class Store {
         createdAt: String(row.created_at),
       }));
   }
+  /** The newest events across all of one owner's tasks, for the diagnostics bundle. */
+  recentEvents(owner: string, limit = 200): Event[] {
+    return this.db
+      .prepare(
+        "SELECT e.* FROM events e JOIN tasks t ON t.id=e.run_id WHERE t.owner=? ORDER BY e.id DESC LIMIT ?",
+      )
+      .all(owner, Math.max(1, Math.min(2000, limit)))
+      .map((row) => ({
+        id: Number(row.id),
+        runId: String(row.run_id),
+        kind: String(row.kind),
+        data: JSON.parse(String(row.data)),
+        createdAt: String(row.created_at),
+      }));
+  }
   beginUsage(runId: string, estimatedInput: number): void {
     this.db
       .prepare(

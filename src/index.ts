@@ -255,3 +255,6 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+export * from "./pricing.js";
+export * from "./trace.js";
+export * from "./diagnostics.js";
