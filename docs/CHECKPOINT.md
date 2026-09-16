@@ -47,7 +47,13 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
-## Batch 11 (local, unreleased): skill scanning, receipts, content guard, delegated exit criteria, live activity
+## Release 0.6.0 (batches 10 and 11)
+
+Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
+made with `C:\Windows\System32	ar.exe -a -cf` (forward-slash entries, like earlier releases) and a
+two-space `sha256sum`-style checksum file. `npm run package:desktop` does not produce the zip.
+
+## Batch 11 (released in 0.6.0): skill scanning, receipts, content guard, delegated exit criteria, live activity
 
 `src/skill-scan.ts` + policy in `InstalledSkills` (scan column on skill_versions, acknowledge on activate),
 `src/receipts.ts` (HMAC receipts on tool.completed, verify/classify; `/api/runs/:id/receipts`,
@@ -55,7 +61,7 @@ Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 policy and `content.flagged` events, `checks` on delegate/fan-out, `src/activity.ts` + `/api/activity`
 + the activity panel above the conversation. Receipts need the locker open (createBranch always opens it).
 
-## Batch 10 (local, unreleased): completion checks, stalls, overflow, continue, delivery ledger
+## Batch 10 (released in 0.6.0): completion checks, stalls, overflow, continue, delivery ledger
 
 `src/reliability.ts` (CompletionCheckSchema/evaluateChecks, StallError/withStallWatchdog,
 clipToolResult/shrinkToolResults, ReliabilityOptionsSchema), runtime `checks`, `resume`, `fitContext`,
