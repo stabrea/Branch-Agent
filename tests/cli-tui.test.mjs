@@ -249,6 +249,8 @@ test("the flag reader, the exit code table and the wrapper behave on their own",
   assert.deepEqual([flags.budget, flags.timeoutMs, flags.preset, flags.attach], [500, 900, "workspace", ["a.txt"]]);
   assert.throws(() => parseRunArgs(["x", "--budget", "nope"]), /whole number/);
   assert.throws(() => parseRunArgs(["x", "--attach"]), /needs a file/);
+  assert.throws(() => parseRunArgs(["x", "--preset"]), /needs a name/);
+  assert.equal(parseRunArgs(["x"]).preset, undefined, "no --preset leaves the saved setting alone");
   assert.deepEqual(
     ["completed", "needs_input", "budget_exceeded", "failed", "cancelled"].map(exitCodeFor),
     [0, 2, 4, 3, 3],

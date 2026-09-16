@@ -56,6 +56,7 @@ export function parseRunArgs(argv: string[]): RunFlags {
     else words.push(word);
   }
   if (flags.attach.some((path) => !path)) throw new Error("--attach needs a file after it");
+  if (flags.preset === "") throw new Error("--preset needs a name after it");
   flags.prompt = words.join(" ").trim();
   return flags;
 }

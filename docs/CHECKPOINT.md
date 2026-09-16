@@ -662,8 +662,11 @@ through a child process with `FORCE_TTY=1` and asserts on ANSI-stripped output.
 
 Deliberately left alone: multi-client attach to a running server, a setup wizard, and per-project
 custom slash commands — all named in this theme but each is its own piece of work. Covers A0007,
-A0012, A0136, A0183, A0205, A0249, A0620 and A1211; the rest of the theme's 23 entries are other
-projects' CLIs and are not ours to tick.
+A0136, A0205, A0249, A0620 and A1211 outright, plus two with a named gap: A0012 is the `--json`
+event stream, not its "only the final answer on stdout by default" half (`branch run` without
+`--json` still prints the existing `{run, usage, events}` report, which other branches merge
+alongside), and A0183 is the subcommands and the terminal view without the setup wizard. The rest
+of the theme's 23 entries are other projects' CLIs and are not ours to tick.
 
 ## Next work (local until a checkpoint worth publishing)
 
