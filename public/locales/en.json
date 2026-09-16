@@ -202,5 +202,6 @@
   "chat.card.somewhere-safe-to-try-things": "Somewhere safe to try things",
   "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks.",
   "usage.card.limit": "Monthly limit",
-  "usage.card.limitPurpose": "Stop starting new tasks once this month reaches a number of words, an amount of money, or either. Leave a box empty to not use it."
+  "usage.card.limitPurpose": "Stop starting new tasks once this month reaches a number of words, an amount of money, or either. Leave a box empty to not use it.",
+  "documents.card.ask-about-one-file": "Ask about one file"
 }

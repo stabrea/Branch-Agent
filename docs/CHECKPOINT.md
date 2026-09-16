@@ -1655,6 +1655,41 @@ task land in that profile's scope, which is also what stops a profile's task rea
 not through `memory.search`, and not through the snapshot a task opens with. Models, settings and
 the secrets locker still belong to the owner; only what is remembered moves.
 
+## Batch 25 (wave 7) — every document people actually have, and memory that knows what it remembers
+Branch now reads Word, spreadsheet, slide, OpenDocument, e-book, rich-text and PDF files with nothing
+but Node built-ins: no dependency was added. `src/document-office.ts`, `src/document-open.ts` and
+`src/document-pdf.ts` hold the readers; `src/document-readers.ts` is the one door in front of them,
+capping every read by size and by time and returning the text with its shape kept (Markdown headings
+for sections, sheets and slides; `[[page N]]` markers the existing passage-cutter already understands),
+the tables it found, and a plain sentence for every part it could not read. The PDF reader finds
+objects by scanning rather than trusting the cross-reference table, unpacks FlateDecode streams and
+packed object stores, walks the page tree, reads `Tj`/`TJ`/`'`/`"` with the file's own ToUnicode
+tables, and rebuilds lines from where text sat on the page. It refuses a password-locked PDF outright
+and reports a picture-only PDF as pictures rather than returning nothing; docs/configuration.md lists
+what it cannot do, so the limit is stated rather than discovered.
+Knowledge bases walk every one of those kinds (`readableFile` now asks the reader registry, not a
+hand-written extension list), cut passages at headings, slides, sheets and pages so citations carry
+them, and keep a per-file content hash in the new `kb_documents` table — a second reading leaves
+unchanged files alone and reports how many (`unchanged`), while every file that could not be read is
+listed against the collection with its reason (`unread`). `documents.analyse` answers a question about
+one file with the heading and page behind each claim and opens the file's tables as `data.*` figures;
+`documents.compare` lines two documents up section by section. `knowledge.propose` reads a finished
+conversation and stages fact cards as `knowledge-card` suggestions; accepting one writes it into the
+chosen collection through `KnowledgeBases.addCard`, indexed and cited like any passage.
+On the memory side, `src/memory-layers.ts` gives every fact a kind and a layer — both optional on the
+record, so nothing already saved changes meaning — and `chooseForInjection` takes what reaches a task
+layer by layer in a documented order and budget (working 6, task 4, then long-term, capped at the
+snapshot's 20 facts and 2000 characters). Task-scratch notes are cleared by an `onRunFinished` hook
+unless `memory.keep` promoted them. `src/memory-tidy.ts` runs all four hygiene checks in one call,
+stages suggestions and deletes nothing, ships as the **Tidy my memory** recipe, and feeds the
+counts-only `memory.json` now written into the diagnostics folder. `branch eval memory`
+(`src/memory-evaluation.ts`) measures retrieval against the owner-editable set in
+`data/memory-retrieval.json`, reporting hit rate before and after the nightly pass under a scope of
+its own that is emptied afterwards. `src/memory-backend.ts` writes down the contract the SQLite store
+keeps, with that store as the only implementation, and the JSON Lines export now round-trips kinds,
+layers and projects. Sessions already persisted; `GET /api/sessions` adds the phone-sized list of
+recent conversations, served through the existing paired-remote listener with the same key — no new
+door was opened.
 ## Batch 25 (wave 7) — the screens the last waves left as routes, and the observability leftovers
 
 Several earlier waves landed a route or a module without the screen that uses it. This batch

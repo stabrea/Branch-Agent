@@ -24,6 +24,7 @@ import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
+import { runMemoryEvaluation } from "./memory-evaluation.js";
 // Wave 7 (benchmarks and experiments): studies and the tool checks.
 import { compareStudies, comparisonTable, studyLines, studyTable } from "./study.js";
 import { runToolEvaluations, toolEvaluationLine } from "./tool-evaluations.js";
@@ -341,6 +342,8 @@ function printApproval(app: Awaited<ReturnType<typeof createBranch>>): void {
  */
 async function runEvaluation(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const asJson = process.argv.includes("--json"), suite = flag("suite"), compare = flag("compare");
+  // `branch eval memory` measures whether saved facts are actually found, against the set in data/.
+  if (process.argv[3] === "memory") return printMemoryEvaluation(app, asJson);
   if (compare) {
     const result = await app.evaluationSuites.compare({ suite: suite ?? "cost", presets: compare.split(",").map((part) => part.trim()).filter(Boolean) });
     if (asJson) return void console.log(JSON.stringify(result, null, 2));
@@ -361,6 +364,17 @@ async function runEvaluation(app: Awaited<ReturnType<typeof createBranch>>): Pro
   console.log(`\n${summaryLine(result)}`);
   if (result.gate) return void (process.exitCode = result.gate.passed ? 0 : 1);
   if (!result.summary.total || result.summary.passed < result.summary.total) process.exitCode = 1;
+}
+/** How often the right saved fact came back, before the nightly pass and after it. */
+async function printMemoryEvaluation(app: Awaited<ReturnType<typeof createBranch>>, asJson: boolean): Promise<void> {
+  const result = await runMemoryEvaluation(app.store, app.memory.retrieval, app.consolidation);
+  if (asJson) return void console.log(JSON.stringify(result, null, 2));
+  console.log(["question", "found", "where"].join("\t"));
+  for (const row of result.results) console.log([row.ask, row.found ? "yes" : "no", row.rank ?? "-"].join("\t"));
+  console.log(`\n${result.name}: found the right fact for ${Math.round(result.hitRateBefore * 100)}% of `
+    + `${result.questions} questions, ${Math.round(result.hitRateAfter * 100)}% after the nightly pass.`);
+  if (result.meaningSearch) console.log(result.meaningSearch);
+  if (result.hitRateAfter < 1) process.exitCode = 1;
 }
 /** The gates for this run: JSON written out on the command line, or the name of a file holding it. */
 async function readGates(value: string | undefined): Promise<unknown> {

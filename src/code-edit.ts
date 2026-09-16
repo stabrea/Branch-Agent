@@ -178,13 +178,13 @@ const pathSchema = z.string().min(1).max(500);
 export function registerCodeEdit(registry: ToolRegistry, files: WorkspaceFiles, editor: CodeEditor): void {
   registry.register({
     name: "files.patch", permission: "files.write",
-    description: "Apply a unified diff to one or more workspace files. Every part must fit the files exactly; if any part does not, nothing is changed and the reply says which file and which part.",
+    description: "Apply a set of changes to workspace files. Nothing changes unless every part fits exactly.",
     parameters: z.object({ patch: z.string().min(1).max(131072) }).strict(),
     execute: async (a, c: ToolContext) => editor.patch(a.patch, c),
   });
   registry.register({
     name: "files.edit", permission: "files.write",
-    description: "Replace an exact piece of text in a workspace file. Refuses if the text appears a different number of times than expected, so an ambiguous change is never guessed.",
+    description: "Replace an exact piece of text in a workspace file, refusing when it appears a different number of times than expected.",
     parameters: z.object({
       path: pathSchema,
       find: z.string().min(1).max(32768),

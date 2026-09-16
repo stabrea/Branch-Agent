@@ -203,5 +203,6 @@
   "chat.card.somewhere-safe-to-try-things": "Somewhere safe to try things",
   "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches.",
   "usage.card.limit": "Limite mensuelle",
-  "usage.card.limitPurpose": "Arrêter de lancer de nouvelles tâches une fois atteint un nombre de mots, un montant, ou l'un ou l'autre. Laissez une case vide pour ne pas l'utiliser."
+  "usage.card.limitPurpose": "Arrêter de lancer de nouvelles tâches une fois atteint un nombre de mots, un montant, ou l'un ou l'autre. Laissez une case vide pour ne pas l'utiliser.",
+  "documents.card.ask-about-one-file": "Poser une question sur un fichier"
 }
