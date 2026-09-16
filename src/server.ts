@@ -35,6 +35,7 @@ import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
 import { buildTrajectory, trajectoryLines } from "./trajectory.js";
+import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
@@ -881,6 +882,15 @@ async function api(
     // A tool call's raw arguments are read back off the assistant message, which the runtime never
     // scrubbed; nothing leaves here carrying a saved password or key.
     return app.runtime.hideSecrets(inspectRun(app.store, run.id, await trajectoryOptions(app, run.id)));
+  }
+  // Batch 26 (wave 8): "Do this again" — the same words, the same tools and the same model, in a
+  // conversation of its own, so the two can be read side by side.
+  const replay = /^\/api\/runs\/([a-f0-9-]{36})\/replay$/.exec(path);
+  if (request.method === "POST" && replay) {
+    const run = app.store.run(replay[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    const done = await replayRun(app.runtime, app.store, run.id);
+    return { original: done.original, replay: done.replay, status: done.run.status, plan: done.plan };
   }
   // Wave 7: the same task as a trajectory — "Look inside" plus the conversation's messages and the
   // spans — in the documented shape, for keeping or for feeding an evaluation run.

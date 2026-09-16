@@ -2839,3 +2839,16 @@ Each person's card on the People screen shows their role and what they are held 
 New routes: `GET|POST /api/profiles/{id}/role` (only the owner may set one). The grant is
 `{ role, categories, projects, dailySpendLimit }`; `categories` uses the same seven kinds the
 approval settings group tools by.
+
+## Doing a task again, and reading the difference (batch 26, wave 8)
+
+"Look inside" now has a **Do this again** button. It runs the same task a second time — the same
+words, the same tools it had, the same model that answered it — in a conversation of its own, so the
+second answer is not shaped by the first. The two then open side by side on the screen that already
+compares two tasks: what each cost, how long each took, how many rounds and tools each used, and the
+difference between the two answers line by line.
+
+This is how a change to a prompt, a model or a set of rules is judged: run the same thing twice and
+read the difference, rather than remembering what it did last week. What each task was allowed to
+reach is now recorded when it starts, which is what makes "the same tools" a real promise. New
+route: `POST /api/runs/{id}/replay`.

@@ -562,6 +562,8 @@ export class Runtime {
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
+      permissions: [...context.permissions].sort(),
     });
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",

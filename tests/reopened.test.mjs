@@ -402,3 +402,41 @@ test("A2006 a child's profile is refused a purchase-class tool and a project out
   assert.equal(grantRefusal({ role: "adult", projects: [], dailySpendLimit: 1 }, "Sam",
     { category: "files", project: "default", spentToday: 0.2 }), null);
 });
+
+// ---------------------------------------------------------------- A1481
+
+test("A1481 a finished task can be run again with the same words, tools and model, and the two compared", async (t) => {
+  const { app, provider } = await fixture(t, ({ last }) =>
+    last?.role === "tool" ? say("counted") : call("files.write", { path: "n.txt", content: "one" }));
+  const { replayPlan, replayRun } = await import("../dist/replay.js");
+  const { inspectRun } = await import("../dist/inspect.js");
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "custom", rules: [], limits: {}, unmatchedCommands: "allow" });
+
+  const first = await app.runtime.run({ prompt: "write the note", permissions: ["files.write", "files.read"] });
+  assert.equal(first.status, "completed");
+
+  // What the task was is read back off its own record, not guessed at.
+  const plan = replayPlan(app.store, first.id);
+  assert.equal(plan.prompt, "write the note");
+  assert.deepEqual(plan.permissions, ["files.read", "files.write"], "the very same tools it had");
+  assert.equal(plan.model, "alpha");
+
+  const before = provider.requests.length;
+  const again = await replayRun(app.runtime, app.store, first.id);
+  assert.equal(again.original, first.id);
+  assert.notEqual(again.replay, first.id);
+  assert.ok(provider.requests.length > before, "the model really was asked again");
+  assert.notEqual(app.store.run(again.replay).sessionId, first.sessionId, "in a conversation of its own");
+  assert.equal(app.store.run(again.replay).prompt, "write the note");
+  assert.ok(app.store.events(again.replay).some((event) => event.kind === "run.replayed"));
+  const permissionsUsed = app.store.events(again.replay).find((event) => event.kind === "run.started").data.permissions;
+  assert.deepEqual(permissionsUsed, ["files.read", "files.write"]);
+
+  // Both tasks answer the same "Look inside" question, which is what the side-by-side screen reads.
+  for (const runId of [again.original, again.replay]) {
+    const view = inspectRun(app.store, runId, { receipts: { items: [], counts: {} }, timeline: null, cost: null, version: "test" });
+    assert.equal(view.run.prompt, "write the note");
+    assert.ok(view.rounds.length >= 1);
+  }
+  await assert.rejects(async () => replayPlan(app.store, "00000000-0000-4000-8000-000000000000"), /no task with that number/);
+});

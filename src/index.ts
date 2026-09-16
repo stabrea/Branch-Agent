@@ -899,6 +899,7 @@ export * from "./credential-cli.js";
 export * from "./sandbox.js";
 export * from "./os-permissions.js";
 export * from "./profile-roles.js";
+export * from "./replay.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
