@@ -364,6 +364,18 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   assert.equal(locked.preset, "custom");
   assert.deepEqual(locked.rules, [{ tool: "*", match: "*", applies: "any", decision: "ask", remember: "never" }]);
 
+  // Nothing goes out of a messaging account while it is on.
+  const refusedSend = await app.channels.outboundGuard("here is the answer");
+  assert.equal(refusedSend.blocked, true);
+  assert.match(refusedSend.reason, /Lockdown is on/);
+
+  // And no note about what happened reaches another program: nothing is even attempted.
+  const hook = app.webhooks.create({ owner, permissions: new Set(["webhooks.manage"]) },
+    { name: "Somewhere", url: "http://127.0.0.1:9/never", events: ["run.completed"] });
+  app.runtime.notifyEvent("run.completed", { runId: "none" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(app.store.getWebhookLog(hook.id, owner), [], "no delivery was even tried");
+
   // It is in the record of what the assistant was allowed to do.
   const written = store.audit.list(owner, { limit: 50 }).filter((entry) => entry.subject.startsWith("Lockdown"));
   assert.equal(written.length, 1);
