@@ -43,15 +43,24 @@ export async function readGraphicsCard(
 }
 
 let remembered: Hardware | null = null;
-/** This computer's memory, cores and graphics card. The slow part is asked once and kept. */
+let asking: Promise<Hardware> | null = null;
+/**
+ * This computer's memory, cores and graphics card. The slow part is asked once and kept — and two
+ * screens opening at the same moment share the one question rather than each starting PowerShell.
+ */
 export async function readHardware(options: { refresh?: boolean } = {}): Promise<Hardware> {
   if (remembered && !options.refresh) return remembered;
-  const graphics = await readGraphicsCard();
-  return (remembered = describeHardware({ totalMemoryBytes: totalmem(), cores: cpus().length || 1, graphics }));
+  if (asking && !options.refresh) return asking;
+  asking = (async () => {
+    const graphics = await readGraphicsCard();
+    return (remembered = describeHardware({ totalMemoryBytes: totalmem(), cores: cpus().length || 1, graphics }));
+  })().finally(() => { asking = null; });
+  return asking;
 }
 /** Forgets the remembered graphics card, so the next read asks Windows again. Used by tests. */
 export function forgetHardware(): void {
   remembered = null;
+  asking = null;
 }
 /** Adds the plain-language summary to raw numbers. Pure, so a test can hand it any computer. */
 export function describeHardware(input: Omit<Hardware, "summary">): Hardware {

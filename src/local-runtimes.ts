@@ -39,12 +39,15 @@ export class LocalRuntimes {
     ollama: { installed: boolean; version: string | null; models: LocalModel[]; downloadPage: string };
     lmStudio: { running: boolean; models: { name: string; loaded: boolean; contextLength: number | null }[]; downloadPage: string };
   }> {
+    let trouble = false;
     const version = await this.ollama.version();
     let models: LocalModel[] = [];
     if (version) {
-      try { models = await this.ollama.list(); } catch (error) { this.note(error); }
+      try { models = await this.ollama.list(); } catch (error) { this.note(error); trouble = true; }
     }
-    const lmStudio = await this.lmStudio.list().catch((error) => { this.note(error); return { running: false, models: [] }; });
+    const lmStudio = await this.lmStudio.list().catch((error) => { this.note(error); trouble = true; return { running: false, models: [] }; });
+    // A problem that has since cleared should not keep the health report red for the rest of the day.
+    if (!trouble) this.lastError = null;
     return {
       ollama: { installed: version !== null, version, models, downloadPage: ollamaDownloadPage },
       lmStudio: { ...lmStudio, downloadPage: lmStudioDownloadPage },

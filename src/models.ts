@@ -28,10 +28,13 @@ const onThisComputer = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * for the routes they share (embeddings, audio), so no new provider method is needed.
  */
 export function presetRunsLocally(preset: ModelPreset): boolean {
-  const sharing = preset.provider as { embeddings?: () => { endpoint: string } | null; audio?: () => { endpoint: string } | null };
-  const route = sharing.embeddings?.() ?? sharing.audio?.() ?? null;
-  if (!route) return false;
-  try { return onThisComputer.has(new URL(route.endpoint).hostname.toLowerCase()); } catch { return false; }
+  // A connection Branch did not write may throw from either accessor; that only means "not local".
+  try {
+    const sharing = preset.provider as { embeddings?: () => { endpoint: string } | null; audio?: () => { endpoint: string } | null };
+    const route = sharing.embeddings?.() ?? sharing.audio?.() ?? null;
+    if (!route) return false;
+    return onThisComputer.has(new URL(route.endpoint).hostname.toLowerCase());
+  } catch { return false; }
 }
 const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
 const reasoning = z.enum(reasoningEfforts).nullable();

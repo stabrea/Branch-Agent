@@ -739,9 +739,12 @@ list. `src/local-routing.ts` adds per-task routing (`settings/routing`, off by d
 `classifyTask` (length, tool-need phrases, and a personal-details heuristic written here because
 Branch still has no PII guard — A0875) and a pure `chooseRoute` that keeps a private task on this
 computer, sends a long or tool-heavy one to the cloud model, prefers the free local model when a
-simple task would cost more than the owner's ceiling by the existing pricing table, and falls back
-to the cloud when the local server is not answering. `Runtime.loop` consults it in ten lines and
-records a `model.routed` event; an explicit run or conversation choice always wins.
+simple task would cost more than the owner's ceiling by the existing pricing table, and would fall
+back to the cloud when the local server is not answering. `Runtime.loop` consults it in ten lines
+and records a `model.routed` event; an explicit run or conversation choice always wins. One honest
+gap: `Runtime.routed` passes no `localUp`, so that last branch is unreachable from a real run — a
+dead local model falls back the ordinary way, through the connection's fallbacks and the provider
+cooldown. Only `POST /api/local-models/routing/preview` sets `localUp` today.
 `document-embeddings.ts` gains an `Embedder` interface so `documents.ts` and `memory-retrieval.ts`
 can take Ollama's reader in two lines each when the connected model is on Ollama's port, swapping
 `text-embedding-3-small` for `nomic-embed-text`. `models.ts` gains `presetRunsLocally`, a `local`
