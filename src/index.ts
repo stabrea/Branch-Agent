@@ -4,6 +4,8 @@ import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
+import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
+import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -33,6 +35,10 @@ import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { GitTools } from "./integrations/git.js";
+import { GitRunner } from "./integrations/git-run.js";
+import { registerGit } from "./integrations/git-tools.js";
+import { jsonWriteProblem } from "./approvals.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -72,15 +78,25 @@ export async function createBranch(options: {
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
-  registerFiles(registry, files, {
-    before: (path, context) => history.before(path, context),
-    after: async (path, context, token) => {
+  const writeObserver = {
+    before: (path: string, context: ToolContext) => history.before(path, context),
+    after: async (path: string, context: ToolContext, token: unknown) => {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
       try { await documents?.refreshPath(context.owner, path, context.signal); } catch { /* indexing never fails a file change */ }
+      const problem = await jsonWriteProblem((p) => files.read(p), path).catch(() => null);
+      if (problem && context.runId)
+        store.event(context.runId, "file.invalid_json", { path, problem,
+          message: `${path} was saved, but it is not valid JSON: ${problem}` });
     },
-  });
+  };
+  registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
+  registerCodeSearch(registry, new WorkspaceSearch(files));
+  registerCodeEdit(registry, files, new CodeEditor(files, writeObserver));
+  // Version control on this computer only; sending work to a server is switched on separately.
+  const git = new GitTools(files, new GitRunner());
+  registerGit(registry, git);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -137,6 +153,7 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    git,
     scheduler,
     chatgpt,
     version,
@@ -156,6 +173,10 @@ export async function createBranch(options: {
     /** What integrations need to host messaging channels: the router and default-project secrets. */
     channelHost: {
       router: channels,
+      git,
+      /** A secret from whichever project is active right now, for GitHub's personal access token. */
+      activeSecret: async (name: string) =>
+        (await store.locker.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name]))[name]!,
       secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
       web,
       hooks,
@@ -203,6 +224,10 @@ export * from "./content-guard.js";
 export * from "./activity.js";
 export * from "./memory-review.js";
 export * from "./workspace-history.js";
+export * from "./ignore.js";
+export * from "./patch.js";
+export * from "./code-search.js";
+export * from "./code-edit.js";
 export * from "./backup.js";
 export * from "./health.js";
 export * from "./openai-compat.js";
@@ -210,6 +235,8 @@ export * from "./streams.js";
 export * from "./recipes.js";
 export * from "./templates.js";
 export * from "./network-policy.js";
+export * from "./policy.js";
+export * from "./approvals.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
@@ -223,3 +250,11 @@ export * from "./scheduler.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";
+export * from "./ignore.js";
+export * from "./integrations/git.js";
+export * from "./integrations/git-run.js";
+export * from "./integrations/git-tools.js";
+export * from "./integrations/github.js";
+export * from "./pricing.js";
+export * from "./trace.js";
+export * from "./diagnostics.js";

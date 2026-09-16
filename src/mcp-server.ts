@@ -244,7 +244,7 @@ export class McpServer {
     const parsed = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().safeParse(args);
     if (!parsed.success) return failure('Give a "prompt" saying what you want Branch to do.');
     try {
-      const run = await this.runtime.run({ prompt: parsed.data.prompt });
+      const run = await this.runtime.run({ prompt: parsed.data.prompt, source: 'mcp' });
       await this.recordCall(run.id, 'branch.ask', parsed.data, run.output, run.status === 'completed');
       return { content: [{ type: 'text', text: run.output }], isError: run.status !== 'completed' };
     } catch (e) {

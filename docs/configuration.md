@@ -201,14 +201,48 @@ These are configuration examples, not supplied servers. Use the actual version a
 Access **Usage** in the left navigation to see your assistant's token consumption, estimated costs, and run performance. The interface shows:
 
 - **Daily breakdown**: token usage (input/output), run count, failures, and estimated cost per day over the last 30 days
-- **By model**: token usage and cost aggregated by model preset used
-- **Budget settings** (optional): set a maximum monthly token budget and optionally pause new runs when the limit is reached; pass this as a `POST /api/usage/budget { maxMonthlyTokens: number, pauseAtBudget: boolean }` request
+- **By model, by conversation and by where the task came from**: tokens and cost for each
+- **Budget settings** (optional): set a monthly limit in tokens, in dollars, or both, and optionally pause new runs when the limit is reached; pass this as a `POST /api/usage/budget { maxMonthlyTokens?: number, maxMonthlyDollars?: number, pauseAtBudget: boolean }` request. At least one of the two limits must be present; the older tokens-only body still works
 - **Run timeline**: click Activity → run → timeline (visible in the detail pane) to see a timestamped sequence of tool calls, model invocations, retries, and stalls for that specific run
-- **CSV export**: download the current period's usage data as a CSV file for analysis in a spreadsheet
+- **CSV export**: download the current period's usage data as a CSV file for analysis in a spreadsheet. Its columns are `date,runs,toolCalls,tokensInput,tokensOutput,estimatedCostUsd,runsWithoutPrice,failures`; `estimatedCostUsd` is blank on a day where nothing had a price
 
-Costs are estimated from reported or estimated tokens multiplied by per-preset pricing configured in your workspace. Only terminal runs (completed, failed, cancelled, budget_exceeded, interrupted) are included in aggregates; running tasks are not counted until they finish. Estimated tokens come from the runtime; reported tokens come from the provider's response, when available.
+Only terminal runs (completed, failed, cancelled, budget_exceeded, interrupted) are included in aggregates; running tasks are not counted until they finish. Estimated tokens come from the runtime; reported tokens come from the provider's response, when available.
 
-Setting a token budget lets you control spending. When `pauseAtBudget` is enabled, the runtime refuses new runs with a plain-language message that tells the owner where to raise the limit. Budgets are per-month, calculated from the first run of each calendar month.
+### Prices and cost estimates
+
+Branch keeps a table of published list prices per million tokens for the common models of each provider, with the date it was last checked (`pricedAt`). A task's cost is worked out once, from the tokens on its usage row and the model its last model round used — not once per round.
+
+**A model with no price on file is never shown as costing nothing.** The estimate carries a confidence: `table` (Branch's own figure), `override` (yours) or `unknown` (none), and an unknown one has no amount at all and reads "no price on file" everywhere it appears — the summary card, every table, the CSV, a task's own line, and the receipts view. A model running on this computer is priced at zero on purpose, which is a different thing from having no price.
+
+Correct or add a price under **Usage → Model prices**, or `POST /api/pricing { "overrides": { "gpt-4o": { "input": 2.5, "output": 10, "cached": 1.25 } } }` (dollars per million tokens, at most 200 entries, stored in `settings/pricing`). `GET /api/pricing` returns the table in use. Overrides win over the built-in table. Model names are matched exactly first, then after dropping a vendor prefix (`openai/gpt-4o`) and a date suffix (`claude-3-5-sonnet-20241022`). A cached-token price can be recorded, but nothing populates cached token counts yet, so it does not affect any figure today.
+
+These are estimates for your own planning from published list prices. They are not a bill, they do not know about your discounts or free tiers, and they go stale when a provider changes its prices.
+
+Setting a budget lets you control spending. When `pauseAtBudget` is enabled, the runtime refuses new tasks with a plain-language message; the dollar figure appears in it whenever a price is on file, and the per-task token refusal says what that task has cost so far. Budgets are per-month, calculated from the first run of each calendar month.
+
+### Trace files
+
+Off unless you turn it on, under **Settings → Diagnostics**. When on, each finished task is written as one JSON file named after the task in a folder you choose, in the OpenTelemetry shape (`resourceSpans → scopeSpans → spans`) that tracing viewers already read: one span for the task, and a child span for every model round and every tool call. `traceId` is the task's id as 32 hex characters and `spanId` is derived from the event id, so the same task always produces the same trace. Times come from the event timestamps, which have millisecond resolution.
+
+**Branch writes files and nothing else. There is no network exporter, and no trace is sent anywhere.** Only the failure message of a failed tool travels into a span; tool arguments and results stay in the database.
+
+The folder must be a full path inside your own user folder or inside the workspace. Anything else — another account, a system folder, a network share, a relative path — is refused, because a trace names the tools a task ran. Writing a trace never fails a task: a problem is recorded as a `trace.failed` event and the task stands.
+
+Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": string | null }` (stored in `settings/trace`; turning it on without a folder is refused), and `GET /api/runs/:id/trace`, which returns the same document on demand whether or not the setting is on.
+
+### Diagnostics
+
+**Branch sends no usage data to anyone.** There is no telemetry client, no analytics, no crash reporting and no opt-out to configure, because nothing is collected in the first place. Settings → Diagnostics says so on the screen.
+
+When you want help with a problem, **Save a diagnostics folder** (`POST /api/diagnostics/bundle`) writes a timestamped folder under `diagnostics/` in the private data directory — plain files, no archive — so you can read it and pass it on by hand:
+
+- `health.json` — the same checks as the Health check button
+- `versions.json` — the Branch, Node.js and operating system versions
+- `events.json` — the last 200 events across your tasks, reduced to names, counts, outcomes and timings
+- `pricing.json` — the price table in use, including your corrections
+- `README.txt` — what is in the folder and what is deliberately left out
+
+Events are filtered by an allow-list of fields, so anything nobody anticipated is dropped rather than trimmed: tool arguments, tool results, file contents, diffs, your messages and the assistant's replies never enter the folder. Fields that are kept are also scrubbed for anything shaped like an API key, a bearer token or a long secret, and any field whose name looks like a credential is replaced with `[removed]`.
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
@@ -261,6 +295,20 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 ## Undo and workspace history
 
 Every `files.write` keeps the file's previous bytes and records a `file.changed` event with a line diff. Activity shows each change with **Show change** and **Undo this change** (`POST /api/history/restore { versionId }`); `GET /api/history/files?path=` lists kept versions; the model has `files.history` and `files.restore`. Whole-workspace snapshots: `POST /api/history/snapshots { label }`, `GET /api/history/snapshots`, `POST /api/history/snapshots/:id/restore` (Settings → Workspace snapshots, tool `workspace.snapshot`). Limits: 500 files, 256 KiB per file, 16 MB per snapshot; `node_modules`, `.git`, `dist`, `release` and secret-named files are skipped.
+
+## Looking through and changing code
+
+Seven tools work inside the workspace (or the active project's folder), behind the same permissions as the other file tools. They need no settings and add no routes.
+
+- `files.glob` (`files.read`) — lists files whose path matches patterns such as `src/**/*.ts`, saying when there are more than fit in one answer.
+- `files.grep` (`files.read`) — searches inside files for a word or a regular expression, with the lines around each match, an optional file pattern, a capitals switch and a maximum file size; files that are not text are skipped and counted.
+- `files.find` (`files.read`) — finds a file when you remember only part of its name, closest first.
+- `workspace.map` (`files.read`) — a short map of the workspace: each file's size, what kind of file it is, and the main names (JavaScript, TypeScript, Python) or headings (Markdown) inside it. A file is read again only when it has changed.
+- `files.patch` (`files.write`) — applies a unified diff to one or more files. Every part must fit the file exactly at the line it names; if any part does not, nothing at all is written and the reply says which file and which part. Deleting a file this way is refused.
+- `files.edit` (`files.write`) — replaces an exact piece of text; if the text appears a different number of times than `expectedOccurrences` (1 by default) the change is refused rather than guessed.
+- `files.validate` (`files.read`) — checks that a file still reads as valid (JSON by parsing it, JavaScript with this app's own Node in check-only mode, which never runs the file). Problems come back as a list to read, not as a failure. TypeScript is reported as not checked, because the TypeScript compiler is not carried at run time.
+
+Ignored files: put a `.branchignore` in the workspace (or the project folder) and every one of these tools skips what it names; a `.gitignore` is used when there is no `.branchignore`. `node_modules`, `.git`, `dist`, `release`, `.branch` and secret-looking names are always skipped. Each file a patch or an edit changes keeps its previous bytes, so it has its own **Undo this change** in Activity (see *Undo and workspace history*); a patch that changed three files is undone three times, once per file. As with the other file tools, a file larger than 32 KiB cannot be changed.
 
 ## What it learns
 
@@ -400,6 +448,84 @@ Every outbound delivery goes through the shared network policy, so a webhook add
 
 Routes, all behind the local session token like the other owner-only settings: `GET /api/triggers`, `POST /api/triggers`, `GET /api/triggers/:id`, `GET /api/triggers/:id/log`, `POST /api/triggers/:id/rotate-secret`, `POST /api/triggers/:id/enabled` (body `{ "enabled": true }` or `false`), and `POST` or `DELETE /api/triggers/:id/remove`. The same shape for `/api/webhooks`, plus `POST /api/webhooks/:id/test` (send a test payload now, without retries) and `POST /api/webhooks/:id/enable`. A trigger's secret is returned to the owner so it can be copied into the other app; both secrets are kept in the private database alongside the rest of the settings.
 
+## Version control and GitHub
+
+The assistant can use the copy of **Git** already installed on this computer to look after your work: see what changed, look back through saved versions, keep separate lines of work, and save a version with a message. It finds Git itself the first time it needs it; if Git is not installed it says so plainly instead of failing in code. Everything happens inside your workspace, or inside the active project's folder, and a repository's own hooks are switched off so nothing hidden in a folder can run.
+
+These tools come in three groups so you can allow them separately.
+
+- `git.read` — `git.status` (what changed, which line of work, ahead or behind), `git.diff` (the changed lines, capped, either in the working folder or between two points such as `main..mine`), `git.log` (recent saved versions, bounded).
+- `git.write` — `git.branch` (list, start or switch a line of work), `git.commit` (save a version; a message is required, it saves everything that changed unless you name paths, it refuses when nothing has changed, and it never rewrites a version you already saved), `git.worktree` (a parallel copy for an experiment, only ever inside `.branch-worktrees` in the repository, so experiments cannot spread elsewhere). Both groups are available as soon as Branch starts.
+- `git.remote` — `git.push` and `git.pull`. **These are off until you turn them on.** Add a `git` block to the integrations file:
+
+```json
+{ "git": { "remote": true } }
+```
+
+Sending work to the branch everyone shares (`main` or `master`) stops and asks you first, in the same way the assistant asks any other question; answer yes and it goes ahead. Pulling only ever adds work cleanly on top of yours; it never merges over the top of your changes. A message that arrives from a chat app (Telegram) can read and change the copy on this computer but can never push or use GitHub.
+
+**GitHub** needs a personal access token that you create on GitHub and paste in yourself. Save it in **Settings → Projects → Secrets** of the project you want it in, under the name `GITHUB_TOKEN` (secrets use environment-style names, so this is the stored name for what the GitHub API calls a token). Then switch GitHub on in the integrations file:
+
+```json
+{ "git": { "remote": true, "github": { "tokenSecret": "GITHUB_TOKEN" } } }
+```
+
+That registers `github.create_repo` (private unless you say otherwise), `github.open_pull_request`, `github.list_issues` and `github.create_issue`, all behind the `github.manage` permission. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
+
+**Hiding files from the assistant: `.branchignore`.** Put a file called `.branchignore` in the workspace root and list anything you would rather the assistant did not read, using the same syntax as `.gitignore` (one pattern per line, `#` for a comment, a trailing `/` for folders only, `!` to un-hide, `*` and `?` inside one name, `**` across folders). Files it hides disappear from `files.read`, `files.list` and `files.search`, a hidden folder can no longer be used as the working folder of a host command, and the Git tools respect it too: hidden files are left out of `git.status`, out of `git.diff`, and are never staged by `git.commit`.
+
+Precedence, in order: the fixed secret patterns come first and cannot be overridden — `.env` files, `.ssh`, `.aws`, `.git`, anything named like credentials or secrets, and key files (`.pem`, `.key`, `.p12`, `.pfx`) are always refused, and a `!` line in `.branchignore` does **not** bring them back. `.branchignore` then hides more on top of that. Nothing inside a hidden folder can be un-hidden. The file is re-read whenever you change it, so there is nothing to restart.
+
+## When to check with me: approval rules, practice runs and pace limits
+Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until
+you choose something, nothing changes: Branch Agent does whatever its tools allow, exactly as before.
+**The four choices.**
+- **No approvals** (the starting point). Nothing is checked with you and nothing is refused.
+- **Ask before changes.** Reading is free. Anything that changes a file, runs a command or acts on a
+  web page stops and waits for your yes.
+- **Just do it inside my workspace.** Writing files is fine. Running a command, and clicking or
+  typing on a web page, wait for your yes; a website Branch Agent has not used before is checked
+  with you once and then remembered.
+- **Read only.** Branch Agent may look at things and answer, but may not change a file, run a
+  command or act on a web page. A refusal is explained in the answer; the task is not killed.
+Each choice fills in a list of **rules**, which you can then edit. A rule says: for this tool
+(`files.write`, `browser.*`, or `*` for everything), and for what it would touch (a file path, the
+start of a command, or a website's address), Branch Agent **goes ahead**, **checks with you**, or
+**is not allowed**. `*` in a pattern stands for any text; everything else is matched literally, and
+matching ignores capital letters. Rules are read from the top and the first one that matches decides.
+A rule can be limited to tools that *change* something, so it never gets in the way of reading.
+**Answering a question.** When a task stops for a yes, it appears under *Waiting for your yes* in
+the same Settings screen (and as the usual "needs input" pause on the conversation). You can say yes
+just this once, yes for the rest of that conversation, yes always, or no. "Yes always" is written
+back into your rules as a new rule at the top, so you are not asked again. After you answer, send
+your next message in that conversation to carry on.
+**Tasks you did not start yourself.** A task started by an inbound trigger, by a schedule or by
+another AI tool over MCP never gets more freedom than *Ask before changes*, and it cannot give
+itself a permanent yes from inside the run — the most it can be granted is a yes for that one
+conversation. This only applies once you have chosen something other than *No approvals*.
+Worth knowing before you choose: nobody is sitting there to answer for those tasks. Once you pick a
+setting, a schedule or trigger that wants to change something stops and waits, and stays waiting
+until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
+your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
+unattended install can be told about it wherever you actually look.
+**What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
+you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
+**A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,
+runs the task for real but stops every tool that would change something: each one reports what it
+*would* have done, and the task's events end with a `dryrun.report` listing every intended action.
+Tools that only read run normally, so the assistant still sees real information.
+**How fast one conversation may work.** Two optional limits, both per conversation and both off (0)
+by default: how many tools may be used in a minute, and how many times it may go back to the model
+in a minute. Going past a limit is not a failure — the task pauses, records `rate.paused` with a
+plain message, waits for the window to clear, records `rate.resumed`, and carries on.
+**A saved file that should be JSON.** When Branch Agent writes a file ending in `.json` that turns
+out not to be valid JSON, a `file.invalid_json` warning is recorded with the reason. The file is
+kept as written; nothing is undone.
+Routes, behind the local session token: `GET /api/policy` (the saved policy, the presets to choose
+from, and anything waiting for an answer), `POST /api/policy` with `{ "preset": "read-only" }`,
+`{ "rules": [...] }` or `{ "limits": { "toolCallsPerMinute": 30 } }`, and `POST /api/policy/approve`
+with `{ "sessionId": "...", "decision": "allow", "remember": "session" }`. Anything left out of a
+`POST /api/policy` keeps its current value; sending your own rules marks the policy as your own.
 ## Persistence and schedules
 
 `npm run chat` opens a streaming terminal session using the same provider, workspace, private state and integration variables. Ctrl+C or `/cancel` cancels the active run and returns to the prompt; a new request typed during execution cancels and drains that run before continuing the same conversation. `/new` starts a new conversation, and `/exit` shuts down. Partial text displayed before a cancelled/failed stream remains uncommitted; received provider usage and estimates still contribute to that run's accounting. Streaming is currently exposed through the terminal; the web/desktop conversation waits for the final result.
@@ -407,3 +533,22 @@ Routes, all behind the local session token like the other owner-only settings: `
 Run only one Branch Agent process per data directory. SQLite stores conversations, memory, procedures, specialists and schedules. Schedules execute while the process is running. Missed interval occurrences coalesce into one execution. Interrupted or failed tasks are recorded; external side effects are not automatically retried.
 
 Local HTTP authorization is single-owner access, not a multi-user tenancy system. Built-in file restrictions are not an operating-system sandbox for separately configured programs.
+
+## Appearance and the app shell
+
+`GET /api/state` returns a `preferences` record and `POST /api/preferences` replaces it. The
+record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
+`followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
+(`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
+`reduceMotion` and `showAcorn`. Every field has a default, so a record saved by an older version
+still loads. Settings → Appearance changes all of them; each choice shows at once and Save keeps
+it.
+
+Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
+Settings) has its own button in the icon column on the left, so nothing hides behind a drop-down.
+Ctrl+K opens a search box that jumps to a section, a saved conversation, a recipe, a skill, or an
+action such as starting a conversation or checking for updates. Ctrl+N starts a conversation,
+Ctrl+, opens Appearance, and Esc closes whatever is open. The conversation rail is filled from
+`POST /api/sessions/search`. The interface files `/tokens.css`, `/shell.css`, `/shell.js` and
+`/appearance.js` are served from the same local allowlist as the rest of the interface. See
+[design.md](design.md) for the tokens and the layout.

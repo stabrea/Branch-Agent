@@ -5,15 +5,20 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <title>Branch Agent — Your personal assistant</title>
+    <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/shell.css" />
   </head>
   <body>
     <div class="topbar">
       <span class="topbar-brand"><img class="oak-mark oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="KeepOak logo" /><img class="oak-mark oak-normal" src="/assets/keepoak-mark.png" alt="KeepOak logo" /> Branch Agent <span class="topbar-by">by</span> <span class="topbar-maker">KeepOak</span></span
       ><span class="topbar-caption">Your personal assistant</span
-      ><button id="appearance-shortcut" class="text-button">
-        ◐ Appearance
-      </button>
+      ><span class="topbar-actions"
+        ><button id="rail-toggle" class="text-button" type="button" aria-pressed="true">Conversations</button
+        ><button id="cmd-open" class="text-button" type="button">Search everything ⌃K</button
+        ><button id="aside-toggle" class="text-button" type="button" aria-pressed="true">Overview</button
+        ><button id="appearance-shortcut" class="text-button">◐ Appearance</button></span
+      >
     </div>
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="Branch Agent home"
@@ -40,6 +45,14 @@
         <p id="provider">Connect to begin</p>
         <button id="lock" class="text-button" hidden>Lock session</button>
       </div>
+    </aside>
+    <!-- Conversation rail (public/shell.js fills it). -->
+    <aside class="rail" id="conversation-rail" aria-label="Conversations">
+      <div class="rail-actions">
+        <button id="rail-new" class="rail-new" type="button">＋ New conversation</button>
+        <button id="rail-find" class="rail-find" type="button">Find anything <kbd>Ctrl K</kbd></button>
+      </div>
+      <div class="rail-scroll" id="rail-list" aria-live="polite"></div>
     </aside>
     <main>
       <header>
@@ -429,13 +442,50 @@
             <p class="subtle">Reload discards your unsaved identity changes. Identity settings do not grant additional tool permissions.</p>
             <p id="identity-status" role="status"></p>
           </form>
+          <!-- Appearance (public/appearance.js). Changes show at once; Save keeps them. -->
           <form id="settings-form" class="card">
-            <label for="appearance">Appearance</label>
-            <select id="appearance">
-              <option value="forest">Forest</option>
-              <option value="daylight">Daylight</option>
-            </select>
-            <p class="subtle">Saved on this device for your next visit.</p>
+            <h2>Appearance</h2>
+            <p>Change how Branch Agent looks. Everything you pick shows straight away.</p>
+            <div class="appearance-grid">
+              <div class="appearance-field">
+                <label for="appearance">Appearance</label>
+                <select id="appearance">
+                  <option value="forest">Forest</option>
+                  <option value="daylight">Daylight</option>
+                </select>
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-follow" /> Follow the light or dark setting on this
+                  computer</label
+                >
+              </div>
+              <div class="appearance-field">
+                <span id="accent-label">Highlight colour</span>
+                <div class="choice-row" id="accent-choices" role="group" aria-labelledby="accent-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="text-size-label">Text size</span>
+                <div class="choice-row" id="text-size-choices" role="group" aria-labelledby="text-size-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="density-label">Spacing</span>
+                <div class="choice-row" id="density-choices" role="group" aria-labelledby="density-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="font-label">Lettering</span>
+                <div class="choice-row" id="font-choices" role="group" aria-labelledby="font-label"></div>
+              </div>
+              <div class="appearance-field">
+                <span id="extras-label">Movement and artwork</span>
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-motion" /> Keep things still (no sliding or
+                  spinning)</label
+                >
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-acorn" /> Show the acorn</label
+                >
+              </div>
+            </div>
+            <p class="appearance-note">Saved with this workspace, so it looks the same the next time you open it.</p>
             <button>Save appearance</button>
           </form>
           <form id="voice-settings-form" class="card">
@@ -541,6 +591,29 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <section id="policy-card" class="card">
+            <h2>When to check with me</h2>
+            <p>Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages. Whatever you pick, it never applies to the tools you run yourself from this app.</p>
+            <label for="policy-preset">How should Branch behave?</label>
+            <select id="policy-preset"></select>
+            <p id="policy-description" class="subtle"></p>
+            <h3>What that means</h3>
+            <ul id="policy-rules" class="check-list"></ul>
+            <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
+            <h3>How fast one conversation may work</h3>
+            <p class="subtle">If a conversation goes past one of these, it waits a moment and then carries on. Leave a box at 0 for no limit.</p>
+            <label for="policy-tool-limit">Most tools used in a minute</label>
+            <input id="policy-tool-limit" type="number" min="0" max="1000" step="1" value="0" />
+            <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
+            <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
+            <button id="policy-limits-save" type="button">Save these limits</button>
+            <p id="policy-status" class="subtle" role="status"></p>
+          </section>
+          <section id="policy-waiting-card" class="card" hidden>
+            <h2>Waiting for your yes</h2>
+            <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
+            <div id="policy-waiting" class="card-list"></div>
+          </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
             <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
@@ -561,6 +634,20 @@
             <label class="check-row"><input type="checkbox" id="health-probe" /> Also send a tiny test message to the default model</label>
             <button id="health-run" type="button">Check now</button>
             <div id="health-list" class="card-list" aria-live="polite"></div>
+          </section>
+          <section id="diagnostics-card" class="card">
+            <h2>Diagnostics</h2>
+            <p id="diagnostics-promise"><strong>Branch sends no usage data to anyone.</strong> Nothing about you, your tasks or your files leaves this computer unless you send it yourself.</p>
+            <p>If you need help with a problem, save a diagnostics folder and pass it on by hand. It holds the health checks, version numbers, a list of what your recent tasks did, and the model prices in use. Your messages, your files and your keys are left out, and you can read every file before you share it.</p>
+            <button id="diagnostics-save" type="button">Save a diagnostics folder</button>
+            <p id="diagnostics-status" class="subtle" aria-live="polite"></p>
+            <h3>Trace files for a tracing viewer</h3>
+            <p>Off unless you turn it on. When it is on, each finished task is written as one file that tracing viewers can open. The files stay on this computer; nothing is sent anywhere.</p>
+            <label class="check-row"><input type="checkbox" id="trace-enabled" /> Write a trace file for every finished task</label>
+            <label for="trace-folder">Folder for the trace files</label>
+            <input id="trace-folder" maxlength="4096" spellcheck="false" placeholder="A full path inside your own user folder or your workspace" />
+            <button id="trace-save" type="button">Save trace settings</button>
+            <p id="trace-status" class="subtle" aria-live="polite"></p>
           </section>
           <section id="backup-card" class="card">
             <h2>Backup</h2>
@@ -667,9 +754,12 @@
     <script src="/update-screen.js"></script>
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
-    <script src="/usage.js"></script>
+    <script src="/shell.js" type="module"></script>
+    <script src="/usage.js" type="module"></script>
+    <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
 </html>

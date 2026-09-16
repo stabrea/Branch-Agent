@@ -1,0 +1,333 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createBranch,
+  ApprovalGate,
+  RateLimiter,
+  PolicySchema,
+  evaluatePolicy,
+  globMatches,
+  policyTarget,
+  presetRules,
+  policyPresets,
+  cappedPolicy,
+  readPolicy,
+  savePolicy,
+  addPolicyRule,
+  isReadOnlyPermission,
+  jsonWriteProblem,
+} from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+
+const say = (content) => () => ({ content, toolCalls: [] });
+const calls = (...toolCalls) => () => ({ content: "", toolCalls });
+const write = (id, path, content) => ({ id, name: "files.write", arguments: JSON.stringify({ path, content }) });
+
+function scripted(steps) {
+  const provider = {
+    name: "scripted",
+    requests: [],
+    async complete(request) {
+      provider.requests.push(request);
+      return steps[Math.min(provider.requests.length - 1, steps.length - 1)](request);
+    },
+    /** Starts the script again, so each task in a test gets the same sequence of replies. */
+    reset() { provider.requests.length = 0; },
+  };
+  return provider;
+}
+async function fixture(t, steps = [say("ok")], options = {}) {
+  const root = await mkdtemp(join(tmpdir(), "branch-approvals-"));
+  const provider = scripted(steps);
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  return { app, root, provider, workspace: join(root, "workspace") };
+}
+async function served(t, steps, options = {}) {
+  const { app, root, workspace, provider } = await fixture(t, steps, options);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const api = async (method, path, body) => {
+    const response = await fetch(server.url + path, {
+      method,
+      headers: { authorization: `Bearer ${server.token}`, ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  return { app, api, workspace, provider };
+}
+const kindsOf = (app, runId) => app.store.events(runId).map((event) => event.kind);
+
+test("rules are read in order and match tool and target patterns", () => {
+  assert.equal(globMatches("files.*", "files.write"), true);
+  assert.equal(globMatches("files.write", "filesXwrite"), false, "the dot is literal, not a wildcard");
+  assert.equal(globMatches("notes/*", "notes/deep/one.txt"), true);
+  assert.equal(globMatches("*", ""), true);
+  const policy = PolicySchema.parse({
+    preset: "custom",
+    rules: [
+      { tool: "files.write", match: "notes/*", decision: "allow" },
+      { tool: "files.*", decision: "deny" },
+      { tool: "*", decision: "ask" },
+    ],
+  });
+  assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "notes/a.txt", readOnly: false }).decision, "allow");
+  assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "other.txt", readOnly: false }).decision, "deny");
+  assert.equal(evaluatePolicy(policy, { tool: "shell.execute", target: "git status", readOnly: false }).decision, "ask");
+  // A "changes" rule never stops a tool that only looks at things.
+  const readOnly = PolicySchema.parse({ rules: [{ tool: "*", applies: "changes", decision: "deny" }] });
+  assert.equal(evaluatePolicy(readOnly, { tool: "files.read", target: "a.txt", readOnly: true }).decision, "allow");
+  assert.equal(evaluatePolicy(readOnly, { tool: "files.write", target: "a.txt", readOnly: false }).decision, "deny");
+  assert.equal(policyTarget("shell.execute", { executable: "git", args: ["status"] }), "git status");
+  assert.equal(policyTarget("web.fetch", { url: "https://example.org/a/b" }), "example.org");
+  assert.equal(policyTarget("files.write", { path: "notes/a.txt" }), "notes/a.txt");
+  assert.equal(isReadOnlyPermission("files.read"), true);
+  assert.equal(isReadOnlyPermission("files.write"), false);
+  assert.equal(isReadOnlyPermission("something.new"), false, "an unknown permission counts as a change");
+});
+
+test("the default policy asks nothing and refuses nothing, so behaviour is unchanged", async (t) => {
+  const { app, workspace } = await fixture(t, [calls(write("c1", "hello.txt", "hi")), say("done")]);
+  const saved = readPolicy(app.store, app.runtime.owner);
+  assert.deepEqual(saved, { preset: "off", rules: [], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } });
+  assert.equal(evaluatePolicy(saved, { tool: "shell.execute", target: "rm -rf", readOnly: false }).decision, "allow");
+  const run = await app.runtime.run({ prompt: "write the file" });
+  assert.equal(run.status, "completed");
+  assert.equal(await readFile(join(workspace, "hello.txt"), "utf8"), "hi");
+  assert.ok(!kindsOf(app, run.id).includes("policy.ask"));
+});
+
+test("the three presets expand to rules and are chosen through the policy endpoint", async (t) => {
+  const { api } = await served(t);
+  const listed = (await api("GET", "/api/policy")).body;
+  assert.equal(listed.policy.preset, "off");
+  assert.deepEqual(listed.presets.map((preset) => preset.id), ["off", "ask-before-changes", "workspace", "read-only"]);
+  for (const preset of ["ask-before-changes", "workspace", "read-only"]) {
+    const saved = (await api("POST", "/api/policy", { preset })).body.policy;
+    assert.equal(saved.preset, preset);
+    assert.deepEqual(saved.rules, presetRules(preset));
+    assert.ok(saved.rules.length > 0, `${preset} expands to rules`);
+    assert.equal((await api("GET", "/api/policy")).body.policy.preset, preset);
+  }
+  assert.equal(presetRules("ask-before-changes")[0].decision, "ask");
+  assert.equal(presetRules("read-only")[0].decision, "deny");
+  assert.ok(policyPresets().every((preset) => preset.label && preset.description));
+  // Hand-edited rules keep the limits and mark the policy as the owner's own.
+  const custom = (await api("POST", "/api/policy", { rules: [{ tool: "shell.execute", decision: "deny" }] })).body.policy;
+  assert.equal(custom.preset, "custom");
+  assert.equal(custom.rules.length, 1);
+  assert.equal((await api("POST", "/api/policy", { limits: { toolCallsPerMinute: 5 } })).body.policy.rules.length, 1);
+});
+
+test("an ask pauses the task, a yes for this conversation is not asked again, and a standing yes becomes a rule", async (t) => {
+  const { app, api, workspace, provider } = await served(t, [calls(write("c1", "notes.txt", "one")), say("done")]);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
+  assert.equal(paused.status, "needs_input");
+  assert.match(paused.output, /Before I go ahead: Writing notes\.txt/);
+  const waiting = (await api("GET", "/api/policy")).body.waiting;
+  assert.equal(waiting.length, 1);
+  assert.equal(waiting[0].tool, "files.write");
+  assert.equal(waiting[0].target, "notes.txt");
+  assert.equal(waiting[0].source, "owner");
+  const answered = await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.body.decision, "allow");
+  provider.reset();
+  const second = (await api("POST", "/api/run", { prompt: "write notes", sessionId: paused.sessionId })).body;
+  assert.equal(second.status, "completed", second.output);
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "one");
+  assert.ok(!kindsOf(app, second.id).includes("policy.ask"), "the second call was not asked about again");
+  // A standing yes is written back into the policy as an allow rule that beats the broad ask rule.
+  provider.reset();
+  const third = (await api("POST", "/api/run", { prompt: "write elsewhere" })).body;
+  assert.equal(third.status, "needs_input");
+  await api("POST", "/api/policy/approve", { sessionId: third.sessionId, decision: "allow", remember: "always" });
+  const policy = (await api("GET", "/api/policy")).body.policy;
+  assert.deepEqual(policy.rules[0], { tool: "files.write", match: "notes.txt", applies: "any", decision: "allow", remember: "always" });
+  assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "notes.txt", readOnly: false }).decision, "allow");
+  assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "other.txt", readOnly: false }).decision, "ask");
+});
+
+test("read only refuses a change in plain words without stopping the task", async (t) => {
+  const { app, api, workspace } = await served(t, [calls(write("c1", "blocked.txt", "no")), say("I could not change that file")]);
+  await api("POST", "/api/policy", { preset: "read-only" });
+  const run = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  assert.equal(run.status, "completed");
+  assert.ok(kindsOf(app, run.id).includes("policy.denied"));
+  await assert.rejects(readFile(join(workspace, "blocked.txt"), "utf8"), /ENOENT/);
+});
+
+test("a browser click is asked about with the website it is on", async (t) => {
+  const { app } = await fixture(t);
+  const gate = app.runtime.approvals;
+  const context = { ...app.runtime.context(), runId: "run-1" };
+  app.registry.register({
+    name: "browser.click", permission: "browser.interact", description: "click",
+    parameters: (await import("zod")).z.object({ name: (await import("zod")).z.string() }).strict(),
+    execute: async () => ({ clicked: true }),
+    target: () => "shop.example.org",
+  });
+  assert.equal(app.registry.targetOf("browser.click", { name: "Buy" }, context), "shop.example.org");
+  const policy = savePolicy(app.store, app.runtime.owner, { preset: "workspace" });
+  assert.equal(evaluatePolicy(policy, { tool: "browser.click", target: "shop.example.org", readOnly: false }).decision, "ask");
+  assert.equal(evaluatePolicy(policy, { tool: "files.write", target: "a.txt", readOnly: false }).decision, "allow",
+    "the workspace preset lets file writes through");
+  // Once the person allows that site for the conversation, the same click is not asked about again.
+  gate.remember("session-1", "browser.click", "shop.example.org", "allow");
+  assert.equal(gate.answer("session-1", "browser.click", "shop.example.org"), "allow");
+  assert.equal(gate.answer("session-1", "browser.click", "other.example.org"), undefined);
+});
+
+test("a practice run says what it would have done and changes nothing", async (t) => {
+  const { app, api, workspace, provider } = await served(t, [calls(write("c1", "practice.txt", "nope")), say("that is what I would do")]);
+  const run = (await api("POST", "/api/run", { prompt: "write it", dryRun: true })).body;
+  assert.equal(run.status, "completed");
+  await assert.rejects(readFile(join(workspace, "practice.txt"), "utf8"), /ENOENT/);
+  const events = app.store.events(run.id);
+  const simulated = events.find((event) => event.kind === "tool.simulated");
+  assert.equal(simulated.data.name, "files.write");
+  assert.equal(simulated.data.target, "practice.txt");
+  const report = events.find((event) => event.kind === "dryrun.report");
+  assert.equal(report.data.count, 1);
+  assert.equal(report.data.actions[0].label, "Writing practice.txt");
+  // A real run with the same script does write the file, so the difference is the practice flag alone.
+  provider.reset();
+  const real = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  assert.equal(real.status, "completed");
+  assert.equal(await readFile(join(workspace, "practice.txt"), "utf8"), "nope");
+});
+
+test("a conversation that hits its per-minute limit pauses and then carries on", async (t) => {
+  const { app, api, workspace } = await served(
+    t,
+    [calls(write("c1", "a.txt", "1")), calls(write("c2", "b.txt", "2")), say("both written")],
+    { reliability: { rateWindowMs: 1000 } },
+  );
+  await api("POST", "/api/policy", { limits: { toolCallsPerMinute: 1 } });
+  const started = Date.now();
+  const run = (await api("POST", "/api/run", { prompt: "write both" })).body;
+  assert.equal(run.status, "completed", run.output);
+  const kinds = kindsOf(app, run.id);
+  assert.ok(kinds.includes("rate.paused"), "the task paused when it reached the limit");
+  assert.ok(kinds.includes("rate.resumed"), "and carried on afterwards");
+  const paused = app.store.events(run.id).find((event) => event.kind === "rate.paused");
+  assert.match(String(paused.data.message), /reached its limit of 1 tool calls a minute/);
+  assert.ok(Date.now() - started >= 500, "the second call really waited");
+  assert.equal(await readFile(join(workspace, "b.txt"), "utf8"), "2", "nothing was dropped");
+});
+
+test("the sliding window counts only what is inside it", () => {
+  const limiter = new RateLimiter(1000);
+  assert.equal(limiter.waitMs("a", 2, 0), 0);
+  limiter.record("a", 0);
+  assert.equal(limiter.waitMs("a", 2, 10), 0);
+  limiter.record("a", 10);
+  assert.equal(limiter.waitMs("a", 2, 20), 980, "waits until the oldest of the two leaves the window");
+  assert.equal(limiter.waitMs("a", 2, 1100), 0, "both have left the window by then");
+  assert.equal(limiter.waitMs("a", 0, 20), 0, "a limit of zero means no limit");
+});
+
+test("a saved .json file that is not valid JSON is reported as a warning, and the file is kept", async (t) => {
+  const { app, workspace } = await fixture(t, [calls(write("c1", "broken.json", "{oops")), say("saved")]);
+  const run = await app.runtime.run({ prompt: "save the settings" });
+  assert.equal(run.status, "completed");
+  assert.equal(await readFile(join(workspace, "broken.json"), "utf8"), "{oops", "the write was not rolled back");
+  const warning = app.store.events(run.id).find((event) => event.kind === "file.invalid_json");
+  assert.equal(warning.data.path, "broken.json");
+  assert.match(String(warning.data.message), /not valid JSON/);
+  // The check is only about .json files, and valid JSON passes quietly.
+  const read = async (path) => ({ content: await readFile(join(workspace, path), "utf8") });
+  assert.equal(await jsonWriteProblem(read, "notes.txt"), null);
+  await writeFile(join(workspace, "fine.json"), '{"a":1}');
+  assert.equal(await jsonWriteProblem(read, "fine.json"), null);
+  assert.ok(await jsonWriteProblem(read, "broken.json"));
+});
+
+test("a task the owner did not start cannot be given a standing yes and never gets more than ask", async (t) => {
+  const { app, api } = await served(t, [calls(write("c1", "auto.txt", "x")), say("done")]);
+  await api("POST", "/api/policy", { rules: [{ tool: "*", decision: "allow" }] });
+  const owners = cappedPolicy(readPolicy(app.store, app.runtime.owner), "owner");
+  assert.equal(evaluatePolicy(owners, { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "allow");
+  for (const source of ["trigger", "schedule", "mcp"]) {
+    const capped = cappedPolicy(readPolicy(app.store, app.runtime.owner), source);
+    assert.equal(evaluatePolicy(capped, { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "ask",
+      `${source} runs are held to "Ask before changes"`);
+    assert.equal(evaluatePolicy(capped, { tool: "files.read", target: "auto.txt", readOnly: true }).decision, "allow",
+      `${source} runs may still read`);
+  }
+  // A deny the owner set is kept for those tasks too, and nothing at all applies while no preset is picked.
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "shell.execute", decision: "deny" }] });
+  assert.equal(evaluatePolicy(cappedPolicy(readPolicy(app.store, app.runtime.owner), "trigger"),
+    { tool: "shell.execute", target: "git status", readOnly: false }).decision, "deny");
+  savePolicy(app.store, app.runtime.owner, { preset: "off" });
+  assert.equal(evaluatePolicy(cappedPolicy(readPolicy(app.store, app.runtime.owner), "trigger"),
+    { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "allow");
+  // The run itself cannot hand out a permanent yes.
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const run = await app.runtime.run({ prompt: "write it", source: "trigger" });
+  assert.equal(run.status, "needs_input");
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always"), /standing yes/);
+  const once = await api("POST", "/api/policy/approve", { sessionId: run.sessionId, decision: "allow", remember: "session" });
+  assert.equal(once.status, 200);
+  assert.equal(readPolicy(app.store, app.runtime.owner).rules.length, 1, "no rule was added by the task");
+});
+
+test("a website is checked with you once and then remembered, under the workspace preset", async (t) => {
+  const { z } = await import("zod");
+  const reach = (id, url) => ({ id, name: "web.ping", arguments: JSON.stringify({ url }) });
+  const { app, api, provider } = await served(t, [calls(reach("c1", "https://alpha.example.org/a")), say("done")]);
+  app.registry.register({
+    name: "web.ping", permission: "web.read", description: "look at a page",
+    parameters: z.object({ url: z.string() }).strict(), execute: async () => ({ ok: true }),
+  });
+  await api("POST", "/api/policy", { preset: "workspace" });
+  const paused = (await api("POST", "/api/run", { prompt: "look it up" })).body;
+  assert.equal(paused.status, "needs_input");
+  const [question] = (await api("GET", "/api/policy")).body.waiting;
+  assert.equal(question.target, "alpha.example.org", "the rule matches on the website, not the whole address");
+  assert.equal(question.remember, "always", "a new website is offered as a standing yes");
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "always" });
+  const policy = (await api("GET", "/api/policy")).body.policy;
+  assert.equal(policy.rules[0].match, "alpha.example.org");
+  provider.reset();
+  const second = (await api("POST", "/api/run", { prompt: "look it up", sessionId: paused.sessionId })).body;
+  assert.equal(second.status, "completed", second.output);
+  assert.ok(!kindsOf(app, second.id).includes("policy.ask"), "the same website is not asked about again");
+  assert.equal(evaluatePolicy(policy, { tool: "web.ping", target: "beta.example.org", readOnly: true }).decision, "ask",
+    "a different website is still checked with you");
+});
+
+test("a yes given earlier never outranks a rule that refuses", async (t) => {
+  const { app, api, workspace, provider } = await served(t, [calls(write("c1", "later.txt", "x")), say("done")]);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  assert.equal(paused.status, "needs_input");
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  // Changing your mind takes effect at once, even inside the conversation that said yes.
+  await api("POST", "/api/policy", { preset: "read-only" });
+  provider.reset();
+  const second = (await api("POST", "/api/run", { prompt: "write it", sessionId: paused.sessionId })).body;
+  assert.equal(second.status, "completed");
+  assert.ok(kindsOf(app, second.id).includes("policy.denied"));
+  await assert.rejects(readFile(join(workspace, "later.txt"), "utf8"), /ENOENT/);
+});
+
+test("the gate remembers answers per conversation and forgets them on request", () => {
+  const gate = new ApprovalGate();
+  gate.ask({ runId: "r1", sessionId: "s1", tool: "files.write", target: "a.txt", label: "Writing a.txt",
+    question: "ok?", source: "owner", remember: "session", askedAt: new Date().toISOString() });
+  assert.equal(gate.waiting().length, 1);
+  assert.equal(gate.waiting("s2").length, 0);
+  assert.equal(gate.resolve("s1").tool, "files.write");
+  assert.equal(gate.resolve("s1"), undefined, "a question is answered once");
+  gate.remember("s1", "files.write", "a.txt", "deny");
+  assert.equal(gate.answer("s1", "files.write", "a.txt"), "deny");
+  gate.forget("s1");
+  assert.equal(gate.answer("s1", "files.write", "a.txt"), undefined);
+  assert.throws(() => addPolicyRule({ get: () => undefined, save: () => undefined }, "local", { tool: "x", decision: "bad" }));
+});

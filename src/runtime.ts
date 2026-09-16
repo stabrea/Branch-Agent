@@ -32,12 +32,21 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
+  ApprovalGate, RateLimiter, jsonWriteProblem, simulatedResult, sleepFor,
+} from "./approvals.js";
+import {
+  addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
+  type Policy, type PolicyRemember, type RunSource,
+} from "./policy.js";
+import {
   parseRetryPolicy,
   planRetry,
   waitForRetry,
   type RetryPolicy,
   type RetryPolicyInput,
 } from "./provider-retry.js";
+import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
+import { traceSettings, writeRunTrace } from "./trace.js";
 
 const childConcurrency = 4;
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
@@ -80,6 +89,10 @@ export interface RunOptions {
   checks?: CompletionCheck;
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /** Practice run: tools that would change something report what they would have done. */
+  dryRun?: boolean;
+  /** Who started this task; defaults to the owner's own app or command line. */
+  source?: RunSource;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -97,6 +110,9 @@ export class Runtime {
   documents: { contextFor(owner: string, prompt: string, signal?: AbortSignal): Promise<{ text: string; sources: string[] } | null> } | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
+  readonly approvals = new ApprovalGate();
+  private readonly rates: RateLimiter;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -108,6 +124,7 @@ export class Runtime {
   ) {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
     this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
+    this.rates = new RateLimiter(this.reliability.rateWindowMs);
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -120,6 +137,8 @@ export class Runtime {
       budget?: Budget;
       runId?: string;
       depth?: number;
+      dryRun?: boolean;
+      source?: RunSource;
     } = {},
   ): ToolContext {
     return {
@@ -130,6 +149,8 @@ export class Runtime {
       signal: options.signal ?? new AbortController().signal,
       budget: options.budget ?? new Budget(),
       depth: options.depth ?? 0,
+      ...(options.dryRun ? { dryRun: true } : {}),
+      ...(options.source ? { source: options.source } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -375,15 +396,10 @@ export class Runtime {
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
-    // Check token budget enforcement before creating the run
+    // Check the monthly budget before creating the run
     if (!parent) {
-      const budgetSetting = this.store.get("settings", this.owner, "usage_budget")?.data as { maxMonthlyTokens?: number; pauseAtBudget?: boolean } | undefined;
-      if (budgetSetting?.maxMonthlyTokens && budgetSetting.pauseAtBudget) {
-        const monthlyUsage = this.monthlyTokenUsage();
-        if (monthlyUsage >= budgetSetting.maxMonthlyTokens) {
-          throw new Error(`Token budget exceeded. This month's usage (${monthlyUsage.toLocaleString()} tokens) has reached the limit of ${budgetSetting.maxMonthlyTokens.toLocaleString()}. Visit the Usage screen to raise the budget.`);
-        }
-      }
+      const refusal = this.monthlyBudgetRefusal();
+      if (refusal) throw new Error(refusal);
     }
     const budget = parent?.budget ?? new Budget(options.budget);
     const run = this.prepareRun(options);
@@ -402,6 +418,8 @@ export class Runtime {
           signal,
           budget,
           ...(options.permissions ? { permissions: options.permissions } : {}),
+          ...(options.dryRun ? { dryRun: true } : {}),
+          ...(options.source ? { source: options.source } : {}),
         }));
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt });
@@ -425,6 +443,7 @@ export class Runtime {
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
+    if (context.dryRun) this.reportDryRun(run);
     const settled = await this.settleRun(run, context, status, output);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
@@ -453,19 +472,41 @@ export class Runtime {
     for (const s of skills) this.store.review.propose(context.owner, { kind: "skill-note", skillId: String(s.skillId).slice(0, 200), text: String(s.note).slice(0, 4000), runId: run.id });
     this.store.event(run.id, "learning.reviewed", { memories: memories.length, skills: skills.length });
   }
-  /** Calculates total tokens used this calendar month. */
-  private monthlyTokenUsage(): number {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const runs = this.store.runs(this.owner);
-    let total = 0;
-    for (const run of runs) {
-      if (run.createdAt >= monthStart) {
-        const usage = this.store.usage(run.id);
-        total += (usage.reportedInput || usage.estimatedInput || 0) + (usage.reportedOutput || usage.estimatedOutput || 0);
-      }
-    }
-    return total;
+  /** Says in money what this month's tokens came to, when the models used have prices on file. */
+  private monthlySpendNote(stats: { estimatedCost: number; unpricedRuns: number }): string {
+    if (stats.estimatedCost <= 0)
+      return stats.unpricedRuns > 0 ? " No price is on file for the models used, so the cost is unknown." : "";
+    const money = `$${stats.estimatedCost.toFixed(2)}`;
+    return stats.unpricedRuns > 0
+      ? ` That is about ${money}, not counting ${stats.unpricedRuns} task(s) whose model has no price on file.`
+      : ` That is about ${money}.`;
+  }
+  /**
+   * Why a new task cannot start, or null when it can. The monthly limit may be set in tokens, in
+   * dollars, or both; either being reached stops new tasks while "pause at budget" is on.
+   */
+  private monthlyBudgetRefusal(): string | null {
+    const setting = this.store.get("settings", this.owner, "usage_budget")?.data as
+      { maxMonthlyTokens?: number; maxMonthlyDollars?: number; pauseAtBudget?: boolean } | undefined;
+    if (!setting?.pauseAtBudget) return null;
+    const { overrides } = pricingSettings(this.store, this.owner);
+    const stats = this.store.usageStore().getMonthlyStats(setting.maxMonthlyTokens, overrides);
+    const raise = "Visit the Usage screen to raise the budget.";
+    if (setting.maxMonthlyDollars !== undefined && stats.estimatedCost >= setting.maxMonthlyDollars)
+      return `Monthly budget reached. This month's tasks have cost about $${stats.estimatedCost.toFixed(2)}, which is at the limit of $${setting.maxMonthlyDollars.toFixed(2)}. ${raise}`;
+    if (setting.maxMonthlyTokens !== undefined && stats.currentMonthlyTokens >= setting.maxMonthlyTokens)
+      return `Token budget exceeded. This month's usage (${stats.currentMonthlyTokens.toLocaleString()} tokens) has reached the limit of ${setting.maxMonthlyTokens.toLocaleString()}.${this.monthlySpendNote(stats)} ${raise}`;
+    return null;
+  }
+  /** What this task has cost so far, for a budget message. Empty when its model has no price. */
+  private spentOnRun(runId: string, model: string): string {
+    const usage = this.store.usage(runId);
+    const { overrides } = pricingSettings(this.store, this.owner);
+    const estimate = estimateCost(model, {
+      input: usage.reportedInput || usage.estimatedInput || 0,
+      output: usage.reportedOutput || usage.estimatedOutput || 0,
+    }, overrides);
+    return estimate.amount === null ? "" : ` So far this task has used about ${formatCost(estimate)}.`;
   }
   /** Records the continuation and tells the model which tool outcomes are unknown. */
   private resumeNote(run: Run, from: string): string {
@@ -505,7 +546,24 @@ export class Runtime {
       this.controllers.delete(run.id);
       this.activeSessions.delete(run.sessionId);
     }
-    return this.finish(run, status, output);
+    const settled = this.finish(run, status, output);
+    this.saveTrace(run.id);
+    return settled;
+  }
+  /**
+   * Writes the task's trace file when the owner has turned that on. Nothing here may fail a task:
+   * tracing that is off, a runtime already shutting down, and a folder that cannot be written are
+   * all quietly skipped or recorded as an event.
+   */
+  private saveTrace(runId: string): void {
+    try {
+      if (!traceSettings(this.store, this.owner).enabled) return;
+      void this.track(() =>
+        writeRunTrace(this.store, this.owner, this.workspace, runId)
+          .then((path) => { if (path) this.store.event(runId, "trace.written", { path }); })
+          .catch((error) => this.store.event(runId, "trace.failed", { error: errorText(error) })),
+      );
+    } catch { /* a trace file is never worth failing a task for */ }
   }
   private finish(run: Run, status: Run["status"], output: string): Run {
     const finished = this.store.finish(run.id, status, output);
@@ -528,6 +586,7 @@ export class Runtime {
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
     let checkFailures = 0;
     for (let round = 0; round < 12; round++) {
+      await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
       const assistant: Message = {
@@ -735,7 +794,7 @@ export class Runtime {
     if (input > contextLimit) throw new BudgetError(tooLong);
     context.budget.charge(input);
     const maxTokens = Math.min(2048, context.budget.remaining());
-    if (maxTokens < 1) throw new BudgetError("Token budget exhausted");
+    if (maxTokens < 1) throw new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, preset.model)}`);
     this.store.beginUsage(run.id, input);
     this.store.event(run.id, "model.started", {
       estimatedInput: input,
@@ -759,6 +818,10 @@ export class Runtime {
         estimatedInput: input,
         estimatedOutput: output,
         reported: reported ?? null,
+        // Which model answered, so the usage figures, the timeline and the trace can name it.
+        preset: preset.id,
+        provider: preset.provider.name,
+        model: preset.model,
       });
       return completion;
     } catch (e) {
@@ -813,6 +876,85 @@ export class Runtime {
       return "This exact action already ran before the interruption and its outcome is unknown. Check the actual state first (read, list or verify), then decide whether to do it again.";
     return null;
   }
+  /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
+  policy(source: RunSource = "owner"): Policy {
+    return cappedPolicy(readPolicy(this.store, this.owner), source);
+  }
+  private sessionOf(context: ToolContext): string {
+    return this.store.run(context.runId)?.sessionId ?? context.runId;
+  }
+  /**
+   * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task
+   * waits for the window to free up and then carries on.
+   */
+  private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
+    if (!limit) return;
+    const key = kind + ":" + this.sessionOf(context);
+    const wait = this.rates.waitMs(key, limit);
+    if (wait > 0) {
+      const what = kind === "tool" ? "tool calls" : "rounds with the model";
+      this.store.event(context.runId, "rate.paused", { kind, limit, waitMs: wait,
+        message: `Pausing for ${Math.ceil(wait / 1000)} second(s): this conversation has reached its limit of ${limit} ${what} a minute.` });
+      await sleepFor(wait, context.signal);
+      this.store.event(context.runId, "rate.resumed", { kind, limit });
+    }
+    this.rates.record(key);
+  }
+  /**
+   * The approval policy, checked once before a tool runs. A refused call comes back to the model as
+   * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
+   */
+  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
+    const readOnly = isReadOnlyPermission(this.registry.permissionOf(call.name));
+    const target = this.registry.targetOf(call.name, args, context);
+    const label = describeToolCall(call.name, args);
+    const source: RunSource = context.source ?? "owner";
+    const { decision, rule } = evaluatePolicy(this.policy(source), { tool: call.name, target, readOnly });
+    // An answer given earlier in the conversation stands in for the question, never for a rule that
+    // already decided: switching to a stricter setting takes effect at once.
+    const outcome = (decision === "ask" ? this.approvals.answer(this.sessionOf(context), call.name, target) : undefined) ?? decision;
+    if (context.dryRun && !readOnly) {
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: outcome });
+      return simulatedResult(label);
+    }
+    if (outcome === "allow") return null;
+    if (outcome === "deny") {
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
+      return { ok: false, error: `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.` };
+    }
+    const remember: PolicyRemember = source === "owner" ? rule?.remember ?? "session" : "session";
+    return this.askApproval(call, context, { label, target, source, remember });
+  }
+  /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
+  private askApproval(call: ToolCall, context: ToolContext, about: { label: string; target: string; source: RunSource; remember: PolicyRemember }): never {
+    const { label, target, source, remember } = about;
+    const question = `Before I go ahead: ${label}${target ? " (" + target + ")" : ""}. Is that all right?`;
+    const sessionId = this.sessionOf(context);
+    this.approvals.ask({ runId: context.runId, sessionId, tool: call.name, target,
+      label, question, source, remember, askedAt: new Date().toISOString() });
+    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember });
+    throw new NeedsInputError(question);
+  }
+  /**
+   * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
+   * conversation; "always" also writes it into the policy as a rule, which only the owner may do.
+   */
+  approve(sessionId: string, decision: "allow" | "deny", remember: PolicyRemember = "session"): { tool: string; target: string; decision: string; remembered: PolicyRemember } {
+    const waiting = this.approvals.waiting(sessionId).at(-1);
+    if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
+    if (remember === "always" && waiting.source !== "owner")
+      throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    this.approvals.resolve(sessionId);
+    if (remember !== "never") this.approvals.remember(sessionId, waiting.tool, waiting.target, decision);
+    if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
+    return { tool: waiting.tool, target: waiting.target, decision, remembered: remember };
+  }
+  /** Lists everything a practice run would have done, once it has finished. */
+  private reportDryRun(run: Run): void {
+    const actions = this.store.events(run.id).filter((event) => event.kind === "tool.simulated")
+      .map((event) => ({ tool: String(event.data.name ?? ""), label: String(event.data.label ?? ""), target: String(event.data.target ?? ""), decision: String(event.data.decision ?? "allow") }));
+    this.store.event(run.id, "dryrun.report", { actions, count: actions.length });
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
@@ -822,6 +964,9 @@ export class Runtime {
     this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
+    await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
+    const gated = await this.gate(call, args, context);
+    if (gated) return gated;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {

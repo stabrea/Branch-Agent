@@ -11,6 +11,10 @@ import { TelegramAdapter } from '../channels/telegram.js';
 import { WebConfigSchema, type WebAccess } from './web.js';
 import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
 import type { ToolContext } from '../contracts.js';
+import type { NetworkPolicy } from '../network-policy.js';
+import type { GitTools } from './git.js';
+import { GitHubAccess, GitHubConfigSchema } from './github.js';
+import { registerGitHub, registerGitRemote } from './git-tools.js';
 
 export const ChannelConfigSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/).default('telegram'),
@@ -21,11 +25,20 @@ export const ChannelConfigSchema = z.object({
   tokenSecret: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
   apiBase: z.string().url().optional(),
 }).merge(ChannelPolicySchema).strict().refine(value => !!value.tokenEnv !== !!value.tokenSecret, 'Give exactly one of tokenEnv or tokenSecret');
-export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext }
+export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext;
+  /** Version control on this computer, so the remote and GitHub tools can be switched on here. */
+  git?: GitTools; activeSecret?: (name: string) => Promise<string> }
+
+/** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
+export const GitConfigSchema = z.object({
+  remote: z.boolean().default(false),
+  github: GitHubConfigSchema.partial().optional(),
+}).strict();
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
   browser: BrowserConfigSchema.optional(), shell: ShellConfigSchema.optional(),
   channels: z.array(ChannelConfigSchema).max(4).default([]), web: WebConfigSchema.optional(),
+  git: GitConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
@@ -62,6 +75,7 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
     }
+    if (config.git) enableGit(registry, config.git, channels, policy);
     const hookShell = shell;
     if (config.hooks.length) {
       if (!hookShell || !channels?.hooks || !channels.context) throw new Error('Hooks need the shell integration (their executables come from it) and a launch that can host them');
@@ -79,6 +93,20 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     }
     return { close, count: closers.length };
   } catch (error) { await close().catch(() => undefined); throw error; }
+}
+
+/** Turns on the tools that reach a server: sending and receiving work, and GitHub when set up. */
+function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchema>, host: ChannelHost | undefined, policy: NetworkPolicy | undefined): void {
+  if (!host?.git) throw new Error('Version control settings are configured but this launch cannot host them');
+  if (config.remote) registerGitRemote(registry, host.git);
+  if (!config.github) return;
+  if (!policy || !host.activeSecret) throw new Error('GitHub needs the network settings and the secrets locker');
+  const secret = host.activeSecret, name = GitHubConfigSchema.parse(config.github).tokenSecret;
+  registerGitHub(registry, new GitHubAccess(config.github, policy, async () => {
+    const value = await secret(name).catch(() => '');
+    if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
+    return value;
+  }));
 }
 
 /** Hooks run through the shell integration's declared executables; a busy shell is retried briefly, then counts as a failure. */

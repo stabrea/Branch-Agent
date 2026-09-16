@@ -118,7 +118,7 @@ export class Scheduler {
     this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
     try {
       const run = data.kind === "reminder" ? this.remind(record) : await this.runtime.run({
-        prompt: this.promptFor(data, payload), permissions: data.permissions as string[],
+        prompt: this.promptFor(data, payload), permissions: data.permissions as string[], source: "schedule",
         onStarted: (started) => { entry.runId = started.id; },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });

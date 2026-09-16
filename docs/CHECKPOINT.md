@@ -1,5 +1,9 @@
 # Branch Agent checkpoint — 2026-09-15 (late evening)
 
+## Batch 19 (wave 2) — version control and GitHub
+
+`src/integrations/git-run.ts` locates the installed Git once with `where git` (`which git` elsewhere), verifies the path is a real file and caches it, then runs every command through the existing `ShellProcess` runner — never a shell. Each call is prefixed with `-c safe.directory=<cwd> -c core.hooksPath=<nonexistent> -c core.quotepath=false -c credential.interactive=never --no-pager`, and the child gets a narrow environment plus `GIT_TERMINAL_PROMPT=0`, so a repository's own hooks never run and Git can never block on a password prompt. `explainGit()` maps Git's wording to plain sentences (not installed, not a repository, unmerged changes, unknown identity, dubious ownership, rejected push, unreachable server, timeout). `src/integrations/git.ts` (`GitTools`) resolves every folder through `WorkspaceFiles.checked()` so commands stay inside the workspace or the active project's folder, and implements status/diff/log/branch/commit/worktree/push/pull. `git.commit` stages only the paths it listed, refuses when nothing is staged and never amends; `git.diff` lists names first, drops hidden ones and caps the returned text at 24 000 characters; `git.worktree` confines parallel copies to `.branch-worktrees` inside the repository. `src/integrations/git-tools.ts` registers them under three permissions: `git.read` (status, diff, log), `git.write` (branch, commit, worktree) — both registered in `createBranch` — and `git.remote` (push, pull), registered only when the integrations file carries `"git": { "remote": true }`, so pushing is off by default. Pushing to main/master throws `NeedsInputError`, reusing the `user.ask` pause. `src/integrations/github.ts` (`GitHubAccess`) talks to the REST API through the shared `NetworkPolicy`; the personal access token comes from the active project's locker (`GITHUB_TOKEN`, since locker names are environment-style), travels only in the `Authorization` header, never in a web address, and every reply is put through `scrubSecrets` before it is parsed or reported. `github.create_repo` (private by default), `github.open_pull_request`, `github.list_issues` and `github.create_issue` sit behind `github.manage`. `src/ignore.ts` (`ignoreMatcher()`, dependency-free) reads gitignore syntax; `WorkspaceFiles` loads `.branchignore` from the workspace root, re-reads it when it changes, refuses hidden paths in `checked()` and filters them out of `list()`, and the git tools reuse the same matcher. The fixed secret patterns still run first, so a `!` line cannot re-expose an `.env`. Chat-channel and skill-benchmark runs have `git.remote` and `github.manage` stripped alongside `shell.execute`. Tests: `tests/git.test.mjs` (12) init a real repository and exercise every tool, prove a `pre-commit` hook does not fire, prove commit refuses an unchanged tree, prove push is absent and then permission-denied and then asks about main, run a `node:http` GitHub fake asserting the bearer header and that no token reaches the event log, receipt or result, and check the network policy blocks a non-GitHub host. Items done: A0388, A0393, A0435, A2333.
+
 ## Batch 19 (wave 1) — usage and observability dashboard
 
 `src/usage.ts` (UsageStore class): aggregates runs and events by date to produce daily token consumption, estimated costs, and failure counts; tracks per-model and per-conversation usage; optional caching table for incremental refresh by event-id watermark (only terminal runs included). `GET /api/usage?range=7d|30d|90d|all&by=day|model|conversation|source` returns aggregated usage; `GET /api/runs/:id/timeline` returns a timestamped sequence of model calls, tool invocations, retries, and stalls from events, with durations (uses clipToolResult pattern for clipped output, future option for OTel-compatible trace export). Routes: `POST /api/usage/budget` to set optional monthly token budget and pause switch; `GET /api/usage/budget` to read it. Runtime budget enforcement at run-start in runtime.ts (not in Budget class — different concern). `GET /api/usage/export.csv` in rawApi() for download. `public/usage.js` builds the view with summary cards, daily cost canvas chart, table by model, budget form, export button. UI integrates into index.html nav and app.js titles; public/style.css variables reused. Tests: aggregation over fixture store with multiple runs/receipts across days and models, incremental refresh (adding a run updates only the new day), terminal-run filtering, reported-vs-estimated token selection, timeline event ordering and durations. Costs: derived at aggregate time from tokens × preset pricing (no cost column added to storage; no second source of truth). Items done: A0202 (usage tracked, display added), A0269 (display added), A0346, A0638 (cost estimation not implemented, left as future work following design constraint), A0929 (user-facing aggregation added), A0972 (timeline export added).
@@ -345,6 +349,102 @@ available and free (offline); higher-quality voice from provider is optional. Vo
 read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
 read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
+## Released 0.7.3 and 0.8.0 (2026-09-16)
+
+0.7.3: silent update hand-over (Task Scheduler + hidden Windows Script Host launcher; the old detached script made every `tasklist | find` step open a console window), provider presets and Gemini, voice, usage screen. 0.8.0: documents library, triggers and webhooks, MCP server mode, plus two front-end fixes found by the packaged suite (static-asset allowlist now guarded by `tests/static-assets.test.mjs`; classic scripts must use `var` for shared helpers). Both rehearsed on a staged copy with a console-window counter (0 windows) and hand-installed on the owner's PC. Wave 2 (integration branch): shell pass 1, code tools, Git/GitHub, approval policies; cost/trace and shell pass 2 in progress. Subagents default to Haiku on this machine (CLAUDE_CODE_SUBAGENT_MODEL); builders now run on Opus explicitly.
+
+## Batch 20 (wave 2) — app shell, tokens and appearance
+
+The browser and desktop interface was rebuilt around the approved KeepOak redesign. A token layer
+(`public/tokens.css`) is now the only place a colour is written down: Forest and Daylight themes
+copied from `site.css` and `app/portal.css`, five accents (copper, leaf, earth, slate, ink) copied
+from `site.css`, `app/appearance.css` and `public-theme.css`, plus scales for text size, spacing,
+radius, focus rings and motion. `public/shell.css` replaces the old fixed-position layout with a
+four-column grid on `body`: a thin icon column carrying every section (Settings at its foot, no
+drop-down anywhere), a conversation rail grouped by Today/Yesterday/Earlier, one main pane with a
+sticky title bar, and a context pane; both side panes fold away from the top bar and the choice is
+remembered. `public/shell.js` adds the icons, the rail (fed by `POST /api/sessions/search`) and a
+command palette on Ctrl+K covering sections, conversations, recipes, skills and the top actions,
+with Ctrl+N, Ctrl+, and Esc. Under 1000 px the rail slides over the page; under 720 px the icon
+column becomes a bottom bar and the page still never scrolls sideways at 400 px.
+`public/appearance.js` and an extended `PreferencesSchema` add seven appearance controls (theme
+including "follow this computer", highlight colour, text size, spacing, lettering, keep things
+still, show the acorn) that apply instantly and persist through `POST /api/preferences`. New
+static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
+`tests/shell-ui.test.mjs`.
+
+## Batch 20 (wave 2) — workspace search and code editing tools
+Seven tools in `src/code-search.ts`, `src/code-edit.ts`, `src/patch.ts` and `src/ignore.ts`, all
+behind the existing `files.read` / `files.write` permissions and `WorkspaceFiles.checked()`
+confinement, with no new routes, settings or dependencies. Reading: `files.glob` (patterns via
+`node:path` `matchesGlob`), `files.grep` (literal or regular expression, context lines, file
+pattern, capitals switch, binary skip by NUL byte), `files.find` (subsequence score with word-
+boundary and basename bonuses) and `workspace.map` (size, language guess and regex-found top-level
+names or Markdown headings, cached per file mtime+size). Writing: `files.patch` applies a
+multi-file unified diff with fuzz 0 — every hunk is matched using its declared line counts and must
+equal the file exactly at the line it names, all new contents are computed before anything is
+written, and a failure part-way restores the files already written; `files.edit` replaces an exact
+string and refuses when the match count is not `expectedOccurrences`. Both go through the same
+write observer as `files.write`, so each changed file keeps its previous bytes and has its own
+Undo. `files.validate` parses JSON and runs this app's own Node with `--check` (parse only, never
+executes) for `.js`/`.mjs`/`.cjs`, returning problems as data; TypeScript is reported as unchecked
+because the compiler is a devDependency only. A `.branchignore` (falling back to `.gitignore`)
+applies to every one of these tools. All results are bounded by serialized size so they stay inside
+the registry's 64 KiB output limit and say `moreAvailable`. Tests: `tests/code-tools.test.mjs`.
+Covers A0435 (ignore-file access controls), A0537 (project maps and syntax validation) and the
+codebase-search families (workspace-search, codebase-search, codebase-indexing).
+## Batch 19 (wave 2) — approvals, rate limits and execution guardrails
+A declarative approval policy stored per owner at `settings/policy`: ordered rules of
+`{ tool, match, applies, decision, remember }` evaluated once in the runtime's tool gate, before the
+tool runs, against the tool name and what the call would touch (a path, a command, or a host; the
+browser reports the host of the page the run is on). Three presets expand to rules — *Ask before
+changes*, *Just do it inside my workspace*, *Read only* — with the stored default (`off`, no rules)
+keeping today's behaviour exactly, so every existing test is unchanged. "Ask" pauses through the
+existing `NeedsInputError` path and records the question; `POST /api/policy/approve` answers it for
+this once, for the conversation (kept in memory) or always (written back as an allow rule at the top).
+"Deny" comes back to the model as a plain refusal rather than killing the task. Tasks started by a
+trigger, a schedule or MCP are capped at *Ask before changes* and cannot be given a standing yes from
+inside the run. Also: `dryRun` on `POST /api/run` and `--dry-run` on the CLI (effectful tools report
+what they would have done, read-only tools run for real, and the run ends with a `dryrun.report`);
+optional per-conversation limits on tool calls and model rounds a minute that pause and resume rather
+than fail; and a `file.invalid_json` warning after writing a `.json` file that will not parse. New
+files `src/policy.ts`, `src/approvals.ts`, `public/approvals.js`, `tests/approvals.test.mjs`. Covers
+A0048, A0152, A0245, A0262, A0636, A0701, A1521, A1629, A1685, A2028.
+## Batch 20 (wave 2) — real costs, trace export, privacy-safe diagnostics
+`src/pricing.ts` holds per-million-token list prices for the common models of OpenAI, Anthropic,
+Gemini, Groq, Mistral and DeepSeek (plus zero for local runners), with a `pricedAt` date and an
+owner override map in `settings/pricing` (`GET|POST /api/pricing`). `estimateCost(model, usage,
+overrides)` returns `{ amount, currency, confidence: table | override | unknown, note }`; an unknown
+model returns `amount: null` and reads "no price on file" rather than $0.00, which is reserved for
+models that genuinely cost nothing. Costs now appear wherever tokens already did: the run list, a
+task's detail and receipts views, the usage aggregates by day/model/conversation/source, the Usage
+screen, the monthly stats, and a new `estimatedCostUsd` + `runsWithoutPrice` pair of CSV columns.
+Two latent bugs fixed on the way: `model.completed` now carries `preset`/`provider`/`model` (so
+cost attribution, the run timeline titles and the trace span names all name the real model), and
+the old cost pass multiplied a task's whole usage row by its number of model rounds. The monthly
+budget may now be tokens, dollars or both (`maxMonthlyDollars`), and both the monthly refusal and
+the per-task token refusal quote the dollar figure when a price is on file (A0857).
+`src/trace.ts` writes each finished task as one OpenTelemetry-shaped JSON document (resourceSpans →
+scopeSpans → spans; a task span with a child per model round and per tool call, deterministic
+32-hex traceId and 16-hex spanIds). Off by default, `settings/trace` via `GET|POST
+/api/trace/settings`; the folder must resolve inside the owner's home or the workspace, checked
+with `relative()` rather than a prefix test, and UNC paths are refused. `GET /api/runs/:id/trace`
+returns the same document on demand. Files only — there is no network exporter — and a write
+failure records a `trace.failed` event instead of failing the task.
+`src/diagnostics.ts` backs a new Settings → Diagnostics card that states "Branch sends no usage data
+to anyone" and saves a plain folder (health, versions, last 200 events, the price table, a README)
+under the data directory for the owner to share by hand. Event data goes through an allow-list, so
+tool arguments, results, diffs and file contents are dropped rather than trimmed, and the fields
+that survive are scrubbed for keys, tokens and bearer headers. `public/usage.js` was rewritten: it
+was entirely dead before (it called `api`/`el` that app.js never exposed, hooked a `window.displayView`
+that does not exist, read `{data, stats}` as an array, and `/usage.js` was not even in the server's
+static allow-list). `public/providers.js` has the same missing-allow-list problem and was left for
+the providers branch. Covers A0202, A0269, A0346, A0420, A0459, A0565, A0773, A1419, A0857, and
+A0031/A0597/A0972 as **file export only — there is no OTLP network exporter**, so the tracing
+theme is not finished. A1441 (cache-aware cost accounting) is explicitly *not* covered: a cached
+price can be recorded but nothing populates cached token counts. The `usage_cache` table is still
+unused by any caller and records no price confidence, so a cached row reports its tasks as
+unpriced rather than inventing a figure.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

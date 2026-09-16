@@ -1,3 +1,4 @@
+import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -87,6 +88,7 @@ function displayView(view) {
       node.classList.toggle("active", node.dataset.view === view),
     );
   $("page-title").textContent = titles[view];
+  if (view === "usage") void window.branchUsage?.render();
 }
 document
   .querySelectorAll(".nav")
@@ -126,6 +128,7 @@ function renderRuns() {
             ? `Provider reported: ${run.usage.reportedInput} in / ${run.usage.reportedOutput} out`
             : "Provider usage: not reported",
         ),
+        el("span", `Estimated cost: ${run.cost?.display ?? "no price on file"}`),
       );
       node.append(
         usage,
@@ -444,9 +447,10 @@ async function refresh() {
   const active = state.activeModel ?? { provider: state.provider, presetName: state.provider, model: "" };
   const demo = active.provider === "offline-demo-fixture";
   $("provider").textContent = demo ? "Offline demonstration" : `${active.presetName} · ${active.model}`;
-  if (savedAppearance !== state.preferences.appearance) {
-    savedAppearance = state.preferences.appearance;
-    applyAppearance(savedAppearance);
+  const look = JSON.stringify(state.preferences);
+  if (savedAppearance !== look) {
+    savedAppearance = look;
+    applyAppearance(state.preferences);
   }
   $("context-provider").textContent = demo ? "Not connected" : active.presetName;
   $("context-runs").textContent = state.runs.filter(
@@ -473,6 +477,8 @@ async function refresh() {
   renderSnapshots();
   renderAttention();
   void window.branchMcp?.render();
+  void window.branchApprovals?.render();
+  void window.branchDiagnostics?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {
@@ -1564,16 +1570,15 @@ $("procedure-json").value = JSON.stringify(
   null,
   2,
 );
-function applyAppearance(value) {
-  const theme = value === "daylight" ? "daylight" : "forest";
-  document.documentElement.dataset.theme = theme;
-  $("appearance").value = theme;
-}
-applyAppearance("forest");
-form("settings-form", async () => {
-  const value = await api("preferences", { appearance: $("appearance").value });
-  savedAppearance = value.appearance;
-  applyAppearance(savedAppearance);
+initAppearance((value) => api("preferences", value));
+$("settings-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    savedAppearance = JSON.stringify(await api("preferences", currentAppearance()));
+    toast("Appearance saved.");
+  } catch (error) {
+    toast(error.message);
+  }
 });
 $("appearance-shortcut").addEventListener("click", () => {
   displayView("settings");
@@ -1677,3 +1682,6 @@ import("./providers.js").then((mod) => {
     mod.initProvidersUI().catch((e) => toast(`Provider UI error: ${e.message}`));
   };
 }).catch((e) => console.error("Failed to load providers UI:", e));
+
+/* Used by public/shell.js (the rail and the command palette). */
+export { api, displayView, openConversation, titles };
