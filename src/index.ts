@@ -17,14 +17,21 @@ import { registerOrchestration } from "./orchestration-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
+import { chooseForInjection } from "./memory-layers.js";
+import { MemoryTidy, registerMemoryTidy, shipTidyProcedure } from "./memory-tidy.js";
+import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
+import { SqliteMemoryBackend } from "./memory-backend.js";
 import { Scheduler, registerSchedules } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
 import { pricingSettings } from "./pricing.js";
 import { registerSessions } from "./sessions.js";
+// Wave 8: conversations branched off other conversations, seen as a tree, and one answer carried back.
+import { SessionTree, registerSessionTree } from "./session-tree.js";
+import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
@@ -79,6 +86,7 @@ import { Flows, registerFlows } from "./flows.js";
 import { PluginCatalog } from "./plugin-catalog.js";
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
+import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
 import { MorningBrief, registerBrief } from "./brief.js";
@@ -90,6 +98,7 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
 import { KnowledgeBases } from "./knowledge-bases.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -245,13 +254,24 @@ export async function createBranch(options: {
   const memory = {
     retrieval: new MemoryRetrieval(store, runtime.models),
     hygiene: undefined as unknown as MemoryHygiene,
+    tidy: undefined as unknown as MemoryTidy,
+    backend: new SqliteMemoryBackend(store),
     transfer: new MemoryTransfer(store),
   };
   memory.hygiene = new MemoryHygiene(store, memory.retrieval);
-  store.review.orderFacts = (factOwner, agent) => memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record);
+  memory.tidy = new MemoryTidy(store, memory.hygiene, memory.retrieval);
+  registerMemoryTidy(registry, memory.tidy);
+  // "Tidy my memory" arrives as a recipe the owner can look at and check, like any other.
+  try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
+  // What goes in front of a task is taken layer by layer in the documented order and budget: what
+  // is happening now, then the job in hand, then everything the assistant knows for good.
+  store.review.orderFacts = (factOwner, agent) =>
+    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
+  const sessionTree = new SessionTree(store.sqlite);
+  registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
@@ -317,7 +337,11 @@ export async function createBranch(options: {
     (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
   const privacy = new PrivacyGuard(store, runtime.owner, moderation);
   moderation.configure(privacy.settings().moderation);
-  channels.outboundGuard = (text) => privacy.outbound(text);
+  // Wave 8 (the long tail): while Lockdown is on, nothing is sent out of a messaging account at all.
+  channels.outboundGuard = async (text) =>
+    lockedDown(store, runtime.owner)
+      ? { text: "", blocked: true, reason: lockdownRefusal }
+      : privacy.outbound(text);
   runtime.hideSecrets = (value) => {
     const scrubbed = store.secrets.scrubber.deep(value);
     // The privacy settings live in the database; a failure reported while the app is closing
@@ -374,8 +398,13 @@ export async function createBranch(options: {
   webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   // A webhook's signing key lives in the locker with the other secrets, named rather than copied.
   webhooks.secretFor = lockerSecret("webhook");
-  runtime.notifyEvent = webhooks.notifier(runtime.owner);
-  channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
+  // Wave 8: while Lockdown is on, no note about what happened reaches another program either.
+  const notify = webhooks.notifier(runtime.owner);
+  const guardedNotify: typeof notify = (event, payload) => {
+    if (!lockedDown(store, runtime.owner)) notify(event, payload);
+  };
+  runtime.notifyEvent = guardedNotify;
+  channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
@@ -383,6 +412,10 @@ export async function createBranch(options: {
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Asking a question of one document, and holding two up against each other. Tables inside a
+  // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
+  const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
+  registerDocumentAnalysis(registry, documentAnalysis);
   const research = new Research(store, web, files, documents, writeObserver);
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
@@ -407,7 +440,7 @@ export async function createBranch(options: {
   // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
   // each box finishes.
   const flows = new Flows(store, runtime.owner, workflows);
-  flows.notifyEvent = webhooks.notifier(runtime.owner);
+  flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
@@ -459,12 +492,19 @@ export async function createBranch(options: {
     { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) }, undefined, guardedFetch);
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  // What was said in a conversation, written up as fact cards the owner can accept into a
+  // knowledge base. Accepting one indexes it exactly like a passage from a file.
+  registerKnowledgeCards(registry, new KnowledgeCards(store, knowledgeBases, runtime.models));
+  store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
+    { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
   // Facts written during a task are compared by meaning as soon as it finishes, never during it.
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
+  registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
   const documentContext = documents;
   // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
   // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
@@ -526,6 +566,8 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
+    sessionTree,
     files,
     knowledge,
     documents,
@@ -852,6 +894,10 @@ export * from "./local-runtimes.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
+export * from "./memory-layers.js";
+export * from "./memory-tidy.js";
+export * from "./memory-evaluation.js";
+export * from "./memory-backend.js";
 export * from "./memory-hygiene.js";
 export * from "./memory-consolidate.js";
 export * from "./embeddings.js";
@@ -859,6 +905,7 @@ export * from "./vector-store.js";
 export * from "./chunking.js";
 export * from "./bm25.js";
 export * from "./knowledge-bases.js";
+export * from "./knowledge-cards.js";
 export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
 export * from "./citations.js";
@@ -933,3 +980,13 @@ export * from "./mcp-lifecycle.js";
 export * from "./mcp-apps.js";
 export * from "./mcp-workbench.js";
 export * from "./integrations/mcp-oauth.js";
+// Wave 8 (the long tail in "other"): the app's own OpenAPI description, keeping answers to
+// identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
+// make, what each project has cost, and watching a folder.
+export * from "./api-openapi.js";
+export * from "./request-cache.js";
+export * from "./batch-inference.js";
+export * from "./lockdown.js";
+export * from "./session-tree.js";
+export * from "./project-ledger.js";
+export * from "./watch.js";

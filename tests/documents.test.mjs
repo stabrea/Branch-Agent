@@ -224,11 +224,12 @@ test("adding, re-reading and removing a workspace file, with the write tools gat
   assert.deepEqual(app.documents.list("local"), []);
 });
 
-test("a PDF is listed as needing a helper and an oversized upload is refused", async (t) => {
+test("a PDF with nothing readable in it says so, and an oversized upload is refused", async (t) => {
   const { app } = await fixture(t);
+  // PDFs are read in this build; a file that only claims to be one has no pages to read.
   const pdf = await app.documents.add("local", { name: "Contract.pdf", content: Buffer.from("%PDF-1.7 binary").toString("base64") });
-  assert.equal(pdf.status, "needs_helper");
-  assert.match(pdf.note, /PDF files need a helper/);
+  assert.equal(pdf.status, "failed");
+  assert.match(pdf.note, /No pages could be found/);
   assert.equal(pdf.chunks, 0);
   await assert.rejects(
     app.documents.add("local", { name: "Huge.txt", content: Buffer.alloc(documentBytesLimit + 1, 97).toString("base64") }),

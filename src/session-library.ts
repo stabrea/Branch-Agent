@@ -65,6 +65,33 @@ export class SessionLibrary {
       SELECT 1 AS found FROM session_origins o JOIN lineage l ON o.session_id=l.id WHERE o.imported=1 LIMIT 1`)
       .get(sessionId)?.found === 1;
   }
+  /**
+   * The conversations to show on a small screen: the most recent ones, each with how it started
+   * and what was last said, so picking up on a phone what was begun at the desk needs one request.
+   * It is the same list the app already shows, served through the same door and the same key.
+   */
+  recent(owner: string, limit = 20) {
+    const rows = this.db.prepare(`SELECT s.id, s.created_at,
+      (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count,
+      (SELECT substr(json_extract(m.body,'$.content'),1,240) FROM messages m
+        WHERE m.session_id=s.id AND json_extract(m.body,'$.role') IN ('user','assistant')
+        ORDER BY m.id LIMIT 1) AS opening,
+      (SELECT substr(json_extract(m.body,'$.content'),1,240) FROM messages m
+        WHERE m.session_id=s.id AND json_extract(m.body,'$.role') IN ('user','assistant')
+        ORDER BY m.id DESC LIMIT 1) AS latest,
+      (SELECT json_extract(m.body,'$.role') FROM messages m
+        WHERE m.session_id=s.id AND json_extract(m.body,'$.role') IN ('user','assistant')
+        ORDER BY m.id DESC LIMIT 1) AS latest_role
+      FROM sessions s WHERE s.owner=? AND s.temporary=0
+      ORDER BY s.created_at DESC, s.id DESC LIMIT ?`).all(owner, Math.min(Math.max(limit, 1), 100));
+    return {
+      sessions: rows.map((row) => ({
+        sessionId: String(row.id), createdAt: String(row.created_at), messageCount: Number(row.message_count),
+        opening: String(row.opening ?? ""), lastMessage: String(row.latest ?? ""),
+        lastSpeaker: row.latest_role === null ? "" : String(row.latest_role),
+      })),
+    };
+  }
   search(owner: string, input: unknown) {
     const { query, offset, labels } = SessionSearchSchema.parse(input);
     const wanted = labels.map((label) => label.toLocaleLowerCase("en"));

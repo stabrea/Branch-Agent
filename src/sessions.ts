@@ -77,7 +77,7 @@ export class SessionBranches {
 export function registerSessions(registry: ToolRegistry, store: Store): void {
   registry.register({
     name: "sessions.branch", permission: "sessions.branch", parameters: BranchSessionSchema,
-    description: "Create a separate conversation through a selected prior message. Requires history.read too. Copies messages only; workspace files and saved memory remain shared. Original conversation is preserved.",
+    description: "Start a separate conversation from an earlier message. Needs history.read as well; the original is kept.",
     execute: async (input, context) => {
       if (!context.permissions.has("history.read")) throw new Error("Permission denied: history.read");
       return store.branchSession(context.owner, input);

@@ -29,6 +29,10 @@ export interface InspectRound {
   cost: { amount: number | null; display: string } | null;
   failed: boolean;
   error: string | null;
+  /** True when the answer came from the kept answers rather than the provider; then nothing was charged. */
+  cached: boolean;
+  /** Why it cost nothing, in one line, when it did. */
+  cacheReason: string | null;
 }
 /** Prices one round; the caller supplies the workspace's own price table. */
 export type PriceRound = (model: string, tokens: { input: number; output: number }) => { amount: number | null; display: string };
@@ -60,8 +64,12 @@ export function rounds(store: Store, runId: string, price?: PriceRound): Inspect
     const input = count(said?.input) ?? count(data.estimatedInput) ?? started?.tokens;
     const output = count(said?.output) ?? count(data.estimatedOutput);
     const model = data.model === undefined ? null : String(data.model);
+    // A kept answer is a round that happened without the provider: no tokens, and no price.
+    const cached = data.cached === true;
     out.push({
       at: event.createdAt,
+      cached,
+      cacheReason: cached ? String(data.cacheReason ?? "The same request was answered before.") : null,
       provider: data.provider === undefined ? null : String(data.provider),
       model,
       preset: data.preset === undefined ? null : String(data.preset),
@@ -69,7 +77,9 @@ export function rounds(store: Store, runId: string, price?: PriceRound): Inspect
       promptTokens: started?.tokens ?? count(data.estimatedInput),
       tokens: { input: input ?? null, output: output ?? null },
       reported: Boolean(said && (said.input !== undefined || said.output !== undefined)),
-      cost: price && model ? price(model, { input: input ?? 0, output: output ?? 0 }) : null,
+      cost: cached
+        ? { amount: 0, display: "nothing — answered from the kept answers" }
+        : price && model ? price(model, { input: input ?? 0, output: output ?? 0 }) : null,
       failed: event.kind === "model.failed",
       error: data.error === undefined ? null : String(data.error),
     });

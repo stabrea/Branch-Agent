@@ -98,6 +98,9 @@ import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc
 import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
+// Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
+// questions at once, and what each project has cost.
+import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -232,6 +235,7 @@ async function staticFile(
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -262,6 +266,8 @@ async function staticFile(
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the Lockdown switch and the shape branched conversations make.
+    "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -547,6 +553,11 @@ async function api(
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
+  if (handlesOtherPath(path))
+    return otherApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof OtherApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -569,6 +580,10 @@ async function api(
       base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
       token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
     });
+  // A phone-sized list of conversations. It goes through the same door and needs the same key as
+  // everything else, so a paired phone can pick up what was started at the computer.
+  if (request.method === "GET" && path === "/api/sessions")
+    return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -859,7 +874,7 @@ async function api(
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
-      health: await healthReport(app), version: app.version,
+      health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
     });
   const traceMatch = /^\/api\/runs\/([a-f0-9-]{36})\/trace$/.exec(path);
   if (request.method === "GET" && traceMatch) {
@@ -924,7 +939,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins|tree|merge-note))?$/.exec(path);
+  // Wave 8: conversations branched off this one as a tree, and carrying one branch's answer back.
+  if (match && match[2] === "tree" && request.method === "GET") return app.sessionTree.tree(owner, match[1]!);
+  if (match && match[2] === "merge-note" && request.method === "POST")
+    return app.sessionTree.mergeNote(owner, { sessionId: match[1]! });
   if (match && match[2] === "summary" && request.method === "GET") return app.store.sessionSummary(owner, match[1]!);
   if (match && match[2] === "pins") {
     if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
@@ -1049,6 +1068,12 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
       .strict().parse(await readBody(request));
     return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
   }
+  // "Tidy my memory" in one screen: the four checks together, and the same call with stage on.
+  if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
+  if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
+  if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
   if (request.method === "POST" && path === "/api/memory/tidy") {
     z.object({}).strict().parse(await readBody(request));
@@ -2302,7 +2327,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

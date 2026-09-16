@@ -7,7 +7,8 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { ModelRouter } from "./models.js";
-import { documentType, extractText } from "./document-text.js";
+import { documentType } from "./document-text.js";
+import { picturesMessage, readDocument, tryReadDocument } from "./document-readers.js";
 import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector, type Embedder } from "./document-embeddings.js";
 import { localEmbedder } from "./local-models.js";
 import { embeddingFetch } from "./embeddings.js";
@@ -188,18 +189,25 @@ export class DocumentLibrary {
     const id = randomUUID(), now = new Date().toISOString();
     this.db.prepare("INSERT INTO documents VALUES(?,?,?,?,?,?,?,?,?,?)")
       .run(id, owner, source.name, source.path, source.type, source.bytes, "indexed", "", now, now);
-    await this.index(owner, id, source.text, signal);
+    await this.index(owner, id, source.text, signal, true, source.note, source.helper);
     return this.one(owner, id);
   }
   private async sourceOf(value: z.infer<typeof AddSchema>) {
     if (value.text !== undefined) {
       const name = value.name ?? "Pasted note";
-      return { name, path: null, type: documentType(name), bytes: Buffer.byteLength(value.text), text: value.text };
+      return { name, path: null, type: documentType(name), bytes: Buffer.byteLength(value.text), text: value.text, note: "", helper: false };
     }
     const bytes = value.content !== undefined ? decodeUpload(value.content) : await this.readWorkspace(value.path);
     const name = value.name ?? (value.path ?? "Uploaded file").split("/").pop()!;
-    const type = documentType(value.path ?? name);
-    return { name, path: value.path ?? null, type, bytes: bytes.length, text: extractText(bytes, type) };
+    const from = value.path ?? name;
+    const read = tryReadDocument(bytes, from, { byteLimit: documentBytesLimit });
+    const shared = { name, path: value.path ?? null, type: documentType(from), bytes: bytes.length };
+    // A file no reader could make sense of is still listed, with the reason where the owner sees it.
+    if (!read.document) return { ...shared, text: null, note: read.reason, helper: false };
+    return {
+      ...shared, text: read.document.pictures ? null : read.document.text,
+      note: read.document.limits.join(" "), helper: read.document.pictures,
+    };
   }
   private async readWorkspace(path: string | undefined): Promise<Buffer> {
     if (!path) throw new Error("Choose a file, paste some text, or drop a file in");
@@ -215,17 +223,22 @@ export class DocumentLibrary {
     } finally { await handle.close(); }
   }
   /** Splits the text into passages, indexes them for word search, then adds meaning where possible. */
-  private async index(owner: string, id: string, text: string | null, signal: AbortSignal, embed = true): Promise<void> {
+  private async index(
+    owner: string, id: string, text: string | null, signal: AbortSignal, embed = true, note = "", helper = false,
+  ): Promise<void> {
     this.clearChunks(id);
-    if (text === null) return this.mark(id, "needs_helper", "PDF files need a helper this assistant does not have yet. Save it as text or Word first.");
+    // A file with no words to lift out — a PDF that is pictures of text — needs a different pair of
+    // eyes, and says so; anything the readers simply could not make sense of is marked as failed.
+    if (text === null && helper) return this.mark(id, "needs_helper", note || picturesMessage);
+    if (text === null) return this.mark(id, "failed", note || "No readable text was found in this file.");
     const chunks = chunkText(text);
-    if (!chunks.length) return this.mark(id, "failed", "No readable text was found in this file.");
+    if (!chunks.length) return this.mark(id, "failed", note || "No readable text was found in this file.");
     for (const [index, chunk] of chunks.entries()) {
       const row = this.db.prepare("INSERT INTO document_chunks(document_id,owner,chunk_index,chunk_text) VALUES(?,?,?,?) RETURNING chunk_id")
         .get(id, owner, index, chunk);
       if (this.ranked) this.db.prepare("INSERT INTO document_search(rowid,chunk_text) VALUES(?,?)").run(Number(row?.chunk_id), chunk);
     }
-    this.mark(id, "indexed", "");
+    this.mark(id, "indexed", note);
     if (embed) await this.embedChunks(owner, id, chunks, signal);
     else if (this.client(owner)) this.db.prepare("UPDATE documents SET note=? WHERE id=?")
       .run("Updated after the file changed. Matched by its words for now; choose Read the file again to also match by meaning.", id);
@@ -267,7 +280,8 @@ export class DocumentLibrary {
     try {
       const bytes = await this.readWorkspace(String(row.file_path));
       this.db.prepare("UPDATE documents SET file_size=? WHERE id=?").run(bytes.length, id);
-      await this.index(owner, id, extractText(bytes, documentType(String(row.file_path))), signal, embed);
+      const read = readDocument(bytes, String(row.file_path), { byteLimit: documentBytesLimit });
+      await this.index(owner, id, read.pictures ? null : read.text, signal, embed, read.limits.join(" "), read.pictures);
     } catch (error) {
       this.clearChunks(id);
       this.mark(id, "failed", `That file could not be read again: ${errorText(error).slice(0, 200)}`);

@@ -1,0 +1,23 @@
+{
+  "name": "Everyday memory",
+  "note": "A small set of saved facts and the questions they should answer. Edit this file to measure how well the assistant finds your own kind of facts: each question lists the ids of the facts that ought to come back for it.",
+  "facts": [
+    { "id": "eval-tea", "text": "Taofik drinks his tea without sugar.", "kind": "preference" },
+    { "id": "eval-tea-strong", "text": "Tea should be left to brew for four minutes.", "kind": "preference" },
+    { "id": "eval-dentist", "text": "The dentist is on Mill Road and closes at four on Fridays.", "kind": "fact-about-world" },
+    { "id": "eval-sister", "text": "His sister Amina lives in Leeds and visits at Easter.", "kind": "fact-about-person" },
+    { "id": "eval-car", "text": "The car needs its tyres checked before any long drive.", "kind": "procedure-hint" },
+    { "id": "eval-rent", "text": "Rent is paid on the first working day of the month.", "kind": "fact-about-world" },
+    { "id": "eval-bread", "text": "He is allergic to walnuts, so no walnut bread.", "kind": "fact-about-person" },
+    { "id": "eval-meeting", "text": "The Monday team meeting starts at half past nine.", "kind": "project-note" }
+  ],
+  "questions": [
+    { "ask": "how does he take his tea", "expect": ["eval-tea"] },
+    { "ask": "when does the dentist shut on a Friday", "expect": ["eval-dentist"] },
+    { "ask": "where does Amina live", "expect": ["eval-sister"] },
+    { "ask": "what should I check before a long drive", "expect": ["eval-car"] },
+    { "ask": "when is the rent due", "expect": ["eval-rent"] },
+    { "ask": "is there anything he cannot eat", "expect": ["eval-bread"] },
+    { "ask": "what time is the team meeting", "expect": ["eval-meeting"] }
+  ]
+}

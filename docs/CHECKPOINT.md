@@ -1655,6 +1655,41 @@ task land in that profile's scope, which is also what stops a profile's task rea
 not through `memory.search`, and not through the snapshot a task opens with. Models, settings and
 the secrets locker still belong to the owner; only what is remembered moves.
 
+## Batch 25 (wave 7) — every document people actually have, and memory that knows what it remembers
+Branch now reads Word, spreadsheet, slide, OpenDocument, e-book, rich-text and PDF files with nothing
+but Node built-ins: no dependency was added. `src/document-office.ts`, `src/document-open.ts` and
+`src/document-pdf.ts` hold the readers; `src/document-readers.ts` is the one door in front of them,
+capping every read by size and by time and returning the text with its shape kept (Markdown headings
+for sections, sheets and slides; `[[page N]]` markers the existing passage-cutter already understands),
+the tables it found, and a plain sentence for every part it could not read. The PDF reader finds
+objects by scanning rather than trusting the cross-reference table, unpacks FlateDecode streams and
+packed object stores, walks the page tree, reads `Tj`/`TJ`/`'`/`"` with the file's own ToUnicode
+tables, and rebuilds lines from where text sat on the page. It refuses a password-locked PDF outright
+and reports a picture-only PDF as pictures rather than returning nothing; docs/configuration.md lists
+what it cannot do, so the limit is stated rather than discovered.
+Knowledge bases walk every one of those kinds (`readableFile` now asks the reader registry, not a
+hand-written extension list), cut passages at headings, slides, sheets and pages so citations carry
+them, and keep a per-file content hash in the new `kb_documents` table — a second reading leaves
+unchanged files alone and reports how many (`unchanged`), while every file that could not be read is
+listed against the collection with its reason (`unread`). `documents.analyse` answers a question about
+one file with the heading and page behind each claim and opens the file's tables as `data.*` figures;
+`documents.compare` lines two documents up section by section. `knowledge.propose` reads a finished
+conversation and stages fact cards as `knowledge-card` suggestions; accepting one writes it into the
+chosen collection through `KnowledgeBases.addCard`, indexed and cited like any passage.
+On the memory side, `src/memory-layers.ts` gives every fact a kind and a layer — both optional on the
+record, so nothing already saved changes meaning — and `chooseForInjection` takes what reaches a task
+layer by layer in a documented order and budget (working 6, task 4, then long-term, capped at the
+snapshot's 20 facts and 2000 characters). Task-scratch notes are cleared by an `onRunFinished` hook
+unless `memory.keep` promoted them. `src/memory-tidy.ts` runs all four hygiene checks in one call,
+stages suggestions and deletes nothing, ships as the **Tidy my memory** recipe, and feeds the
+counts-only `memory.json` now written into the diagnostics folder. `branch eval memory`
+(`src/memory-evaluation.ts`) measures retrieval against the owner-editable set in
+`data/memory-retrieval.json`, reporting hit rate before and after the nightly pass under a scope of
+its own that is emptied afterwards. `src/memory-backend.ts` writes down the contract the SQLite store
+keeps, with that store as the only implementation, and the JSON Lines export now round-trips kinds,
+layers and projects. Sessions already persisted; `GET /api/sessions` adds the phone-sized list of
+recent conversations, served through the existing paired-remote listener with the same key — no new
+door was opened.
 ## Batch 25 (wave 7) — the screens the last waves left as routes, and the observability leftovers
 
 Several earlier waves landed a route or a module without the screen that uses it. This batch
@@ -1699,6 +1734,54 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+<<<<<<< HEAD
+(Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
+adds the figures up a project at a time.)
+
+## Batch 21 (wave 8) — the long tail in "other"
+
+The last untouched rows of the `other` theme of the capability audit (#60). Backend first, with only
+a small addition to the sidebar.
+
+Branch now describes its own web API. `GET /api/openapi.json` is an OpenAPI 3.1 document whose
+request shapes are generated from the same zod schemas the server checks requests with, so the
+description cannot drift from what the app accepts; `node scripts/write-api-docs.mjs` writes the
+readable version to `docs/api.md`. The route table lives in `src/api-openapi.ts`.
+
+Two ways to spend less, both off until the owner turns them on. `src/request-cache.ts` hashes the
+exact request that would go to the model and answers an identical one from what was kept — nothing
+sent, nothing charged, and the round marked `cached` with a zero cost and a reason on the "Look
+inside" screen. An answer that asks for a tool is never kept, because replaying it would replay the
+tool. `src/batch-inference.ts` hands a whole set of questions over where the connection offers it
+(an optional `batch()` on `Provider`), polls, collects, and prices the set from what the service
+reported; anything that goes wrong falls back to one ordinary call per question and says why. The
+machinery and the fallback are done and tested against fakes, but **no real connection implements
+`batch()` yet** — OpenAI's and Anthropic's own batch adapters are still to write, so today every set
+falls back. A1351/A1352 are therefore partial, not done.
+
+`src/lockdown.ts` is one switch. On, every tool waits for a yes and host programs, the screen, the
+borrowed browser, sending messages out and telling other programs what happened are all off. The
+settings it takes over are copied untouched before anything changes and written back verbatim when
+it goes off — a switch that had never been saved stays unsaved. Both moments are audited.
+
+Conversations branched off other conversations are now a shape: `GET /api/sessions/{id}/tree` and
+the tool `sessions.tree`, drawn in the sidebar. `POST /api/sessions/{id}/merge-note` carries a
+branch's last answer back into its parent as one note; it is the owner's own action, so it costs the
+model's catalog nothing. A flow step may now be `kind: "flow"` and work through another saved flow,
+three deep, refusing by name anything that leads back to a flow already running. Flow checkpointing
+was verified as already present (`workflow_state` plus the saved cursor) and documented rather than
+rebuilt.
+
+Projects carry a default working profile and default knowledge bases alongside their instructions and
+model choice, every task records the project it was done under, and `GET /api/projects/costs` groups
+the ledger by project. `branch watch <folder> <procedure-id>` re-runs a saved procedure when a folder
+changes, settling a burst of saves into one run and never running twice at once.
+
+Tests: `tests/other-2.test.mjs` (11). No new dependency. The remaining ids of #60 are decided in
+docs/configuration.md under "The long tail…": covered elsewhere, or deliberately not built with the
+reason written down.
+||||||| 4da2910
+=======
 
 ## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
 
@@ -1779,3 +1862,4 @@ the owner and their own app; `channels.broadcast` and `channels.digest` are refu
 `needsAppReview` is carried through the channel summary so the Connections card says that Messenger and Instagram
 are waiting on Meta's review; and the generated table's last column says plainly that each service was tested
 against a fake of its documented shape, not against the real service.
+>>>>>>> wave2/integration

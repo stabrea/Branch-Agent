@@ -2666,3 +2666,357 @@ somebody handed you, holding `branch-plugin.json` and the plugin's own `.mjs` be
 
 Installing switches nothing on: turning a plugin on is still a separate, deliberate step, and that
 is the step that runs its code.
+
+## Reading documents (batch 25, wave 7)
+
+Branch reads the files people actually have, using nothing but Node's own building blocks. No file
+is ever executed, and no address written inside a file is ever fetched: a document is read, never
+obeyed. Every read is capped — a file larger than 20 MB is refused before a byte is parsed, and a
+file still being walked after 20 seconds is cut short and says so in the "could not be read" list.
+Unpacking is capped too, because a few hundred kilobytes of file can be built to unpack into
+gigabytes: one Word, spreadsheet, slide, OpenDocument or e-book file may unpack to at most 64 MB and
+list at most 5,000 parts, and one PDF may unpack to at most 64 MB. Past either, the file is refused
+in a sentence rather than left to fill the machine's memory. A PDF is checked against its time
+allowance before each page, so a long one stops and says how many pages it managed.
+
+**What can be read**
+
+| Kind | What comes out |
+| --- | --- |
+| Notes, Markdown, web pages, tables, JSON | The text, headings kept where there are any |
+| Word (`.docx`, `.docm`) | Headings at the level the document gives them, paragraphs, tables, footnotes |
+| Spreadsheets (`.xlsx`, `.xlsm`) | Every sheet under its own heading, one line per row; a formula gives the value it last worked out |
+| Slides (`.pptx`, `.pptm`) | Each slide numbered, with its title, its words and the speaker's notes |
+| OpenDocument (`.odt`, `.ods`) | The same, from what a free office suite writes |
+| E-books (`.epub`) | The chapters in reading order, each under a heading |
+| Rich text (`.rtf`) | The words, with the type-setting instructions dropped |
+| PDF (`.pdf`) | The words, page by page, reconstructed from where they sit on the page |
+
+**What cannot be read, said plainly**
+
+- A PDF locked with a password is refused outright: open it with the password and save an unlocked
+  copy first. Branch never tries to guess or break a password.
+- A PDF that is pictures of text has no words to lift out. It says so, and you can ask for it to be
+  read with a vision model instead, which sends the pages to whichever provider you have connected.
+- A PDF written an unusual way — text drawn with an encoding the file does not describe, or streams
+  packed in a way this reader does not unpack (only FlateDecode is unpacked) — comes back with those
+  parts listed rather than silently missing. Lines are rebuilt from where text sits on the page, so
+  a heavily designed page can come out in an odd order.
+- `.doc`, `.xls` and `.ppt` — the formats before the current ones — are not read. Save as the newer
+  format first. OpenDocument presentations (`.odp`) are not read either.
+- Anything with no reader is listed on the knowledge base with a reason, never quietly skipped.
+
+**What is sent where.** Reading happens entirely on this computer. What may leave it is exactly what
+left it before: the passages sent to your provider's embeddings route so they can be compared by
+meaning, under the same network policy as every other provider call, and only when you have such a
+connection. Turning meaning search off keeps everything here. Asking a vision model to look at a
+scanned PDF sends those pages to your provider, and only when you ask for it.
+
+**Into a knowledge base.** A collection now walks every kind above. Passages are cut at headings,
+slides, sheets and pages, so a citation says which one it came from. Reading a folder again compares
+each file by its contents and leaves the ones that have not changed, so a second reading of a large
+folder is quick; the progress line says how many were left alone (`unchanged`). Every file that could
+not be read is kept against the collection with its reason, and `GET /api/knowledge` returns them as
+`unread`.
+
+**Asking about one file.** `documents.analyse` takes `{ file, question }`: it reads the file with the
+right reader, finds the passages that fit, and answers with the heading and page each claim came
+from. Tables inside the file are opened as figures the `data.*` tools can be pointed at, under the
+names the answer lists. `documents.compare` takes `{ file, against }` and says in plain language what
+was added, taken out or reworded, section by section. Both are under `documents.read`; the panel
+under **Documents** has a box for each.
+
+**Cards from a conversation.** `knowledge.propose` takes `{ sessionId, collection }`, reads a finished
+conversation and writes up what is worth looking up again as fact cards: a title, a few sentences,
+the turn it came from and how sure it is. Every card is a suggestion. Nothing reaches a knowledge
+base until you accept it under "What it learns", and an accepted card is indexed and cited exactly
+like a passage from a file. It is under `documents.write`. A conversation can repeat whatever a
+document or a web page said, so every card is put through the same check that guards what comes back
+from the web: a card that reads like an order to the assistant is never offered, and is refused again
+if something else puts it in the queue — otherwise that order would outlive the conversation.
+
+## How memory is organised (batch 25, wave 7)
+
+Every saved fact now says two things about itself.
+
+**What kind of thing it is.** A *preference* (how you like things done), a *fact about a person*, a
+*fact about the world*, a *procedure hint* (how to do something), a *project note*, or *task scratch*
+— a note the assistant made for itself while doing one job. A fact saved before this arrived, or
+saved without a kind, counts as a fact about the world, which is exactly how it behaved before.
+
+**How long it is meant to last.** *Working* is this conversation. *Task* is this job and no longer:
+a task-scratch note is cleared when the job that made it ends, unless you asked to keep it. *Long
+term* is everything else, kept until you forget it. A fact with no layer of its own is long-term.
+
+Keeping a note (the `memory.keep` tool, or `POST /api/memory/{id}/keep`) moves it to long-term, which
+is what spares it when the job ends. A cleared note keeps its last wording as a version, so it can
+still be brought back. Facts can also belong to a **project**, and a fact tied to one project is left
+out while another is being worked on.
+
+**What reaches a task.** The facts put in front of a task are taken layer by layer in this order and
+budget: working first (at most 6 facts), then task (at most 4), then long-term — stopping at 20 facts
+or 2000 characters, whichever comes first. Within a layer the most useful facts come first, which is
+the same ordering the Memory screen shows.
+
+**Tidying.** "Tidy my memory" runs every check at once: the same thing saved twice, a newer fact that
+disagrees with an older one, facts not touched in 180 days, facts never drawn on, and notes left over
+from a job. It shows everything in one screen and **removes nothing** — each finding becomes a
+suggestion you accept or reject under "What it learns", and accepting one sets the fact aside in the
+archive where it can be brought back. A leftover note from a job has a **Keep this** button beside
+it, so you can keep one for good instead of setting it aside.
+
+It also ships as a recipe called **Tidy my memory**, so the steps are written down where you can read
+them. That recipe stays a proposal on purpose: the recipe checker compares a step's whole result
+against a fixed expectation, and a tidy report says what it found, which differs every time — so it
+cannot be certified that way. Run tidying from the Memory screen, or by calling `memory.tidy`.
+
+**Counts you can see.** `GET /api/memory/health` gives counts only — how
+many of each kind and layer, how many are notes from a job, how many have never been used, how many
+are set aside. No wording of any fact is included, which is why the same line goes into the
+diagnostics folder as `memory.json`.
+
+**Is it finding the right fact?** `branch eval memory` measures it. It loads the labelled set in
+`data/memory-retrieval.json` under a scope of its own, asks every question, runs the nightly pass,
+asks again, and reports the hit rate before and after. The set is a plain file: replace it with your
+own facts and questions to measure your own kind of memory. The scope is emptied afterwards, so
+nothing you actually saved is touched.
+
+**Where facts are kept.** In this computer's own database, and only there. What that database has to
+promise is written down as the `MemoryBackend` contract in `src/memory-backend.ts` — read, list,
+write, search, forget and count, with owners never seeing each other's facts and nothing leaving this
+computer unless you asked for it. The SQLite implementation is the only one that ships.
+
+**Taking memory elsewhere.** The export is one fact per line, and it now carries the kind, the layer
+and the project too, so a file written out and read back in comes back the same. Reading a file back
+never makes a second copy of something already saved.
+
+**Picking a conversation up on your phone.** Conversations already persist, and a paired phone
+already reaches the whole app through the same door with the same key. `GET /api/sessions` is the
+list that makes that practical on a small screen: the recent conversations with how each one started,
+what was last said and who said it. `GET /api/sessions/{id}` then gives the messages. Both need the
+same key as everything else, and remote access still listens only on the private Tailscale address,
+so nothing here widens what can reach this computer.
+
+New routes: `GET|POST /api/memory/tidy/all` (every check; `{ "stage": true }` turns findings into
+suggestions), `GET /api/memory/health`, `POST /api/memory/{id}/keep`, and `GET /api/sessions`. New
+tools: `memory.tidy` and `memory.keep` under `memory.write`,
+`documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
+`documents.write`.
+
+## The long tail: the API description, kept answers, whole sets, Lockdown, branches and projects (batch 21, wave 8)
+
+This section closes the "other" theme of the capability audit. Some of it is new, some of it points
+at a feature that already does the job under a different name, and some of it is written down here
+as deliberately not built.
+
+### The app's own web API, described (A0758)
+
+Branch has had a web API since the beginning — `/api/*`, the OpenAI-shaped `/v1/chat/completions`
+and `/v1/models`, and the client library in `packages/sdk`. What was missing was a description other
+programs could read.
+
+- `GET /api/openapi.json` is an OpenAPI 3.1 description of the routes worth calling from outside.
+  Every request shape in it is generated from the same zod schema the server checks that request
+  with, so the description cannot drift from what the app will actually accept.
+- `node scripts/write-api-docs.mjs` writes the readable version to [docs/api.md](api.md). Run it
+  after `npm run build`.
+- Every operation in it says the session key is required and what a missing or wrong one gets back;
+  the API is not open to anything that has not been given the key the app printed when it started.
+- The description is the only thing under this heading anybody with the session key may simply read;
+  everything else here belongs to the owner.
+- A test asserts that every route the description names is really answered by the server, so it
+  cannot promise a route that does not exist.
+
+The routes themselves are listed in `src/api-openapi.ts`. Routes that only the app's own screens use,
+and the ones that write their own answer (a backup file, a spreadsheet), are left out on purpose.
+
+### Asking the same thing twice: kept answers (A0928)
+
+Off until you turn it on. When it is on, the exact request that would go to the model — every
+message, the model, the effort, the tools it was shown — is reduced to one hash, and the answer is
+kept against it for a while. An identical request is then answered from what was kept: nothing
+leaves this computer and nothing is charged.
+
+- `GET /api/request-cache` — whether it is on, how long an answer counts for, how many are kept.
+- `POST /api/request-cache` with `{ "enabled": true, "ttlMinutes": 60, "maxEntries": 500 }`.
+- `POST /api/request-cache/clear` throws every kept answer away.
+
+Three rules keep it honest. **An answer that asks for a tool is never kept**, because replaying it
+would replay whatever that tool does — only plain text answers are. **Nothing that carried a picture
+or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
+the app, so a second person in the household never reads one of the owner's answers back out.
+
+A request is only the same request when everything the model was shown is the same: the messages
+(your instructions among them), the model, the effort, and every tool by name *and* by the words
+describing it. Change any of those and the question is asked afresh.
+
+On the "Look inside" screen a round answered this way is marked `cached`, its cost shows as nothing,
+and the reason is written beside it. The kept answer is looked for before anything is charged, so the
+figures per project agree with the inspector: a round that never reached the provider counts nothing
+in either place. One consequence worth knowing: a task that has reached its token ceiling can still
+be answered from a kept answer, because nothing is charged for one. The limit on how many steps a
+task may take still stops it.
+
+Kept answers live in the settings table, so they travel in a backup and they stay there when you
+switch the cache off. `POST /api/request-cache/clear` is what throws them away.
+
+### A whole set of questions at once (A1351, A1352)
+
+Off until you turn it on. OpenAI and Anthropic will both take a large set of questions at once, work
+through it in their own time and charge about half. Evaluation sets and reading a knowledge base are
+exactly that shape.
+
+- `GET /api/batch` — the settings, and which of your connections can take a whole set.
+- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000 }`.
+- `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
+  waits for it, and gives the answers back.
+
+Anything that goes wrong on that road — the connection cannot do it, the hand-over is refused, the
+set fails or never finishes — falls back to one ordinary call per question rather than losing the
+work, and the answer says in one line why. What the set cost is read from what the service reported,
+never guessed.
+
+**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
+submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
+yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
+Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
+`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
+Turning the setting on today changes nothing except the sentence you get back.
+
+### Lockdown: one switch (A0615)
+
+- `GET /api/lockdown` — whether it is on, since when, and in plain words what it stops.
+- `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
+- It also sits at the top of the sidebar.
+
+Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+leaving a program running (`process.start` refuses by name, because the list of programs allowed to
+be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
+out, and telling other programs what happened. It also ends every "yes, just for this conversation"
+you gave earlier, so nothing that was already said yes to carries on unasked. Only the owner can turn
+it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
+still on after the app is closed and opened again.
+
+What it does **not** switch off, because there is no switch to throw:
+
+- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
+  refused outright.
+- A **server for another AI tool** that is already set up stays reachable; every tool call through it
+  waits for your yes like any other.
+
+Turning it off puts back **exactly** the settings that were there before — they are copied, untouched,
+before anything is changed, and a switch that had never been saved at all is left unsaved rather than
+given a made-up default. Both moments go into the record of what the assistant was allowed to do.
+
+### Branches, as a shape (A0390)
+
+Conversations have always persisted, and one conversation could already be branched off another at a
+chosen message (`sessions.branch`). Two things are added:
+
+- `GET /api/sessions/{id}/tree`, and the tool `sessions.tree`, give the whole shape a conversation
+  belongs to — from the one at the root down through everything branched off it, each with what it is
+  about and which message it came off. The sidebar draws it when there is one.
+- `POST /api/sessions/{id}/merge-note` carries a branch's last answer back into the conversation it
+  came off, as **one note** marked as coming from the branch. Nothing already said is rewritten and
+  the branch is left exactly as it was. This is the owner's own choice, made from the sidebar, so it
+  is not offered to the model.
+
+### One flow inside another (A1274), and flow checkpointing (A0834)
+
+A flow step may now be `{ "kind": "flow", "flowId": "…" }`: it works through another saved flow
+before carrying on. Flows may go three deep, and a flow that leads back to one already running is
+refused by name rather than looping.
+
+Checkpointing was **already there** and is not new work: every step's state — where it got to, how
+many tries, what it said, which task it ran — is written to `workflow_state` as it happens, and the
+flow's cursor is saved with it. Closing the app mid-flow loses nothing; `POST /api/flows/{id}/resume`
+picks up at the step it stopped on.
+
+### What a project brings to a task (A0794)
+
+Projects already carried their own instructions, a preferred model connection, a folder and their own
+secrets. They now also carry:
+
+- `profile` — the way of working its tasks start from (see routing profiles), and
+- `knowledgeBases` — the collections of your own documents its tasks look in when no collection is
+  named.
+
+Each is only a starting point: anything chosen for this conversation still wins.
+
+Every task also records the project it was done under, settled when it starts and never changed
+afterwards. `GET /api/projects/costs?days=30` adds the figures up a project at a time. Tasks whose
+model has no price on file are counted separately rather than shown as nothing.
+
+### Watching a folder (A0344)
+
+`branch watch <folder> <procedure-id>` runs a saved procedure whenever a file under that folder is
+written. A burst of saves settles into one run; it never runs twice at once; `node_modules`, `.git`,
+`dist` and `.branch` are ignored, as are temporary files. `--once` stops after the first run and
+`--settle <ms>` changes how long it waits. Ctrl+C closes the watcher and waits for whatever is
+running to finish.
+
+### Already covered elsewhere
+
+These rows of the audit are done, by a feature that exists under another name.
+
+- **A1011 local studio / playground** — the developer playground: `GET /api/tools/forms` gives a form
+  for every tool and `POST /api/tools/try` runs one by hand, through the same approval gate, scrubbed
+  on the way out.
+- **A0279 human-in-the-loop executor** and **A0624 approval-gated side effects** — the approval gate
+  (`src/approvals.ts`): a task stops, the question is kept with what it is about, and the owner's yes
+  is remembered for this conversation or as a standing rule. Whole kinds of thing can be decided at
+  once (`POST /api/approvals/categories`), and "ask me questions first" runs before a task starts.
+- **A0323 OAuth login flows** — `src/oauth.ts` is the standard authorization-code flow with PKCE:
+  the service's own page opens in the default browser, the answer lands on a tiny page on this
+  computer, the key goes straight into the locker. Branch never sees the password.
+- **A0354 Answer Engine**, **A0355 shareable pages**, **A0840 metadata filtering**, **A1745 retriever
+  pipeline** — knowledge bases with word and meaning search, a second ranking pass
+  (`src/retrieval.ts`), numbered sources on every answer (`src/citations.ts`), and a conversation
+  shared as one page that can do nothing (`src/conversation-share.ts`).
+- **A0847 chat engines** — the runtime is the chat engine: conversations, compaction, tool rounds,
+  per-conversation model choice and working styles.
+- **A1410 structured output** — a delegated task may be required to match a JSON shape
+  (`resultSchema`), checked before the answer is accepted. Pydantic is a Python library; the same job
+  is done here by zod and JSON Schema.
+- **A1509 SDKs** — the TypeScript client is `packages/sdk`, and its types are generated from the app's
+  own checks by `scripts/generate-sdk-types.mjs`. Other languages need no library of ours: the
+  OpenAPI description above is enough to generate one.
+- **A1561 action trace recording** and **A1589 bounded visual trajectory** — a task's whole trajectory
+  is written as one JSON file (`src/trajectory.ts`), spans and all, with secrets scrubbed; pictures
+  are capped per turn and never written into the conversation store, so they are not replayed.
+- **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
+  well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
+  `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
+- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
+  carry one between installs (`src/templates.ts`).
+- **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
+  naming which programs may be left running at all.
+- **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
+  a script can read; `branch mcp-serve` and `branch acp-serve` speak over standard input and output.
+  Nothing needs a window.
+- **A2334 artifact file operations** — `src/artifacts.ts` for what a task produced and
+  `src/build-artifacts.ts` for kept versions with sizes and checksums.
+- **A2377 fallback dispatch** — a failed connection is passed over for the next one in the fallback
+  order, with a cool-off and a sentence saying why (`src/provider-retry.ts`, `src/provider-health.ts`).
+- **A1193 bidirectional live streaming** — talk mode plus the per-task WebSocket already carry speech
+  and text both ways. A provider's own realtime socket stays deferred, as recorded in wave 7.
+
+### Deliberately not built
+
+- **A0098 embedded code editor** — the Documents and "Look inside" screens show code read-only with
+  syntax colouring, which is what a desktop assistant needs. A full editor is not: the owner already
+  has one, and building a second would be a worse version of it.
+- **A2375 configurable intent pipeline** — skill discovery and dispatch already choose what to do. A
+  pipeline the owner configures would be a second, competing way to decide the same thing.
+- **A1976 personal knowledge base on a graph database** — needs a graph store running alongside; the
+  knowledge bases here do the same job on the SQLite file that is already there.
+- **A1749 Gradio interface** and **A1611 side-panel chat** — Gradio is a Python web toolkit; the web
+  app here is the interface. A browser side panel is an extension, not part of a local app.
+- **A0663 C FFI** — calling native libraries from the assistant would put unsandboxed native code
+  inside the app. Anything needing that is a program the owner runs through the shell tools.
+- **A1468 ADB operator** — driving an Android phone over USB is not a local Windows desktop
+  assistant's job.
+- **A0602 Ultracode plugin lifecycle** — another project's plugin format. Branch has its own
+  (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
+- **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
+  OpenAI-shaped adapter reach the same services directly, with no extra process to run.

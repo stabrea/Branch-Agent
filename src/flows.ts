@@ -25,6 +25,7 @@ const detailOf = (step: WorkflowStep): string => {
   if (step.kind === "prompt") return (step.prompt ?? "").slice(0, 120);
   if (step.kind === "tool") return step.tool ?? "";
   if (step.kind === "recipe") return `saved procedure ${step.recipeId ?? ""}`;
+  if (step.kind === "flow") return `works through the flow ${step.flowId ?? ""} first`;
   if (step.kind === "approval") return step.question ?? "waits for the owner to say yes";
   if (step.kind === "wait") return `waits ${step.waitMinutes ?? 0} minute(s)`;
   return `carries on when the last answer mentions "${step.contains ?? ""}"`;
