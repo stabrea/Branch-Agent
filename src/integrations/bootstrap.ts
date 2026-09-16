@@ -205,7 +205,10 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
   if (channel.type === 'telegram') {
     const token = channel.tokenEnv ? env[channel.tokenEnv] : await host.secret(channel.tokenSecret!);
     if (!token) throw new Error(`Channel ${channel.id} has no bot token; set ${channel.tokenEnv ?? channel.tokenSecret}`);
-    return new TelegramAdapter({ id: channel.id, token, ...base });
+    // Same guard as Discord and WhatsApp: every call Telegram makes — sending a reply and
+    // fetching a voice note — is checked against the network settings first, so a made-up
+    // apiBase cannot be used to reach somewhere the owner never allowed.
+    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base });
   }
   if (channel.type === 'discord')
     return new DiscordAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),

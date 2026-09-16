@@ -2,6 +2,7 @@ import type { Provider } from "./contracts.js";
 import type { ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
+import { geminiAuth } from "./voice-stt.js";
 
 /**
  * What each model connection can actually do, asked of the service itself rather than guessed
@@ -31,8 +32,10 @@ export function modelsUrl(provider: Provider): { url: string; headers: Record<st
   const audio = provider.audio?.() ?? null;
   const shared = audio ?? providerEmbeddings(provider);
   if (!shared) return null;
+  // A Gemini sign-in hands back an OAuth token, not a key. Google refuses one in the key header,
+  // so `bearer` decides which header it goes in — the same choice speech and pictures make.
   if (provider.name === "gemini")
-    return { url: shared.endpoint.replace(/\/$/, "") + "/v1beta/models", headers: { "x-goog-api-key": shared.apiKey } };
+    return { url: shared.endpoint.replace(/\/$/, "") + "/v1beta/models", headers: geminiAuth(shared) };
   return { url: shared.endpoint.replace(/\/$/, "") + "/models", headers: { authorization: `Bearer ${shared.apiKey}` } };
 }
 

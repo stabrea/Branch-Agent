@@ -180,11 +180,12 @@ export class GeminiProvider implements Provider {
   }
 
   /** Gemini makes pictures through the same address, asking generateContent for an image. */
-  images(): { kind: "gemini"; endpoint: string; apiKey: string; defaultModel: string } {
+  images(): { kind: "gemini"; endpoint: string; apiKey: string; bearer: boolean; defaultModel: string } {
     return {
       kind: "gemini",
       endpoint: this.options.endpoint,
       apiKey: this.options.apiKey,
+      bearer: this.options.bearer === true,
       defaultModel: "gemini-2.5-flash-image",
     };
   }

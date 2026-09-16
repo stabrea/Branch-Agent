@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Provider } from "./contracts.js";
+import { geminiAuth } from "./voice-stt.js";
 
 /**
  * Where a provider makes pictures. `kind` says which shape of request it understands: the
@@ -11,6 +12,8 @@ export interface ImageEndpoint {
   kind: "openai" | "gemini";
   endpoint: string;
   apiKey: string;
+  /** True when the credential is a sign-in token, which goes in the ordinary bearer header. */
+  bearer?: boolean;
   /** The picture model this provider uses when the owner has not named one. */
   defaultModel: string;
 }
@@ -163,13 +166,14 @@ export async function generateGemini(
   signal: AbortSignal,
 ): Promise<MadePicture> {
   const url = new URL(route(where.endpoint, `/v1beta/models/${model}:generateContent`));
-  url.searchParams.set("key", where.apiKey);
   await allowed(policy, url.href, "making a picture");
   const parts: Record<string, unknown>[] = [{ text: imagePromptText(request) }];
   if (source) parts.push({ inlineData: { mimeType: source.mediaType, data: source.bytes.toString("base64") } });
   const response = await fetch(url.href, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // The credential goes in a header, never in the address: an address ends up in logs, in
+    // browser history and in anything that records where a request went. Same rule as speech.
+    headers: { "content-type": "application/json", ...geminiAuth(where) },
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
       generationConfig: { responseModalities: ["IMAGE"] },
