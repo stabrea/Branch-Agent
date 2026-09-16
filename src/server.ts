@@ -55,7 +55,7 @@ import { scorerKinds } from "./evaluation-scorers.js";
 import { benchmarkAdapters } from "./benchmark-adapters.js";
 import { notIntegratedBenchmarks } from "./benchmarks.js";
 import { compareStudies, comparisonTable, studyTable, type StudyRunResult } from "./study.js";
-import { runToolEvaluations } from "./tool-evaluations.js";
+import { runToolChecksSafely } from "./tool-evaluations.js";
 
 import { McpSharingSchema, shareableTools, type McpServer } from "./mcp-server.js";
 // Wave 7: Branch as a first-class MCP citizen — streaming, preflight, records of what a client was
@@ -787,7 +787,9 @@ async function api(
     return { comparison, table: comparisonTable(comparison) };
   }
   if (request.method === "POST" && path === "/api/evaluation/tools")
-    return runToolEvaluations(app.registry, app.runtime.context({ signal: AbortSignal.timeout(120000) }));
+    // The checks really write files and really save facts, so they do it in a project and under a
+    // name of their own: nothing they do reaches the owner's folder or the owner's memory.
+    return runToolChecksSafely(app, AbortSignal.timeout(120000));
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")

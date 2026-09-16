@@ -172,6 +172,48 @@ test("the extra refused websites are saved and read back through the browser set
 });
 
 // ---------------------------------------------------------------------------
+// 10. The tool checks really call the tools, so they run somewhere of their own
+//     and leave the owner's folder and the owner's memory exactly as they were.
+// ---------------------------------------------------------------------------
+
+test("the tool checks touch neither the owner's folder nor the owner's memory", async (t) => {
+  const { app } = await fixture(t);
+  const { runToolChecksSafely, toolCheckFolder, toolCheckOwner } = await import("../dist/tool-evaluations.js");
+  const owner = app.runtime.owner;
+  await app.files.write("mine.txt", "the owner's own file", AbortSignal.timeout(5000));
+  const before = { files: (await app.files.list(".")).entries.map((entry) => entry.name).sort(), memory: app.store.list("memory", owner).length };
+  const result = await runToolChecksSafely(app, AbortSignal.timeout(60000));
+  assert.ok(result.summary.total > 0, "the checks must actually have run");
+  assert.equal(result.summary.passed, result.summary.total, JSON.stringify(result.cases.filter((one) => !one.passed)));
+  // Nothing landed among the owner's own files — only the checks' own folder appeared beside them —
+  // and the active project is back where it was.
+  const after = (await app.files.list(".")).entries.map((entry) => entry.name).sort();
+  assert.deepEqual(after.filter((name) => name !== toolCheckFolder), before.files);
+  assert.equal(app.store.projects.active(owner).id, "default");
+  // Nothing landed in the owner's memory; the facts the checks saved are under their own name.
+  assert.equal(app.store.list("memory", owner).length, before.memory, "the owner's memory must be untouched");
+  assert.ok(app.store.list("memory", toolCheckOwner).length > 0, "the checks' own facts are kept apart");
+  // What the checks wrote is in their own folder inside the workspace, and nowhere else.
+  const { readdir } = await import("node:fs/promises");
+  const written = await readdir(join(app.files.root, toolCheckFolder));
+  assert.ok(written.includes("tool-check-write.txt"), `the check's file belongs in its own folder: ${written.join(", ")}`);
+});
+
+test("the tool checks put the owner's project back even when the run itself goes wrong", async (t) => {
+  const { app } = await fixture(t);
+  const { runToolChecksSafely, toolCheckProject } = await import("../dist/tool-evaluations.js");
+  const owner = app.runtime.owner;
+  // A registry that throws stands in for anything going wrong part way through the checks.
+  const broken = { ...app, registry: { names() { throw new Error("the catalog is unreadable"); } } };
+  await assert.rejects(() => runToolChecksSafely(broken, AbortSignal.timeout(5000),
+    [{ tool: "files.write", description: "one", cases: [{ name: "one", input: {}, contains: [] }] }]),
+    /unreadable/);
+  assert.equal(app.store.projects.active(owner).id, "default", "the owner's project is never left switched");
+  assert.ok(app.store.projects.list(owner).some((project) => project.id === toolCheckProject),
+    "the checks keep a folder of their own inside the workspace");
+});
+
+// ---------------------------------------------------------------------------
 // 9. Every answer to an approval question is bound to the exact bytes it was
 //    put for — the workflow/flow resume and `branch approve` included.
 // ---------------------------------------------------------------------------
