@@ -1,19 +1,84 @@
 # Branch Agent checkpoint
 
-## Checkpoint 2026-09-17 — how to resume
+## Checkpoint 2026-09-16 — how to resume
 
-**State.** Released 0.15.0 (installed on the owner's PC). Staging branch `wave2/integration` is green (full non-desktop suite, ~1170 tests) and holds, since 0.15.0: realtime voice, hardening pass 2, the long tail (other-2), design QA, the two ledger verification reports and the family-row ledger. In review or building: re-opened rows, web UI pass 3, auth/tracing/CLI rows, handbook, sandboxes and SSH workspaces, documents pass 3 (briefs in `docs/agents/briefs/wave8/`).
+**State.** Released **0.16.0**, installed on the owner's PC, with 0.15.0 kept beside it. Staging
+`wave2/integration` carries, since the release: web UI pass 3 and the auth/tracing/CLI rows, both
+reviewed and merged, plus the release commits merged back. Still to review: `wave8/sandbox-remote`
+(work in progress) and `wave8/docs-3` (stopped part-way); `wave8/handbook` is finished and waiting.
 
 **To resume the loop** (details in `docs/agents/README.md`):
-1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with one environment skip.
-2. For each unfinished branch `wave8/*` in `git branch --list 'wave8/*'`, either continue it or spawn an integrator with `docs/agents/briefs/INTEGRATOR.md`; merge the reviewed `integrate/*` branch onto staging.
-3. Release when four to six branches have landed: follow `docs/agents/scripts/publish-template.sh` step by step (bump, release branch, PR, package, walkthrough, packaged tests, CI, merge, GitHub release, rehearsal, install, ticks).
+1. `git checkout wave2/integration && npm ci && npm run build && node --test $(ls tests/*.test.mjs | grep -v "desktop\|screen-control")` — expect green with environment skips.
+2. For each unfinished branch in `git branch --list 'wave8/*'`, either continue it or spawn an integrator with `docs/agents/briefs/INTEGRATOR.md`; merge the reviewed `integrate/*` branch onto staging.
+3. Release when four to six branches have landed: follow `docs/agents/scripts/publish-template.sh`, and before creating the tag check that `origin/main` really carries the fixes the zip contains.
 4. Tick ledger ids only from integrator VERIFIED verdicts (`docs/agents/scripts/tick_theme.py <version> <issue>=<ids>`), and re-run a verification pass after every two releases.
 5. Check `gh pr list --state open` and issues from other people each loop; review with `docs/agents/briefs/PR-REVIEW.md`.
 
-**Numbers.** 786 pieces in the audit; honest remaining 355 (311 single items + 44 grouped rows). See `docs/ROADMAP.md` for what ships in 0.16–0.18 and what 1.0 means.
+**Numbers.** 786 pieces in the audit; **honest remaining 336** (292 single items + 44 grouped rows).
+See `docs/ROADMAP.md` for what ships in 0.17–0.18 and what 1.0 means.
 
-**Do not.** Run desktop or screen-control tests from an agent; force-remove a worktree with a node_modules junction; raise the catalog width literal; tick on a builder's word.
+**Do not.** Run desktop or screen-control tests from an agent; force-remove a worktree with a
+node_modules junction; raise the catalog width literal; tick on a builder's word; rebuild `dist/` in
+a checkout while a suite is running there; leave a walked copy of the app running.
+
+## Released 0.16.0 (2026-09-16)
+
+Five reviewed branches and three fixes found while verifying the release: realtime voice, hardening
+pass 2, the long tail in "other", the design QA pass, and the re-opened rows.
+
+**What the release verification caught, which the branches had not.**
+
+- *A sandbox rule could re-open the internet the settings had closed.* `sandboxShape` replaced the
+  shape the settings asked for, so a rule carrying `limits-only` or `none` handed a script the way
+  out that Settings said it must not have. The choice on a rule now composes with the settings
+  instead of replacing it (`netless: shapes[choice].netless || fallback.netless`): a rule tightens,
+  never loosens. `src/sandbox.ts`, test in `tests/reopened.test.mjs` ("A2277 a rule holds a program
+  more tightly than the settings, never more loosely"), documented in `docs/configuration.md`.
+- *A folder watched by its short Windows name stopped the whole program.* `fs.watch` hands the path
+  to the operating system, which compares the name it reports back against the one it was given; a
+  short name ("C:\\Users\\RUNNER~1\\...") fails that comparison with an assertion inside libuv that
+  aborts the process rather than raising an error anything can catch. The CI run died inside the
+  watch tests for exactly this reason while every local run passed, because this machine's volume
+  keeps no short names. `src/watch.ts` now calls `realpathSync.native` before watching. The test
+  asks the disk for a short name and skips with a stated reason when there is none, so it proves
+  something on a build machine rather than passing everywhere by doing nothing.
+- *The packaged settings test named a field the design pass had renamed.* "API base URL" became
+  "Web address of the service" so a non-technical owner can read it; the test still asked for the old
+  words and timed out on a screen that was correct.
+
+**Release chain.** Full non-desktop suite 1209 tests, 0 failures, 2 environment skips. Packaged
+0.16.0; walkthrough of ten screens with 0 console errors and every element check present; 8 packaged
+desktop tests; zip and checksum; CI green on the second run. The update was rehearsed from a staged
+0.15.0: found 0.16.0, window gone after 12 s, old process dead, **0 new console windows**, 0.16.0 at
+40 s, previous copy kept. Installed over the owner's copy with `dist/install/install-cli.js install`
+(the app has to be stopped first; it holds its own exe) and started again: 0.16.0, with 0.15.0 kept
+beside it as `Branch Agent.previous`. Tag v0.16.0 -> 5c1fb50, checked to carry both fixes and to
+match the zip before the release was created.
+
+**A trap in the release tooling itself.** `scripts/walkthrough.mjs` wrote the install path with
+doubled backslashes in its cleanup, so PowerShell's `-like` matched nothing and every walked copy of
+the app stayed running with its debugging port open. A borrowed-browser test in a later run then
+borrowed one of those copies and failed on a branch that had not touched the browser at all. The
+cleanup now writes the path properly and prints how many copies are left, which must read 0.
+
+**Ticked, 19 ids**, each named by a test that asserts behaviour rather than existence:
+#55 A0317, A0372, A1093, A1278 · #58 A0638, A1481 · #60 A0615 · #65 A1995, A1212, A2293 ·
+#66 A0245, A0824, A1126, A1465, A1629, A2006 · #69 A1519, A1841 · #80 A2277.
+The four branches that did not name ids in their test titles were deliberately not credited: their
+integrator verdicts were lost when this session's context was compacted, and a tick on a builder's
+word is exactly what the two verification passes had to undo. They are re-verified in a later pass. A0797 ("Code execution policy") was nearly ticked on the
+strength of the sandbox work matching the row's wording, and was deliberately left open: no test
+names it, and reasoning from a row's description to code is exactly what produced the phantom ticks
+the two verification passes had to undo.
+
+**Left open on purpose.** `usageLine` in `src/terminal-tui.ts` is exported and tested but nothing in
+the product calls it: the terminal uses `answerLine`. The wave-8 merge kept both sides of a conflict.
+It should be removed rather than kept alive by its own test, but not during a release window.
+
+**Housekeeping to know about.** There are 99 git worktrees under `.claude/worktrees/`. Each holds a
+`node_modules` junction into `Branch-build/node_modules`; removing one with `git worktree remove
+--force` deletes *through* the junction and empties the shared install for every running agent.
+Remove the junction first with `cmd /c rmdir node_modules`, one at a time, never with a wildcard.
 
 ## Batch 19 (wave 7) — traces you can export, and permission rules you can read
 
