@@ -169,6 +169,15 @@ export class ToolUsage {
   removeNote(owner: string, id: string): { removed: boolean } {
     return { removed: this.db.prepare("DELETE FROM tool_notes WHERE owner=? AND id=?").run(owner, id).changes > 0 };
   }
+  /**
+   * Forgets what one conversation taught. Used when the person forgets that conversation's facts
+   * and when a temporary conversation is thrown away, so the habits go with the words rather than
+   * quietly steering what loads for every task afterwards.
+   */
+  forgetSession(sessionId: string): number {
+    return Number(this.db.prepare("DELETE FROM tool_usage WHERE run_id IN (SELECT id FROM tasks WHERE session_id=?)")
+      .run(sessionId).changes);
+  }
   /** Forgets everything learned about tools. The tools themselves are untouched. */
   forget(owner: string, what: "history" | "notes" | "all" = "all"): { history: number; notes: number } {
     const history = what === "notes" ? 0 : Number(this.db.prepare("DELETE FROM tool_usage WHERE owner=?").run(owner).changes);

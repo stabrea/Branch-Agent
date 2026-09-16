@@ -1461,7 +1461,9 @@ export class Runtime {
   /** Remembers one short thing about a tool. The owner can read and delete every one of these. */
   private noteTool(call: ToolCall, context: ToolContext, args: unknown): { ok: boolean; result?: unknown; error?: string } {
     try {
-      const note = this.store.toolUsage.addNote(context.owner, args);
+      // A note is kept for good and shown with its tool in every later request, so anything the
+      // assistant saw in a result goes through the same scrubber as a reply before it is written.
+      const note = this.store.toolUsage.addNote(context.owner, this.hideSecrets(args));
       this.store.event(context.runId, "tools.noted", { tool: note.tool, note: note.note });
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result: { tool: note.tool } });
       return { ok: true, result: { tool: note.tool, remembered: note.note, note: "The person can read and delete this in Settings." } };

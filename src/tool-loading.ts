@@ -68,6 +68,12 @@ interface Plan {
 export class ToolLoader {
   private index: ToolIndex;
   private readonly byName = new Map<string, ToolDescription>();
+  /**
+   * Where each tool sits in the registry. The tool section is sent in this order rather than in
+   * score order, so the part of a request a provider can cache does not shuffle when the
+   * assistant simply uses one of the tools it already had.
+   */
+  private readonly order = new Map<string, number>();
   private readonly expandedGroups = new Set<string>(["core"]);
   /** Toolboxes the assistant opened itself: an explicit ask, preferred over a guess. */
   private readonly openedGroups = new Set<string>();
@@ -94,11 +100,7 @@ export class ToolLoader {
     this.signals = options.signals ?? {};
     this.demoted = new Set(options.demoted ?? []);
     this.index = new ToolIndex(all, options);
-    for (const tool of all) {
-      this.byName.set(tool.name, tool);
-      const group = this.groupOf(tool.name);
-      this.counts.set(group, (this.counts.get(group) ?? 0) + 1);
-    }
+    this.take(all);
     for (const group of options.expanded ?? []) this.expandedGroups.add(group);
     this.preloaded = (options.preload ?? []).filter((entry) => this.byName.has(entry.name));
     for (const entry of this.preloaded) this.asked.add(entry.name);
@@ -113,13 +115,18 @@ export class ToolLoader {
   refresh(tools: readonly ToolDescription[], options: ToolIndexOptions = {}): void {
     this.all = tools;
     this.index = new ToolIndex(tools, { groupOf: this.groupOf, ...options });
-    this.byName.clear(); this.counts.clear();
-    for (const tool of tools) {
+    this.take(tools);
+    this.version++;
+  }
+  /** Files every tool by name, by toolbox and by the place it holds in the registry. */
+  private take(tools: readonly ToolDescription[]): void {
+    this.byName.clear(); this.counts.clear(); this.order.clear();
+    for (const [at, tool] of tools.entries()) {
       this.byName.set(tool.name, tool);
+      this.order.set(tool.name, at);
       const group = this.groupOf(tool.name);
       this.counts.set(group, (this.counts.get(group) ?? 0) + 1);
     }
-    this.version++;
   }
   nextRound(): void { this.round++; this.version++; }
   noteUse(name: string): void { this.usedAt.set(name, this.round); this.version++; }
@@ -173,10 +180,18 @@ export class ToolLoader {
     if (this.asked.has(entry.name)) score += this.preloaded.some((p) => p.name === entry.name) ? preloadBonus : searchedBonus;
     if (this.openedGroups.has(entry.group)) score += searchedBonus;
     else if (this.expandedGroups.has(entry.group)) score += expandedBonus;
-    const at = this.usedAt.get(entry.name);
-    if (at !== undefined && this.round - at <= this.recentRounds) score += recentBonus;
+    if (this.justUsed(entry)) score += recentBonus;
     if (this.demoted.has(entry.name)) score -= staleePenalty;
     return score;
+  }
+  /**
+   * A tool the assistant has called in the last few rounds. It is in the middle of using it, so it
+   * keeps its place whatever else is competing for one: a tool that vanishes between the call and
+   * the follow-up call leaves the task stuck.
+   */
+  private justUsed(entry: ToolEntry): boolean {
+    const at = this.usedAt.get(entry.name);
+    return at !== undefined && this.round - at <= this.recentRounds;
   }
   descriptions(): ToolDescription[] { return this.plan().descriptions; }
   stats(): LoaderStats {
@@ -200,8 +215,13 @@ export class ToolLoader {
     }).sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
     const core = scored.filter((hit) => hit.entry.group === "core").map((hit) => hit.entry);
     const rest = scored.filter((hit) => hit.entry.group !== "core");
-    const wanted = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)
-      || this.expandedGroups.has(hit.entry.group) || this.usedAt.has(hit.entry.name))).slice(0, this.maxLoaded);
+    const candidates = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)
+      || this.expandedGroups.has(hit.entry.group) || this.usedAt.has(hit.entry.name)));
+    // Tools in use come first and are never squeezed out by the cap; the rest fill what is left,
+    // best first, and are the ones the ceiling takes back if the section is still too heavy.
+    const inUse = candidates.filter((hit) => this.justUsed(hit.entry));
+    const others = candidates.filter((hit) => !this.justUsed(hit.entry));
+    const wanted = [...inUse, ...others.slice(0, Math.max(0, this.maxLoaded - inUse.length))];
     // Only tools the words of the request actually point at are worth a line; the rest are a
     // search away, and saying so once costs less than naming forty tools nobody asked about.
     const listable = rest.filter((hit) => hit.lexical > 0 && !this.demoted.has(hit.entry.name)).map((hit) => hit.entry);
@@ -231,7 +251,8 @@ export class ToolLoader {
   }
   /** The tool list as the model receives it: full tools, then the index, then the toolbox opener. */
   private render(loaded: readonly ToolEntry[], indexed: readonly ToolEntry[], deferred: number): ToolDescription[] {
-    const full = loaded.map((entry) => {
+    const full = [...loaded].sort((a, b) => Number(a.group !== "core") - Number(b.group !== "core")
+      || (this.order.get(a.name) ?? 0) - (this.order.get(b.name) ?? 0)).map((entry) => {
       const base = this.byName.get(entry.name)!;
       return { name: base.name, parameters: base.parameters,
         description: entry.note ? `${entry.description} Remembered: ${entry.note}` : entry.description };

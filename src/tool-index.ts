@@ -34,7 +34,7 @@ export interface ToolEntry {
 export const withheldDescription =
   "From a connected server. Its own description was held back because it read like instructions to the assistant.";
 const withheldPurpose = "description withheld";
-/** Descriptions from outside are capped harder than the product's own. */
+/** Descriptions from outside get their own cap, so it can be tightened without touching the rest. */
 export const maxExternalDescriptionChars = 200;
 
 /**
@@ -72,6 +72,9 @@ const synonyms: Record<string, readonly string[]> = {
   screen: ["screenshot", "desktop", "display"], calendar: ["schedule", "reminder", "event"],
   pdf: ["document", "library"], discord: ["channel", "message", "chat"], telegram: ["channel", "message"],
   ollama: ["model", "local", "runtime"], download: ["fetch", "get", "save"], chart: ["plot", "graph", "data"],
+  // "Save it somewhere" is how a person says "write a file"; without this the writing tools lose
+  // to anything whose own description happens to use the word "save".
+  save: ["write", "file", "store"], store: ["save", "write"], keep: ["save", "write"],
   spreadsheet: ["csv", "table", "data"], folder: ["directory", "file"], email: ["mail", "message"],
   remind: ["schedule", "reminder"], speak: ["voice", "speech", "audio"], transcribe: ["audio", "speech", "text"],
   webpage: ["web", "page", "browser"], repo: ["git", "repository"], commit: ["git"], password: ["secret", "locker"],

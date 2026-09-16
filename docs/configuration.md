@@ -860,7 +860,8 @@ None of this leaves the computer. It is in the same private database as everythi
 with your backup. **Settings → Developer → How the assistant finds its tools** shows what was
 carried, named and looked up last time, what that weighed, what was made ready before you asked and
 why, and every note — with one button that forgets all of it. Your tools are untouched by that; only
-what was learned about them is deleted.
+what was learned about them is deleted. Forgetting one conversation forgets what it taught as well:
+when you clear a conversation's facts, or throw away a temporary one, its line goes with it.
 
 Once a night the assistant works out a short line about how this is going — how many different
 tools you use, what the tool list weighs in each message, and how often a search found something
