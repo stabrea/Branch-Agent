@@ -41,7 +41,10 @@ export const VoiceSettingsSchema = z
     liveMaxDollars: z.number().min(0.1).max(100).default(1),
     /** Let the service decide when you have stopped speaking, rather than pressing the button. */
     liveVoiceDetection: z.boolean().default(true),
-    /** Keep the sound of a live conversation. Off, and nothing anywhere writes any of it down. */
+    /**
+     * Write down how much sound a live conversation carried, piece by piece. The sound itself is
+     * never kept, on or off; this only adds the size of each piece to the task's record.
+     */
     keepLiveRecordings: z.boolean().default(false),
   })
   .strict();

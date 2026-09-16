@@ -167,8 +167,8 @@ export class LiveConversation {
   private wire(session: RealtimeSession, settings: VoiceSettings): void {
     session.onAudio = (pcm16) => {
       this.out.audio(pcm16);
-      // Sound is written down only where the owner has asked for recordings; nothing above or
-      // below this line keeps a copy of it otherwise.
+      // The sound goes to the screen and nowhere else. What follows writes down how big each piece
+      // was and never the piece itself, so no path through here keeps a copy of anything spoken.
       if (settings.keepLiveRecordings)
         this.deps.store.event(this.runId, "voice.live.audio", { bytes: pcm16.byteLength });
     };
