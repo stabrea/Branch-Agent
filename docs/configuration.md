@@ -653,6 +653,32 @@ When a conversation grows past the fold-away threshold, the assistant is asked t
 
 Each conversation also keeps a one-line note of what is going on in it: the last thing you asked for, the last file touched and the last step taken. It appears in the context pane under **What we are doing** and rides along with the running-task list at `GET /api/activity`.
 
+## Why the assistant sometimes says it is opening a toolbox
+
+The assistant has a lot of tools now, and the full list of them is sent to the model **every single
+round** — not once per conversation. Left alone that list grows with every new feature and crowds
+out the conversation itself.
+
+So the tools are kept in labelled toolboxes: files, git, web, memory, documents, schedules, media,
+messages, specialists, skills and a few more. At the start of a task the assistant opens the ones
+the request obviously needs — "commit my changes and push" opens the git box — and leaves the rest
+closed. A closed box costs one line, "git: 6 tools", instead of its full contents. If the assistant
+finds it needs something from a closed box, it opens it, which is what it means when it says it is
+opening a toolbox; that box then stays open for the rest of the conversation, and anything it has
+just used stays in view for the next few rounds. Nothing is hidden from you and nothing new is
+allowed: a box can only ever contain tools this task was already permitted to use.
+
+You do not configure any of this. It shows up in the task's timeline as **catalog.preselected**
+(which boxes were opened at the start), **catalog.expanded** (one opened mid-task) and
+**catalog.size** (how many tools were described this round and what they weighed).
+
+Alongside it, each round records a **context.budget** line: the size limit, what the instructions
+cost, what the tool list cost, what the conversation costs, and the room held back for the answer.
+Folding older turns into a summary is now decided on the conversation alone, so adding tools to the
+product can never, by itself, cause a conversation to be folded away early. The point at which that
+happens is worked out each round from what the tool list and the answer leave over, and it never
+drops below the old fixed figure of 11,000.
+
 ## Showing the assistant a picture
 
 `POST /api/run` accepts `images`: up to four entries of `{mediaType, data, name?}`, where `mediaType` is `image/png`, `image/jpeg`, `image/webp` or `image/gif` and `data` is the picture's bytes base64 encoded (a `data:` prefix is accepted and stripped). Each picture may be up to 5 MB.

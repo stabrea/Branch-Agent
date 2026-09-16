@@ -739,6 +739,49 @@ WindowsAgentArena, AndroidWorld, WebVoyager, BrowserGym, BEIR, AGBench, APPS/MBP
 however well the suite mechanism would carry them; so are the URL and HTML-state evaluators
 (A1765, A1766), which need a browser page the harness does not yet drive.
 
+## Batch 24 (wave 6) — a tool catalog that stops growing, and explicit context accounting
+The catalog was the one part of the prompt charged on **every** round that grew with the product:
+60 tools cost 35,001 characters (about 8,751 estimated tokens) of a 16,000-token limit, which is
+why two builders had already raised the compaction threshold. `src/catalog.ts` fixes that three
+ways and nothing else in the loop changed shape. **Schema diet**: `ToolRegistry.descriptions()` now
+runs every generated schema through `slimSchema` — out go `$schema`, `title`, `additionalProperties`
+that is `false` or `{}`, string and array length bounds, machine-generated `pattern`s (any longer
+than 40 characters, or any sitting next to a `format` that already says the same thing), bare
+`propertyNames`, and required entries for properties that carry a `default`; descriptions are capped
+at 200 characters. Enum values, required lists, `format`, `default`, types and property names all
+stay, and the walk is keyword-aware so a tool with a property actually named `pattern` or
+`maxLength` is not mangled. 35,001 → 21,834 characters, **37.6 % smaller** at the same 60 tools.
+`descriptions(perms, { diet: false })` returns the old shape, and the two places that are not the
+model loop use it: the MCP server, because another program's client validates against what it is
+advertised, and `/api/state`, because the app's tool list is for a person to read. **Groups and lazy
+expansion**: every tool has a `group` (its own, or inferred from its name prefix), and a run is
+shown the always-open boxes (`core`, `files`), whatever a cheap lexical scorer guesses from the
+prompt, project and recent messages (`rankGroups`, two or three boxes, no model call), and one line
+per closed box. `tools.expand {groups}` opens a box for the rest of the conversation; it is handled
+in `Runtime.callTool` before the registry, touches nothing, and can only ever reveal tools the run's
+permissions already allowed, because the catalog is built from `descriptions(context.permissions)`.
+A tool used in the last three rounds stays in view after its box closes. Tools whose names the
+product does not recognise land in `other` and stay open while there are twelve or fewer of them —
+nothing in a request's words can point at a box with no meaning. Typical first round: 5,087
+characters (85.5 % smaller); everything closed: 784 characters (97.8 %). **Context accounting**:
+one `ContextBudget` per round (`limit`, `system`, `catalog`, `messages`, `reserve`, `threshold`,
+`headroom`) emitted as `context.budget`, with `catalog.size` and `catalog.preselected` /
+`catalog.expanded` alongside. Compaction now compares the **conversation alone** against a threshold
+derived as `limit − catalog − reserve`, floored at the old constant, so a bigger catalog can no
+longer fold a conversation away early — only a catalog large enough to break the whole request
+still forces a last-resort fold instead of failing the task; `compactionThresholdFloor` (11,000) and
+`derivedCompactionThreshold()` are both exported. **Provider caching**: the Anthropic body is
+written tools → system → messages, Claude's own cache-prefix order, with one `cache_control` marker
+at the end of the catalog and one on the instructions, and `cache_read_input_tokens` is carried
+through `Usage.cachedInput` into the `model.completed` event; the OpenAI body puts tools before
+messages for automatic prefix caching and reads `prompt_tokens_details.cached_tokens`.
+`tests/catalog-diet.test.mjs` covers all of it, including 150 dummy tools over a 20-round
+conversation that neither exceeds the limit nor thrashes compaction. Two existing literals changed:
+`tests/providers.test.mjs` now expects `system` as a marked text block instead of a bare string, and
+nothing in `tests/compaction-attention.test.mjs` needed touching — its 11,000 assertions still hold
+because the conversation share alone is well past that when it compacts. Covers the
+context-management theme (#82) and the reliability inventory item (#16).
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

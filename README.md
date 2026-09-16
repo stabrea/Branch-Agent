@@ -125,6 +125,7 @@ For example, a request to build a website could involve design, implementation, 
 - **Learning with evidence.** Turn useful experience into reusable procedures, and test changes before relying on them.
 - **Controlled access.** Keep credentials outside model conversations and grant access only where needed.
 - **Efficient execution.** Load relevant context on demand and measure the total cost of successful work.
+- **Tools kept in labelled boxes.** Only the tools a task plausibly needs are described to the model each round; the rest cost one line until they are opened.
 - **Reliable upgrades.** Check compatibility before activating updated components, with a way to return to a working version.
 - **Proof it still works.** Ready-made sets of tasks you can run at any time to see how many the assistant gets right, how long it takes, what it costs, and whether anything that used to work has stopped.
 

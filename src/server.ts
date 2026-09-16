@@ -371,7 +371,8 @@ function state(app: Branch): unknown {
     schedules: app.store.list("schedules", owner),
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
-    tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    // The app's own tool list is for a person to read, so it keeps the full description.
+    tools: app.registry.descriptions(new Set(app.registry.permissions()), { diet: false }),
   };
 }
 async function api(

@@ -38,7 +38,12 @@ const openaiResponse = z.object({
     )
     .min(1),
   usage: z
-    .object({ prompt_tokens: usageNumber, completion_tokens: usageNumber })
+    .object({
+      prompt_tokens: usageNumber,
+      completion_tokens: usageNumber,
+      /** OpenAI-shaped endpoints report their automatic prefix cache here when they have one. */
+      prompt_tokens_details: z.object({ cached_tokens: usageNumber.optional() }).loose().optional(),
+    })
     .optional(),
 });
 const anthropicResponse = z.object({
@@ -54,7 +59,13 @@ const anthropicResponse = z.object({
     ]),
   ),
   usage: z
-    .object({ input_tokens: usageNumber, output_tokens: usageNumber })
+    .object({
+      input_tokens: usageNumber,
+      output_tokens: usageNumber,
+      /** What prompt caching saved on this call: tokens written to, and read from, the cache. */
+      cache_creation_input_tokens: usageNumber.optional(),
+      cache_read_input_tokens: usageNumber.optional(),
+    })
     .optional(),
 });
 export const wireName = (name: string): string =>
@@ -237,24 +248,32 @@ export class OpenAIProvider implements Provider {
             usage: {
               input: response.usage.prompt_tokens,
               output: response.usage.completion_tokens,
+              ...(response.usage.prompt_tokens_details?.cached_tokens !== undefined
+                ? { cachedInput: response.usage.prompt_tokens_details.cached_tokens }
+                : {}),
             },
           }
         : {}),
     };
   }
 }
-function openaiBody(request: CompletionRequest, model: string): Record<string, unknown> {
+/**
+ * OpenAI-shaped endpoints cache the longest matching prefix of a request automatically, so the
+ * parts that do not change between rounds — the tools and the instructions — go first, and the
+ * conversation, which grows every round, goes last.
+ */
+export function openaiBody(request: CompletionRequest, model: string): Record<string, unknown> {
   return {
     model,
     max_tokens: request.maxTokens,
     ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
-    messages: request.messages.map(openaiMessage),
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
         type: "function",
         function: { name: wireName(t.name), description: t.description, parameters: t.parameters },
       })),
     } : {}),
+    messages: request.messages.map(openaiMessage),
   };
 }
 function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
@@ -342,6 +361,10 @@ export class AnthropicProvider implements Provider {
             usage: {
               input: response.usage.input_tokens,
               output: response.usage.output_tokens,
+              // Only what was read back from the cache; writing to it is charged, not saved.
+              ...(response.usage.cache_read_input_tokens !== undefined
+                ? { cachedInput: response.usage.cache_read_input_tokens }
+                : {}),
             },
           }
         : {}),
@@ -355,14 +378,26 @@ function anthropicThinking(request: CompletionRequest): Record<string, unknown> 
   const budget = Math.min(thinkingBudgets[request.reasoning], request.maxTokens - 256);
   return budget >= 1024 ? { thinking: { type: "enabled", budget_tokens: budget } } : {};
 }
-function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
+/** Marks a block as the end of the part of the request that stays the same from round to round. */
+const cacheMarker = { cache_control: { type: "ephemeral" } } as const;
+/**
+ * Claude caches a request's prefix in the order tools, then instructions, then the conversation, so
+ * the body is written in that order and the two stable parts are marked. Rounds after the first are
+ * billed as cache reads instead of a fresh copy of the whole catalog.
+ */
+export function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  const instructions = request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const tools = request.tools.map((t, at) => ({
+    name: wireName(t.name), description: t.description, input_schema: t.parameters,
+    ...(at === request.tools.length - 1 ? cacheMarker : {}),
+  }));
   return {
     model,
     max_tokens: request.maxTokens,
     ...anthropicThinking(request),
-    system: request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n"),
+    tools,
+    ...(instructions ? { system: [{ type: "text", text: instructions, ...cacheMarker }] } : {}),
     messages: anthropicMessages(request.messages),
-    tools: request.tools.map((t) => ({ name: wireName(t.name), description: t.description, input_schema: t.parameters })),
   };
 }
 export function restoreToolNames(completion: Completion, request: CompletionRequest): Completion {
