@@ -60,6 +60,7 @@ import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
+import { restoreConnections } from "./connections-preset.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
@@ -219,6 +220,11 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // Batch 19 (wave 7): the model services the owner added from the catalog are built again from
+  // what was written down, with each key taken out of the locker, so they survive a restart.
+  await restoreConnections({
+    models: runtime.models, locker: store.locker, owner: runtime.owner, policy: web.policy, store,
+  });
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);

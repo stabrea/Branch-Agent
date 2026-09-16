@@ -1,6 +1,7 @@
 import type { Provider } from "./contracts.js";
-import type { ModelRouter } from "./models.js";
+import type { ModelPreset, ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
+import { type Capability, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
 
 /**
@@ -21,6 +22,10 @@ export interface ProviderProbe {
   supportsEmbeddings: boolean;
   onThisComputer: boolean;
   resting: boolean;
+  /** What this connection can do, one answer per capability, from the catalog where there is one. */
+  can: Record<Capability, boolean>;
+  /** The same answers in ordinary words, ready to show without the screen knowing the names. */
+  canSaid: string[];
   /** One line a person can act on. */
   summary: string;
   fix?: string;
@@ -42,6 +47,25 @@ export function signedInWithGoogle(provider: Provider): boolean {
 }
 
 /**
+ * What a connection can do, capability by capability. A connection set up from the catalog is
+ * described by its catalog line; anything else is described by what the adapter says about itself,
+ * and anything neither can answer is reported as "no", never guessed at.
+ */
+export function capabilitiesOf(preset: ModelPreset): Record<Capability, boolean> {
+  const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+  const fromProvider: Partial<Record<Capability, boolean>> = {
+    chat: true,
+    vision: supportsImages(preset.provider),
+    audio: (preset.provider.audio?.() ?? null) !== null,
+    embeddings: providerEmbeddings(preset.provider) !== null,
+  };
+  const answers = {} as Record<Capability, boolean>;
+  for (const capability of capabilities)
+    answers[capability] = entry ? entry.capabilities.includes(capability) : fromProvider[capability] === true;
+  return answers;
+}
+
+/**
  * The list-of-models address for a connection, or null when it does not offer one.
  *
  * Gemini takes either an API key or a signed-in person's token, and the two go in different
@@ -50,6 +74,9 @@ export function signedInWithGoogle(provider: Provider): boolean {
  * answer 401 and the check would wrongly report the sign-in as broken.
  */
 export function modelsUrl(provider: Provider): { url: string; headers: Record<string, string> } | null {
+  // An adapter that knows its own list address says so; only the rest are worked out from their routes.
+  const declared = provider.modelsList?.();
+  if (declared !== undefined) return declared;
   const audio = (provider.audio?.() ?? null) as ({ endpoint: string; apiKey: string; bearer?: boolean } | null);
   const shared = audio ?? providerEmbeddings(provider);
   if (!shared) return null;
@@ -83,6 +110,8 @@ export async function probeProvider(
     supportsEmbeddings: providerEmbeddings(preset.provider) !== null,
     onThisComputer: models.runsLocally(id),
     resting: models.coolingDown(id),
+    can: capabilitiesOf(preset),
+    canSaid: capabilitySentences(capabilitiesOf(preset)),
     summary: "",
   };
   const target = modelsUrl(preset.provider);

@@ -17,6 +17,11 @@ export interface ProviderOptions {
   endpoint: string;
   model: string;
   apiKey: string;
+  /**
+   * The fetch every request goes through. The factory hands in one wrapped by the owner's network
+   * rules and by the health record, so a completion is checked and written down like anything else.
+   */
+  fetchImpl?: typeof globalThis.fetch | undefined;
 }
 const usageNumber = z.number().int().nonnegative();
 const openaiResponse = z.object({
@@ -128,7 +133,8 @@ async function post(
   signal: AbortSignal,
   consume?: (data: string) => void,
 ): Promise<unknown> {
-  const response = await fetch(options.endpoint.replace(/\/$/, "") + path, {
+  const call = options.fetchImpl ?? globalThis.fetch;
+  const response = await call(options.endpoint.replace(/\/$/, "") + path, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
@@ -153,6 +159,50 @@ async function post(
     }
   } finally {
     await reader.cancel();
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+/**
+ * An OpenAI-shaped reply turned into a completion. Shared with the Azure adapter, which speaks the
+ * same shape at a different address, so both read a reply exactly the same way.
+ */
+export function openaiCompletion(body: unknown, request: CompletionRequest): Completion {
+  const response = openaiResponse.parse(body);
+  const message = response.choices[0]!.message;
+  return {
+    content: message.content ?? "",
+    toolCalls: (message.tool_calls ?? []).map((c) => ({
+      id: c.id, name: originalName(c.function.name, request), arguments: c.function.arguments,
+    })),
+    ...(response.usage
+      ? {
+          usage: {
+            input: response.usage.prompt_tokens,
+            output: response.usage.completion_tokens,
+            ...(response.usage.prompt_tokens_details?.cached_tokens !== undefined
+              ? { cachedInput: response.usage.prompt_tokens_details.cached_tokens }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+/** Reads a response body with a cap on its size, so one reply cannot fill this computer's memory. */
+export async function readJsonBody(response: Response): Promise<unknown> {
+  if (!response.body) throw new Error("Provider returned empty body");
+  const reader = response.body.getReader(), chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > 1048576) throw new Error("Provider response exceeds 1 MiB");
+      chunks.push(part.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;

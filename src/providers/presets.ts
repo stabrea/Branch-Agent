@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { type CatalogEntry, catalogEntries } from "../provider-catalog.js";
 
-export const headerStyle = z.enum(["bearer", "x-api-key", "azure-key", "google-key"]);
+export const headerStyle = z.enum(["bearer", "x-api-key", "azure-key", "google-key", "query-key", "aws-sigv4", "none"]);
 export type HeaderStyle = z.infer<typeof headerStyle>;
 
 export const providerKind = z.enum(["cloud", "local"]);
@@ -20,155 +21,49 @@ export const ProviderPresetSchema = z.object({
 
 export type ProviderPreset = z.infer<typeof ProviderPresetSchema>;
 
-/**
- * Built-in named provider presets. Each preset includes the base URL,
- * a list of well-known model IDs, and plain-language guidance on where to get keys or set up local services.
- * The UI uses this catalog to populate a dropdown; users can pick a preset and enter an API key.
- */
-export const builtInPresets: ProviderPreset[] = [
-  {
-    id: "openai",
-    displayName: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
-    headerStyle: "bearer",
-    modelIds: ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-4o-mini", "gpt-3.5-turbo"],
-    keyHelp:
-      "Get an API key from https://platform.openai.com/account/api-keys. Keep your key private and regenerate it if compromised.",
-    kind: "cloud",
-  },
-  {
-    id: "anthropic",
-    displayName: "Anthropic",
-    baseUrl: "https://api.anthropic.com/v1",
-    headerStyle: "x-api-key",
-    modelIds: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-opus-4-1", "claude-3-sonnet"],
-    keyHelp:
-      "Get an API key from https://console.anthropic.com/. Keep your key private and regenerate it if compromised.",
-    kind: "cloud",
-  },
-  {
-    id: "groq",
-    displayName: "Groq",
-    baseUrl: "https://api.groq.com/openai/v1",
-    headerStyle: "bearer",
-    modelIds: ["mixtral-8x7b-32768", "gemma-7b-it", "llama-3-70b-8192", "llama-3-8b-8192"],
-    keyHelp: "Get an API key from https://console.groq.com/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "mistral",
-    displayName: "Mistral",
-    baseUrl: "https://api.mistral.ai/v1",
-    headerStyle: "bearer",
-    modelIds: ["mistral-large-2", "mistral-medium", "mistral-small"],
-    keyHelp: "Get an API key from https://console.mistral.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "deepseek",
-    displayName: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    headerStyle: "bearer",
-    modelIds: ["deepseek-chat", "deepseek-coder"],
-    keyHelp: "Get an API key from https://platform.deepseek.com/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "openrouter",
-    displayName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
-    headerStyle: "bearer",
-    modelIds: ["meta-llama/llama-3-70b-instruct", "mistralai/mistral-large", "openai/gpt-4-turbo"],
-    keyHelp: "Get an API key from https://openrouter.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "together",
-    displayName: "Together AI",
-    baseUrl: "https://api.together.xyz/v1",
-    headerStyle: "bearer",
-    modelIds: ["mistral-7b", "llama-2-70b-chat", "meta-llama/Llama-3-70b-chat-hf"],
-    keyHelp: "Get an API key from https://together.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "fireworks",
-    displayName: "Fireworks AI",
-    baseUrl: "https://api.fireworks.ai/inference/v1",
-    headerStyle: "bearer",
-    modelIds: ["accounts/fireworks/models/llama-v2-70b-chat", "accounts/fireworks/models/mistral-7b-instruct"],
-    keyHelp: "Get an API key from https://fireworks.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "perplexity",
-    displayName: "Perplexity",
-    baseUrl: "https://api.perplexity.ai",
-    headerStyle: "bearer",
-    modelIds: ["pplx-7b-online", "pplx-70b-online", "pplx-7b", "pplx-70b"],
-    keyHelp: "Get an API key from https://www.perplexity.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "xai",
-    displayName: "xAI (Grok)",
-    baseUrl: "https://api.x.ai/v1",
-    headerStyle: "bearer",
-    modelIds: ["grok-beta"],
-    keyHelp: "Get an API key from https://console.x.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "cerebras",
-    displayName: "Cerebras",
-    baseUrl: "https://api.cerebras.ai/v1",
-    headerStyle: "bearer",
-    modelIds: ["llama-3.3-70b"],
-    keyHelp: "Get an API key from https://www.cerebras.ai/. Keep your key private.",
-    kind: "cloud",
-  },
-  {
-    id: "ollama",
-    displayName: "Ollama (Local)",
-    baseUrl: "http://127.0.0.1:11434/v1",
-    headerStyle: "bearer",
-    modelIds: ["llama2", "mistral", "neural-chat", "starling-lm"],
-    keyHelp:
-      "Install Ollama from https://ollama.ai/ and run `ollama serve` in a terminal. Any placeholder API key works.",
-    kind: "local",
-  },
-  {
-    id: "lm-studio",
-    displayName: "LM Studio (Local)",
-    baseUrl: "http://127.0.0.1:1234/v1",
-    headerStyle: "bearer",
-    modelIds: ["local-model"],
-    keyHelp:
-      "Download LM Studio from https://lmstudio.ai/ and load a model. Any placeholder API key works.",
-    kind: "local",
-  },
-  {
-    id: "azure-openai",
-    displayName: "Azure OpenAI",
-    baseUrl: "https://<resource-name>.openai.azure.com/openai/deployments/<deployment-name>/chat/completions?api-version=2024-10-01-preview",
-    headerStyle: "azure-key",
-    modelIds: ["gpt-4o", "gpt-4-turbo", "gpt-4"],
-    keyHelp:
-      "Set up Azure OpenAI from https://portal.azure.com/. Your API key is in the Manage Keys section. Replace <resource-name> and <deployment-name> in the URL with your resource and deployment names.",
-    kind: "cloud",
-  },
-];
+const styles: Record<CatalogEntry["auth"], HeaderStyle> = {
+  bearer: "bearer", "x-api-key": "x-api-key", "api-key": "azure-key", "google-key": "google-key",
+  "query-key": "query-key", "aws-sigv4": "aws-sigv4", none: "none",
+};
 
-/**
- * Returns a preset by id, or undefined if not found.
- */
-export function findPreset(id: string): ProviderPreset | undefined {
-  return builtInPresets.find((p) => p.id === id);
+/** The address as a person reads it, with anything they have to fill in shown in angle brackets. */
+function readableUrl(baseUrl: string): string {
+  return baseUrl.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (_all, name: string) => `<${name}>`);
+}
+
+/** One line of setup help: what the service needs, and where to go and get it. */
+function keyHelpFor(entry: CatalogEntry): string {
+  const where = entry.signUp ? ` Get what you need from ${entry.signUp}.` : "";
+  const care = entry.kind === "cloud" ? " Keep your key private and replace it if it ever leaks." : "";
+  return (entry.note + where + care).slice(0, 500);
+}
+
+function toPreset(entry: CatalogEntry): ProviderPreset {
+  return {
+    id: entry.id,
+    displayName: entry.name,
+    baseUrl: readableUrl(entry.baseUrl),
+    headerStyle: styles[entry.auth],
+    modelIds: entry.recommendedModels.slice(0, 20),
+    keyHelp: keyHelpFor(entry),
+    kind: entry.kind,
+  };
 }
 
 /**
- * Returns all built-in presets.
+ * The named provider presets the Settings screen offers, every one of them read out of the
+ * catalog in data/providers.json rather than written down here a second time. Correcting the
+ * catalog corrects this list, the documentation table and the setup route all at once.
  */
 export function allPresets(): ProviderPreset[] {
-  return builtInPresets;
+  return catalogEntries().map(toPreset);
 }
+
+/** Returns a preset by id, or undefined if not found. */
+export function findPreset(id: string): ProviderPreset | undefined {
+  const entry = catalogEntries().find((candidate) => candidate.id === id);
+  return entry ? toPreset(entry) : undefined;
+}
+
+/** Kept for callers that read the list as a value; it is the same derived list. */
+export const builtInPresets: ProviderPreset[] = allPresets();
