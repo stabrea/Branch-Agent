@@ -6,7 +6,8 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -24,6 +25,7 @@ import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { standardSuite } from "./evaluation.js";
+import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -116,6 +118,7 @@ async function staticFile(
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
+    "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -334,9 +337,12 @@ async function api(
   app: Branch,
   request: IncomingMessage,
   path: string,
+  dataDir: string,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
+  if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
+  if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -842,6 +848,127 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
+async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (path === "/api/mcp/settings") {
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "Sharing is not available");
+    if (request.method === "GET")
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+    if (request.method === "POST") {
+      const sharing = McpSharingSchema.parse(await readBody(request));
+      const known = new Set(app.registry.names());
+      const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools });
+      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+    }
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+async function handleMcpRequest(
+  app: Branch,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<boolean> {
+  const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  if (path !== "/mcp") return false;
+  if (!["POST", "GET", "DELETE"].includes(request.method ?? "")) return false;
+
+  try {
+    const owner = app.runtime.owner;
+    const mcp = app.mcpServer;
+    if (!mcp) throw new HttpError(500, "MCP server not initialized");
+
+    const sessionId = request.headers["mcp-session-id"] as string | undefined;
+
+    if (request.method === "DELETE") {
+      if (sessionId) {
+        mcp.deleteSession(sessionId);
+      }
+      response.writeHead(204);
+      response.end();
+      return true;
+    }
+
+    if (request.method === "GET") {
+      throw new HttpError(405, "Use POST for JSON-RPC requests");
+    }
+
+    const body = request.method === "POST" ? await readBody(request, 65536) : undefined;
+
+    if (request.method === "POST" && body) {
+      const JsonRpcSchema = z
+        .object({
+          jsonrpc: z.literal("2.0"),
+          id: z.union([z.string(), z.number()]),
+          method: z.string(),
+          params: z.record(z.string(), z.unknown()).optional().default({}),
+        })
+        .strict();
+      const jsonRpcRequest = JsonRpcSchema.parse(body) as { jsonrpc: "2.0"; id: string | number; method: string; params?: Record<string, unknown> };
+      const result = await mcp.handle(jsonRpcRequest, sessionId);
+      const session = mcp.getSession(sessionId);
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "mcp-protocol-version": session.protocolVersion,
+      });
+      response.end(JSON.stringify(result));
+      return true;
+    }
+
+    throw new HttpError(405, "Only POST is supported for MCP");
+  } catch (e) {
+    if (!response.headersSent) {
+      const status = e instanceof HttpError ? e.status : 400;
+      send(response, status, { error: errorText(e) });
+    } else {
+      response.end();
+    }
+    return true;
+  }
+}
+/**
+ * How another AI tool starts Branch as a child program on this machine. The child is given this
+ * install's data and workspace paths, because it inherits the other tool's working directory.
+ */
+function stdioCommand(dataDir: string, workspace: string): {
+  command: string; args: string[]; env: Record<string, string>; packaged: boolean;
+} {
+  const cli = join(dirname(fileURLToPath(import.meta.url)), "cli.js");
+  const packaged = Boolean(process.versions.electron) && !(process as { defaultApp?: boolean }).defaultApp;
+  const env = { BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: workspace };
+  return packaged
+    ? { command: process.execPath, args: [cli, "mcp-serve"], env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, packaged }
+    : { command: "branch", args: ["mcp-serve"], env, packaged };
+}
+/** Ready-to-paste settings for the other AI tool, using this server's own address and key. */
+function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: string): unknown {
+  const url = `http://${request.headers.host ?? "127.0.0.1:3210"}`;
+  const token = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY";
+  const stdio = stdioCommand(dataDir, app.runtime.workspace);
+  const stdioConfig = JSON.stringify({ mcpServers: { branch: {
+    command: stdio.command, args: stdio.args, env: stdio.env,
+  } } }, null, 2);
+  const httpConfig = JSON.stringify({ mcpServers: { branch: {
+    type: "http", url: `${url}/mcp`, headers: { Authorization: `Bearer ${token}` },
+  } } }, null, 2);
+  return {
+    httpEndpoint: `${url}/mcp`,
+    bearerToken: token,
+    stdio: { ...stdio, configExample: stdioConfig },
+    claudeDesktop: {
+      configExample: stdioConfig,
+      note: "Paste this into Claude Desktop's settings file, then restart it. On Windows the file is %APPDATA%/Claude/claude_desktop_config.json; on macOS and Linux it is ~/.config/Claude/claude_desktop_config.json. Claude Desktop starts its own copy of Branch, so close this app first — two copies cannot share the same records.",
+    },
+    claudeCode: {
+      configExample: `claude mcp add --transport http branch ${url}/mcp --header "Authorization: Bearer ${token}"`,
+      note: "Run this once in a terminal. Claude Code then talks to Branch while Branch is open.",
+    },
+    cursor: {
+      configExample: httpConfig,
+      note: "Paste this into Cursor's MCP settings. It talks to Branch over this computer's own address, so Branch has to be open.",
+    },
+  };
+}
 export async function startServer(
   app: Branch,
   options: { dataDir: string; port?: number },
@@ -867,13 +994,14 @@ export async function startServer(
         return;
       }
       authorize(request, url, token);
+      if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
         throw new HttpError(429, "Too many active executions");
       if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
-        send(response, 200, await api(app, request, path));
+        send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
         if (executes) executions--;
       }

@@ -50,6 +50,12 @@ from **Settings → Updates**. Do not merge or release every batch.
 - The user wants the header mark to read **KeepOak** and the sidebar card to stay **Branch Agent**.
 - Copy rule: plain language for non-technical people, no developer jargon in the interface.
 
+## Batch 19 (wave 1) — MCP server mode
+
+Five parallel agents build independent feature areas of wave 1:
+- **MCP server mode** (`wave1/mcp-server`): JSON-RPC 2.0 over HTTP/stdio exposes tools, resources, and prompts to other AI tools (Claude Desktop, Claude Code, Cursor) with session state, permission gates, and rate limits. Handler at `/mcp`, connection helper at `/api/mcp/connection`, settings at `/api/mcp/settings`. Tested: protocol negotiation, session tracking, auth, tool/resource/prompt listing, and exposure policy.
+- **Documentation, Providers, Voice, Webhooks**: Four more agents building in parallel.
+
 ## Tracking on GitHub
 
 Nothing lives only in chat. Open work is tracked as checklists:
@@ -139,6 +145,26 @@ Follow-up: receipts + first-launch version check for Branch (issue #18).
 
 Version 0.7.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip via
 System32 tar.exe; two-space checksum file. Coverage 85 implemented, 20 partial, 63 missing, 1 external.
+
+## Batch 19 (wave 1) — sharing with other AI tools (MCP server mode)
+
+`src/mcp-server.ts` is the whole dispatcher (initialize with version negotiation, ping, tools, resources,
+prompts) and now reads its exposure policy from `settings/mcp-sharing` on every call instead of a set
+frozen at construction — the Settings switch was previously decorative. Default is off with nothing
+shared; `branch.ask` is always offered. `src/mcp-stdio.ts` adds the second transport and `branch
+mcp-serve` in `src/cli.ts` runs it: newline-delimited JSON-RPC on stdin/stdout, notifications get no
+reply, every human-readable line goes to stderr, clean exit when stdin ends. Conversations are exposed
+as `conversation://<uuid>` resources (title from the first message, date, transcript as plain
+`role: text` lines capped at 64 KiB, ownership checked). Every `tools/call` is now its own recorded
+task with `source: "mcp"` and a signed receipt, so shared work shows in Activity and
+`/api/runs/:id/receipts` like local work; the tool context's permissions are derived from the exposed
+tools' permissions rather than their names (they only coincided for `files.read`), and the concurrency
+counter is now in-flight rather than lifetime. `public/mcp.js` plus one card in `index.html` and one
+line in `app.js` give the owner a switch, a tool list where read-only tools are pre-ticked and the rest
+are labelled "can change things", and copyable settings for Claude Desktop, Claude Code and Cursor
+built from this server's real address and key (`GET /api/mcp/connection`, which now reports the stdio
+command — the packaged executable with `ELECTRON_RUN_AS_NODE` when the app is packaged, otherwise
+`branch mcp-serve`). Tests: `tests/mcp-server.test.mjs` (21).
 
 ## Batch 15 (released in 0.7.0): time-qualified facts, memory scopes, admission switch, tidy-up view
 
