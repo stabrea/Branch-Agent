@@ -2769,7 +2769,12 @@ describing it. Change any of those and the question is asked afresh.
 On the "Look inside" screen a round answered this way is marked `cached`, its cost shows as nothing,
 and the reason is written beside it. The kept answer is looked for before anything is charged, so the
 figures per project agree with the inspector: a round that never reached the provider counts nothing
-in either place.
+in either place. One consequence worth knowing: a task that has reached its token ceiling can still
+be answered from a kept answer, because nothing is charged for one. The limit on how many steps a
+task may take still stops it.
+
+Kept answers live in the settings table, so they travel in a backup and they stay there when you
+switch the cache off. `POST /api/request-cache/clear` is what throws them away.
 
 ### A whole set of questions at once (A1351, A1352)
 
@@ -2800,16 +2805,20 @@ Turning the setting on today changes nothing except the sentence you get back.
 - `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
 - It also sits at the top of the sidebar.
 
-Turning it on makes **every tool wait for your yes**, and switches off running programs on this
-computer, using your screen and keyboard, borrowing your browser, sending messages out, and telling
-other programs what happened. It also ends every "yes, just for this conversation" you gave earlier,
-so nothing that was already said yes to carries on unasked, and it empties the list of programs
-allowed to be left running, so `process.start` refuses by name. Only the owner can turn it on or off:
-under someone else's profile the route refuses. It is kept in the database, so it is still on after
-the app is closed and opened again.
+Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+leaving a program running (`process.start` refuses by name, because the list of programs allowed to
+be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
+out, and telling other programs what happened. It also ends every "yes, just for this conversation"
+you gave earlier, so nothing that was already said yes to carries on unasked. Only the owner can turn
+it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
+still on after the app is closed and opened again.
 
-What it does **not** stop: a server for another AI tool that is already set up stays reachable, but
-every tool call through it waits for your yes like any other.
+What it does **not** switch off, because there is no switch to throw:
+
+- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
+  refused outright.
+- A **server for another AI tool** that is already set up stays reachable; every tool call through it
+  waits for your yes like any other.
 
 Turning it off puts back **exactly** the settings that were there before — they are copied, untouched,
 before anything is changed, and a switch that had never been saved at all is left unsaved rather than

@@ -39,7 +39,7 @@ export interface LockdownState {
 export const lockdownEffects = [
   "Every tool waits for your yes.",
   "Anything you already said yes to has to be asked again.",
-  "Running programs on this computer is off.",
+  "Running a script, and leaving a program running, are both off. A command still has to be asked about, like every other tool.",
   "Using your screen and keyboard is off.",
   "Borrowing your browser is off.",
   "Sending messages out and telling other programs what happened are both off.",
