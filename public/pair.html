@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Connect this phone to Branch</title>
+    <link rel="icon" href="/assets/keepoak-mark.png" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/pair.css" />
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="/assets/keepoak-mark.png" alt="" />
+      <h1>Connect this phone to Branch</h1>
+      <p>
+        Type the six numbers showing on your computer's screen. They are good for a few minutes and
+        for this phone only.
+      </p>
+      <form id="pair-form">
+        <label for="code">Six numbers from the computer</label>
+        <input
+          id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*"
+          maxlength="6" required aria-describedby="message" />
+        <button id="submit" type="submit">Connect</button>
+      </form>
+      <p id="message" role="status"></p>
+    </main>
+    <script src="/pair.js"></script>
+  </body>
+</html>

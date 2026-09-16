@@ -1,0 +1,45 @@
+/* The pairing page a phone opens. One narrow column, large type, nothing that needs a mouse. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  background: var(--ink, #03140b);
+  color: var(--parchment, #eaf3ec);
+  font-family: var(--font-body, system-ui, -apple-system, "Segoe UI", sans-serif);
+}
+main { width: 100%; max-width: 360px; }
+img.mark { width: 56px; height: 56px; }
+h1 { font-size: 1.35rem; line-height: 1.25; margin: 16px 0 8px; }
+p { margin: 0 0 16px; line-height: 1.5; opacity: 0.85; }
+label { display: block; margin-bottom: 8px; font-weight: 600; }
+input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 12px;
+  font-size: 1.5rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+  border-radius: 12px;
+  border: 1px solid var(--line, #2c4636);
+  background: var(--well, #0a1f14);
+  color: inherit;
+  font-family: var(--font-mono, ui-monospace, "Cascadia Mono", monospace);
+}
+button {
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 0;
+  cursor: pointer;
+  background: var(--moss, #4ade80);
+  color: var(--ink, #04160c);
+}
+button[disabled] { opacity: 0.6; cursor: default; }
+#message { margin-top: 16px; min-height: 1.5em; }
+#message.bad { color: var(--rust, #ff9f9f); }

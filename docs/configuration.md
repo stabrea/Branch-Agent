@@ -985,3 +985,74 @@ advertised by a registry you have browsed, whose words appear in that work. It i
 match on this computer: no model is asked, nothing is sent anywhere, and a suggestion never
 installs or switches anything on. The Skills screen shows all of the above, and the interface file
 `/skills-extra.js` is served from the same local allowlist as the rest of the interface.
+
+## How Branch runs on this computer: installing, starting and reaching it from a phone
+
+**Installing.** The release carries two files: `Branch-Agent-windows-x64.zip` and `Install Branch
+Agent.cmd`. The script unpacks the zip with the `tar.exe` that ships with Windows (PowerShell's
+`Expand-Archive` is the fallback) and then runs `dist/install/install-cli.js` *from inside the
+unpacked app*, using the runtime the download already carries. Nothing has to be installed first and
+nothing is downloaded by the installer itself. It copies the app to
+`%LOCALAPPDATA%\Programs\Branch Agent`, keeps whatever was there in `…\Branch Agent.previous`,
+writes a Start menu shortcut and (unless `--no-desktop-shortcut`) a desktop one through
+`WScript.Shell`, writes `Uninstall Branch Agent.cmd` next to the app, and registers it under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BranchAgent` with a
+`QuietUninstallString`. Only this person's own settings are touched, so no administrator prompt
+appears and nothing has to be signed. Saved work from an older folder layout (`%LOCALAPPDATA%` or
+`%APPDATA%` under `Branch Agent` or `branch-agent`) is copied across once, and never over a folder
+that already holds a database. Uninstalling removes the program, the shortcuts, the sign-in entry
+and the background task; conversations and files are left alone.
+
+**Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
+state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
+program. Without the marker it uses the per-person application-data folder as before.
+`BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` still win over both.
+
+**Starting with Windows.** *Settings → How Branch runs on this computer → Start Branch when I sign
+in to Windows* writes one value, `Branch Agent`, into
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. With *Start quietly in the corner of the
+taskbar* on, the command carries `--start-minimized` and the window stays hidden until the tray icon
+is used. Switching it off deletes the value.
+
+**Keeping Branch working with the window closed.** `branch daemon install | uninstall | status`, or
+the switch in the same settings card, registers a Task Scheduler task called `Branch Agent daemon`
+with `/SC ONLOGON /RL LIMITED`. The task runs `wscript.exe //B //Nologo` against a one-line launcher
+that starts the engine with window style 0, so no console flashes up; the engine itself is
+`dist/cli.js start` run through the app's own executable with `ELECTRON_RUN_AS_NODE=1`. While an
+engine is running it leaves `running.json` in the data folder (port, process id, address). A later
+launch of the window reads that note, checks the process still exists and that the port answers
+`GET /api/state` with the session token from disk, and joins it instead of starting a second engine;
+a note left behind by a crash is removed rather than trusted.
+
+**Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
+`{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
+and opens a *second* listener bound to that address alone. The address must be inside
+`100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
+refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
+(one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
+upgrade) also accept the Tailscale address and name; nothing else is ever added.
+`POST /api/deployment/remote/invite` makes one invitation: a link carrying only an identifier,
+returned as a QR matrix drawn by `src/remote/qr.ts` (no dependency), plus a six-digit number that is
+**not** in the link. The phone opens `/pair?id=…`, types the number, and `POST /api/pair` — the only
+route exempt from the session token, and only on the remote listener — hands back the key. An
+invitation lasts five minutes, works once, and dies after five wrong numbers.
+
+**Safety copies and going back.** Before an update swaps any files, the updater calls its `backup`
+hook, which writes the whole of the person's saved work to `update-backups/before-<time>-v<version>.json`
+in the data folder and keeps the newest three. A failure there stops the update. When a version
+starts for the first time its health report is recorded in `first-start.json`; if it did not come up
+cleanly, the settings card offers *Put back the previous version's saved work*, which reads the
+newest safety copy and restores it with `replaceExisting`. `POST /api/restore` is unchanged and
+still refuses to write over a copy that already holds conversations.
+
+**Checking a computer is ready.** `branch doctor --fix`, and the *Check and repair what I can*
+button, look for Git, the private browser Branch uses to read pages, a free address on this
+computer, and a writable files folder. With `--fix` it installs the browser
+(`npx playwright install chromium --only-shell`); the rest come with a plain-language step, because
+installing Git asks questions a script should not answer for someone.
+
+Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
+`POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
+`POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
+`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`/pair` and `/pair.js`.

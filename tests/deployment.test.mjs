@@ -1,0 +1,494 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+import { performInstall, bootstrapperScript, uninstallEntries, uninstallScript, uninstallKey, defaultInstallRoot } from "../dist/install/installer.js";
+import { shortcutScript, regAddArgs, regDeleteValueArgs } from "../dist/install/windows.js";
+import { portableLocation, installedLocation, resolveDataLocation, migrateLegacyData, legacyDataDirs } from "../dist/install/layout.js";
+import { autostartCommand, setAutostart, startsMinimized, minimizedFlag } from "../dist/install/autostart.js";
+import { daemonCommand, daemonCommandLine, daemonInstallArgs, daemonUninstallArgs, daemonTaskName } from "../dist/install/daemon.js";
+import { attachToRunning, writeRunning, readRunning } from "../dist/install/running.js";
+import { encodeQr, capacity, generator, remainder, maximumQrBytes } from "../dist/remote/qr.js";
+import { readStatus, isTailnetAddress } from "../dist/remote/tailscale.js";
+import { Pairing, maximumAttempts } from "../dist/remote/pairing.js";
+import { RemoteAccess, assertPrivateAddress } from "../dist/remote/remote-access.js";
+import { hostAllowed, pairingRequest, startServer } from "../dist/server.js";
+import { Readable } from "node:stream";
+import { createBranch } from "../dist/index.js";
+import { doctorFix, doctorText } from "../dist/doctor-fix.js";
+import { backupsToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
+import { Updater } from "../dist/desktop/updater.js";
+
+const run = promisify(execFile);
+const windows = process.platform === "win32";
+
+async function scratch(t, prefix = "branch-deploy-") {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+/** A running app whose database is closed before the folder is removed, or Windows holds the file. */
+async function branchIn(t, root) {
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } },
+  });
+  return app;
+}
+
+// ---------------------------------------------------------------- P1: installing
+
+test("a dry-run install lays out the folders, writes shortcuts and registers Uninstall", { skip: !windows && "Windows tools" }, async (t) => {
+  const root = await scratch(t);
+  const source = join(root, "unpacked"), installRoot = join(root, "Programs", "Branch Agent");
+  await mkdir(join(source, "resources", "app"), { recursive: true });
+  await writeFile(join(source, "Branch Agent.exe"), "new program");
+  await writeFile(join(source, "resources", "app", "package.json"), JSON.stringify({ version: "9.9.9" }));
+  // A previous install is already there, and older saved work sits in an old-style folder.
+  await mkdir(installRoot, { recursive: true });
+  await writeFile(join(installRoot, "Branch Agent.exe"), "old program");
+  const legacy = join(root, "legacy", "state");
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, "branch.sqlite"), "pretend database");
+
+  // A registry key of our own under HKCU, removed again below: nothing real is touched.
+  const hive = `HKCU\\Software\\BranchAgentTest\\${randomUUID()}`;
+  t.after(() => run("reg.exe", ["delete", `HKCU\\Software\\BranchAgentTest`, "/f"]).catch(() => undefined));
+
+  const report = await performInstall({
+    source, installRoot, executableName: "Branch Agent.exe", version: "9.9.9",
+    startMenuDir: join(root, "StartMenu"), desktopDir: join(root, "Desktop"),
+    uninstallHive: hive, userDataDir: join(root, "AppData", "Branch Agent"),
+    legacyDataDirs: [legacy],
+  });
+
+  assert.equal(await readFile(join(installRoot, "Branch Agent.exe"), "utf8"), "new program");
+  assert.equal(report.previousKept, `${installRoot}.previous`);
+  assert.equal(await readFile(join(`${installRoot}.previous`, "Branch Agent.exe"), "utf8"), "old program",
+    "the version that was there is kept so an update can be undone");
+  // Real .lnk files, written by Windows itself, inside this temporary folder only.
+  assert.deepEqual(report.shortcuts, [join(root, "StartMenu", "Branch Agent.lnk"), join(root, "Desktop", "Branch Agent.lnk")]);
+  for (const shortcut of report.shortcuts) assert.ok((await stat(shortcut)).size > 0, `${shortcut} exists`);
+  // Add or remove programs shows the app and can remove it again.
+  const listed = await run("reg.exe", ["query", uninstallKey(hive)]);
+  assert.match(listed.stdout, /DisplayName\s+REG_SZ\s+Branch Agent/);
+  assert.match(listed.stdout, /QuietUninstallString/);
+  const removal = await readFile(report.uninstaller, "utf8");
+  assert.ok(removal.includes(report.shortcuts[0]), "removing the app takes its shortcuts with it");
+  // Older saved work came along, and the data folder is the installed one, not next to the program.
+  assert.equal(report.data.reason, "copied");
+  assert.equal(report.data.from, legacy);
+  assert.equal(await readFile(join(root, "AppData", "Branch Agent", "state", "branch.sqlite"), "utf8"), "pretend database");
+});
+
+test("the installer script and the Uninstall entry say what they will do", () => {
+  const script = bootstrapperScript({ assetName: "Branch-Agent-windows-x64.zip", executableName: "Branch Agent.exe" });
+  assert.match(script, /tar\.exe -xf "%ZIP%"/, "unpacks with the tar that ships with Windows");
+  assert.match(script, /Expand-Archive/, "falls back to PowerShell when tar is missing");
+  assert.match(script, /ELECTRON_RUN_AS_NODE/, "runs the installer with the runtime inside the download");
+  assert.match(script, /dist\\install\\install-cli\.js/);
+  assert.ok(!/Invoke-WebRequest|curl|http/i.test(script), "the installer downloads nothing of its own");
+
+  const entries = uninstallEntries({ installRoot: "C:\\App", executableName: "Branch Agent.exe", version: "1.2.3", uninstaller: "C:\\App\\Uninstall Branch Agent.cmd" });
+  const byName = Object.fromEntries(entries.map((entry) => [entry.name, entry.value]));
+  assert.equal(byName.DisplayVersion, "1.2.3");
+  assert.equal(byName.QuietUninstallString, '"C:\\App\\Uninstall Branch Agent.cmd" /quiet');
+  const script2 = uninstallScript({ installRoot: "C:\\App", executableName: "Branch Agent.exe", uninstallHive: "HKCU\\X", userDataDir: "C:\\Data", shortcuts: ["C:\\M\\Branch Agent.lnk"] });
+  assert.match(script2, /Your conversations and files stay in C:\\Data/, "saved work is kept on purpose");
+  assert.match(script2, /schtasks\.exe \/Delete/, "the background task goes too");
+  assert.match(script2, /reg\.exe delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"/);
+  assert.ok(!script2.includes('rmdir /s /q "C:\\Data"'), "it never deletes the data folder");
+  assert.match(shortcutScript({ path: "C:\\M\\a.lnk", target: "C:\\App\\x.exe" }), /CreateObject\("WScript\.Shell"\)/);
+  assert.ok(defaultInstallRoot({ LOCALAPPDATA: "C:\\L" }).endsWith(join("Programs", "Branch Agent")));
+});
+
+test("portable mode keeps everything beside the program; otherwise it lives with the person's other apps", async (t) => {
+  const root = await scratch(t);
+  const exeDir = join(root, "stick", "Branch Agent"), userData = join(root, "AppData", "Branch Agent");
+  await mkdir(exeDir, { recursive: true });
+  assert.deepEqual(await resolveDataLocation(exeDir, userData), installedLocation(userData));
+  await writeFile(join(exeDir, "portable.txt"), "keep my data next to me");
+  const portable = await resolveDataLocation(exeDir, userData);
+  assert.deepEqual(portable, portableLocation(exeDir));
+  assert.equal(portable.portable, true);
+  assert.ok(portable.dataDir.startsWith(exeDir), "the data folder sits beside the program");
+
+  // Moving older data never overwrites work that is already there.
+  const from = join(root, "old"), to = join(root, "new");
+  await mkdir(from, { recursive: true });
+  await mkdir(to, { recursive: true });
+  await writeFile(join(from, "branch.sqlite"), "old work");
+  await writeFile(join(to, "branch.sqlite"), "work already here");
+  assert.equal((await migrateLegacyData([from], to)).reason, "already-set-up");
+  assert.equal(await readFile(join(to, "branch.sqlite"), "utf8"), "work already here");
+  assert.ok(legacyDataDirs({ LOCALAPPDATA: "C:\\L", APPDATA: "C:\\R" }).length >= 4);
+});
+
+// ---------------------------------------------------------------- P2: starting with Windows, background engine
+
+test("starting with Windows writes one line into the person's own sign-in list", async () => {
+  const calls = [];
+  const fake = async (file, args) => { calls.push({ file, args }); return ""; };
+  const on = await setAutostart(true, { executable: "C:\\App\\Branch Agent.exe", minimized: true }, { run: fake, systemRoot: "C:\\Windows" });
+  assert.equal(on.enabled, true);
+  assert.equal(on.command, '"C:\\App\\Branch Agent.exe" --start-minimized');
+  assert.equal(calls[0].file, "C:\\Windows\\System32\\reg.exe");
+  assert.deepEqual(calls[0].args, regAddArgs("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", {
+    name: "Branch Agent", type: "REG_SZ", value: on.command,
+  }));
+  assert.ok(calls[0].args[1].startsWith("HKCU\\"), "only this person's own settings are touched");
+
+  const off = await setAutostart(false, { executable: "C:\\App\\Branch Agent.exe", minimized: true }, { run: fake, systemRoot: "C:\\Windows" });
+  assert.equal(off.enabled, false);
+  assert.deepEqual(calls[1].args, regDeleteValueArgs("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "Branch Agent"));
+  assert.equal(autostartCommand("C:\\x.exe", false), '"C:\\x.exe"');
+  assert.equal(startsMinimized(["node", "app", minimizedFlag]), true);
+  assert.equal(startsMinimized(["node", "app"]), false);
+});
+
+test("the background engine is a sign-in task that opens no window, and is never registered here", async (t) => {
+  const root = await scratch(t);
+  const calls = [];
+  const fake = async (file, args) => { calls.push({ file, args }); return ""; };
+  const written = [];
+  const options = {
+    executable: "C:\\App\\Branch Agent.exe", script: "C:\\App\\resources\\app\\dist\\cli.js",
+    dataDir: "C:\\Data", workspace: "C:\\Work", port: 3210,
+    launcherPath: join(root, "branch-daemon.vbs"), systemRoot: "C:\\Windows",
+  };
+  const report = await daemonCommand("install", options, {
+    run: fake, write: async (path, content) => { written.push({ path, content }); },
+  });
+  assert.equal(report.installed, true);
+  assert.equal(calls[0].file, "C:\\Windows\\System32\\schtasks.exe");
+  const args = daemonInstallArgs(options);
+  assert.deepEqual(calls[0].args, args);
+  assert.equal(args[args.indexOf("/SC") + 1], "ONLOGON", "it starts when the person signs in");
+  assert.equal(args[args.indexOf("/RL") + 1], "LIMITED", "no administrator rights are asked for");
+  assert.equal(args[args.indexOf("/TN") + 1], daemonTaskName);
+  // The task runs the script host, which is what keeps a console window from flashing up.
+  assert.equal(args[args.indexOf("/TR") + 1], `"C:\\Windows\\System32\\wscript.exe" //B //Nologo "${options.launcherPath}"`);
+  assert.equal(written.length, 1);
+  assert.match(written[0].content, /CreateObject\("WScript\.Shell"\)\.Run .*, 0, False/, "window style 0 is hidden");
+  const command = daemonCommandLine(options);
+  assert.match(command, /BRANCH_DATA_DIR=C:\\Data/);
+  assert.match(command, /BRANCH_PORT=3210/);
+  assert.match(command, /"C:\\App\\Branch Agent\.exe" "C:\\App\\resources\\app\\dist\\cli\.js" start$/);
+  assert.ok(written[0].content.includes(command.replace(/"/g, '""')));
+
+  const removed = await daemonCommand("uninstall", options, { run: fake, write: async () => {} });
+  assert.equal(removed.installed, false);
+  assert.deepEqual(calls[1].args, daemonUninstallArgs(daemonTaskName));
+  const missing = await daemonCommand("status", options, { run: async () => { throw new Error("no such task"); }, write: async () => {} });
+  assert.equal(missing.installed, false);
+  assert.match(missing.message, /does not start by itself/);
+});
+
+test("a second launch joins the engine that is already running, and ignores a note left by a crash", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
+  const app = await branchIn(t, root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
+  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+
+  const note = await readRunning(join(root, "data"));
+  assert.equal(note.pid, process.pid);
+  assert.equal(note.url, server.url);
+  const joined = await attachToRunning(join(root, "data"));
+  assert.ok(joined, "the running engine is found");
+  assert.equal(joined.url, server.url);
+  assert.equal(joined.token, server.token);
+
+  // A note left behind by a crash names a process that is gone; it is cleared, not trusted.
+  await writeRunning(join(root, "data"), { port: note.port, pid: 999999, url: note.url, mode: "daemon", version: note.version });
+  assert.equal(await attachToRunning(join(root, "data"), { alive: () => false }), null);
+  assert.equal(await readRunning(join(root, "data")), null, "the stale note is removed");
+});
+
+// ---------------------------------------------------------------- P3: reaching Branch from a phone
+
+test("the square code is a real barcode: correct size, corner markers, and error correction that checks out", () => {
+  const link = "http://desk-pc.tail9f3c.ts.net:3210/pair?id=7f4a1c2e-9b10-4d55-8f21-0c3e9a7b6d41";
+  const matrix = encodeQr(link);
+  assert.equal(matrix.size, 21 + 4 * (matrix.version - 1), "the width follows the version");
+  assert.ok(matrix.version >= 4 && matrix.version <= 6, `a link of ${link.length} characters fits a middling version`);
+  // The three corner markers a camera looks for: a 7x7 ring with a 3x3 centre.
+  const corners = [[0, 0], [0, matrix.size - 7], [matrix.size - 7, 0]];
+  for (const [top, left] of corners)
+    for (let y = 0; y < 7; y++)
+      for (let x = 0; x < 7; x++) {
+        const ring = x === 0 || x === 6 || y === 0 || y === 6;
+        const centre = x >= 2 && x <= 4 && y >= 2 && y <= 4;
+        assert.equal(matrix.modules[top + y][left + x], ring || centre, `corner marker at ${top},${left} module ${x},${y}`);
+      }
+  // The dotted lines that tell a camera how big one square is.
+  for (let i = 8; i < matrix.size - 8; i++) {
+    assert.equal(matrix.modules[6][i], i % 2 === 0);
+    assert.equal(matrix.modules[i][6], i % 2 === 0);
+  }
+  assert.equal(matrix.modules[matrix.size - 8][8], true, "the always-dark module is where the standard puts it");
+  assert.equal(capacity(1), 17);
+  assert.equal(capacity(10), maximumQrBytes);
+  assert.throws(() => encodeQr("x".repeat(maximumQrBytes + 1)), /too long/);
+});
+
+test("the error-correction codewords are a true remainder: every check value comes out zero", () => {
+  // A Reed-Solomon codeword must vanish at the first `degree` powers of the field's generator.
+  const exp = new Uint8Array(512), log = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { exp[i] = x; log[x] = i; x = (x << 1) ^ (x & 0x80 ? 0x11d : 0); }
+  for (let i = 255; i < 512; i++) exp[i] = exp[i - 255];
+  const mul = (a, b) => (a && b ? exp[log[a] + log[b]] : 0);
+  const degree = 20;
+  const message = Array.from({ length: 60 }, (_value, index) => (index * 37 + 11) & 0xff);
+  const codeword = [...message, ...remainder(message, degree)];
+  for (let power = 0; power < degree; power++) {
+    let total = 0;
+    for (const byte of codeword) total = mul(total, exp[power]) ^ byte;
+    assert.equal(total, 0, `the codeword vanishes at generator power ${power}`);
+  }
+  assert.equal(generator(7).length, 7);
+});
+
+test("reaching Branch from a phone needs Tailscale, binds only to the private address, and never to everything", async () => {
+  assert.equal(isTailnetAddress("100.101.102.103"), true);
+  assert.equal(isTailnetAddress("192.168.1.5"), false);
+  assert.equal(isTailnetAddress("0.0.0.0"), false);
+  assert.throws(() => assertPrivateAddress("0.0.0.0"), /private Tailscale address/);
+  assert.throws(() => assertPrivateAddress("192.168.0.10"), /private Tailscale address/);
+
+  const running = readStatus(JSON.stringify({
+    BackendState: "Running",
+    Self: { HostName: "desk-pc", DNSName: "desk-pc.tail9f3c.ts.net.", TailscaleIPs: ["100.88.4.9", "fd7a::1"] },
+  }));
+  assert.deepEqual([running.present, running.running, running.address, running.hostname], [true, true, "100.88.4.9", "desk-pc.tail9f3c.ts.net"]);
+  const sleeping = readStatus(JSON.stringify({ BackendState: "Stopped", Self: { HostName: "desk-pc" } }));
+  assert.equal(sleeping.address, null);
+  assert.match(sleeping.message, /not signed in/);
+
+  // Without Tailscale the switch refuses rather than falling back to any other address.
+  const absent = new RemoteAccess("a".repeat(64), async () => ({ present: false, running: false, address: null, hostname: null, message: "Tailscale is not installed on this computer." }));
+  await assert.rejects(absent.enable(() => {}), /not installed/);
+  assert.equal(absent.status().enabled, false);
+  assert.deepEqual(absent.allowedHosts(), []);
+});
+
+test("the Host and Origin checks accept the phone's address only while remote access is on", () => {
+  const url = "http://127.0.0.1:3210";
+  assert.equal(hostAllowed("127.0.0.1:3210", undefined, url), true);
+  assert.equal(hostAllowed("desk-pc.tail9f3c.ts.net:3210", undefined, url), false, "off by default");
+  assert.equal(hostAllowed("desk-pc.tail9f3c.ts.net:3210", undefined, url, ["desk-pc.tail9f3c.ts.net:3210"]), true);
+  assert.equal(hostAllowed("127.0.0.1:3210", "https://evil.example", url), false, "a page elsewhere is refused");
+  assert.equal(hostAllowed(undefined, undefined, url), false);
+  assert.equal(hostAllowed("127.0.0.1:9999", undefined, url), false, "another port is a different app");
+});
+
+test("an invitation lets one phone in once, expires, and dies after a few wrong numbers", () => {
+  let now = 1_700_000_000_000;
+  const pairing = new Pairing("t".repeat(64), () => now);
+  assert.equal(pairing.view(), null);
+  const offer = pairing.create();
+  assert.match(offer.code, /^\d{6}$/);
+  assert.equal(pairing.view().id, offer.id);
+  assert.throws(() => pairing.redeem(offer.id, "000000" === offer.code ? "111111" : "000000"), /not right/);
+  assert.throws(() => pairing.redeem("not-the-offer", offer.code), /not the one/);
+  assert.deepEqual(pairing.redeem(offer.id, offer.code), { token: "t".repeat(64) });
+  assert.throws(() => pairing.redeem(offer.id, offer.code), /expired/, "an invitation is good once only");
+
+  const second = pairing.create();
+  for (let attempt = 0; attempt < maximumAttempts; attempt++)
+    assert.throws(() => pairing.redeem(second.id, second.code === "000000" ? "111111" : "000000"));
+  assert.throws(() => pairing.redeem(second.id, second.code), /expired|Too many/, "the invitation is burnt after too many guesses");
+
+  const third = pairing.create();
+  now += 6 * 60_000;
+  assert.equal(pairing.view(), null);
+  assert.throws(() => pairing.redeem(third.id, third.code), /expired/);
+});
+
+test("the pairing page answers at phone width and asks for the number, not for the key", async () => {
+  const html = await readFile(new URL("../public/pair.html", import.meta.url), "utf8");
+  assert.match(html, /width=device-width/, "it lays out for a phone screen");
+  assert.match(html, /inputmode="numeric"/, "a phone shows the number pad");
+  assert.ok(!/[a-f0-9]{64}/.test(html), "the page never carries the key itself");
+  // The page's own rules must live in a file: the served pages allow no inline styles.
+  assert.ok(!/<style/.test(html), "no inline stylesheet, which the content policy would block");
+  const css = await readFile(new URL("../public/pair.css", import.meta.url), "utf8");
+  assert.match(css, /max-width: 360px/, "the column fits inside 400 pixels");
+  assert.match(css, /box-sizing: border-box/, "padding does not push the column past the screen");
+  const script = await readFile(new URL("../public/pair.js", import.meta.url), "utf8");
+  assert.match(script, /fetch\("\/api\/pair"/);
+  assert.match(script, /sessionStorage\.setItem\("branch-token"/, "the key arrives only after the number is accepted");
+});
+
+test("the pairing door answers only a POST to /api/pair, and hands over the key only for the right number", async () => {
+  const remote = new RemoteAccess("k".repeat(64), async () => ({ present: false, running: false, address: null, hostname: null, message: "no" }));
+  const offer = remote.pairing.create();
+  const request = (method, path, body) => Object.assign(
+    Readable.from([Buffer.from(JSON.stringify(body))]),
+    { method, url: path, headers: { "content-type": "application/json" } });
+  const reply = () => {
+    const sent = { status: 0, body: null };
+    return { sent, writeHead(status) { sent.status = status; }, end(text) { sent.body = text && JSON.parse(text); } };
+  };
+  assert.equal(await pairingRequest(remote, request("GET", "/api/pair", {}), reply(), "/api/pair"), false,
+    "only a POST is a pairing attempt");
+  assert.equal(await pairingRequest(remote, request("POST", "/api/state", {}), reply(), "/api/state"), false,
+    "no other route is opened up");
+  const wrong = reply();
+  await assert.rejects(pairingRequest(remote, request("POST", "/api/pair", { id: offer.id, code: "123456" === offer.code ? "654321" : "123456" }), wrong, "/api/pair"), /not right/);
+  assert.equal(wrong.sent.status, 0, "nothing is sent back on a wrong number");
+  const right = reply();
+  assert.equal(await pairingRequest(remote, request("POST", "/api/pair", { id: offer.id, code: offer.code }), right, "/api/pair"), true);
+  assert.deepEqual(right.sent.body, { token: "k".repeat(64) });
+});
+
+test("the pairing door is shut on this computer's own address", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
+  const app = await branchIn(t, root);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  const response = await fetch(`${server.url}/api/pair`, {
+    method: "POST", headers: { "content-type": "application/json", origin: server.url },
+    body: JSON.stringify({ id: "anything", code: "000000" }),
+  });
+  assert.equal(response.status, 401, "without the session key the ordinary door still refuses");
+  const settings = await fetch(`${server.url}/api/deployment`, { headers: { origin: server.url } });
+  assert.equal(settings.status, 401);
+  const allowed = await fetch(`${server.url}/api/deployment`, {
+    headers: { origin: server.url, authorization: `Bearer ${server.token}` },
+  });
+  assert.equal(allowed.status, 200);
+  // The settings card's own check must not call the address Branch is listening on a problem.
+  const checked = await fetch(`${server.url}/api/deployment/doctor`, {
+    headers: { origin: server.url, authorization: `Bearer ${server.token}` },
+  });
+  assert.equal(checked.status, 200);
+  const address = (await checked.json()).checks.find((check) => check.name === "Address on this computer");
+  assert.equal(address.ok, true, "the address Branch is already using is not reported as blocked");
+  assert.match(address.summary, /which is what we want/);
+  const body = await allowed.json();
+  assert.equal(body.installed, false, "running from source, so the switches say so");
+  assert.equal(body.remote.enabled, false);
+  assert.match(body.remote.message, /off/i);
+});
+
+// ---------------------------------------------------------------- P4: a safety copy before every update
+
+test("an update takes a safety copy first, keeps three, and stops when the copy cannot be made", async (t) => {
+  const root = await scratch(t);
+  const dataDir = join(root, "data");
+  await mkdir(dataDir, { recursive: true });
+  const archive = { format: "branch-agent-backup", version: 1, exportedAt: new Date().toISOString(), appVersion: "0.1.0", tables: {} };
+  for (const [index, version] of ["0.1.0", "0.2.0", "0.3.0", "0.4.0"].entries())
+    await writeUpdateBackup(dataDir, { ...archive, appVersion: version }, version, new Date(Date.UTC(2026, 0, index + 1)));
+  const points = await listUpdateBackups(dataDir);
+  assert.deepEqual(points.map((point) => point.version), ["0.4.0", "0.3.0", "0.2.0"], "three are kept, newest first");
+  assert.equal((await readdir(join(dataDir, "update-backups"))).length, 3);
+  assert.equal((await readUpdateBackup(dataDir, points[0].name)).appVersion, "0.4.0");
+  await assert.rejects(readUpdateBackup(dataDir, "../secrets.json"), /not a safety copy/);
+  assert.deepEqual(backupsToPrune([
+    backupFileName("1", new Date(Date.UTC(2026, 0, 1))), backupFileName("2", new Date(Date.UTC(2026, 0, 2))),
+    backupFileName("3", new Date(Date.UTC(2026, 0, 3))), backupFileName("4", new Date(Date.UTC(2026, 0, 4))),
+    "someone-elses-file.json",
+  ]), [backupFileName("1", new Date(Date.UTC(2026, 0, 1)))]);
+
+  // The updater asks for the copy before it writes the hand-over script, and gives up when it fails.
+  const taken = [];
+  const install = join(root, "installed");
+  await mkdir(install, { recursive: true });
+  const updater = (backup) => new Updater({
+    repo: "x/y", currentVersion: "1.0.0", installDir: install, executableName: "Branch Agent.exe",
+    assetName: "app.zip", scratchDir: join(root, `scratch-${taken.length}-${randomUUID()}`),
+    fetch: fakeRelease(), extract: async (_archive, into) => {
+      await mkdir(join(into, "app"), { recursive: true });
+      await writeFile(join(into, "app", "Branch Agent.exe"), "new");
+    },
+    backup,
+  });
+  const good = await updater(async () => { taken.push("copy"); }).install();
+  assert.deepEqual(taken, ["copy"], "the copy is taken before the hand-over script is written");
+  assert.ok((await readFile(good.script, "utf8")).includes(".previous"), "the hand-over still keeps the previous version");
+  await assert.rejects(
+    updater(async () => { throw new Error("the disk is full"); }).install(),
+    /safety copy could not be made.*the disk is full/s,
+    "an update without something to go back to is refused");
+});
+
+test("a version that did not come up cleanly is remembered, so the update screen can offer a way back", async (t) => {
+  const root = await scratch(t);
+  assert.equal(await readFirstStart(root), null);
+  const first = await recordFirstStart(root, "0.9.0", true);
+  assert.deepEqual([first.version, first.previousVersion, first.healthy], ["0.9.0", null, true]);
+  assert.deepEqual(await recordFirstStart(root, "0.9.0", false), first, "a later start of the same version changes nothing");
+  const second = await recordFirstStart(root, "1.0.0", false);
+  assert.deepEqual([second.version, second.previousVersion, second.healthy], ["1.0.0", "0.9.0", false]);
+});
+
+test("putting back a safety copy replaces what is there; an ordinary restore still refuses to", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
+  const app = await branchIn(t, root);
+  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  const owner = app.runtime.owner;
+  await app.runtime.run({ prompt: "say hello" }); // a real conversation, so this copy is not empty
+  app.store.save("settings", owner, "before-update", { kept: true });
+  const snapshot = app.store.backup(app.version);
+  app.store.save("settings", owner, "after-update", { kept: false });
+  assert.ok(app.store.get("settings", owner, "after-update"));
+  assert.throws(() => app.store.restore(snapshot), /already has conversations|fresh install/,
+    "a plain restore still refuses to write over work that is already here");
+  const result = app.store.restore(snapshot, { replaceExisting: true });
+  assert.ok(result.rows > 0);
+  assert.ok(app.store.get("settings", owner, "before-update"), "the older saved work is back");
+  assert.equal(app.store.get("settings", owner, "after-update"), undefined, "what came after is gone");
+});
+
+// ---------------------------------------------------------------- P6: setting-up help
+
+test("doctor --fix reports each problem in plain words and repairs what it can", async () => {
+  const report = await doctorFix(
+    { fix: false, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false },
+    { run: async (file) => { if (file === "git") throw new Error("not found"); return ""; }, portFree: async (port) => port !== 3210 },
+  );
+  assert.equal(report.ok, false);
+  const byName = Object.fromEntries(report.checks.map((check) => [check.name, check]));
+  assert.equal(byName.Git.ok, false);
+  assert.match(byName.Git.fix, /git-scm\.com/);
+  assert.equal(byName["Web browsing"].ok, false);
+  assert.match(byName["Address on this computer"].summary, /already using address 3210/);
+  assert.match(byName["Address on this computer"].fix, /BRANCH_PORT to 3211/, "it names free addresses to use instead");
+  assert.equal(byName["Your files folder"].ok, true);
+  assert.ok(!/\b(TTS|daemon|binary|stdout|localhost)\b/.test(doctorText(report)), "no jargon reaches the person");
+  assert.match(doctorText(report), /branch doctor --fix/);
+
+  const installed = [];
+  const repaired = await doctorFix(
+    { fix: true, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false },
+    { run: async (file, args) => { installed.push([file, ...args].join(" ")); return ""; }, portFree: async () => true },
+  );
+  assert.deepEqual(repaired.repaired, ["Web browsing"]);
+  assert.ok(installed.includes("npx playwright install chromium --only-shell"));
+  assert.equal(repaired.ok, true);
+});
+
+/** A stand-in for GitHub Releases: one small download whose published checksum matches. */
+function fakeRelease() {
+  const bytes = Buffer.from("pretend zip");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  return async (url) => {
+    if (String(url).includes("releases/latest"))
+      return new Response(JSON.stringify({
+        tag_name: "v2.0.0", name: "Branch Agent 2.0.0", body: "", published_at: null,
+        html_url: "https://github.com/x/y/releases/tag/v2.0.0",
+        assets: [
+          { name: "app.zip", browser_download_url: "https://example.invalid/app.zip", size: bytes.length },
+          { name: "app.zip.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    if (String(url).endsWith("app.zip")) return new Response(bytes, { status: 200 });
+    return new Response(`${digest}  app.zip\n`, { status: 200 });
+  };
+}

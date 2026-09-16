@@ -12,12 +12,14 @@ const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea
 
 export function registerUpdaterIpc(
   window: BrowserWindow, origin: string, version: string, requestQuit: () => void,
+  backup?: () => Promise<void>,
 ): Updater {
   const updater = new Updater({
     ...updateSource,
     currentVersion: version,
     installDir: app.isPackaged ? dirname(process.execPath) : null,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
+    ...(backup ? { backup } : {}),
   });
   const authorized = (event: IpcMainInvokeEvent) => {
     if (event.sender !== window.webContents ||

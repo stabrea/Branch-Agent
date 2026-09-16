@@ -50,13 +50,24 @@ export function hasState(db: DatabaseSync): boolean {
   return count("sessions") > 0 || count("memory") > 0 || count("installed_skills") > 0;
 }
 
+export interface RestoreOptions {
+  /**
+   * Empties the backed-up tables first, so a safety copy can be put back over work that is already
+   * there. Only the update screen uses it, and only after a new version failed its first health check.
+   */
+  replaceExisting?: boolean;
+}
+
 /** Inserts every row of the archive into a fresh install, in one transaction; unknown columns are refused. */
-export function importBackup(db: DatabaseSync, input: unknown): { tables: number; rows: number } {
+export function importBackup(db: DatabaseSync, input: unknown, options: RestoreOptions = {}): { tables: number; rows: number } {
   const archive = parseBackupArchive(input);
-  if (hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
+  if (!options.replaceExisting && hasState(db)) throw new Error("This copy already has conversations, memory or skills. Restore into a fresh install (empty data folder) instead.");
   let tables = 0, rows = 0;
   db.exec("BEGIN");
   try {
+    if (options.replaceExisting)
+      for (const table of [...backupTables].reverse())
+        if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;
