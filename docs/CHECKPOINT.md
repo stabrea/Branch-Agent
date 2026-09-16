@@ -1607,6 +1607,44 @@ those jobs spend one to two rounds finding tools, and never a wasted one). `Tool
 `src/catalog.ts` is no longer on the production path — nothing constructs it outside the tests, which
 keep it as the measuring stick the savings are quoted against.
 
+## Batch 26 (wave 8) — finishing the rows the ledger verification re-opened
+
+The 2026-09-17 verification (`docs/audit/verification-2026-09-17.md`) re-opened 24 ticked audit ids
+whose code was partial or missing. Fifteen are now built and pinned by `tests/reopened.test.mjs`
+(17 tests, one or two per id, each asserting the behaviour rather than that a symbol exists); nine
+are written down instead — seven as deliberate non-goals under "What Branch is not" in
+`docs/configuration.md`, and two as patterns this codebase already covers another way.
+
+**Secrets.** `src/credential-cli.ts` resolves `secret://bitwarden/<item>` and
+`secret://1password/<vault/item/field>` through the owner's own `bw` and `op` command lines at the
+call boundary, remembers every value in the shared scrubber and stores none. Off by default,
+per-service opt-in, read-only, and a plain refusal when the command line is absent or the vault is
+locked. `Secrets.fill` asks it before the locker, so a vault item never reads as a project name.
+
+**Policy.** An approval rule now carries a `sandbox` choice (`no-internet`, `limits-only`, `none`,
+`src/sandbox.ts`) that reaches the tool on `ToolContext` and is honoured by `code.run`,
+`process.start` and the host-command tool; a rule that says nothing leaves every tool exactly as it
+was. A host command no rule matches is now **asked** rather than run, with `remember: always` so one
+yes settles that command — the one behaviour change an existing owner will notice, written up as a
+migration note. A `tool.before` lifecycle hook may answer `{decision, reason}` and turn an allow
+into a question or a refusal; it can only make the answer stricter, and a check that times out holds
+the call rather than letting it through. Household profiles have roles (owner, adult, child) with
+grants — which tool kinds, which projects, a daily allowance — enforced at the top of `checkPolicy`.
+
+**Seeing what happened.** Windows' own privacy switches are read before the screen and the
+microphone (`src/os-permissions.ts`), with one plain sentence and the `ms-settings:` link when one is
+missing; only an outright refusal stops anything. The terminal prints what each answer cost under it
+(the running totals were already on the status line, in `src/terminal-commands.ts`). "Look inside"
+has **Do this again**: `POST /api/runs/{id}/replay` re-runs the same prompt with the same recorded
+permissions and the same model preset, and the pair opens on the existing side-by-side screen.
+
+**Orchestration.** `delegate.supervise` (a named supervisor over named workers, with the goal-split
+kept as its own separately tested function), `delegate.swarm` (several workers over one shared
+claim-and-release list) and `delegate.route` (classify, then dispatch). `delegate.handoff` takes a
+reason that is written into the conversation, and the owner can write down who each specialist may
+hand work on to. A per-turn second model, a separate decomposition step and a sequential
+action-planning node inside a role loop are documented as not built rather than half-built.
+
 ## Batch 26 (wave 7) — the hardening pass: closing the gaps the integrators handed back
 Twelve specific things the reviewers wrote down as "not fixed". Every one is now fixed and pinned
 by a test in `tests/hardening.test.mjs` (17 tests: fakes, plus the real stdio MCP fixture).

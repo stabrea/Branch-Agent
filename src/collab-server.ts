@@ -6,6 +6,7 @@ import type { RunOptions } from "./runtime.js";
 import { ShareRequestSchema, ShareLinkSchema } from "./conversation-share.js";
 import { labelTargets } from "./labels.js";
 import { PolicyRememberSchema } from "./policy.js";
+import { roleLabels } from "./profile-roles.js";
 
 /**
  * The web routes for sharing, labels and notes, saved workflows, the waiting line for tasks, days
@@ -145,12 +146,21 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const profiles = app.store.profiles;
   if (request.method === "GET" && path === "/api/profiles")
-    return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner() };
+    return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(),
+      // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
+      roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
   if (request.method === "POST" && path === "/api/profiles") {
     profiles.requireOwner("Adding somebody to this computer");
     return profiles.create(await body());
   }
   if (request.method === "POST" && path === "/api/profiles/switch") return profiles.switch(await body());
+  // The role and grant on one profile. Only the owner may set what anybody else is allowed to do.
+  const role = new RegExp(`^/api/profiles/(${idPattern})/role$`).exec(path);
+  if (role && request.method === "POST") {
+    profiles.requireOwner("Deciding what somebody here may do");
+    return app.runtime.roles.save(role[1]!, await body());
+  }
+  if (role && request.method === "GET") return app.runtime.roles.get(role[1]!);
   const remove = new RegExp(`^/api/profiles/(${idPattern})/remove$`).exec(path);
   if (remove && request.method === "POST") {
     profiles.requireOwner("Removing somebody from this computer");

@@ -20,6 +20,8 @@ export const auditActions = [
   // A drafted skill switched on without the trial it is meant to pass first. Only the owner can
   // do it, only by saying so in as many words, and it is written down every time.
   "skill.forced",
+  // Batch 26 (wave 8): one of the owner's own checks stopped a tool call, or held it for a yes.
+  "hook.blocked",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -67,6 +69,7 @@ const actionLabels: Record<AuditAction, string> = {
   "mcp.tried": "You tried out another AI tool's server",
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
+  "hook.blocked": "One of your own checks stopped something, or asked you about it first",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

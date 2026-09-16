@@ -28,6 +28,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { RunArtifacts } from "./artifacts.js";
 import type { WebhookNotifier } from "./webhooks.js";
+import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
@@ -51,6 +52,10 @@ import {
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
+import { ProfileRoles, grantRefusal } from "./profile-roles.js";
+import { Handoffs } from "./orchestration-modes.js";
+import { categoryOf } from "./tool-categories.js";
+import type { SandboxChoice } from "./sandbox.js";
 import { Tracer } from "./tracing.js";
 import { audit } from "./audit.js";
 import {
@@ -87,7 +92,13 @@ export interface PolicyCheck {
   readOnly: boolean;
   /** What a yes to this would be remembered as, unless the person picks differently. */
   remember: PolicyRemember;
+  /** How tightly the rule that matched wants a program held; null when it did not say. */
+  sandbox: SandboxChoice | null;
+  /** Why this was refused, when the reason is something other than the approval rules. */
+  reason?: string;
 }
+/** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
+interface GateOutcome { refusal: unknown | null; sandbox: SandboxChoice | null }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
@@ -197,12 +208,21 @@ export class Runtime {
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
   /**
+   * Asks the owner's own checks whether a tool call may go ahead. `createBranch` connects the
+   * lifecycle hooks; on its own nobody has an opinion and every call goes as the policy said.
+   */
+  askHooks: (runId: string, about: Record<string, unknown>) => Promise<HookDecision | null> = async () => null;
+  /**
    * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
    */
   hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
+  /** What each person who shares this computer may have Branch do. The owner is not held to it. */
+  readonly roles: ProfileRoles;
+  /** Who each specialist may hand work on to; empty means anybody, as it always did. */
+  readonly handoffs: Handoffs;
   /** The shape of each task while it runs: one trace per task, a span per round, call and sub-task. */
   readonly tracer: Tracer;
   private readonly rates: RateLimiter;
@@ -227,6 +247,8 @@ export class Runtime {
     this.orchestration = new Orchestration(store, this.owner, workspace);
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
+    this.roles = new ProfileRoles(store, this.owner);
+    this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
   }
   /**
@@ -548,6 +570,8 @@ export class Runtime {
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
+      permissions: [...context.permissions].sort(),
     });
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
@@ -1388,6 +1412,10 @@ export class Runtime {
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
     const resource = resourceOf(tool, permission, target, args);
+    // Somebody else in the house, working under their own profile, is held to their role first.
+    // A role can only refuse; it never lets anything through that the rules would have stopped.
+    const refusal = this.roleRefusal(tool, permission);
+    if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, reason: refusal };
     const { decision, rule } = evaluatePolicy(this.policy(source), { tool, target, readOnly, resource });
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
@@ -1395,7 +1423,24 @@ export class Runtime {
     const answered = decision === "ask"
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
     return { decision: answered ?? decision, label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session" };
+      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      sandbox: rule?.sandbox ?? null };
+  }
+  /**
+   * Why the person using this app right now may not have that done, or null. The owner is never
+   * held to anything here; somebody else in the house is held to the role and the grant the owner
+   * gave their profile — which kinds of thing, which projects, and how much a day.
+   */
+  private roleRefusal(tool: string, permission: string): string | null {
+    const profile = this.store.profiles.active();
+    if (!profile) return null;
+    const grant = this.roles.get(profile.id);
+    const spentToday = grant.dailySpendLimit > 0
+      ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
+      : 0;
+    return grantRefusal(grant, profile.name, {
+      category: categoryOf(tool, permission), project: this.store.projects.active(this.owner).id, spentToday,
+    });
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
@@ -1439,22 +1484,28 @@ export class Runtime {
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
-  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<unknown | null> {
+  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<GateOutcome> {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision, label, target, readOnly, remember } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision: ruled, label, target, readOnly, remember, sandbox, reason } = this.checkPolicy(call.name, args, context, fingerprint);
     if (context.dryRun && !readOnly) {
-      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision });
-      return simulatedResult(label);
+      this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
+      return { refusal: simulatedResult(label), sandbox };
     }
-    if (decision === "allow") return null;
+    // The owner's own checks get a say before the call goes ahead. A check may only make the answer
+    // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
+    const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
+    const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
+    if (decision === "allow") return { refusal: null, sandbox };
     if (decision === "deny") {
-      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target });
-      return { ok: false, error: refusedByPolicy(label) };
+      this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
+        ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
+      return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, sandbox };
     }
     const source: RunSource = context.source ?? "owner";
-    return this.askApproval(context, { tool: call.name, label, target, source, remember,
+    const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
+    return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
@@ -1464,6 +1515,8 @@ export class Runtime {
     context: ToolContext,
     about: {
       tool: string; label: string; target: string; source: RunSource; remember: PolicyRemember;
+      /** How tightly the rule wants the program held, so the card can say it before the yes. */
+      sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
       bytes?: string; fingerprint?: string;
     },
@@ -1477,12 +1530,13 @@ export class Runtime {
     const sessionId = this.sessionOf(context);
     this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
+      ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
   }
   /**
@@ -1658,9 +1712,12 @@ export class Runtime {
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
     const gated = await this.gate(call, args, context);
-    if (gated) return gated;
+    if (gated.refusal) return gated.refusal;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
-    const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
+    // How tightly a program this call starts is held travels with the call, so a tool that starts
+    // one can honour the owner's rule without knowing anything about the policy.
+    const scoped: ToolContext = { ...context, signal: AbortSignal.any([context.signal, timeout]),
+      ...(gated.sandbox ? { sandbox: gated.sandbox } : {}) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),

@@ -10,10 +10,13 @@ import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
 import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
+import { CredentialResolver } from "./credential-cli.js";
+import { OsPermissions, probeReader } from "./os-permissions.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
+import { registerOrchestrationModes } from "./orchestration-modes.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -213,6 +216,11 @@ export async function createBranch(options: {
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
+  // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
+  // there looks like nothing happening at all. The screen is probed by asking for the window list;
+  // the microphone and the camera are read out of what the person already chose.
+  const osPermissions = new OsPermissions(probeReader(() => desktop.probe()));
+  desktop.permissions = osPermissions;
   registerDesktop(registry, desktop);
   // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
   // The page half is filled in later, if and when a browser is configured for this launch.
@@ -232,6 +240,11 @@ export async function createBranch(options: {
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();
+  // Batch 26 (wave 8): the owner's own password manager, asked at the call boundary and only when
+  // they have switched it on. It waits for the same unlock the locker does.
+  const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
+  credentials.gate = () => sessionLock.require();
+  store.secrets.credentials = credentials;
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -270,6 +283,9 @@ export async function createBranch(options: {
   registerKnowledge(registry, knowledge);
   // Working with several specialists at once, handing work over, and the shared scratch area.
   registerOrchestration(registry, runtime, knowledge);
+  // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
+  // that sorts a request to the one specialist it belongs to.
+  registerOrchestrationModes(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -385,6 +401,9 @@ export async function createBranch(options: {
   runtime.notifyEvent = guardedNotify;
   channels.deliveries.notifyEvent = guardedNotify;
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
+  // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
+  // make the answer stricter — hold it for a yes, or refuse it.
+  runtime.askHooks = (runId, about) => hooks.decide(runId, about);
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
@@ -579,6 +598,8 @@ export async function createBranch(options: {
     artifacts,
     /** The screen and keyboard of this computer, and the switch that has to be on to use them. */
     desktop,
+    /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
+    osPermissions,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
@@ -894,6 +915,12 @@ export * from "./code-change.js";
 export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
+export * from "./credential-cli.js";
+export * from "./sandbox.js";
+export * from "./os-permissions.js";
+export * from "./profile-roles.js";
+export * from "./replay.js";
+export * from "./orchestration-modes.js";
 export * from "./flows.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";

@@ -161,6 +161,32 @@ export function inspectButton(runId) {
   node.addEventListener("click", () => void openInspector(runId));
   return node;
 }
+/**
+ * "Do this again": runs the same task a second time — the same words, the same tools, the same
+ * model — and puts the two side by side on the screen that already compares two tasks.
+ */
+async function replay() {
+  const runId = current?.run?.id;
+  if (!runId) return;
+  const button = $("inspect-replay");
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/runs/${runId}/replay`, {
+      method: "POST",
+      headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || ""), "content-type": "application/json" },
+      body: "{}",
+    });
+    const done = await response.json();
+    if (!response.ok) throw new Error(done.error || "Request failed");
+    close();
+    await globalThis.branchCompare?.showPair(done.original, done.replay);
+  } catch (error) {
+    globalThis.toast?.(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+$("inspect-replay").addEventListener("click", () => void replay());
 $("inspect-close").addEventListener("click", close);
 $("inspect-export").addEventListener("click", save);
 $("inspect-trajectory").addEventListener("click", () => void saveTrajectory());

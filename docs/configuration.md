@@ -2719,6 +2719,167 @@ tools: `memory.tidy` and `memory.keep` under `memory.write`,
 `documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
 `documents.write`.
 
+## What Branch is not (batch 26, wave 8)
+
+Branch Agent is one person's assistant on one Windows computer. A number of things the ledger asked
+for belong to a hosted product with many customers, or to another operating system, and they are not
+going to be built. They are written down here so nobody goes looking for them.
+
+- **No macOS screen control.** The screen and keyboard tools drive Windows windows through UI
+  Automation; there is no macOS accessibility equivalent, and this app only ships for Windows.
+- **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
+  to the room waiting for its name, because that means a microphone open all day.
+- **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
+  your own data. There are no connectors to Postgres, Redis, Qdrant, Pinecone, Chroma, Weaviate,
+  MongoDB or Azure, because that would mean sending what you said to a server somewhere else.
+- **No crash reporting service.** Nothing is sent to Sentry or anywhere like it. Problems are
+  recorded in the traces and counters on this computer, where only you can read them.
+- **No company sign-in.** There is no OpenID Connect, no single sign-on and no identity provider.
+  The people who share this computer get named profiles with a PIN, and that is all.
+- **No security keys.** There is no WebAuthn, no passkey and no fingerprint sign-in. The app is
+  reached over a key on this computer or over your own private Tailscale address.
+- **No invitations.** Accounts are not handed out. Nobody signs up; you create a profile for someone
+  in this house and that is the whole of it.
+
+## Passwords from the password manager you already have (batch 26, wave 8)
+
+Branch can read a password out of Bitwarden or 1Password instead of keeping a copy of its own. You
+write a reference where the password would go — `secret://bitwarden/GitHub Deploy`, or
+`secret://1password/Private/GitHub/password` — and the real value is asked of that program's own
+command line at the moment it is handed over, then taken straight back out of the transcript, the
+traces, the receipts and any error message. Nothing is ever stored.
+
+It is off until you turn it on, and then only for the vaults you tick. Branch only ever reads: it
+never writes to a vault, never unlocks one and never signs in for you. If the command line is not
+installed, or the vault is locked, Branch says so plainly and stops — it does not guess and does not
+fall back to anything else.
+
+Settings: `enabled` (off by default), `services` (`bitwarden`, `1password`), `bitwardenCommand`
+(`bw`), `onePasswordCommand` (`op`) and `timeoutMs`. New routes: `GET|POST
+/api/credentials/settings`. The look-up waits for the same unlock the secrets locker does, so a
+locked app reads nothing.
+
+## How tightly a program is held (batch 26, wave 8)
+
+An approval rule can now say how a program Branch starts should be held, as well as whether to allow
+it. There are three choices: **in a box with no way out to the internet** (Windows holds it to its
+memory and processor limits, and it is pointed at a dead address), **in a box** (the same limits, but
+it may reach the internet), and **no box** (the tool's own limits only). A rule that says nothing
+leaves the tool doing exactly what it did before, so nothing changes until you choose.
+
+The choice is on the rule as `sandbox` (`no-internet`, `limits-only`, `none`), it is shown on the
+approval card before you answer, and `code.run`, `process.start` and the host-command tool all
+honour it — the result each of them hands back says which box it actually ran in. It is not a
+security boundary: the program still runs on this computer as you. It is you deciding how much rope
+one tool gets.
+
+## Your own checks, before something happens (batch 26, wave 8)
+
+A hook used to be told about things after they had already happened. There is now one more moment,
+`tool.before`, which happens *before* a tool call goes ahead — and a hook registered for it can stop
+the call. It prints one line of JSON: `{"decision":"ask","reason":"..."}` holds the call and puts the
+question to you with that reason attached; `{"decision":"deny","reason":"..."}` refuses it outright
+and the reason goes back to the assistant; anything else leaves the decision alone.
+
+A check may only make the answer stricter. It can turn a yes into a question or a refusal; it can
+never turn a refusal into a yes, and it is not consulted at all on something your settings already
+said no to. If the check takes longer than its `timeoutMs` or falls over, the call is held for a yes
+rather than let through, unless you set `onTimeout` to `allow` on that hook. Every time a check
+changes what happened, it is written into "What the assistant was allowed to do".
+
+## What each answer cost, in the terminal (batch 26, wave 8)
+
+The status line at the bottom of `branch chat` has always carried the running totals for the whole
+conversation — the model in use, tokens in and out, the money so far, and which approval preset is
+on. Each answer now also prints one dim line under it saying what that answer alone used and cost,
+so a single expensive turn is visible without doing the subtraction yourself. Nothing is printed
+when no tokens were counted.
+
+## What Windows itself allows (batch 26, wave 8)
+
+Branch's own switches are not the only ones. Windows keeps its own, under Settings, Privacy &
+security, and when Windows says no a program just sees nothing happen. Branch now asks first: before
+it touches your screen it checks whether Windows will let it take hold of another program's window,
+and the microphone and camera are read out of what you already chose. A refusal is one plain
+sentence naming the page that turns it on (`ms-settings:privacy-microphone`,
+`ms-settings:privacy-webcam`, `ms-settings:privacy-graphicscaptureprogrammatic`).
+
+Only an outright "no" stops anything: a computer that keeps no such setting answers "nothing to say"
+and Branch carries on exactly as before. New route: `GET /api/os-permissions`. Branch never asks
+Windows to grant a permission — only you can do that.
+
+## Commands nobody has ruled on (batch 26, wave 8)
+
+A command on this computer is the one thing that can do absolutely anything, including things none
+of Branch's own tools offer. Until now, a command that no rule mentioned was simply run. It is now
+put to you instead, whatever preset you are on, and answering yes writes a standing rule for that
+command — so it is one question the first time and nothing afterwards.
+
+**What changes for you.** If you have been using Branch already, the first time it wants to run each
+kind of command you will see one extra question, naming the command. Say "yes, always" and you will
+not be asked about that one again. Nothing else changed: a file, a web page or a message that no
+rule mentions is still simply allowed, exactly as before. If you would rather have the old behaviour
+back, set `unmatchedCommands` to `allow` on the approval settings; the rules you already have are
+untouched either way.
+
+## What each person here may do (batch 26, wave 8)
+
+A profile already keeps one person's conversations and saved facts apart from everybody else's. It
+now also says what they may have Branch do. There are three roles. **Owner** may do anything.
+**Adult** may read, write files, run commands, use web pages and send messages, but may not change
+how Branch is set up and may not spend money. **Child** may look things up and answer questions, and
+nothing else.
+
+Alongside the role, the owner can hold a profile to particular projects and to a daily allowance.
+All three are checked at the tool boundary, in the same place the approval rules are checked, so
+there is no way round them; a refusal is one plain sentence naming the person and what is missing. A
+grant can only narrow what a role allows, never widen it, and the owner is never held to any of it.
+Each person's card on the People screen shows their role and what they are held to.
+
+New routes: `GET|POST /api/profiles/{id}/role` (only the owner may set one). The grant is
+`{ role, categories, projects, dailySpendLimit }`; `categories` uses the same seven kinds the
+approval settings group tools by.
+
+## Doing a task again, and reading the difference (batch 26, wave 8)
+
+"Look inside" now has a **Do this again** button. It runs the same task a second time — the same
+words, the same tools it had, the same model that answered it — in a conversation of its own, so the
+second answer is not shaped by the first. The two then open side by side on the screen that already
+compares two tasks: what each cost, how long each took, how many rounds and tools each used, and the
+difference between the two answers line by line.
+
+This is how a change to a prompt, a model or a set of rules is judged: run the same thing twice and
+read the difference, rather than remembering what it did last week. What each task was allowed to
+reach is now recorded when it starts, which is what makes "the same tools" a real promise. New
+route: `POST /api/runs/{id}/replay`.
+
+## More ways to put several specialists on one job (batch 26, wave 8)
+
+Three new tools, all over the fan-out engine that was already there. Every sub-task goes through the
+same budget, the same approval rules and the same record as any other delegated task.
+
+- **`delegate.supervise`** — one specialist you name is put in charge. It splits the job between the
+  workers you name, they do their parts at the same time, and it writes the one answer that comes
+  back. The splitting is its own piece of the code, so a split can be read and checked on its own,
+  and work given to somebody who is not on the team is dropped rather than guessed at.
+- **`delegate.swarm`** — several specialists work down one shared list of things to do. Each takes
+  the next item nobody else is holding, and anything a worker cannot finish goes back on the list
+  for somebody else rather than being lost.
+- **`delegate.route`** — works out which one of several specialists a request belongs to, from a
+  short description of what each one is for, then hands it straight to that one.
+
+**Handing work on.** `delegate.handoff` now takes a reason, and the handover is written into the
+conversation — "Handed over from X to Y: why" — so a person reading it afterwards can see the work
+change hands. You can also write down who each specialist may hand work on to; with a list, a
+handover to anybody else is refused in plain words, and without one nothing changes.
+
+**Not built, deliberately.** Three things the ledger asked for here are not in Branch and are not
+planned: a second model on its own context putting notes into every turn of a task; a separate
+"turn this design into tasks" step beyond the plan the assistant already makes; and a sequential
+action-planning step inside a role loop. Each would be a second engine beside the plan-and-fan-out
+one that already does this work, which is complication without a matching gain for one person's
+assistant.
+
 ## The long tail: the API description, kept answers, whole sets, Lockdown, branches and projects (batch 21, wave 8)
 
 This section closes the "other" theme of the capability audit. Some of it is new, some of it points

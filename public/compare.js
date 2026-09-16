@@ -162,4 +162,12 @@ export function compareButton(runId) {
   return node;
 }
 
-globalThis.branchCompare = { button: compareButton };
+/** Puts two named tasks side by side straight away, without picking them off the Activity list. */
+export async function showPair(first, second) {
+  chosen = [first, second];
+  for (const node of document.querySelectorAll(".compare-pick"))
+    node.setAttribute("aria-pressed", String(chosen.includes(node.dataset.runId)));
+  await draw();
+}
+
+globalThis.branchCompare = { button: compareButton, showPair };

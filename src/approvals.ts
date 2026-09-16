@@ -1,5 +1,6 @@
 import { errorText } from "./contracts.js";
 import type { PolicyRemember, RunSource } from "./policy.js";
+import type { SandboxChoice } from "./sandbox.js";
 
 /**
  * The runtime side of the approval policy: the questions a paused task is waiting on, the answers
@@ -18,6 +19,8 @@ export interface PendingApproval {
   source: RunSource;
   /** What the rule suggests remembering if the person says yes. */
   remember: PolicyRemember;
+  /** How tightly the rule wants the program held, when it said; shown on the card before the yes. */
+  sandbox?: SandboxChoice;
   askedAt: string;
   /**
    * The exact bytes of the request, with saved passwords and keys taken out, as shown on screen,

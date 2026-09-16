@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sandboxSentences, type SandboxChoice } from "./sandbox.js";
 
 /**
  * What a rule is *about*, beyond the tool's name: a folder in the workspace, a website, a messaging
@@ -114,6 +115,8 @@ const prepositions: Record<ResourceKind, string> = { path: "under", host: "on", 
 export function ruleSentence(rule: {
   tool: string; match: string; applies: "any" | "changes"; decision: "allow" | "ask" | "deny";
   resource?: ResourceMatcher | undefined;
+  /** How tightly a program the rule covers is held, when the owner chose. */
+  sandbox?: SandboxChoice | undefined;
 }): string {
   const opening = rule.decision === "allow" ? "Always allow" : rule.decision === "deny" ? "Never allow" : "Ask before";
   const { words, bareHost } = action(rule.tool, rule.applies);
@@ -122,5 +125,6 @@ export function ruleSentence(rule: {
     : rule.match && rule.match !== "*"
       ? `when it is ${rule.match}`
       : "";
-  return `${opening} ${words}${where ? " " + where : ""}.`;
+  const held = rule.sandbox ? ` Run it ${sandboxSentences[rule.sandbox]}.` : "";
+  return `${opening} ${words}${where ? " " + where : ""}.${held}`;
 }

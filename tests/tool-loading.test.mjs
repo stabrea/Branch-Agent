@@ -163,7 +163,11 @@ test("searching ranks an exact name, plain words and everyday synonyms", async (
     ["pull the Ollama model", "models."], ["open my calendar", "schedules."], ["read that PDF", "documents."],
     ["check Discord", "channels."], ["commit my work and push it", "git."], ["chart the sales spreadsheet", "data."],
     ["remind me tomorrow morning", "schedules."], ["look something up on the web", "web."],
-    ["delegate this to a specialist", "specialists."], ["write a file", "files.write"],
+    // Batch 26 (wave 8) added delegate.supervise, delegate.swarm and delegate.route beside
+    // delegate.handoff, and handing work to a named specialist is what those are for, so that is
+    // now the right answer to this one. Making a specialist is still what specialists.* is for.
+    ["delegate this to a specialist", "delegate."], ["make a new specialist", "specialists."],
+    ["write a file", "files.write"],
     ["sign me in to a website", "browser."], ["transcribe this recording", "media.transcribe"],
   ];
   assert.ok(table.length >= 12);

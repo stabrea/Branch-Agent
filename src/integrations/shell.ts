@@ -6,6 +6,7 @@ import { ShellConfigSchema, ShellInputSchema, shellEnvironment, netlessEnvironme
 import { ShellProcess, type ProcessResult } from './shell-process.js';
 import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
+import { sandboxShape, shapeChoice } from '../sandbox.js';
 
 /** Longest a command waits for its Windows job object before running with sampled limits. */
 const jobStartupMs = 1000;
@@ -53,13 +54,17 @@ export class BranchShell {
     if (input.timeoutMs && input.timeoutMs > this.config.timeoutMs) throw new Error('Command timeout exceeds configured maximum');
     signal.throwIfAborted();
     const injected = await this.injected(input.secrets, context);
-    const netless = input.netless ?? this.config.netless;
-    const job = await this.job();
+    // An approval rule may say how tightly this command is held; without one the shell settings and
+    // the call's own `netless` decide, exactly as they did before rules could say anything about it.
+    const shape = sandboxShape(context.sandbox,
+      { job: this.config.useJobObject, netless: input.netless ?? this.config.netless });
+    const netless = shape.netless;
+    const job = shape.job ? await this.job() : null;
     const result = await this.spawn({ executable, args: input.args, cwd, injected, netless, job,
       timeoutMs: input.timeoutMs ?? this.config.timeoutMs, signal });
     const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
     return { ...scrubbed, target: { alias: input.executable, executable: executable.path, cwd,
-      secrets: Object.keys(injected), netless, isolation: result.isolation } };
+      secrets: Object.keys(injected), netless, isolation: result.isolation, sandbox: shapeChoice(shape) } };
   }
   /** A Windows job to hold this command, where the computer offers one; null means sampled limits. */
   private async job(): Promise<Job | null> {
