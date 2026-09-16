@@ -73,13 +73,18 @@ class LineSocket {
   }
   close(): void { this.socket.destroy(); }
 }
+/**
+ * Opens the connection, giving up on a server that never answers. Without this bound a mail host
+ * that swallows the connection would hold up every later look at the inbox for good.
+ */
 async function open(server: MailServer, secure: boolean): Promise<LineSocket> {
   const socket = secure
     ? tlsConnect({ host: server.host, port: server.port, servername: server.host, rejectUnauthorized: server.rejectUnauthorized ?? true })
     : netConnect({ host: server.host, port: server.port });
   await new Promise<void>((resolve, reject) => {
-    socket.once(secure ? "secureConnect" : "connect", resolve);
-    socket.once("error", reject);
+    const timer = setTimeout(() => { socket.destroy(); reject(new Error(`${server.host} did not answer in time`)); }, server.timeoutMs ?? 20000);
+    socket.once(secure ? "secureConnect" : "connect", () => { clearTimeout(timer); resolve(); });
+    socket.once("error", (error: Error) => { clearTimeout(timer); socket.destroy(); reject(error); });
   });
   return new LineSocket(socket);
 }

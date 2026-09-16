@@ -43,7 +43,9 @@ export class EmailAdapter implements ChannelAdapter {
   botName(): string | null { return this.options.address; }
   health(): ChannelHealth { return this.state; }
   async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
-    await this.check(onMessage);
+    // The first look is not waited for: a mail server that is slow or unreachable must not hold up
+    // starting the assistant. Until it lands, the channel reports that it has not read the inbox yet.
+    void this.check(onMessage);
     this.timer = setInterval(() => void this.check(onMessage), this.options.pollMs ?? 60000);
     this.timer.unref();
   }

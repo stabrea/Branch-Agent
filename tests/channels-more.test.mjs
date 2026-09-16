@@ -330,6 +330,19 @@ test("a mail server that refuses the password is reported in words the owner can
     { from: "a@example.com", to: "b@example.com", subject: "x", text: "y", messageId: "<1@b>" }), /answered 535/);
 });
 
+test("a mail server that never answers does not hold up starting, and the channel says it is trying", async (t) => {
+  const { app } = await fixture(t);
+  // 192.0.2.1 is reserved for documentation: nothing answers, and nothing refuses either.
+  const unreachable = { host: "192.0.2.1", port: 993, user: "a@example.com", password: "p", tls: false, timeoutMs: 400 };
+  const adapter = new EmailAdapter({ id: "email", address: "a@example.com", pollMs: 60000, imap: unreachable, smtp: unreachable });
+  const started = Date.now();
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: [] });
+  assert.ok(Date.now() - started < 1000, "attaching does not wait for the mail server");
+  await until(() => adapter.health().state !== "connected" && adapter.health().reason?.includes("inbox"), "a plain reason");
+  assert.notEqual(adapter.health().state, "connected");
+  await adapter.stop();
+});
+
 test("a channel that is refused says so in words, and never repeats the secret it was refused for", async (t) => {
   const { app, root } = await fixture(t);
   const gateway = await socketService(t, (connection) => connection.send({ op: 10, d: { heartbeat_interval: 45000 } }));
