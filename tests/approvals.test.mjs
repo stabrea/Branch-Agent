@@ -90,11 +90,15 @@ test("rules are read in order and match tool and target patterns", () => {
   assert.equal(isReadOnlyPermission("something.new"), false, "an unknown permission counts as a change");
 });
 
-test("the default policy asks nothing and refuses nothing, so behaviour is unchanged", async (t) => {
+test("the default policy asks nothing and refuses nothing, except a command nobody has ruled on", async (t) => {
   const { app, workspace } = await fixture(t, [calls(write("c1", "hello.txt", "hi")), say("done")]);
   const saved = readPolicy(app.store, app.runtime.owner);
-  assert.deepEqual(saved, { preset: "off", rules: [], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 } });
-  assert.equal(evaluatePolicy(saved, { tool: "shell.execute", target: "rm -rf", readOnly: false }).decision, "allow");
+  assert.deepEqual(saved, { preset: "off", rules: [], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 }, unmatchedCommands: "ask" });
+  assert.equal(evaluatePolicy(saved, { tool: "shell.execute", target: "rm -rf", readOnly: false }).decision, "allow",
+    "without the thing it is about, nothing has changed");
+  // Batch 26 (wave 8): a host command nobody has decided about is asked, not run on a guess.
+  assert.equal(evaluatePolicy(saved, { tool: "shell.execute", target: "rm -rf", readOnly: false, resource: { kind: "command", value: "rm" } }).decision, "ask");
+  assert.equal(evaluatePolicy({ ...saved, unmatchedCommands: "allow" }, { tool: "shell.execute", target: "rm -rf", readOnly: false, resource: { kind: "command", value: "rm" } }).decision, "allow");
   const run = await app.runtime.run({ prompt: "write the file" });
   assert.equal(run.status, "completed");
   assert.equal(await readFile(join(workspace, "hello.txt"), "utf8"), "hi");

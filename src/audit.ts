@@ -23,6 +23,8 @@ export const auditActions = [
   // Wave 8: a connection that stays open — a live voice conversation — reaches outside this
   // computer for as long as it lasts, so every one is written down: which host, and how it ended.
   "network.connected",
+  // Batch 26 (wave 8): one of the owner's own checks stopped a tool call, or held it for a yes.
+  "hook.blocked",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -88,6 +90,7 @@ const actionLabels: Record<AuditAction, string> = {
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
   "network.connected": "A connection that stays open was made to a service outside this computer",
+  "hook.blocked": "One of your own checks stopped something, or asked you about it first",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

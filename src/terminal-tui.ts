@@ -9,8 +9,8 @@ import {
   paint, progressIndicator, resolveStyle, windowTitle, wrap, type TerminalStyle,
 } from "./terminal-style.js";
 import {
-  attachedText, choosePreset, exportConversation, historyLines, presetLines, readAttachment,
-  statusLine, type Attachment,
+  activeModel, answerLine, attachedText, choosePreset, exportConversation, historyLines, presetLines,
+  readAttachment, runTotals, statusLine, type Attachment,
 } from "./terminal-commands.js";
 
 /**
@@ -340,6 +340,9 @@ class Tui {
     if (run.status === "completed") {
       this.emit(paint(this.style, "green", "Assistant:"));
       this.emit(safe(run.output));
+      // What this one answer used and cost, under it. The status line keeps the running totals.
+      const line = answerLine(runTotals(this.runtime, run.id, activeModel(this.runtime, this.model)));
+      if (line) this.emit(paint(this.style, "dim", line));
       return;
     }
     const waiting = this.runtime.approvals.waiting(run.sessionId).at(-1);

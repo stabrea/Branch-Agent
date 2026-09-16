@@ -66,6 +66,10 @@ test('a tool-backed runtime run persists actual host execution evidence', async 
     return { content: 'Build verified from exit status and captured output', toolCalls: [] };
   } };
   const f = await fixture(t, {}, provider);
+  // Batch 26 (wave 8): a command nobody has ruled on is now asked about, so this test says up front
+  // that this one is allowed. Everything it is actually checking is unchanged.
+  f.app.store.save('settings', f.app.runtime.owner, 'policy',
+    { preset: 'custom', rules: [{ tool: 'shell.execute', match: '*', applies: 'any', decision: 'allow', remember: 'session' }], limits: {}, unmatchedCommands: 'ask' });
   const run = await f.app.runtime.run({ prompt: 'Build the project' });
   assert.equal(run.status, 'completed');
   const evidence = f.app.store.events(run.id).find(event => event.kind === 'tool.completed');

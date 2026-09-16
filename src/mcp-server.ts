@@ -563,10 +563,13 @@ export class McpServer {
     const answered = decision === 'ask'
       ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint) : undefined;
     const where = target ? ` on ${target}` : '';
+    // Whoever is signed in here is held to their role as well, exactly as they are in a
+    // conversation; another AI tool's server must not be a way round what the owner said.
+    const held = this.runtime.roleRefusal(name, permission);
     return {
-      decision: answered ?? decision, name, target, label, approvalKey,
+      decision: held ? 'deny' : answered ?? decision, name, target, label, approvalKey,
       bytes: bytes.slice(0, 2000), fingerprint,
-      refusal: `Your approval settings do not allow ${name}${where}.`,
+      refusal: held || `Your approval settings do not allow ${name}${where}.`,
       waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
       tooMany: 'Branch is already holding as many questions for the owner as it allows. Nothing was asked and nothing was done. Answer the ones waiting in Branch, then try again.',
     };
