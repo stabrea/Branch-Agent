@@ -33,6 +33,7 @@ import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { jsonWriteProblem } from "./approvals.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -78,6 +79,10 @@ export async function createBranch(options: {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
       try { await documents?.refreshPath(context.owner, path, context.signal); } catch { /* indexing never fails a file change */ }
+      const problem = await jsonWriteProblem((p) => files.read(p), path).catch(() => null);
+      if (problem && context.runId)
+        store.event(context.runId, "file.invalid_json", { path, problem,
+          message: `${path} was saved, but it is not valid JSON: ${problem}` });
     },
   });
   registerWorkspaceHistory(registry, history);
@@ -210,6 +215,8 @@ export * from "./streams.js";
 export * from "./recipes.js";
 export * from "./templates.js";
 export * from "./network-policy.js";
+export * from "./policy.js";
+export * from "./approvals.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";

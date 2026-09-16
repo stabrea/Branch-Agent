@@ -25,6 +25,7 @@ export class BranchBrowser {
   private closing: Promise<void> | undefined;
   private closed = false;
   private readonly sessions = new Map<string, { session: BrowserSession; detach: () => void }>();
+  private readonly pageHosts = new Map<string, string>();
   private readonly origins: Set<string>;
   private readonly config: z.infer<typeof BrowserConfigSchema>;
   constructor(input: unknown) {
@@ -81,6 +82,7 @@ export class BranchBrowser {
     await this.policy?.assertAllowed(new URL(url), 'browser address');
     return this.operation(context, async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
+      this.pageHosts.set(this.key(context), new URL(url).host);
       return { url: page.url(), title: await page.title() };
     });
   }
@@ -102,8 +104,13 @@ export class BranchBrowser {
       await locator.fill(value); return { filled: label };
     });
   }
+  /** The website the run's page is on, so the approval policy can match on it. */
+  hostFor(context: Pick<ToolContext, 'owner' | 'runId'>): string {
+    try { return this.pageHosts.get(this.key(context)) ?? ''; } catch { return ''; }
+  }
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);
+    this.pageHosts.delete(key);
     if (!entry) return;
     entry.detach();
     await entry.session.close();
@@ -135,9 +142,9 @@ export function registerBrowser(registry: ToolRegistry, browser: BranchBrowser):
   registry.register({ name: 'browser.click', permission: 'browser.interact',
     description: 'Click a uniquely named button or link. This may submit data or perform an external action.',
     parameters: z.object({ role: z.enum(['button', 'link']), name: z.string().min(1).max(300) }).strict(),
-    execute: (a, c) => browser.click(a.role, a.name, c) });
+    execute: (a, c) => browser.click(a.role, a.name, c), target: (_a, c) => browser.hostFor(c) });
   registry.register({ name: 'browser.fill', permission: 'browser.interact',
     description: 'Fill a non-password field by its exact visible label.',
     parameters: z.object({ label: z.string().min(1).max(300), value: z.string().max(4000) }).strict(),
-    execute: (a, c) => browser.fill(a.label, a.value, c) });
+    execute: (a, c) => browser.fill(a.label, a.value, c), target: (_a, c) => browser.hostFor(c) });
 }

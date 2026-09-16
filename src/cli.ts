@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   if (command === "update") return updateCheckout();
   if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -139,12 +139,13 @@ async function runOnce(
   app: Awaited<ReturnType<typeof createBranch>>,
   command: string,
 ): Promise<void> {
+  const dryRun = process.argv.includes("--dry-run");
   const prompt = command === "demo"
     ? "Run the deterministic file write/read/verify fixture."
-    : process.argv.slice(3).join(" ");
+    : process.argv.slice(3).filter((word) => word !== "--dry-run").join(" ");
   if (!prompt)
     throw new Error('Provide a prompt: node dist/cli.js run "your request"');
-  const run = await app.runtime.run({ prompt });
+  const run = await app.runtime.run({ prompt, ...(dryRun ? { dryRun: true } : {}) });
   console.log(JSON.stringify({
     run,
     usage: app.store.usage(run.id),

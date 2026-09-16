@@ -541,6 +541,29 @@
             <p>Small commands that run when something happens, for example when a task finishes or a file changes. A hook that keeps failing is switched off by itself so it cannot slow your tasks down.</p>
             <div id="hooks-list" class="card-list"></div>
           </section>
+          <section id="policy-card" class="card">
+            <h2>When to check with me</h2>
+            <p>Decide how much Branch may get on with by itself. Reading is always free; this is about changing files, running commands and acting on web pages. Whatever you pick, it never applies to the tools you run yourself from this app.</p>
+            <label for="policy-preset">How should Branch behave?</label>
+            <select id="policy-preset"></select>
+            <p id="policy-description" class="subtle"></p>
+            <h3>What that means</h3>
+            <ul id="policy-rules" class="check-list"></ul>
+            <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
+            <h3>How fast one conversation may work</h3>
+            <p class="subtle">If a conversation goes past one of these, it waits a moment and then carries on. Leave a box at 0 for no limit.</p>
+            <label for="policy-tool-limit">Most tools used in a minute</label>
+            <input id="policy-tool-limit" type="number" min="0" max="1000" step="1" value="0" />
+            <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
+            <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
+            <button id="policy-limits-save" type="button">Save these limits</button>
+            <p id="policy-status" class="subtle" role="status"></p>
+          </section>
+          <section id="policy-waiting-card" class="card" hidden>
+            <h2>Waiting for your yes</h2>
+            <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
+            <div id="policy-waiting" class="card-list"></div>
+          </section>
           <section id="mcp-card" class="card">
             <h2>Sharing with other AI tools</h2>
             <p>Let another AI tool on this computer — Claude Desktop, Claude Code, Cursor — ask Branch to do things. Nothing is shared until you switch this on. Everything they ask for is written down in Activity, the same as your own work.</p>
@@ -670,6 +693,7 @@
     <script src="/usage.js"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
+    <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
 </html>

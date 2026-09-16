@@ -28,6 +28,7 @@ import { standardSuite } from "./evaluation.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
@@ -119,6 +120,7 @@ async function staticFile(
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
+    "/approvals.js": ["approvals.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -423,6 +425,15 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
+  if (request.method === "GET" && path === "/api/policy")
+    return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
+  if (request.method === "POST" && path === "/api/policy")
+    return { policy: savePolicy(app.store, app.runtime.owner, await readBody(request)) };
+  if (request.method === "POST" && path === "/api/policy/approve") {
+    const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
+      remember: PolicyRememberSchema.default("session") }).strict().parse(await readBody(request));
+    return app.runtime.approve(input.sessionId, input.decision, input.remember);
+  }
   if (request.method === "GET" && path === "/api/governance")
     return { settings: app.store.governance.settings(), setAside: app.store.governance.exclusions(), benchmarks: app.store.governance.benchmarks() };
   if (request.method === "POST" && path === "/api/governance") return app.store.governance.configure(await readBody(request));
@@ -444,6 +455,7 @@ async function api(
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
+      ...(input.dryRun ? { dryRun: true } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {

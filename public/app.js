@@ -473,6 +473,7 @@ async function refresh() {
   renderSnapshots();
   renderAttention();
   void window.branchMcp?.render();
+  void window.branchApprovals?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {
