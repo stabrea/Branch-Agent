@@ -10,7 +10,7 @@ import { signRequest, signingKey, uriEncode } from "../dist/providers/sigv4.js";
 import { AwsEventFraming, crc32, encodeEvent } from "../dist/providers/aws-event-stream.js";
 import { azureUrl } from "../dist/providers/azure-openai.js";
 import { ProviderHealth, readRateLimit, fallbackReason } from "../dist/provider-health.js";
-import { connectFromPreset, restoreConnections, secretNameFor, modelNames, connectionProject } from "../dist/connections-preset.js";
+import { connectFromPreset, forgetConnection, restoreConnections, secretNameFor, modelNames, connectionProject } from "../dist/connections-preset.js";
 import { probeProvider } from "../dist/provider-probe.js";
 import * as profiles from "../dist/model-profiles.js";
 import { ModelRouter } from "../dist/models.js";
@@ -730,6 +730,32 @@ test("a routing profile does not send picture work to a connection that cannot s
   assert.match(forPictures.reason, /asked for g first/);
   // Ordinary conversation is unchanged: Groq can hold one, so it still goes first.
   assert.equal(profiles.routeByProfile(store, models, "local", "chat").preset, "g");
+});
+
+test("a connection can be taken away for good: the list, the record and the key", async (t) => {
+  const { origin } = await fake(t, (req, res) => json(res, { data: [{ id: "one" }] }));
+  const store = await withStore(t);
+  withFakeCatalog(t, origin);
+  const models = router(t, [stub("demo", undefined)]);
+  const deps = { models, locker: store.locker, owner: "local", policy: localPolicy(), store };
+  await connectFromPreset(deps, { provider: "groq", key: "one" });
+  await connectFromPreset(deps, { provider: "groq", key: "two" });
+  assert.deepEqual(await forgetConnection(deps, "groq"), { id: "groq", removed: true });
+  assert.equal(models.presets.has("groq"), false);
+  assert.equal(models.presets.has("groq-2"), true, "a name that merely starts the same is left alone");
+  assert.equal(store.locker.exists("local", connectionProject, "GROQ_KEY"), false);
+  assert.equal(store.locker.exists("local", connectionProject, "GROQ_2_KEY"), true);
+  // It stays gone: a restart does not bring it back.
+  const afterRestart = new ModelRouter(store, [stub("demo", undefined)]);
+  assert.deepEqual(await restoreConnections({ ...deps, models: afterRestart }), ["groq-2"]);
+  await assert.rejects(forgetConnection(deps, "groq"), /no connection called/);
+});
+
+test("a refusal never promises that a connection Branch knows nothing about can do the work", (t) => {
+  const models = router(t, [stub("g", "groq"), stub("mine", undefined)]);
+  const refused = models.planFor("local", "", "vision");
+  assert.match(refused.refusal, /nothing on file about mine/);
+  assert.ok(!/mine can\b/.test(refused.refusal), refused.refusal);
 });
 
 test("the connection card says in plain words what a connection can and cannot do", async (t) => {

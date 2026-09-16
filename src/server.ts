@@ -24,7 +24,7 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
-import { connectFromPreset } from "./connections-preset.js";
+import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
@@ -1044,6 +1044,14 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
       { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
       await readBody(request, 16 * 1024),
     );
+  // Taking one back out again: the model list, the written-down record and the key, all at once.
+  if (request.method === "POST" && path === "/api/connections/forget") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request, 4 * 1024));
+    return forgetConnection(
+      { models: app.runtime.models, locker: app.store.locker, owner: app.runtime.owner, policy: app.web.policy, store: app.store },
+      id,
+    );
+  }
   if (request.method === "GET" && path === "/api/connections/catalog")
     return { pricedAt: providerCatalog().pricedAt, services: catalogEntries() };
   const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);

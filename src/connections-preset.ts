@@ -101,6 +101,26 @@ function rememberConnection(deps: FromPresetDeps, record: ConnectionRecord): voi
 }
 
 /**
+ * Takes a connection away for good: out of the model list, out of the written-down record, and its
+ * key out of the locker. Without this, a service added from a preset would come back every time
+ * Branch started and there would be no plain way to be rid of a key that has been revoked.
+ */
+export async function forgetConnection(deps: FromPresetDeps, id: string): Promise<{ id: string; removed: boolean }> {
+  z.string().min(1).max(64).parse(id);
+  const store = deps.store;
+  if (!store) throw new Error("Branch cannot write down connections in this launch, so there is nothing to remove");
+  const kept = savedConnections(store, deps.owner).filter((saved) => saved.id !== id);
+  const known = kept.length !== savedConnections(store, deps.owner).length;
+  if (!known && !deps.models.presets.has(id))
+    throw new Error(`There is no connection called "${id}"`);
+  store.save("settings", deps.owner, connectionsSetting, { connections: kept });
+  deps.locker.remove(deps.owner, connectionProject, secretNameFor(id));
+  // Exactly this one, never everything whose name begins the same way.
+  deps.models.remove(id);
+  return { id, removed: true };
+}
+
+/**
  * Builds every written-down connection again, taking each key out of the locker. One connection
  * that cannot be rebuilt — a key removed by hand, a service dropped from the catalog — is skipped
  * rather than being allowed to stop Branch from starting. Returns the ones that came back.

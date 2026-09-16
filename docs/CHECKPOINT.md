@@ -1323,7 +1323,8 @@ never in a settings file and never in an answer or a log. The connection itself 
 service, the model and the boxes that were filled in — is written down under the setting
 `model-connections` and built again when Branch starts, so a service added this way is still there
 after a restart; a record whose key has since been removed by hand is left out rather than half
-built.
+built. `POST /api/connections/forget` takes one away again — the model list, the written-down
+record and the key all at once — so a revoked key is not something that comes back every morning.
 
 Honest gaps. **A2258 (multiple agent runtimes)** was not built. Branch runs one runtime, and that is
 deliberate: a second one would double the surface that has to be inspected, approved and audited
@@ -1334,7 +1335,7 @@ retired the PaLM API in favour of Gemini, so an adapter for it would be dead cod
 written. Gemini and Vertex AI are both in the catalog.
 
 Every claim here is tested against a fake of the service, not against the real one.
-`tests/providers-2.test.mjs` (81 tests) checks the catalog against its schema, completes a chat
+`tests/providers-2.test.mjs` (83 tests) checks the catalog against its schema, completes a chat
 against a fake of every entry's own shape, streams every shape that says it streams, reproduces two
 of Amazon's published SigV4 test vectors step by step (canonical request, string to sign, signature),
 decodes Amazon's event frames including one split across two reads and one deliberately damaged,

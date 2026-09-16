@@ -72,6 +72,9 @@ Routes:
   the setting `model-connections`, so it is still there the next time Branch starts. A connection
   whose key has since been taken out of the locker by hand is quietly left out rather than half
   built.
+- `POST /api/connections/forget` — `{ id }`. Takes one connection away for good: out of the model
+  list, out of the written-down record, and its key out of the locker. Exactly the one named, never
+  everything whose name begins the same way, and never the last connection you have.
 
 The table below is generated from `data/providers.json` by `npm run docs:providers`. Do not edit it
 by hand; edit the data file and run that command.

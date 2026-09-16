@@ -96,6 +96,13 @@ export class ModelRouter {
     if (this.registry.size >= 32 && !this.registry.has(preset.id)) throw new Error("At most 32 model presets");
     this.registry.set(preset.id, preset);
   }
+  /** Removes exactly one preset by name. The last one cannot be removed: something must answer. */
+  remove(id: string): boolean {
+    if (!this.registry.has(id)) return false;
+    if (this.registry.size === 1) throw new Error("At least one model connection must remain");
+    this.cooldowns.delete(id);
+    return this.registry.delete(id);
+  }
   /** Removes presets whose id starts with the prefix; the first remaining preset becomes the default. */
   unregister(prefix: string): string[] {
     const removed = [...this.registry.keys()].filter(id => id.startsWith(prefix));
@@ -161,10 +168,16 @@ export class ModelRouter {
     const able = plan.candidates.filter((preset) => this.canDo(preset, need));
     if (able.length && able[0]!.id === plan.candidates[0]!.id) return { ...plan, refusal: null };
     const others = [...this.presets.values()].filter((preset) => this.canDo(preset, need) && preset.id !== plan.choice.presetId);
+    // Only a connection whose catalog line says so is offered as an answer. One Branch knows
+    // nothing about is mentioned as worth a try, never promised, because nothing has been checked.
+    const sure = others.filter((preset) => preset.catalogId);
+    const untested = others.filter((preset) => !preset.catalogId);
     const first = plan.candidates[0]!;
-    const refusal = others.length
-      ? `${first.name} cannot do that. ${others.map((preset) => preset.name).join(" or ")} can, so pick one of those.`
-      : `${first.name} cannot do that, and no other connection you have set up can either.`;
+    const refusal = sure.length
+      ? `${first.name} cannot do that. ${sure.map((preset) => preset.name).join(" or ")} can, so pick one of those.`
+      : untested.length
+        ? `${first.name} cannot do that. Branch has nothing on file about ${untested.map((preset) => preset.name).join(" or ")}, so one of those may be worth trying.`
+        : `${first.name} cannot do that, and no other connection you have set up can either.`;
     if (!able.length) return { ...plan, refusal };
     return {
       choice: {
@@ -192,9 +205,12 @@ export class ModelRouter {
   }
   /** Records a cooldown for an eligible provider failure; returns the cooldown end or null when not eligible. */
   markFailure(owner: string, id: string, error: unknown): string | null {
-    // A connection built from the catalog writes its own failures down as they happen; recording
-    // this one again would make a single bad call look like two.
-    if (!this.health.reportsForItself(id)) this.health.recordFailure(id, error);
+    // A connection built from the catalog writes down every refused request as it happens, so
+    // counting this one again would make a single bad call look like two. A failure with no status
+    // — a reply that would not parse, a stream that stopped — was never seen there, so it is
+    // recorded here or it is recorded nowhere.
+    const seenAlready = this.health.reportsForItself(id) && typeof (error as { status?: unknown }).status === "number";
+    if (!seenAlready) this.health.recordFailure(id, error);
     if (!fallbackEligible(error)) return null;
     const until = this.now() + this.settings(owner).cooldownMs;
     this.cooldowns.set(id, until);
