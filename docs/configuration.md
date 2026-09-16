@@ -2718,3 +2718,25 @@ suggestions), `GET /api/memory/health`, `POST /api/memory/{id}/keep`, and `GET /
 tools: `memory.tidy` and `memory.keep` under `memory.write`,
 `documents.analyse` and `documents.compare` under `documents.read`, and `knowledge.propose` under
 `documents.write`.
+
+## What Branch is not (batch 26, wave 8)
+
+Branch Agent is one person's assistant on one Windows computer. A number of things the ledger asked
+for belong to a hosted product with many customers, or to another operating system, and they are not
+going to be built. They are written down here so nobody goes looking for them.
+
+- **No macOS screen control.** The screen and keyboard tools drive Windows windows through UI
+  Automation; there is no macOS accessibility equivalent, and this app only ships for Windows.
+- **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
+  to the room waiting for its name, because that means a microphone open all day.
+- **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
+  your own data. There are no connectors to Postgres, Redis, Qdrant, Pinecone, Chroma, Weaviate,
+  MongoDB or Azure, because that would mean sending what you said to a server somewhere else.
+- **No crash reporting service.** Nothing is sent to Sentry or anywhere like it. Problems are
+  recorded in the traces and counters on this computer, where only you can read them.
+- **No company sign-in.** There is no OpenID Connect, no single sign-on and no identity provider.
+  The people who share this computer get named profiles with a PIN, and that is all.
+- **No security keys.** There is no WebAuthn, no passkey and no fingerprint sign-in. The app is
+  reached over a key on this computer or over your own private Tailscale address.
+- **No invitations.** Accounts are not handed out. Nobody signs up; you create a profile for someone
+  in this house and that is the whole of it.
