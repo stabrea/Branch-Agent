@@ -45,4 +45,6 @@ async function render() {
 $("desktop-enabled").addEventListener("change", (event) => void save({ enabled: event.target.checked }));
 $("desktop-cap-save").addEventListener("click", () =>
   void save({ maxActionsPerRun: Math.max(1, Math.min(200, Number($("desktop-cap").value) || 40)) }));
-window.branchDesktop = { render };
+// Not `branchDesktop`: the Electron preload bridge already owns that name, and the rest of the
+// interface reads it to tell whether it is running inside the app rather than in a browser.
+window.branchScreenControl = { render };
