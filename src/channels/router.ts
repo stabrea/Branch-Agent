@@ -86,6 +86,13 @@ export function readApprovalAnswer(value: string): { decision: "allow" | "deny";
 
 /** The words that go out with the buttons, and on their own where a channel has no buttons. */
 export const approvalFallbackNote = "Reply y for yes, a for yes always, or n for no.";
+/**
+ * A pressed button, as opposed to a typed letter: it carries the fingerprint of the exact request.
+ * Pressing the same button a second time must not become a new task saying "y:8f3a…", so a payload
+ * of this shape with nothing left waiting is answered with a word instead of being run.
+ */
+const buttonPayload = /^[yan]:[0-9a-f]{1,32}$/;
+export const alreadyAnsweredNote = "That question has already been answered.";
 export const ChannelPolicySchema = z.object({
   activation: z.enum(["mention", "always"]).default("mention"),
   pairing: z.boolean().default(true),
@@ -301,6 +308,13 @@ export class ChannelRouter {
           ? `Noted. Send your next message and I will carry on.`
           : `Noted. I will not do that.`,
         `answered:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "replied";
+    }
+    // A button pressed twice, or pressed after the question went away: say so rather than treating
+    // the button's own value as something the person typed and running it as a task.
+    if (buttonPayload.test(message.text.trim().toLowerCase())) {
+      await this.deliver(message.channel, message.chatId, alreadyAnsweredNote,
+        `stale:${message.messageId}`, message.messageId).catch(() => undefined);
       return "replied";
     }
     let heard: string;

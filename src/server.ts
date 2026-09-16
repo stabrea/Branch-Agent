@@ -1763,6 +1763,9 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     const after = asked === null || !/^\d+$/.test(asked) ? undefined : Number(asked);
     await streamOwnerEvents(app.store, app.store.profiles.scope(), response, {
       ...(after === undefined ? {} : { after }), kinds,
+      // The stream carries tool arguments and results, so nothing goes out of it carrying a saved
+      // password or key; how long it may run and how much it may send are both capped inside.
+      scrub: app.runtime.hideSecrets,
       ...(Number(query.get("maxMs")) ? { maxMs: Number(query.get("maxMs")) } : {}),
     });
     return true;
@@ -1982,6 +1985,9 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
  * become one enormous string first. Only this person's own tasks are in it.
  */
 async function trajectoriesResponse(app: Branch, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  // Every task at once, messages and tool arguments included, is the owner's own record: a second
+  // person's profile may not have it, not even the part of it that belongs to them.
+  app.store.profiles.requireOwner("Saved records of your tasks");
   const query = new URL(request.url ?? "/", "http://local").searchParams;
   const limit = Math.min(Math.max(Number(query.get("limit") ?? 50) || 50, 1), 500);
   const runs = app.store.runs(app.runtime.owner).slice(0, limit);
@@ -1992,7 +1998,8 @@ async function trajectoriesResponse(app: Branch, request: IncomingMessage, respo
     "content-disposition": `attachment; filename="branch-trajectories.jsonl"`,
     "cache-control": "no-store",
   });
-  for (const line of trajectoryLines(app.store, runs.map((run) => run.id), (id) => options.get(id)!))
+  for (const line of trajectoryLines(app.store, runs.map((run) => run.id), (id) => options.get(id)!,
+    app.runtime.hideSecrets))
     response.write(line + "\n");
   response.end();
 }

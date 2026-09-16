@@ -1434,7 +1434,11 @@ export class Runtime {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
       // The record's "came from" column is a fixed list of the places a task can start, so which
       // chat app the answer was pressed in goes in the "why" column beside the question itself.
-      reason: answeredOn ? `${waiting.label || waiting.question} — answered on ${answeredOn}` : (waiting.label || waiting.question),
+      // The column holds 500 characters and a row too long for it would be dropped in silence, so
+      // a long question is shortened here and the chat app's name always survives.
+      reason: answeredOn
+        ? `${(waiting.label || waiting.question).slice(0, 440)} — answered on ${answeredOn.slice(0, 40)}`
+        : (waiting.label || waiting.question).slice(0, 500),
       source: waiting.source, runId: waiting.runId,
       outcome: decision === "allow" ? "allowed" : "refused",
     });

@@ -220,6 +220,66 @@ test("G2 a paused task asks in Telegram with buttons, and a pressed button answe
   assert.equal(decided[0].outcome, "allowed");
 });
 
+test("G2 a button press is refused from another chat, from a stranger, with the wrong fingerprint, and a second time", async (t) => {
+  const { app } = await served(t, writesAFile("gated.txt"));
+  const sent = [];
+  /* A channel that does have buttons, so the pressed-button path is the one being exercised. */
+  const chatty = {
+    id: "telegram", kind: "telegram", botName: () => "Branch",
+    async start(onMessage) { chatty.deliver = onMessage; },
+    async send(chatId, text, replyTo) { sent.push({ chatId, text, replyTo }); return "m" + sent.length; },
+    async sendButtons(chatId, text, buttons) { sent.push({ chatId, text, buttons }); return "b" + sent.length; },
+    async stop() {},
+  };
+  await app.channels.attach(chatty, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(async () => { await app.channels.detachAll(); });
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  const press = (chatId, senderId, text, messageId) => chatty.deliver({
+    channel: "telegram", chatId, chatKind: "direct", senderId, senderName: "Someone",
+    text, addressed: true, messageId,
+  });
+
+  await press("501", "42", "write the notes", "1");
+  await until(() => app.runtime.waitingApprovals().length === 1, "the task stopped to ask");
+  const waiting = app.runtime.waitingApprovals()[0];
+  const sessionId = waiting.sessionId;
+  const yes = `y:${waiting.fingerprint}`;
+  assert.ok(sent.some((m) => m.buttons), "the question went out with buttons");
+
+  /* A press from a chat that is not the one carrying this conversation answers nothing. */
+  await press("777", "42", yes, "2");
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "another chat cannot answer it");
+  assert.equal(app.runtime.allowedNow(sessionId).length, 0, "and nothing was allowed");
+
+  /* A press from somebody who is not on the list never reaches the approval at all. */
+  await press("501", "99", yes, "3");
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "a stranger cannot answer it");
+  assert.match(sent.at(-1).text, /private/i, "they are told the assistant is private");
+
+  /* A press carrying the fingerprint of some other request is refused by the binding. */
+  await press("501", "42", `y:${"f".repeat(32)}`, "4");
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "a different request's answer is refused");
+  assert.equal(app.runtime.allowedNow(sessionId).length, 0);
+
+  /* The real press works once. */
+  await press("501", "42", yes, "5");
+  await until(() => app.runtime.waitingApprovals(sessionId).length === 0, "the right press answered it");
+  const allowed = app.runtime.allowedNow(sessionId).length;
+  const runsBefore = app.store.runs(app.runtime.owner).length;
+
+  /* Pressing it again changes nothing, and is not run as if somebody had typed it. */
+  await press("501", "42", yes, "6");
+  const { alreadyAnsweredNote } = await import("../dist/channels/router.js");
+  await until(() => sent.some((m) => m.text === alreadyAnsweredNote), "the second press is answered with words");
+  assert.equal(app.runtime.allowedNow(sessionId).length, allowed, "no second yes was remembered");
+  assert.equal(app.store.runs(app.runtime.owner).length, runsBefore, "and no task was started from the button");
+
+  /* Every yes that did land is in the record, and says which chat app it was pressed in. */
+  const decided = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.equal(decided.length, 1, "exactly one answer was recorded");
+  assert.match(decided[0].reason, /answered on telegram/);
+});
+
 test("G2 a channel with no buttons gets the same question with reply y / a / n", async (t) => {
   const { app } = await served(t, writesAFile("gated.txt"));
   const sent = [];

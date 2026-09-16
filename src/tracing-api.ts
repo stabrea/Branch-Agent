@@ -93,19 +93,26 @@ async function rules(
   // owner's rule list, which a second person's profile may neither read nor loosen.
   if (path === "/api/rules/allowed" && request.method === "GET") {
     const sessionId = new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "";
+    const mine = sessionId ? app.store.ownsSession(app.store.profiles.scope(), sessionId) : false;
     return {
       session: sessionId,
-      grants: sessionId ? app.runtime.allowedNow(sessionId) : [],
+      grants: mine ? app.runtime.allowedNow(sessionId) : [],
       /* The standing rules that say "go ahead", so the list is the whole picture rather than half
-         of it: a yes kept for this conversation, and a rule kept for good. */
-      standing: readPolicy(app.store, owner).rules
-        .map((rule, index) => ({ index, rule, sentence: ruleSentence(rule) }))
-        .filter((entry) => entry.rule.decision === "allow"),
+         of it: a yes kept for this conversation, and a rule kept for good. The rule list is the
+         owner's, so a second person's profile sees only their own conversation's yeses. */
+      standing: app.store.profiles.isOwner()
+        ? readPolicy(app.store, owner).rules
+            .map((rule, index) => ({ index, rule, sentence: ruleSentence(rule) }))
+            .filter((entry) => entry.rule.decision === "allow")
+        : [],
     };
   }
   /** Takes back one yes this conversation had remembered; it asks again the next time. */
   if (path === "/api/rules/allowed/revoke" && request.method === "POST") {
     const { session, tool, target } = RevokeSchema.parse(await readBody(request));
+    /* Only your own conversation's yeses, so nobody can reach into somebody else's. */
+    if (!app.store.ownsSession(app.store.profiles.scope(), session))
+      throw new TracingApiError(404, "There is no conversation of yours with that number");
     const revoked = app.runtime.revokeGrant(session, tool, target);
     if (!revoked) throw new TracingApiError(404, "That conversation is not allowing this any more");
     return { revoked, grants: app.runtime.allowedNow(session) };

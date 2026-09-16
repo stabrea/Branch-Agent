@@ -54,10 +54,16 @@ export function buildTrajectory(store: Store, runId: string, options: Trajectory
  */
 export function* trajectoryLines(
   store: Store, runIds: readonly string[], options: (runId: string) => TrajectoryOptions,
+  /**
+   * Takes any saved password or key back out of a trajectory before it is written. It is given the
+   * document itself rather than the finished line, because a secret inside a JSON string is escaped
+   * and would no longer match what it is being looked for by.
+   */
+  scrub: <T>(value: T) => T = (value) => value,
 ): Generator<string> {
   for (const runId of runIds) {
     try {
-      yield JSON.stringify(buildTrajectory(store, runId, options(runId)));
+      yield JSON.stringify(scrub(buildTrajectory(store, runId, options(runId))));
     } catch {
       /* One task that cannot be read must not stop the rest of the export. */
     }
