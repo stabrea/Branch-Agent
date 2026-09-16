@@ -89,6 +89,8 @@ import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
+// Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
+import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -109,6 +111,7 @@ import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
 // Wave 8: the to-do list, and reports saved in several forms.
 import { Todos, registerTodos } from "./todos.js";
+import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
@@ -401,6 +404,11 @@ export async function createBranch(options: {
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
+  // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
+  // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
+  const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
+    () => desktop.enabled(runtime.owner), deliverMessage);
+  registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
@@ -427,6 +435,10 @@ export async function createBranch(options: {
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
   registerTodos(registry, todos, runtime.owner);
+  // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
+  // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
+  const obsidian = new ObsidianBridge(store, runtime.owner);
+  registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -650,6 +662,10 @@ export async function createBranch(options: {
     flows,
     /** Wave 8: the things still to be done, written down where the owner can see them. */
     todos,
+    /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
+    obsidian,
+    /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
+    screenWatches,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
@@ -908,6 +924,9 @@ export * from "./todos.js";
 export * from "./reports.js";
 export * from "./artifact-pages.js";
 export * from "./dashboards.js";
+export * from "./obsidian.js";
+export * from "./embeds.js";
+export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";

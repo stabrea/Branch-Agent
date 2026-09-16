@@ -187,6 +187,45 @@ test("W1 Save to workspace keeps the artifact beside its task, where Documents l
   assert.deepEqual(errors, []);
 });
 
+/* Wave 8 (A1940): one message can be put to a specialist, and the reply says which one answered. */
+test("W3 a message put to a specialist comes back signed with that specialist's name", async (t) => {
+  const asked = [];
+  const { app, page, errors } = await fixture(t, {
+    name: "scripted",
+    async complete(request) {
+      asked.push((request?.messages ?? []).map((message) => String(message?.content ?? "")).join("\n"));
+      return { content: "The invoices are filed.", toolCalls: [] };
+    },
+  });
+  await settle(page);
+  /* A specialist the owner has already switched on, so the composer can offer it. */
+  app.store.save("specialists", app.runtime.owner, "b1a7d1e2-0000-4000-8000-000000000001",
+    { definition: { name: "The bookkeeper", purpose: "Files invoices.", instructions: "File invoices.", permissions: ["files.read"] },
+      activeVersion: 1, status: "active", versions: [] });
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+
+  const picker = page.locator("#composer-specialist");
+  await picker.waitFor();
+  await page.waitForFunction(() => document.getElementById("composer-specialist").options.length > 1);
+  await picker.selectOption({ label: "The bookkeeper" });
+
+  await page.locator("#prompt").fill("File yesterday's invoices.");
+  await page.locator("#send").click();
+  await page.locator(".message.assistant").last().waitFor();
+
+  /* The stylesheet shouts the author line, so the comparison is on the words, not their case. */
+  const author = await page.locator(".message.assistant small").last().innerText();
+  assert.equal(author.toLowerCase(), "the bookkeeper", "the reply was not signed by the specialist that answered");
+  /* What the owner typed is what they see; the delegation wrapper is not shown back to them. */
+  assert.match(await page.locator(".message.user").last().innerText(), /^File yesterday's invoices./);
+  assert.equal(/Delegate to specialist/.test(await page.locator(".message.user").last().innerText()), false,
+    "the owner was shown the machinery instead of what they typed");
+  assert.ok(asked.some((text) => /Delegate to specialist b1a7d1e2/.test(text)),
+    "the message never actually went to the specialist");
+  assert.deepEqual(errors, []);
+});
+
 test("W1 an artifact card fits a 400 pixel window without scrolling sideways", async (t) => {
   const { page, errors } = await fixture(t, saying(CHART_REPLY));
   await settle(page);

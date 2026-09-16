@@ -246,6 +246,9 @@
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
                 ><input id="ask-first-toggle" type="checkbox" /> Ask me questions first</label
+              ><label class="check composer-specialist" title="Put this one message to a specialist instead of your assistant. The reply says which one answered."
+                ><span class="sr-only" data-t="field.who-should-answer">Who should answer</span
+                ><select id="composer-specialist" aria-label="Who should answer"><option value="" data-t="composer.assistantItself">Your assistant</option></select></label
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
               ><button id="send">Send ↗</button
@@ -1212,6 +1215,39 @@
           </section>
           <!-- Wave 6: Developer → Try things out (public/playground.js). Everything here goes
                through the same permission rules the assistant works under. -->
+          <!-- Wave 8: the owner's notes folder, and the two ways of reaching Branch from a page
+               or a browser of their own (public/misc.js wires both; src/obsidian.ts, src/embeds.ts). -->
+          <section id="obsidian-card" class="card">
+            <h2 data-t="obsidian.title">Your notes folder</h2>
+            <p class="subtle" data-t="obsidian.intro">
+              Branch can write what it remembers, what it has learned and the reports you save into
+              a folder of Markdown notes — the kind of folder Obsidian keeps. It never writes over a
+              note you have edited yourself: the new version goes beside it instead. It reads back
+              only the notes you have tagged #branch. Nothing is installed into Obsidian.
+            </p>
+            <label><input id="obsidian-enabled" type="checkbox" />
+              <span data-t="field.write-notes-into-a-folder">Write notes into a folder of mine</span></label>
+            <label for="obsidian-vault" data-t="field.the-folder-in-full">The folder, in full</label>
+            <input id="obsidian-vault" type="text" maxlength="1000" />
+            <label for="obsidian-folder" data-t="field.subfolder-for-branchs-own-notes">Subfolder for Branch's own notes</label>
+            <input id="obsidian-folder" type="text" maxlength="120" />
+            <button id="obsidian-save" type="button" data-t="action.save-notes-folder">Save notes folder</button>
+            <p id="obsidian-status" class="subtle" role="status" aria-live="polite"></p>
+          </section>
+          <section id="embeds-card" class="card">
+            <h2 data-t="embeds.title">Reaching Branch from other pages</h2>
+            <p class="subtle" data-t="embeds.intro">
+              Two ways to reach Branch from outside its own window, both for your own pages and your
+              own browser. Both are off until you switch them on, and both work only through the
+              address and key that pairing gave you — never the key this page uses on this computer.
+            </p>
+            <label><input id="embed-widget" type="checkbox" />
+              <span data-t="field.let-a-page-of-mine">Let a page of mine include the small ask box</span></label>
+            <label><input id="embed-extension" type="checkbox" />
+              <span data-t="field.let-the-browser-extension-send">Let the browser extension send me pages</span></label>
+            <button id="embeds-save" type="button" data-t="action.save-these-switches">Save these switches</button>
+            <p id="embeds-status" class="subtle" role="status" aria-live="polite"></p>
+          </section>
           <section id="developer-card" class="card">
             <h2 data-t="settings.card.developer">Developer</h2>
             <details id="playground">

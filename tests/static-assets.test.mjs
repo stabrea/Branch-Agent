@@ -35,6 +35,9 @@ test("every file the page loads is on the server's allowlist and answers 200", a
   assert.ok(referenced.has("/app.js") && referenced.has("/usage.js"), "the scan found the page's scripts");
   for (const path of ["/markdown.js", "/i18n.js", "/locales/en.json", "/locales/fr.json", "/service-worker.js", "/manifest.webmanifest"])
     assert.ok(referenced.has(path), `the scan found ${path}`);
+  /* Wave 8: the small box is included by a page of the owner's OWN, so nothing here imports it and
+     the scan above cannot see it. It still has to be served, so it is named outright. */
+  referenced.add("/widget.js");
   const missing = [];
   for (const path of referenced) {
     if (path.startsWith("/api/") || path.startsWith("//")) continue;

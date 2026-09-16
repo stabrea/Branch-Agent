@@ -371,12 +371,47 @@ function specialistActions(node, record) {
     );
 }
 function renderSpecialists() {
+  /* Wave 8: first, so a card that will not draw cannot take the composer's picker down with it. */
+  fillSpecialistPicker();
   list(
     "specialists-list",
     state.specialists,
     specialistCard,
     "Propose a focused assistant and test its work before activation.",
   );
+}
+/** What a specialist is called, however its record is shaped. */
+const specialistName = (record) =>
+  String(record?.data?.definition?.name ?? record?.data?.name ?? record?.id ?? "A specialist").slice(0, 40);
+/* Wave 8 (A1940): the composer's "who should answer" list, from the specialists switched on. */
+function fillSpecialistPicker() {
+  const picker = $("composer-specialist");
+  if (!picker) return;
+  const chosen = picker.value;
+  picker.replaceChildren(new Option(picker.dataset.anyLabel || "Your assistant", ""));
+  for (const record of state.specialists ?? []) {
+    /* A candidate nobody has switched on yet cannot be asked anything. */
+    if (!record.data?.activeVersion && record.data?.status !== "active") continue;
+    picker.append(new Option(specialistName(record), record.id));
+  }
+  picker.value = chosen;
+}
+/**
+ * A saved message that was put to a specialist, taken apart again: the words the owner actually
+ * typed, and the name of the specialist it went to. A message that went to nobody in particular
+ * comes back unchanged with no name.
+ */
+function delegationIn(content) {
+  const found = /^Delegate to specialist ([0-9a-f-]{36}): ([\s\S]*)$/.exec(String(content ?? ""));
+  if (!found) return { text: String(content ?? ""), specialist: null };
+  const record = (state.specialists ?? []).find((one) => one.id === found[1]);
+  return { text: found[2], specialist: record ? specialistName(record) : "A specialist" };
+}
+/** Which specialist the owner picked for this one message, or nothing at all. */
+function chosenSpecialist() {
+  const id = $("composer-specialist")?.value;
+  if (!id) return null;
+  return { id, name: specialistName((state.specialists ?? []).find((one) => one.id === id)) };
 }
 function renderProcedures() {
   list(
@@ -1104,7 +1139,12 @@ function toolStep(content, calls, source) {
 function message(role, content, source) {
   if (source?.toolCalls?.length) return toolStep(content, source.toolCalls, source);
   const node = el("div", undefined, "message " + role);
-  node.append(el("small", role === "user" ? "You" : "Branch Agent"));
+  /* Wave 8 (A1940): a reply a specialist gave is signed with that specialist's own name, so a
+     conversation with several of them says plainly which one said what. */
+  const author = role === "user" ? "You" : source?.author || state.identity?.name || "Branch Agent";
+  const by = el("small", author);
+  if (role === "assistant" && source?.author) by.classList.add("message-specialist");
+  node.append(by);
   /* Replies are written in markdown; what you typed is shown exactly as you typed it. */
   if (role === "user") node.append(document.createTextNode(content));
   else node.append(fillMarkdown(el("div", undefined, "message-body"), content));
@@ -1270,8 +1310,19 @@ function renderConversation(value, status) {
   $("conversation").replaceChildren();
   const first = value.messages.find((entry) => entry.role === "user");
   $("thread-name").textContent = first ? first.content.slice(0, 70) : "";
+  /* Wave 8 (A1940): a message the owner put to a specialist was sent with that specialist's
+     number in front of it, so on the way back the reply can be signed with its name again and
+     what the owner typed can be shown without the machinery. */
+  let answering = null;
   for (const source of value.messages) {
-    if (["user", "assistant"].includes(source.role)) message(source.role, source.content, source);
+    if (!["user", "assistant"].includes(source.role)) continue;
+    if (source.role === "user") {
+      const asked = delegationIn(source.content);
+      answering = asked.specialist;
+      message("user", asked.text, source);
+      continue;
+    }
+    message("assistant", source.content, answering ? { ...source, author: answering } : source);
   }
   if (status) $("session-label").textContent = status + (value.branch ? " · branched conversation" : value.imported ? " · imported conversation" : " · conversation saved");
 }
@@ -1485,12 +1536,17 @@ $("chat-form").addEventListener("submit", async (event) => {
   /* Wave 7: "/model" changes the model for this conversation only; nothing is sent to the model. */
   if (await runSlashCommand(typed)) { $("prompt").value = ""; return; }
   /* Batch 19 (wave 6): when "Ask me questions first" is on, the answers are added to the request. */
-  const prompt = $("ask-first-toggle")?.checked
+  const asked = $("ask-first-toggle")?.checked
     ? await (window.branchMisc?.askBeforeStarting(typed) ?? Promise.resolve(typed))
     : typed;
+  /* Wave 8 (A1940): one message may be put to a specialist rather than to the assistant itself.
+     The choice is per message — the next one goes back to the assistant unless it is chosen again —
+     and the reply is signed with the specialist's own name. */
+  const answering = chosenSpecialist();
+  const prompt = answering ? `Delegate to specialist ${answering.id}: ${asked}` : asked;
   setConversationBusy(true);
   if (!sessionId) $("conversation").replaceChildren();
-  message("user", prompt);
+  message("user", asked);
   $("prompt").value = "";
   const stopActivity = watchActivity(prompt);
   // Wave 6: the live row you can step into while it works.
@@ -1513,7 +1569,7 @@ $("chat-form").addEventListener("submit", async (event) => {
     /* Wave 8: an artifact in this reply is kept beside the task it came out of, so the task's
        number has to be somewhere the artifact card can find it. */
     if (run.id) globalThis.branchLastRunId = run.id;
-    message("assistant", run.output);
+    message("assistant", run.output, answering ? { author: answering.name } : undefined);
     /* Wave 7: talk mode reads this out loud once the reply is on the screen. */
     lastReply = run.output;
     $("session-label").textContent = currentTemporary ? run.status + " · temporary, not saved" : run.status + " · conversation saved";

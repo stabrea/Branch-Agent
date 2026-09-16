@@ -143,6 +143,23 @@ export class DesktopControl {
       await rm(temporary, { force: true }).catch(() => undefined);
     }
   }
+  /**
+   * Wave 8: the bytes of one rectangle of the screen, for a screen watch. Nothing is kept: the
+   * caller reduces these to a fingerprint and throws them away, and the temporary file goes at
+   * once. The same refusal applies as to any other picture of the screen — a password manager on
+   * screen stops it outright.
+   */
+  async captureRegion(region: { x: number; y: number; width: number; height: number }): Promise<Uint8Array> {
+    const signal = AbortSignal.timeout(20000);
+    await this.assertNothingPrivateOnScreen(signal);
+    const temporary = await this.runner.temporaryPng(`watch-${randomUUID().slice(0, 8)}`);
+    try {
+      await this.runner.run('screenshot', { display: 1, outPath: temporary, region }, signal);
+      return new Uint8Array(await readFile(temporary));
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
   /** A picture taken off the screen itself cannot hide a password manager that is showing, so it is refused instead. */
   private async assertNothingPrivateOnScreen(signal: AbortSignal): Promise<void> {
     const showing = (await this.windowList(signal)).filter((window) => window.restricted && !window.minimised);

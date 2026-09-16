@@ -1,0 +1,145 @@
+import { createHash, randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import type { Store } from "./store.js";
+import type { ToolRegistry } from "./registry.js";
+import type { DeliveryHandler } from "./scheduler.js";
+
+/**
+ * Watching a corner of the screen for a change. A long job in a program that has no other way of
+ * telling anybody it has finished; a number on a dashboard that only ever appears on screen. Every
+ * so often Branch takes a picture of one rectangle, compares it with the last one, and says when it
+ * is different.
+ *
+ * This is the most intrusive thing in the app, so it is fenced in three ways: it is off until the
+ * owner switches it on, it refuses to run at all unless using the screen is already switched on,
+ * and it keeps a fingerprint of the picture rather than the picture — nothing that was on the
+ * screen is written to disk.
+ *
+ * The picture-taking itself is handed in rather than reached for, so the tests can watch a made-up
+ * screen and no test ever opens a window.
+ */
+export const ScreenWatchSettingsSchema = z.object({
+  /** Off until the owner asks for it, on top of the screen-control switch it also needs. */
+  enabled: z.boolean().default(false),
+}).strict();
+const settingsKey = "screen-watch";
+export function screenWatchSettings(store: Store, owner: string): { enabled: boolean } {
+  const saved = ScreenWatchSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
+  return saved.success ? saved.data : { enabled: false };
+}
+export function saveScreenWatchSettings(store: Store, owner: string, input: unknown): { enabled: boolean } {
+  const value = ScreenWatchSettingsSchema.parse(input ?? {});
+  store.save("settings", owner, settingsKey, value);
+  return value;
+}
+
+export const ScreenWatchSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  /** The rectangle to watch, in screen pixels. */
+  region: z.object({
+    x: z.number().int().min(0).max(20000), y: z.number().int().min(0).max(20000),
+    width: z.number().int().min(8).max(20000), height: z.number().int().min(8).max(20000),
+  }).strict(),
+  everyMinutes: z.number().int().min(1).max(1440).default(5),
+  /** Where the news goes: the activity list, or a chat already connected. */
+  notifyVia: z.union([z.literal("activity"),
+    z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict()]).default("activity"),
+}).strict();
+export type ScreenWatchInput = z.infer<typeof ScreenWatchSchema>;
+export interface ScreenWatchRecord {
+  id: string; label: string; region: { x: number; y: number; width: number; height: number };
+  everyMinutes: number; notifyVia: "activity" | { channel: string; chatId: string };
+  lastCheckedAt: string | null; changes: number;
+}
+/** What a picture of the region is reduced to. The picture itself is never kept. */
+export type CaptureRegion = (region: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
+
+const fingerprint = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+const row = (record: Record<string, unknown>): ScreenWatchRecord => ({
+  id: String(record.id), label: String(record.label), region: JSON.parse(String(record.region)),
+  everyMinutes: Number(record.every_minutes), notifyVia: JSON.parse(String(record.notify)),
+  lastCheckedAt: (record.checked_at as string | null) ?? null, changes: Number(record.changes ?? 0),
+});
+
+export class ScreenWatches {
+  private readonly db: DatabaseSync;
+  constructor(
+    private readonly store: Store,
+    private readonly capture: CaptureRegion,
+    /** True only while the owner has using the screen switched on. Checked at every look. */
+    private readonly screenControlOn: () => boolean,
+    private readonly deliver?: DeliveryHandler,
+  ) {
+    this.db = store.sqlite;
+    this.db.exec(`CREATE TABLE IF NOT EXISTS screen_watches(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+      label TEXT NOT NULL, region TEXT NOT NULL, every_minutes INTEGER NOT NULL, notify TEXT NOT NULL,
+      fingerprint TEXT, checked_at TEXT, changes INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS screen_watches_owner ON screen_watches(owner);`);
+  }
+  private allowed(owner: string): void {
+    if (!screenWatchSettings(this.store, owner).enabled)
+      throw new Error("Watching a corner of the screen is switched off. The owner turns it on in Settings.");
+    if (!this.screenControlOn())
+      throw new Error("This needs using your screen to be switched on as well, and it is not.");
+  }
+  list(owner: string): ScreenWatchRecord[] {
+    return this.db.prepare("SELECT * FROM screen_watches WHERE owner=? ORDER BY created_at DESC LIMIT 100").all(owner).map(row);
+  }
+  remove(owner: string, id: string): { removed: string } {
+    if (!this.db.prepare("DELETE FROM screen_watches WHERE owner=? AND id=?").run(owner, id).changes)
+      throw new Error("There is no screen watch with that number");
+    return { removed: id };
+  }
+  /** Starts a watch and takes the first picture at once, so the next change is a real change. */
+  async create(owner: string, input: unknown): Promise<ScreenWatchRecord> {
+    this.allowed(owner);
+    const value = ScreenWatchSchema.parse(input);
+    const id = randomUUID(), now = new Date().toISOString();
+    const first = fingerprint(await this.capture(value.region));
+    this.db.prepare("INSERT INTO screen_watches(id,owner,label,region,every_minutes,notify,fingerprint,checked_at,changes,created_at) VALUES(?,?,?,?,?,?,?,?,0,?)")
+      .run(id, owner, value.label, JSON.stringify(value.region), value.everyMinutes,
+        JSON.stringify(value.notifyVia), first, now, now);
+    return this.list(owner).find((one) => one.id === id)!;
+  }
+  /**
+   * Looks once. A different picture is a change; the same picture is nothing at all, and neither
+   * picture is kept — only the fingerprint that told them apart.
+   */
+  async check(owner: string, id: string): Promise<{ id: string; changed: boolean; summary: string; delivered: string | null }> {
+    this.allowed(owner);
+    const found = this.db.prepare("SELECT * FROM screen_watches WHERE owner=? AND id=?").get(owner, id) as Record<string, unknown> | undefined;
+    if (!found) throw new Error("There is no screen watch with that number");
+    const watch = row(found);
+    const now = fingerprint(await this.capture(watch.region));
+    const changed = now !== String(found.fingerprint ?? "");
+    this.db.prepare("UPDATE screen_watches SET fingerprint=?, checked_at=?, changes=changes+? WHERE owner=? AND id=?")
+      .run(now, new Date().toISOString(), changed ? 1 : 0, owner, id);
+    const summary = changed
+      ? `"${watch.label}" looks different from the last time Branch looked.`
+      : `"${watch.label}" looks the same as last time.`;
+    const delivered = changed ? await this.tell(watch, summary) : null;
+    return { id, changed, summary, delivered };
+  }
+  /** Sends the news where the owner asked, through the channel they already connected. */
+  private async tell(watch: ScreenWatchRecord, summary: string): Promise<string | null> {
+    if (watch.notifyVia === "activity" || !this.deliver) return null;
+    const sent = await this.deliver(watch.notifyVia.channel, watch.notifyVia.chatId, summary, `screen-watch:${watch.id}`);
+    return sent.messageId ?? "queued";
+  }
+}
+
+export function registerScreenWatches(registry: ToolRegistry, watches: ScreenWatches): void {
+  registry.register({
+    name: "monitors.screen.create", permission: "monitors.manage",
+    description: "Watch one rectangle of the screen and say when it changes. Needs using your screen switched on.",
+    parameters: ScreenWatchSchema,
+    execute: async (input, context) => watches.create(context.owner, input),
+  });
+  registry.register({
+    name: "monitors.screen.check", permission: "monitors.manage",
+    description: "Look at one screen watch now rather than waiting, and say whether it changed.",
+    parameters: z.object({ id: z.string().uuid() }).strict(),
+    execute: async ({ id }, context) => watches.check(context.owner, id),
+  });
+}

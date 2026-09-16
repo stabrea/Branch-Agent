@@ -5,6 +5,8 @@ import { flowsApi } from "./flows.js";
 import { remindAbout, todosApi } from "./todos.js";
 import { reportsApi } from "./reports.js";
 import { cachedAnswers, logJsonl, readLog, requestAllowances } from "./dashboards.js";
+import { obsidianApi } from "./obsidian.js";
+import { embedsApi } from "./embeds.js";
 import { projectCheck, saveProjectCheck } from "./code-change.js";
 import { codeRunSettings, saveCodeRunSettings } from "./code-run.js";
 import { backgroundSettings, saveBackgroundSettings } from "./processes.js";
@@ -25,7 +27,7 @@ const notFound = (): never => { throw new OrchestrationApiError(404, "Endpoint n
 
 /** Every path this file answers, so the main route file can hand them over in one line. */
 export function handlesOrchestrationPath(path: string): boolean {
-  return /^\/api\/(flows|deferred|processes|code-check|code-run|background-programs|specialist-styles|skill-revisions|plugin-catalog|todos|reports|log|request-rates|cached-answers)(\/|$)/.test(path);
+  return /^\/api\/(flows|deferred|processes|code-check|code-run|background-programs|specialist-styles|skill-revisions|plugin-catalog|todos|reports|log|request-rates|cached-answers|obsidian|embeds)(\/|$)/.test(path);
 }
 
 export async function orchestrationApi(
@@ -66,6 +68,14 @@ export async function orchestrationApi(
   if (path === "/api/request-rates")
     return { connections: requestAllowances(app.runtime.models.requests, app.runtime.models.health) };
   if (path === "/api/cached-answers") return cachedAnswers(app.store, owner);
+  if (path.startsWith("/api/obsidian")) {
+    const answered = await obsidianApi(app.store, owner, app.obsidian, request, path, () => readBody(request, 512_000));
+    return answered ?? notFound();
+  }
+  if (path === "/api/embeds") {
+    const answered = await embedsApi(app.store, owner, request, path, () => readBody(request));
+    return answered ?? notFound();
+  }
   if (path.startsWith("/api/deferred")) return deferredApi(app, request, path, readBody);
   if (path.startsWith("/api/skill-revisions")) return revisionsApi(app, request, path, readBody);
   if (path.startsWith("/api/plugin-catalog")) return pluginCatalogApi(app, request, path, readBody);

@@ -290,6 +290,9 @@ async function staticFile(
     "/todos.js": ["todos.js", "text/javascript; charset=utf-8"],
     "/logs.js": ["logs.js", "text/javascript; charset=utf-8"],
     "/flow-editor.js": ["flow-editor.js", "text/javascript; charset=utf-8"],
+    // The small box a page of the owner's own can include. Nothing on this page imports it.
+    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
+    "/bridges.js": ["bridges.js", "text/javascript; charset=utf-8"],
     "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
