@@ -114,6 +114,17 @@ Electron. Two scripts do it, both against a scratch workspace that is thrown awa
 `public/shell.css` and every inline style read from it. Two themes, five accents, and the
 scales for text, spacing and radius live there.
 
+`tests/web-ui.test.mjs` proves this for every stylesheet. It cannot prove it for the drawings,
+which paint on a canvas or into an SVG from JavaScript, so those are checked by hand. Three are
+allowed to name a colour and no others may be added without a reason written down here:
+
+- `public/deployment.js` paints the square code for the phone in plain black on plain white,
+  because a phone camera needs that contrast to read it, in either theme.
+- `public/update-screen.js` carries the palette of the little figure who walks across the screen
+  while an update installs. It is a picture, not a surface.
+- `public/flows.js` passes a token to the SVG with a colour after it as a safety net. The token is
+  what draws; write the token name exactly, because a typo there fails silently into the net.
+
 | Role | Forest (dark) | Daylight (light) | Copied from |
 | --- | --- | --- | --- |
 | Ground | `#03140B` | `#DDE7DA` | `site.css` `:root` / `:root[data-theme="light"]` `--ground` |
