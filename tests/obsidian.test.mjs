@@ -7,7 +7,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -55,6 +55,18 @@ test("O2 a path that leaves the notes folder is refused, sibling folders include
   await assert.rejects(insideVault(vault, join(root, "elsewhere.md")), /outside the notes folder/i);
   /* Inside is still allowed, of course. */
   assert.ok((await insideVault(vault, join("Branch", "a.md"))).includes("Branch"));
+
+  /* A link already sitting in the notes folder must not carry a note that does not exist yet out of
+     it. The name resolves for real as far as the link, not only when the whole path already exists. */
+  const outside = join(root, "outside");
+  await mkdir(outside, { recursive: true });
+  let linked = true;
+  try { await symlink(outside, join(vault, "Linked"), "junction"); } catch { linked = false; }
+  if (linked) {
+    await assert.rejects(insideVault(vault, join("Linked", "new-note.md")), /outside the notes folder/i,
+      "a link in the notes folder carried a new note out of it");
+    await assert.rejects(insideVault(vault, "Linked"), /outside the notes folder/i);
+  }
 });
 
 test("O2 a note the owner has edited is never written over", async (t) => {

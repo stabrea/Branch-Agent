@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -76,11 +76,29 @@ const hashOf = (text: string): string => createHash("sha256").update(text, "utf8
  * of the vault is followed and then refused; the separator is part of the comparison, so a sibling
  * folder whose name merely starts the same way is refused too.
  */
+/** The real path of the nearest part of a name that exists, with the rest of the name hung back on. */
+async function resolveThroughLinks(target: string): Promise<string> {
+  const missing: string[] = [];
+  let probe = target;
+  for (let depth = 0; depth < 64; depth += 1) {
+    const real = await realpath(probe).catch(() => null);
+    if (real !== null) return missing.length ? resolve(real, ...missing) : real;
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    missing.unshift(basename(probe));
+    probe = parent;
+  }
+  return target;
+}
+
 export async function insideVault(vault: string, wanted: string): Promise<string> {
   const root = await realpath(resolve(vault)).catch(() => resolve(vault));
   const target = resolve(root, wanted);
-  /* A file that does not exist yet cannot be resolved for real, so its folder is checked instead. */
-  const existing = await realpath(target).catch(() => target);
+  /* A file that does not exist yet cannot be resolved for real, so the nearest folder above it that
+     does exist is resolved and the rest of the name hung back on. Resolving only the whole path and
+     falling back to the name as written would let a link already sitting in the notes folder carry
+     a note that does not exist yet straight out of it. */
+  const existing = await resolveThroughLinks(target);
   const within = relative(root + sep, existing);
   if (existing !== root && (!within || within.startsWith("..") || isAbsolute(within)))
     throw new Error("That note is outside the notes folder, so Branch will not touch it.");
