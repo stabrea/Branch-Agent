@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { detectInjection } from "./content-guard.js";
 import type { KnowledgeBases } from "./knowledge-bases.js";
 import type { Proposal } from "./memory-review.js";
 import type { ModelRouter } from "./models.js";
@@ -65,7 +66,12 @@ export class KnowledgeCards {
     });
     const parsed = CardsSchema.safeParse(readJson(completion.content));
     if (!parsed.success) return { collection: target.id, staged: [], reason: "The write-up could not be read, so nothing was suggested." };
-    return { collection: target.id, reason: "", staged: this.stage(owner, target.id, parsed.data.cards) };
+    const usable = parsed.data.cards.filter((card) => !cardReadsAsInstructions(card));
+    const dropped = parsed.data.cards.length - usable.length;
+    return {
+      collection: target.id, staged: this.stage(owner, target.id, usable),
+      reason: dropped ? droppedMessage(dropped) : "",
+    };
   }
   /** Each card written into the review queue, skipping ones already waiting under the same title. */
   private stage(owner: string, collection: string, cards: z.infer<typeof CardsSchema>["cards"]): Proposal[] {
@@ -84,6 +90,19 @@ export class KnowledgeCards {
     return staged;
   }
 }
+/**
+ * A card is written up from a conversation, and a conversation can hold whatever was in a document
+ * somebody sent. Once accepted, a card is searched and quoted back like anything else the assistant
+ * knows, so a line in it that reads like an order to the assistant would be an order that outlives
+ * the conversation it came from. Such a card is never offered, and never accepted if it gets that
+ * far: see `MemoryReview.accept`, which checks again before anything is written.
+ */
+export function cardReadsAsInstructions(card: { title: string; body: string; sourceTurn?: string }): boolean {
+  return detectInjection([card.title, card.body, card.sourceTurn ?? ""].join("\n")).length > 0;
+}
+const droppedMessage = (dropped: number): string =>
+  `${dropped} suggestion${dropped === 1 ? " was" : "s were"} left out because ${dropped === 1 ? "it read" : "they read"} like instructions to the assistant rather than something to remember.`;
+
 /** The JSON in a reply, whether it arrived bare or inside a fenced block. */
 function readJson(content: string): unknown {
   const body = /```(?:json)?\s*([\s\S]*?)```/.exec(content)?.[1] ?? content;

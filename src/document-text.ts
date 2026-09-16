@@ -21,7 +21,19 @@ export function documentType(name: string): DocumentType {
 export const knownExtension = (name: string): boolean =>
   byExtension[name.toLowerCase().split(".").pop() ?? ""] !== undefined;
 
+/**
+ * How much one zip container may unpack to in total, and how many entries it may list. A small file
+ * can be built to unpack into gigabytes; these two caps mean such a file is refused in a moment
+ * rather than eating the machine's memory.
+ */
+export const zipInflatedLimit = 64 * 1024 * 1024;
+export const zipEntryLimit = 5000;
+export const unpacksTooLarge =
+  `This document unpacks to more than ${zipInflatedLimit / 1048576} MB, which is more than can be read at once.`;
+
 export class ZipReader {
+  /** How much unpacking this container has left before it is refused. */
+  private budget = zipInflatedLimit;
   constructor(private readonly data: Buffer) {}
   private centralDirectory(): number {
     const signature = 0x06054b50;
@@ -32,7 +44,8 @@ export class ZipReader {
   /** The bytes of one entry, or null when the container has no such entry. */
   entry(path: string): Buffer | null {
     let pos = this.centralDirectory();
-    while (pos + 46 <= this.data.length && this.data.readUInt32LE(pos) === 0x02014b50) {
+    for (let seen = 0; seen < zipEntryLimit; seen++) {
+      if (pos + 46 > this.data.length || this.data.readUInt32LE(pos) !== 0x02014b50) break;
       const nameLength = this.data.readUInt16LE(pos + 28);
       const name = this.data.toString("utf8", pos + 46, pos + 46 + nameLength);
       if (name === path) return this.read(this.data.readUInt32LE(pos + 42));
@@ -48,7 +61,7 @@ export class ZipReader {
       const nameLength = this.data.readUInt16LE(pos + 28);
       found.push(this.data.toString("utf8", pos + 46, pos + 46 + nameLength));
       pos += 46 + nameLength + this.data.readUInt16LE(pos + 30) + this.data.readUInt16LE(pos + 32);
-      if (found.length >= 5000) break;
+      if (found.length >= zipEntryLimit) break;
     }
     return found;
   }
@@ -57,13 +70,29 @@ export class ZipReader {
     return this.entry(path)?.toString("utf8") ?? "";
   }
   private read(header: number): Buffer {
-    if (this.data.readUInt32LE(header) !== 0x04034b50) throw new Error("Damaged document entry");
+    if (header + 30 > this.data.length || this.data.readUInt32LE(header) !== 0x04034b50)
+      throw new Error("Damaged document entry");
     const method = this.data.readUInt16LE(header + 8), size = this.data.readUInt32LE(header + 18);
     const start = header + 30 + this.data.readUInt16LE(header + 26) + this.data.readUInt16LE(header + 28);
     const body = this.data.subarray(start, start + size);
-    if (method === 0) return Buffer.from(body);
-    if (method === 8) return inflateRawSync(body);
+    if (method === 0) return this.spend(Buffer.from(body));
+    // The unpacked size is capped as well as checked afterwards, so a part built to unpack into
+    // gigabytes stops at the cap instead of being unpacked and only then found to be too big.
+    if (method === 8) return this.spend(this.inflate(body));
     throw new Error("This document uses a compression method the assistant cannot read");
+  }
+  private inflate(body: Buffer): Buffer {
+    try { return inflateRawSync(body, { maxOutputLength: this.budget + 1 }); }
+    catch (error) {
+      if ((error as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") throw new Error(unpacksTooLarge);
+      throw new Error("Part of this document is damaged and would not unpack.");
+    }
+  }
+  /** Takes what one part unpacked to out of the container's budget, refusing plainly when it runs out. */
+  private spend(bytes: Buffer): Buffer {
+    this.budget -= bytes.length;
+    if (this.budget < 0) throw new Error(unpacksTooLarge);
+    return bytes;
   }
 }
 

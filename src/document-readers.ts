@@ -70,7 +70,7 @@ function plain(type: DocumentType, bytes: Buffer): ReadDocument {
 }
 function readPdf(bytes: Buffer, deadline: number): ReadDocument {
   try {
-    const result = pdfText(bytes);
+    const result = pdfText(bytes, deadline);
     return {
       type: "pdf", text: result.pictures ? "" : pdfMarkedText(result), tables: [],
       limits: [...result.limits, ...(result.pictures ? [picturesMessage] : []), ...timeLimit(deadline)],

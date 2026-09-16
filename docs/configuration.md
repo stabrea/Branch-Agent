@@ -2316,6 +2316,11 @@ Branch reads the files people actually have, using nothing but Node's own buildi
 is ever executed, and no address written inside a file is ever fetched: a document is read, never
 obeyed. Every read is capped — a file larger than 20 MB is refused before a byte is parsed, and a
 file still being walked after 20 seconds is cut short and says so in the "could not be read" list.
+Unpacking is capped too, because a few hundred kilobytes of file can be built to unpack into
+gigabytes: one Word, spreadsheet, slide, OpenDocument or e-book file may unpack to at most 64 MB and
+list at most 5,000 parts, and one PDF may unpack to at most 64 MB. Past either, the file is refused
+in a sentence rather than left to fill the machine's memory. A PDF is checked against its time
+allowance before each page, so a long one stops and says how many pages it managed.
 
 **What can be read**
 
@@ -2368,7 +2373,10 @@ under **Documents** has a box for each.
 conversation and writes up what is worth looking up again as fact cards: a title, a few sentences,
 the turn it came from and how sure it is. Every card is a suggestion. Nothing reaches a knowledge
 base until you accept it under "What it learns", and an accepted card is indexed and cited exactly
-like a passage from a file. It is under `documents.write`.
+like a passage from a file. It is under `documents.write`. A conversation can repeat whatever a
+document or a web page said, so every card is put through the same check that guards what comes back
+from the web: a card that reads like an order to the assistant is never offered, and is refused again
+if something else puts it in the queue — otherwise that order would outlive the conversation.
 
 ## How memory is organised (batch 25, wave 7)
 

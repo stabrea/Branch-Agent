@@ -4,6 +4,7 @@ import { z } from "zod";
 import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
+import { detectInjection } from "./content-guard.js";
 
 /**
  * Governance for what the assistant learns: exact versions of every memory, whole-memory
@@ -114,6 +115,11 @@ export class MemoryReview {
     if (proposal.kind === "knowledge-card") {
       if (!proposal.card) throw new Error("That card suggestion has nothing in it");
       if (!this.acceptCard) throw new Error("Knowledge bases are not available in this launch");
+      // A card is written up from a conversation, which may itself repeat what a document said. One
+      // that reads like an order to the assistant is refused here, whatever put it in the queue,
+      // because accepting it would make that order part of what the assistant knows for good.
+      if (detectInjection([proposal.card.title, proposal.card.body, proposal.card.sourceTurn].join("\n")).length)
+        throw new Error("That card reads like instructions to the assistant rather than something to remember, so it was not added.");
       return this.acceptCard(owner, proposal.card);
     }
     return { noted: true };
