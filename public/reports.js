@@ -30,7 +30,10 @@ function handOver(report) {
 
 /** The print-ready form opens in a window of its own, where the owner presses Print. */
 function openForPrinting(report) {
-  const window_ = globalThis.open("", "_blank", "noopener,width=900,height=1000");
+  /* No "noopener" here: with it the browser hands back null by the spec, and there would be no
+     window to write the report into. Nothing written here can script the page it came from —
+     every heading and every word of a report is escaped before it leaves the server. */
+  const window_ = globalThis.open("", "_blank", "width=900,height=1000");
   if (!window_) throw new Error("Your browser would not open the print view. Allow pop-ups for this page.");
   window_.document.write(report.body);
   window_.document.close();
