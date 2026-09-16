@@ -3,6 +3,8 @@
  * limit you can put on it. A model with no price on file is always said so in words, never shown
  * as costing nothing.
  */
+import { t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const say = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
 function el(tag, text, className) {
@@ -185,13 +187,13 @@ function renderTables(view) {
 
 function renderBudget(view) {
   const card = el("article", undefined, "budget-card");
-  card.append(el("h2", "Monthly limit"));
-  card.append(el("p", "Stop starting new tasks once this month reaches a number of tokens, an amount of money, or either. Leave a box empty to not use it."));
+  card.append(el("h2", t("usage.card.limit")));
+  card.append(el("p", t("usage.card.limitPurpose")));
   const form = el("form", undefined, "form-grid");
   form.innerHTML = `
     <div><label for="max-monthly">Most tokens in a month</label>
       <input id="max-monthly" type="number" min="1" step="1" value="${budget?.maxMonthlyTokens ?? ""}" placeholder="No limit" /></div>
-    <div><label for="max-dollars">Most money in a month (US dollars)</label>
+    <div><label for="max-dollars">Most money in a month, in US dollars</label>
       <input id="max-dollars" type="number" min="0.01" step="0.01" value="${budget?.maxMonthlyDollars ?? ""}" placeholder="No limit" /></div>
     <label class="check-row"><input type="checkbox" id="pause-at-budget" ${budget?.pauseAtBudget ? "checked" : ""} />
       Stop starting new tasks when the limit is reached</label>
@@ -342,6 +344,8 @@ async function render() {
     metering = (await api("usage/metering")).metering;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
   view.replaceChildren();
+  // Wave 8: every section opens by saying what it is for, in one line.
+  view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);

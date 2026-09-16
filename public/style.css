@@ -589,10 +589,115 @@ summary {
 .made-thumb { display: block; width: 100%; max-width: 14rem; height: auto; border-radius: 0.4rem; margin-bottom: 0.4rem; }
 
 /* Wave 5: how Branch runs on this computer, and the two switches on the first-run checklist. */
-#deployment-card label { display: block; margin: 0.6rem 0; }
+#deployment-card h2 { margin-top: 0; }
 #deployment-card h3 { margin: 1.2rem 0 0.4rem; }
-#deployment-card canvas { display: block; margin: 0.8rem 0; background: #fff; border-radius: 0.4rem; padding: 0.5rem; max-width: 100%; height: auto; }
+#deployment-card canvas { display: block; margin: 0.8rem 0; background: var(--paper-2); border-radius: 0.4rem; padding: 0.5rem; max-width: 100%; height: auto; }
 #deployment-card pre { margin: 0.5rem 0 0; padding: 0.5rem; border-radius: 0.4rem; background: var(--well); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
-#deployment-card .bad, .first-run-extras .bad { color: var(--rust, #c2553c); }
+#deployment-card .bad, .first-run-extras .bad { color: var(--bad); }
 .first-run-extras { margin-top: 1rem; display: grid; gap: 0.4rem; }
 .first-run-extras label { font-size: 0.9rem; }
+
+/* ========== Wave 8: one anatomy for every card, one shape for every tick box ==========
+   Nothing here invents a colour, a spacing or a radius: every value is a token from
+   public/tokens.css. See docs/design.md, "The anatomy of a card". */
+
+/* A tick box belongs beside its words, in the reading face. The `input { width: 100% }` rule
+   further up used to stretch it across the whole column, which is what left the tick sitting
+   on a line of its own above its label, in the small mono label face. */
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]),
+label.check,
+label.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin: var(--s2) 0;
+  font-family: var(--body);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  letter-spacing: normal;
+  color: var(--text);
+}
+label > input[type="checkbox"],
+label > input[type="radio"] {
+  width: auto;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--copper);
+  translate: 0 2px;
+}
+/* The two ticks inside the message box are part of a button row, not a list of settings. */
+.composer label.check {
+  margin: 0;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.composer label.check > input[type="checkbox"] {
+  translate: none;
+}
+
+/* Every card reads the same way down the page: what it is, what it is for, the controls,
+   a plain note, and at most one filled button. */
+.card > h2 {
+  margin: 0 0 var(--s1);
+}
+/* The line straight after a card's title is its purpose, whatever class it was given. */
+.card > h2 + p,
+.card > h3 + p,
+.card > .card-purpose,
+.section-intro {
+  margin: 0 0 var(--s4);
+  max-width: 68ch;
+  font-family: var(--body);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--muted);
+  letter-spacing: normal;
+}
+/* A note under a control explains it in a sentence; the caption above it stays short. */
+.field-note {
+  margin: calc(var(--s1) * -1) 0 var(--s3);
+  max-width: 68ch;
+  font-family: var(--body);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+  letter-spacing: normal;
+}
+
+/* An empty screen says what it is for and offers the one thing worth doing next. */
+.empty-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--s2);
+  padding: var(--s5);
+  border: 1px dashed var(--line);
+  border-radius: var(--r2);
+  background: var(--well);
+  color: var(--muted);
+  text-align: left;
+}
+.empty-state strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+.empty-state p {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* A card's title and purpose run the full width of a two-column form, not one cell of it. */
+.form-grid > h2,
+.form-grid > h2 + p {
+  grid-column: 1 / -1;
+}
+
+/* A wide table keeps its own sideways scroll so the page never gains one. */
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}

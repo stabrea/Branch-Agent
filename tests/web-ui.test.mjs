@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -427,4 +427,49 @@ test("U7 dates and numbers follow the chosen language", async (t) => {
   });
   assert.notEqual(shown.french.number, shown.english.number, "1234567 is not written the same way in both");
   assert.notEqual(shown.french.date, shown.english.date, "the date is not written the same way in both");
+});
+
+/* ==================== Wave 8: the design QA pass ====================
+   Q2 a colour is written down in exactly one file; Q6 every word on a section screen has a key,
+   and every language file answers it. These read the source, so they need no browser. */
+
+const PUBLIC = join(import.meta.dirname, "..", "public");
+
+test("Q8 no stylesheet but the token layer writes a colour down", async (t) => {
+  const sheets = (await readdir(PUBLIC)).filter((name) => name.endsWith(".css") && name !== "tokens.css");
+  assert.ok(sheets.length >= 3, "the stylesheets moved; this test is looking in the wrong place");
+  const offenders = [];
+  for (const name of sheets) {
+    const text = await readFile(join(PUBLIC, name), "utf8");
+    text.split("\n").forEach((line, index) => {
+      /* A comment may name a colour; a rule may not. */
+      const rule = line.replace(/\/\*.*?\*\//g, "").split("/*")[0];
+      if (/#[0-9a-fA-F]{3,8}\b|\brgba?\s*\(|\bhsla?\s*\(/.test(rule))
+        offenders.push(`${name}:${index + 1} ${rule.trim().slice(0, 70)}`);
+    });
+  }
+  assert.deepEqual(offenders, [], "every colour belongs in public/tokens.css");
+});
+
+test("Q8 the page never shows a key where a word should be", async (t) => {
+  const html = await readFile(join(PUBLIC, "index.html"), "utf8");
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  const keys = [...new Set([...html.matchAll(/data-t(?:-label|-placeholder|-title)?="([^"]+)"/g)].map((m) => m[1]))];
+  assert.ok(keys.length > 60, "the markup carries fewer keys than the sections need");
+  assert.deepEqual(keys.filter((key) => !(key in english)), [], "a key in the markup has no English words");
+
+  /* Every other language answers the same keys, so nothing falls through to a raw key. */
+  for (const file of (await readdir(join(PUBLIC, "locales"))).filter((n) => n !== "en.json")) {
+    const other = JSON.parse(await readFile(join(PUBLIC, "locales", file), "utf8"));
+    const missing = Object.keys(english).filter((key) => !(key in other));
+    assert.deepEqual(missing, [], `${file} does not answer every key English does`);
+  }
+});
+
+test("Q8 each of the ten sections has its own words on file", async (t) => {
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  for (const view of ["runs", "usage", "memory", "skills", "specialists", "procedures", "schedules", "documents", "settings"]) {
+    const mine = Object.keys(english).filter((key) => key.startsWith(`${view}.`));
+    assert.ok(mine.length > 0, `${view} has no words of its own behind a key`);
+  }
 });

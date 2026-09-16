@@ -389,3 +389,163 @@ test("with nothing connected the context pane offers one thing to do", async (t)
   assert.match(await f.page.locator("#page-title").innerText(), /Settings/);
   assert.deepEqual(f.errors, []);
 });
+
+/* ==================== Wave 8: the design QA pass ====================
+   Q3 nothing is wider than a 400 px window; Q4 the words on the screens are the words in the
+   glossary; Q5 focus can be seen, Escape closes what it opened, and stillness is honoured. */
+
+/** The ten screens the owner can open, as [what it is called, the rail's own name for it]. */
+const SCREENS = [
+  ["Conversation", "chat"], ["Activity", "runs"], ["Usage", "usage"], ["Memory", "memory"],
+  ["Skills", "skills"], ["Specialists", "specialists"], ["Procedures", "procedures"],
+  ["Schedules", "schedules"], ["Documents", "documents"], ["Settings", "settings"],
+];
+
+/** Opens a screen, letting the rail slide over first on a narrow window. */
+async function openScreen(page, view) {
+  const nav = page.locator(`.nav[data-view="${view}"]`).first();
+  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
+  await nav.click();
+  await page.evaluate(() => document.body.classList.remove("rail-open"));
+  await page.waitForTimeout(350);
+}
+
+test("Q3 at 400 px nothing on any screen is wider than the window", async (t) => {
+  const f = await fixture(t);
+  await f.page.setViewportSize({ width: 400, height: 800 });
+  for (const [, view] of SCREENS) {
+    await openScreen(f.page, view);
+    const tooWide = await f.page.evaluate((id) => {
+      const scrolls = (node) => {
+        for (let p = node; p; p = p.parentElement) {
+          const x = getComputedStyle(p).overflowX;
+          if (x === "auto" || x === "scroll") return true;
+        }
+        return false;
+      };
+      const out = [];
+      for (const node of document.getElementById(id).querySelectorAll("*")) {
+        if (node.offsetParent === null) continue;
+        const box = node.getBoundingClientRect();
+        /* A table may keep its own sideways scroll; the page itself may not. */
+        if (box.width > window.innerWidth + 1 && !scrolls(node))
+          out.push(`${node.tagName.toLowerCase()}.${node.className.toString().slice(0, 30)} = ${Math.round(box.width)}px`);
+      }
+      return out;
+    }, view);
+    assert.deepEqual(tooWide, [], `${view} has something wider than a 400 px window`);
+    const sideways = await f.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(sideways <= 1, `${view} makes the page scroll sideways by ${sideways}px`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q4 every control that can be seen can also be named", async (t) => {
+  const f = await fixture(t);
+  for (const [, view] of SCREENS) {
+    await openScreen(f.page, view);
+    const nameless = await f.page.evaluate((id) => {
+      const out = [];
+      for (const node of document.getElementById(id).querySelectorAll("button, input, select, textarea")) {
+        if (node.offsetParent === null) continue;
+        const name = node.labels?.[0]?.textContent?.trim() || node.getAttribute("aria-label") ||
+          document.getElementById(node.getAttribute("aria-labelledby") ?? "")?.textContent?.trim() ||
+          node.title || node.textContent.trim();
+        if (!name) out.push(`${node.tagName.toLowerCase()}#${node.id || "(no id)"}`);
+      }
+      return out;
+    }, view);
+    assert.deepEqual(nameless, [], `${view} has a control nothing can read out`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q4 a tick box sits beside its words, in the reading face", async (t) => {
+  const f = await fixture(t);
+  await openScreen(f.page, "settings");
+  const wrong = await f.page.evaluate(() => {
+    const out = [];
+    for (const box of document.querySelectorAll('#settings label > input[type="checkbox"]')) {
+      if (box.offsetParent === null) continue;
+      /* Stretched across the column is what used to put the tick on a line of its own. */
+      if (box.getBoundingClientRect().width > 40) out.push(`${box.id}: the tick box is stretched`);
+      if (getComputedStyle(box.parentElement).fontFamily.includes("Mono"))
+        out.push(`${box.id}: its words are in the label face`);
+    }
+    return out;
+  });
+  assert.deepEqual(wrong, []);
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q4 every screen calls the same thing by the same name", async (t) => {
+  const f = await fixture(t);
+  /* One name per idea. Each pattern is a word the owner should never have to meet on its own;
+     the second half of each pair is what to say instead. See docs/design.md, "The glossary". */
+  const banned = [
+    [/\bSKILL\.md\b/, "the instructions"],
+    [/\bAPI base URL\b/, "web address of the service"],
+    [/\bendpoint\b/i, "web address"],
+    [/\bpayload\b/i, "what is sent"],
+    [/\bSSE\b/, "live updates"],
+  ];
+  for (const [, view] of SCREENS) {
+    await openScreen(f.page, view);
+    const words = await f.page.evaluate((id) => document.getElementById(id).innerText, view);
+    for (const [pattern, instead] of banned)
+      assert.equal(pattern.test(words), false, `${view} still says ${pattern} where it should say "${instead}"`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q4 every section says what it is for, and every card carries a title", async (t) => {
+  const f = await fixture(t);
+  for (const [, view] of SCREENS) {
+    if (view === "chat") continue; /* the conversation opens on its greeting, not an intro */
+    await openScreen(f.page, view);
+    assert.ok(await f.page.locator(`#${view} .section-intro`).count(), `${view} never says what it is for`);
+    const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
+      .filter((card) => card.offsetParent !== null && !card.querySelector("h2, summary"))
+      .map((card) => card.id || card.className), view);
+    assert.deepEqual(untitled, [], `${view} has a card with no title`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q5 Escape closes the palette and the workspace menu", async (t) => {
+  const f = await fixture(t);
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").waitFor({ state: "visible" });
+  await f.page.keyboard.press("Escape");
+  await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
+
+  await f.page.locator("#owner-menu-button").click();
+  await f.page.locator("#owner-menu").waitFor({ state: "visible" });
+  await f.page.keyboard.press("Escape");
+  await f.page.locator("#owner-menu").waitFor({ state: "hidden" });
+  assert.equal(await f.page.locator("#owner-menu-button").getAttribute("aria-expanded"), "false");
+  assert.deepEqual(f.errors, []);
+});
+
+test("Q5 focus can be seen, and stillness is honoured", async (t) => {
+  const f = await fixture(t);
+  const ring = await f.page.evaluate(() => {
+    const probe = document.getElementById("prompt");
+    probe.focus();
+    const style = getComputedStyle(probe);
+    return { width: style.outlineWidth, style: style.outlineStyle };
+  });
+  assert.notEqual(ring.style, "none", "a focused control shows no ring");
+  assert.notEqual(ring.width, "0px", "the focus ring has no width");
+
+  /* "Keep things still" writes data-motion onto the page, and every move is then instant. */
+  const still = await f.page.evaluate(() => {
+    document.documentElement.dataset.motion = "reduced";
+    const measured = getComputedStyle(document.getElementById("send")).transitionDuration;
+    delete document.documentElement.dataset.motion;
+    return measured;
+  });
+  assert.ok(Number.parseFloat(still) < 0.01,
+    `movement is still ${still} long when the owner asked for stillness`);
+  assert.deepEqual(f.errors, []);
+});
