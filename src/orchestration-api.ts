@@ -21,7 +21,7 @@ const notFound = (): never => { throw new OrchestrationApiError(404, "Endpoint n
 
 /** Every path this file answers, so the main route file can hand them over in one line. */
 export function handlesOrchestrationPath(path: string): boolean {
-  return /^\/api\/(flows|deferred|processes|code-check|code-run|background-programs|specialist-styles)(\/|$)/.test(path);
+  return /^\/api\/(flows|deferred|processes|code-check|code-run|background-programs|specialist-styles|skill-revisions|plugin-catalog)(\/|$)/.test(path);
 }
 
 export async function orchestrationApi(
@@ -34,6 +34,8 @@ export async function orchestrationApi(
     return answered ?? notFound();
   }
   if (path.startsWith("/api/deferred")) return deferredApi(app, request, path, readBody);
+  if (path.startsWith("/api/skill-revisions")) return revisionsApi(app, request, path, readBody);
+  if (path.startsWith("/api/plugin-catalog")) return pluginCatalogApi(app, request, path, readBody);
   if (path === "/api/processes") return processesApi(app, request, readBody);
   if (path === "/api/specialist-styles")
     return { styles: specialistStyles.map((style) => ({ style, ...summaryOf(style) })) };
@@ -65,6 +67,42 @@ async function deferredApi(
   if (request.method === "POST" && path === "/api/deferred/settle") {
     const value = SettleDeferredSchema.parse(await readBody(request));
     return app.runtime.settleDeferred(value.id, value.outcome);
+  }
+  return notFound();
+}
+
+const revisionBody = z.object({ skillId: z.string().uuid(), version: z.number().int().min(1).max(20), force: z.boolean().optional() }).strict();
+/** Drafted better versions of a skill: seeing the changed lines, trying them, and saying yes or no. */
+async function revisionsApi(
+  app: Branch, request: IncomingMessage, path: string,
+  readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
+): Promise<unknown> {
+  if (request.method === "GET" && path === "/api/skill-revisions") return { revisions: app.skillRevisions.list() };
+  if (request.method !== "POST") return notFound();
+  const body = revisionBody.parse(await readBody(request));
+  if (path === "/api/skill-revisions/try") return app.skillRevisions.tryOut(app.runtime, body.skillId, body.version);
+  if (path === "/api/skill-revisions/accept")
+    return app.skillRevisions.accept(body.skillId, body.version, body.force ? { force: true } : {});
+  if (path === "/api/skill-revisions/reject") return app.skillRevisions.reject(body.skillId, body.version);
+  return notFound();
+}
+
+const pluginSource = z.object({ source: z.string().min(1).max(1000), sha256: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict();
+/** Plugins from a folder or one file on this computer: looking first, then copying in. */
+async function pluginCatalogApi(
+  app: Branch, request: IncomingMessage, path: string,
+  readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
+): Promise<unknown> {
+  if (request.method === "GET" && path === "/api/plugin-catalog") return { plugins: await app.pluginCatalog.list() };
+  if (request.method !== "POST") return notFound();
+  if (path === "/api/plugin-catalog/inspect") return app.pluginCatalog.inspect(pluginSource.parse(await readBody(request)).source);
+  if (path === "/api/plugin-catalog/install") {
+    const body = pluginSource.parse(await readBody(request));
+    return app.pluginCatalog.install(body.source, body.sha256 ? { expectSha256: body.sha256 } : {});
+  }
+  if (path === "/api/plugin-catalog/forget") {
+    const { id } = z.object({ id: z.string().min(1).max(40) }).strict().parse(await readBody(request));
+    return app.pluginCatalog.forget(id);
   }
   return notFound();
 }

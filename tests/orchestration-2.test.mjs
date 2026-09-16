@@ -423,3 +423,132 @@ test("a flow that stops for the owner says so, and carries on when they say yes"
   assert.equal(carried.status, "completed");
   assert.deepEqual(carried.graph.nodes.map((n) => n.status), ["approved", "done"]);
 });
+
+// ------------------------- O7: skills that improve themselves, and plugins
+
+const skillDocument = (name, body) => `---\nname: ${name}\ndescription: How to do the ${name} thing properly.\n---\n${body}\n`;
+
+/**
+ * A skill, a real task that read it (so the app knows the task used it), and a drafted better
+ * version of that skill waiting for the owner's answer.
+ */
+async function draftedRevision(app, reading) {
+  const skill = app.store.skills.install(app.runtime.owner, { document: skillDocument("tidying", "Put things away.") });
+  reading.id = skill.id;
+  const used = await app.runtime.run({ prompt: "tidy the kitchen" });
+  assert.equal(used.status, "completed");
+  const drafted = await app.store.governanceFor(app.runtime.owner).proposeFromRun(app.runtime, skill.id, used.id);
+  return { skill, used, version: drafted.candidateVersion };
+}
+
+test("a drafted skill is shown as changed lines, tried on recent tasks without doing anything, then kept or thrown away", async (t) => {
+  const reading = { id: null, read: false };
+  const { app, api } = await served(t, ({ user, last }) => {
+    if (/Write the improved SKILL.md/.test(user)) return say(skillDocument("tidying", "Put things away, newest first."));
+    if (reading.id && !reading.read && last.role !== "tool") { reading.read = true; return call("skills.read", { id: reading.id, version: 1 }); }
+    return say("tidied");
+  });
+  const { skill, version } = await draftedRevision(app, reading);
+  const listed = await api("skill-revisions");
+  const waiting = listed.revisions.find((r) => r.skillId === skill.id && r.version === version);
+  assert.ok(waiting, "the draft is offered to the owner");
+  assert.match(waiting.diff, /newest first/, "the owner sees the lines that changed");
+  assert.equal(waiting.trial, null);
+  assert.equal(waiting.decision, null);
+  await assert.rejects(() => api("skill-revisions/accept", { skillId: skill.id, version }), /Try the draft/);
+  const trial = await api("skill-revisions/try", { skillId: skill.id, version });
+  assert.ok(trial.tasks >= 1, "it was tried against a real task");
+  assert.equal(trial.baseline.finished, trial.tasks);
+  assert.equal(trial.candidate.finished, trial.tasks);
+  assert.equal(trial.noWorse, true);
+  const practice = app.store.run(trial.parentRunId);
+  assert.ok(app.store.events(practice.id).some((e) => e.kind === "dryrun.report"), "the trial was a practice run");
+  const kept = await api("skill-revisions/accept", { skillId: skill.id, version });
+  assert.equal(kept.decision, "accepted");
+  assert.equal(app.store.skills.view(app.runtime.owner, skill.id).activeVersion, version);
+});
+
+test("a drafted skill that is thrown away never becomes the one in use", async (t) => {
+  const reading = { id: null, read: false };
+  const { app, api } = await served(t, ({ user }) =>
+    say(/Write the improved SKILL.md/.test(user) ? skillDocument("tidying", "Throw everything out.") : "tidied"));
+  const { skill, version } = await draftedRevision(app, reading);
+  const before = app.store.skills.view(app.runtime.owner, skill.id).activeVersion;
+  const thrown = await api("skill-revisions/reject", { skillId: skill.id, version });
+  assert.equal(thrown.decision, "rejected");
+  assert.equal(app.store.skills.view(app.runtime.owner, skill.id).activeVersion, before);
+  assert.equal((await api("skill-revisions")).revisions[0].decision, "rejected");
+});
+
+test("skills go out to a folder as files and come back in again, so they can be kept in version control", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  app.store.skills.install(owner, { document: skillDocument("packing", "Put it in the box.") });
+  const { context } = taskContext(app);
+  const out = await app.registry.execute("skills.sync", { folder: "skills", direction: "out" }, context);
+  assert.deepEqual(out.written, ["skills/packing.md"]);
+  const file = join(app.runtime.workspace, "skills", "packing.md");
+  assert.match(await readFile(file, "utf8"), /Put it in the box/);
+  const back = await app.registry.execute("skills.sync", { folder: "skills", direction: "in" }, context);
+  assert.deepEqual(back.unchanged, ["skills/packing.md"]);
+  await writeFile(file, skillDocument("packing", "Put it in the box, the heavy things first."));
+  await writeFile(join(app.runtime.workspace, "skills", "new.md"), skillDocument("posting", "Take it to the post office."));
+  const again = await app.registry.execute("skills.sync", { folder: "skills", direction: "in" }, context);
+  assert.deepEqual(again.updated, ["skills/packing.md"]);
+  assert.deepEqual(again.installed, ["skills/new.md"]);
+  assert.equal(app.store.skills.list(owner).length, 2);
+});
+
+test("a plugin is shown in full before it is copied in, and its fingerprint is checked", async (t) => {
+  const { app, api, root } = await served(t);
+  const folder = join(root, "handed-over");
+  await mkdir(folder, { recursive: true });
+  const code = "export default { id: 'tidy', name: 'Tidy', permissions: [], tools: [] };\n";
+  await writeFile(join(folder, "tidy.mjs"), code);
+  await writeFile(join(folder, "branch-plugin.json"),
+    JSON.stringify({ id: "tidy", name: "Tidy", description: "Tidies things up.", permissions: ["files.read"], version: "2" }));
+  const offer = await api("plugin-catalog/inspect", { source: folder });
+  assert.equal(offer.manifest.name, "Tidy");
+  assert.deepEqual(offer.manifest.permissions, ["files.read"]);
+  assert.match(offer.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(app.store.list("settings", app.runtime.owner).filter((r) => r.id.startsWith("plugin-catalog:")).length, 0,
+    "looking at it installs nothing");
+  await assert.rejects(() => api("plugin-catalog/install", { source: folder, sha256: "f".repeat(64) }), /not the one you were shown/);
+  const installed = await api("plugin-catalog/install", { source: folder, sha256: offer.sha256 });
+  assert.equal(installed.id, "tidy");
+  const listed = await api("plugin-catalog");
+  assert.equal(listed.plugins[0].unchanged, true);
+  assert.ok((await app.plugins.list()).some((entry) => entry.id === "tidy" && entry.enabled === false),
+    "it arrives switched off, as every plugin does");
+  await writeFile(join(app.runtime.workspace, "..", "data", "plugins", "tidy.mjs"), code + "// changed by hand\n");
+  assert.equal((await api("plugin-catalog")).plugins[0].unchanged, false, "a file changed afterwards is noticed");
+});
+
+test("a plugin handed over as one file is opened, shown and copied in just the same", async (t) => {
+  const { zipWrite } = await import("../dist/skill-package.js");
+  const { app, api, root } = await served(t);
+  const code = "export default { id: 'boxed', name: 'Boxed', permissions: [], tools: [] };\n";
+  const file = join(root, "boxed.zip");
+  await writeFile(file, zipWrite([
+    ["branch-plugin.json", JSON.stringify({ id: "boxed", name: "Boxed", description: "Came in one file.", permissions: [] })],
+    ["boxed.mjs", code],
+  ]));
+  const offer = await api("plugin-catalog/inspect", { source: file });
+  assert.equal(offer.manifest.name, "Boxed");
+  const installed = await api("plugin-catalog/install", { source: file, sha256: offer.sha256 });
+  assert.equal(installed.id, "boxed");
+  assert.ok((await app.plugins.list()).some((entry) => entry.id === "boxed"), "the file is now one of the plugins on offer");
+});
+
+test("a plugin whose manifest disagrees with its code, or that is not a plugin at all, is refused", async (t) => {
+  const { api, root } = await served(t);
+  const folder = join(root, "wrong");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "odd.mjs"), "export default { id: 'odd', name: 'Odd' };\n");
+  await writeFile(join(folder, "branch-plugin.json"), JSON.stringify({ id: "odd", name: "Odd", sha256: "a".repeat(64) }));
+  await assert.rejects(() => api("plugin-catalog/install", { source: folder }), /does not match the fingerprint/);
+  const empty = join(root, "empty");
+  await mkdir(empty, { recursive: true });
+  await assert.rejects(() => api("plugin-catalog/inspect", { source: empty }), /not a plugin/);
+  await assert.rejects(() => api("plugin-catalog/inspect", { source: "relative/path" }), /in full/);
+});

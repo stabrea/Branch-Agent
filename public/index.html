@@ -467,6 +467,16 @@
             <p class="subtle">A skill that keeps failing the same way is kept out of new tasks for a while, then gets one trial. You can let it back in now.</p>
             <div id="set-aside-list" class="card-list"></div>
           </div>
+          <div class="card" id="skill-revisions-card">
+            <h3>Suggested better versions</h3>
+            <p class="subtle">
+              After a task goes well, the app writes a better version of the
+              skill it used. Try it against your last few tasks first — nothing
+              is really done during the try — then keep it or throw it away.
+            </p>
+            <button id="skill-revisions-refresh" type="button">Show suggestions</button>
+            <div id="skill-revisions-list" class="card-list"></div>
+          </div>
           <div id="skills-list" class="card-list"></div>
           <form id="skill-form" class="card">
             <h2 id="skill-editor-title">Install a skill</h2>
@@ -1068,5 +1078,6 @@
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
     <script src="/flows.js" type="module"></script>
+    <script src="/skill-revisions.js" type="module"></script>
   </body>
 </html>

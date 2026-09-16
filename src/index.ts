@@ -63,6 +63,8 @@ import { jsonWriteProblem } from "./approvals.js";
 // wave6/collab-workflows branch, which had not reached staging when this batch was written).
 import { Workflows, registerWorkflows } from "./workflows.js";
 import { Flows, registerFlows } from "./flows.js";
+import { PluginCatalog } from "./plugin-catalog.js";
+import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
@@ -231,6 +233,12 @@ export async function createBranch(options: {
   const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
   plugins.providers = providerPlugins;
+  // Where plugins come from: a folder or one file on this computer, shown in full before it is
+  // copied in, with its fingerprint kept so a file that changes later is noticed.
+  const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
+  // Drafts of better versions of a skill, tried against real tasks as a practice run first.
+  const skillRevisions = new SkillRevisions(store, runtime.owner);
+  registerSkillSync(registry, store, files);
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
@@ -359,6 +367,10 @@ export async function createBranch(options: {
     plugins,
     /** Plugins that were on but could not be loaded this time. */
     pluginProblems,
+    /** Where plugins came from, with the fingerprint each one had when it was accepted. */
+    pluginCatalog,
+    /** Drafted better versions of a skill: the changed lines, the trial, and the owner's answer. */
+    skillRevisions,
     evaluation,
     /** Suites kept as data: running them, their history, and comparing two model choices. */
     evaluationSuites,
@@ -548,6 +560,8 @@ export * from "./deferred.js";
 export * from "./processes.js";
 export * from "./code-run.js";
 export * from "./flows.js";
+export * from "./plugin-catalog.js";
+export * from "./skill-revisions.js";
 export * from "./media.js";
 export * from "./media-audio.js";
 export * from "./media-images.js";
