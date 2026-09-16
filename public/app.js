@@ -28,6 +28,7 @@ let token = sessionStorage.getItem("branch-token") || "",
 const titles = {
   chat: "Conversation",
   runs: "Activity",
+  usage: "Usage",
   memory: "Memory",
   specialists: "Specialists",
   procedures: "Procedures",

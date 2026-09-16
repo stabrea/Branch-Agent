@@ -1,5 +1,9 @@
 # Branch Agent checkpoint — 2026-09-15 (late evening)
 
+## Batch 19 (wave 1) — usage and observability dashboard
+
+`src/usage.ts` (UsageStore class): aggregates runs and events by date to produce daily token consumption, estimated costs, and failure counts; tracks per-model and per-conversation usage; optional caching table for incremental refresh by event-id watermark (only terminal runs included). `GET /api/usage?range=7d|30d|90d|all&by=day|model|conversation|source` returns aggregated usage; `GET /api/runs/:id/timeline` returns a timestamped sequence of model calls, tool invocations, retries, and stalls from events, with durations (uses clipToolResult pattern for clipped output, future option for OTel-compatible trace export). Routes: `POST /api/usage/budget` to set optional monthly token budget and pause switch; `GET /api/usage/budget` to read it. Runtime budget enforcement at run-start in runtime.ts (not in Budget class — different concern). `GET /api/usage/export.csv` in rawApi() for download. `public/usage.js` builds the view with summary cards, daily cost canvas chart, table by model, budget form, export button. UI integrates into index.html nav and app.js titles; public/style.css variables reused. Tests: aggregation over fixture store with multiple runs/receipts across days and models, incremental refresh (adding a run updates only the new day), terminal-run filtering, reported-vs-estimated token selection, timeline event ordering and durations. Costs: derived at aggregate time from tokens × preset pricing (no cost column added to storage; no second source of truth). Items done: A0202 (usage tracked, display added), A0269 (display added), A0346, A0638 (cost estimation not implemented, left as future work following design constraint), A0929 (user-facing aggregation added), A0972 (timeline export added).
+
 ## Where things stand
 
 The user's standing instruction: keep improving locally and publish to GitHub only at checkpoints
