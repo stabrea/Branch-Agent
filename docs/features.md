@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 51 implemented, 42 partial, 1 external and 75 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 57 implemented, 38 partial, 1 external and 73 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -232,14 +232,14 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Streaming tool activity (`reliability.activity`) | partial | Stream actual in-progress tool activity to clients with terminal tool status. |
 | Context tokens and cache metrics (`reliability.context`) | partial | Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable. |
 | Visible compaction events (`reliability.compaction`) | implemented | Covered by the listed local fixtures. |
-| Success checks and bounded retry handlers (`reliability.checks`) | partial | Enforce declared completion checks for general runs and bounded retries after failure. |
-| Stuck-operation recovery (`reliability.stuck`) | partial | Detect a stalled operation and implement/test the configured recovery with recorded outcome. |
-| Context-limit and truncation recovery (`reliability.overflow`) | partial | Implement bounded recovery for context overflow and truncated output. |
+| Success checks and bounded retry handlers (`reliability.checks`) | implemented | Covered by the listed local fixtures. |
+| Stuck-operation recovery (`reliability.stuck`) | implemented | Covered by the listed local fixtures. |
+| Context-limit and truncation recovery (`reliability.overflow`) | implemented | Covered by the listed local fixtures. |
 | Differentiate successful receipts from failed and blocked audit events (`reliability.proof`) | partial | Add receipt-bearing successes and forged-receipt rejection. |
-| Resume work from provider-neutral safe checkpoints (`reliability.checkpoints`) | partial | Add durable execution cursor and continue after restart without replaying already-completed effects. |
-| Reconcile interrupted writes before retry (`reliability.uncertain-effects`) | partial | Classify unknown-outcome writes and require recorded external-state reconciliation before an allowed repeat. |
-| Durable ordered outbound delivery independent of task completion (`reliability.delivery-ledger`) | missing | Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect. |
-| Transactional queue retries and dead-letter inspection (`reliability.dead-letter`) | missing | Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry. |
+| Resume work from provider-neutral safe checkpoints (`reliability.checkpoints`) | implemented | Covered by the listed local fixtures. |
+| Reconcile interrupted writes before retry (`reliability.uncertain-effects`) | partial | Enforce a recorded reconciliation step before a repeat of the same write is allowed. |
+| Durable ordered outbound delivery independent of task completion (`reliability.delivery-ledger`) | implemented | Covered by the listed local fixtures. |
+| Transactional queue retries and dead-letter inspection (`reliability.dead-letter`) | implemented | Covered by the listed local fixtures. |
 | Runtime-verified task exit criteria (`reliability.completion-contract`) | partial | Apply declared exit criteria to each delegated task outcome and report failed evidence to parent. |
 | Measure task accuracy energy latency and cost (`reliability.evaluation`) | partial | Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs. |
 | Export task traces and service metrics (`reliability.tracing`) | partial | Add trace/metric export to configured observability endpoints. |

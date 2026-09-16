@@ -150,6 +150,8 @@ export const RunInputSchema = z
     sessionId: z.string().uuid().optional(),
     /** Start a conversation that is never searchable and is discarded when closed. */
     temporary: z.boolean().optional(),
+    /** Conditions the final answer must meet (phrases, a pattern, a JSON shape, files that must exist). */
+    checks: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 export const errorText = (error: unknown): string =>

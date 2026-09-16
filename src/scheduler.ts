@@ -27,7 +27,7 @@ export const ScheduleSchema = z
   .strict()
   .refine((value) => !(value.intervalMs && value.dailyAt), "Choose either an interval or a daily time")
   .refine((value) => !value.dailyAt || value.timezone, "A daily time needs a timezone");
-export type Delivery = (channel: string, chatId: string, text: string) => Promise<{ messageId?: string | undefined }>;
+export type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<{ messageId?: string | undefined; queued?: number }>;
 export interface HistoryEntry { runId: string | null; status: string; startedAt: string; finishedAt?: string; trigger: string }
 const historyLimit = 50;
 
@@ -67,7 +67,7 @@ export class Scheduler {
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
-    private readonly deliver?: Delivery,
+    private readonly deliver?: DeliveryHandler,
   ) {}
   create(context: ToolContext, input: unknown): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
@@ -119,6 +119,7 @@ export class Scheduler {
       const run = data.kind === "reminder" ? this.remind(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload), permissions: data.permissions as string[],
         onStarted: (started) => { entry.runId = started.id; },
+        onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       const delivery = await this.deliverResult(data, run);
@@ -156,9 +157,9 @@ export class Scheduler {
     if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
     try {
       const text = run.status === "completed" ? run.output : `The scheduled task did not finish (${run.status}).`;
-      const { messageId } = await this.deliver(target.channel, target.chatId, text.slice(0, 3500));
-      this.store.event(run.id, "delivery.sent", { ...target, messageId: messageId ?? null });
-      return { ...target, at, messageId: messageId ?? null };
+      const { messageId, queued } = await this.deliver(target.channel, target.chatId, text, `schedule:${run.id}`);
+      this.store.event(run.id, queued ? "delivery.queued" : "delivery.sent", { ...target, messageId: messageId ?? null, queued: queued ?? 0 });
+      return { ...target, at, messageId: messageId ?? null, ...(queued ? { queued } : {}) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.store.event(run.id, "delivery.failed", { ...target, error: message });

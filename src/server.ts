@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { RunInputSchema, errorText } from "./contracts.js";
+import { CompletionCheckSchema } from "./reliability.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -236,13 +237,15 @@ async function api(
     app.store.save("settings", app.runtime.owner, "preferences", value);
     return value;
   }
-  const match = /^\/api\/runs\/([a-f0-9-]{36})(\/cancel)?$/.exec(path);
+  const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
     if (!run || run.owner !== app.runtime.owner)
       throw new HttpError(404, "Run not found");
-    if (request.method === "POST" && match[2])
+    if (request.method === "POST" && match[2] === "cancel")
       return { cancelled: app.runtime.cancel(run.id) };
+    if (request.method === "POST" && match[2] === "resume")
+      return app.runtime.resume(run.id);
     if (request.method === "GET" && !match[2])
       return {
         run,
@@ -257,6 +260,7 @@ async function api(
       prompt: input.prompt,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.temporary ? { temporary: true } : {}),
+      ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {
@@ -392,7 +396,9 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
-  if (request.method === "GET" && path === "/api/channels") return app.channels.summary();
+  if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  const retry = /^\/api\/channels\/deliveries\/([^/]{1,220})\/retry$/.exec(path);
+  if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/pairings/remove") return app.channels.remove(owner, await readBody(request));
   throw new HttpError(404, "Endpoint not found");

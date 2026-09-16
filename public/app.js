@@ -142,6 +142,14 @@ function renderRuns() {
             await refresh();
           }),
         );
+      if (run.status === "interrupted")
+        node.append(
+          button("Continue where it stopped", async () => {
+            toast("Continuing from where it stopped. Nothing already done is repeated.");
+            await api("runs/" + run.id + "/resume", {});
+            await refresh();
+          }),
+        );
       return node;
     },
     "Your completed and active runs will appear here.",
@@ -442,6 +450,14 @@ async function renderChannels() {
     }));
     return node;
   }, "Nobody has written to your assistant through a channel yet.");
+  list("deliveries-list", summary.outstanding || [], (item) => {
+    const node = el("div", undefined, "record");
+    const when = item.status === "dead" ? `Gave up after ${item.attempts} tries` : item.attempts ? `Will try again (${item.attempts} failed so far)` : "Waiting to send";
+    node.append(el("strong", `${item.channel} chat ${item.chatId} · ${when}`), el("p", item.preview, "meta"));
+    if (item.lastError) node.append(el("p", `Last problem: ${item.lastError}`, "meta"));
+    node.append(button("Try again", async () => { await api(`channels/deliveries/${encodeURIComponent(item.id)}/retry`, {}); await renderChannels(); }));
+    return node;
+  }, "Nothing is waiting. Everything sent through a channel has gone out.");
 }
 form("pairing-form", async () => {
   const approved = await api("channels/pairings/approve", { code: $("pairing-code").value.trim() });

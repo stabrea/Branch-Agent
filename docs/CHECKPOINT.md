@@ -47,6 +47,14 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 10 (local, unreleased): completion checks, stalls, overflow, continue, delivery ledger
+
+`src/reliability.ts` (CompletionCheckSchema/evaluateChecks, StallError/withStallWatchdog,
+clipToolResult/shrinkToolResults, ReliabilityOptionsSchema), runtime `checks`, `resume`, `fitContext`,
+stall recovery and tool time limit; `src/channels/deliveries.ts` ledger used by router replies and
+scheduler deliveries (keys reply:<run>, schedule:<run>), Settings → Channels "Messages still to send",
+Activity "Continue where it stopped". Model calls now always stream (the watchdog needs deltas).
+
 ## Process note: v0.5.0 shipped while the PR check was red
 
 The fan-out test used a wall-clock bound (three 120 ms tasks under 460 ms) that hosted runners

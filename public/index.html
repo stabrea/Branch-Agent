@@ -439,6 +439,9 @@
               <button>Approve</button>
             </form>
             <div id="pairings-list" class="card-list" aria-live="polite"></div>
+            <h3>Messages still to send</h3>
+            <p class="subtle">Replies and scheduled results are written down before they go out. If a chat app is unreachable they wait here, go out in order once it is back, and stop after five failed tries until you press Try again.</p>
+            <div id="deliveries-list" class="card-list" aria-live="polite"></div>
             <p class="subtle">To connect Telegram: create a bot with @BotFather, save its token as the secret <code>TELEGRAM_BOT_TOKEN</code> in the default project, and add <code>{"channels":[{"type":"telegram","tokenSecret":"TELEGRAM_BOT_TOKEN"}]}</code> to the integrations file named by <code>BRANCH_INTEGRATIONS</code>. Restart Branch afterwards. Channel tasks cannot run host commands.</p>
           </section>
           <form id="models-form" class="card">
