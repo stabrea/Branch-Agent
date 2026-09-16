@@ -112,6 +112,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
+  // Looking at a picture or a sound file the person already has changes nothing.
+  "media.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
 ]);

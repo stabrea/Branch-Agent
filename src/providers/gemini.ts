@@ -163,6 +163,16 @@ export class GeminiProvider implements Provider {
     validateOptions(options);
   }
 
+  /** Gemini makes pictures through the same address, asking generateContent for an image. */
+  images(): { kind: "gemini"; endpoint: string; apiKey: string; defaultModel: string } {
+    return {
+      kind: "gemini",
+      endpoint: this.options.endpoint,
+      apiKey: this.options.apiKey,
+      defaultModel: "gemini-2.5-flash-image",
+    };
+  }
+
   async complete(request: CompletionRequest): Promise<Completion> {
     const systemInstruction = request.messages
       .filter((m) => m.role === "system")

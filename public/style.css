@@ -577,3 +577,13 @@ summary {
 .automations-btn-small { font-size: 0.8rem; padding: 0.35rem 0.6rem; }
 .automations-btn:hover, .automations-btn-small:hover { border-color: var(--copper); background: var(--hover); }
 .automations-log { margin: 0.5rem 0 0; padding: 0.5rem; border-radius: 0.4rem; background: var(--well); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow: auto; }
+
+/* ---------- pictures and sound (wave 5) ---------- */
+.attachments { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.5rem; }
+.attachment { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 16rem; padding: 0.2rem 0.4rem; border: 1px solid var(--line); border-radius: 0.4rem; background: var(--well); font-size: 0.82rem; }
+.attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment img { width: 1.9rem; height: 1.9rem; object-fit: cover; border-radius: 0.25rem; }
+.attachment button { padding: 0 0.3rem; border: 0; background: none; color: var(--muted); font: inherit; line-height: 1; cursor: pointer; }
+.attachment button:hover { color: var(--text); }
+.composer.dropping { outline: 2px dashed var(--copper); outline-offset: 2px; }
+.made-thumb { display: block; width: 100%; max-width: 14rem; height: auto; border-radius: 0.4rem; margin-bottom: 0.4rem; }
