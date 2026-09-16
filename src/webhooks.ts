@@ -46,6 +46,8 @@ export const webhookEvents = [
   "approval.needed",
   /** A test that used to pass has started failing. */
   "evaluation.regression",
+  /** One step of a saved flow has finished, failed, or stopped to wait for something. */
+  "flow.node",
 ] as const;
 export type WebhookEvent = (typeof webhookEvents)[number];
 /** What the rest of the runtime calls to announce an event; a no-op when nothing is listening. */

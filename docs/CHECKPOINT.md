@@ -1276,6 +1276,91 @@ No wake word, and nothing listens unless the button is held. `tests/voice-provid
 tests, fakes only — no microphone, no speaker, no PowerShell, nothing leaving the machine) covers
 all of it. No new dependency.
 
+
+## Batch 25 (wave 7) — Branch as a first-class MCP citizen, both ways round
+Branch already spoke MCP at both ends; this batch makes it a citizen rather than a tourist.
+**Transport.** `/mcp` keeps `POST` and stdio and adds the streaming half: a `GET` that asks for
+`text/event-stream` opens a stream (`openEventStream` in `src/server.ts`) that carries
+`notifications/tools/list_changed` and `notifications/resources/updated`. A plain `GET` is still
+405, so nothing that relied on that changed. A client that brings no session id is given one in an
+`Mcp-Session-Id` header on the reply to `initialize`. `initialize` now advertises `listChanged`,
+`subscribe` and `logging`, accepts `logging/setLevel`, and answers an unknown protocol version with
+`-32602` naming the three it speaks instead of quietly pretending. `ToolRegistry` grew
+`onToolsChanged`, fired from `register`/`unregister` — so a skill, a plugin or another server's
+tools arriving tells every connected client at once, with no coupling to the loaders.
+**Policy, which is the substance.** `src/mcp-policy.ts` runs the shared tool list through the
+owner's approval settings before anything is offered (`preflight`). Only a flat `deny` hides a
+tool; an `ask` stays listed and is stopped at the call with "this needs your yes in Branch",
+because under `cappedPolicy(…, "mcp")` every change-tool becomes `ask` and hiding all of them would
+look broken. `policy://hidden-tools` is the plain-language note. `McpServer.gate()` is the real fix
+behind A1342 and A2082: `callRegistryTool` never consulted the policy at all, so browser tools —
+already in the registry — now hit the same gate the owner's own runs do. `_meta.dryRun: true` and
+the `mcp.dry_run` tool answer "what would this do?" from `registry.targetOf` and the arguments,
+running nothing.
+**Records and resources.** `src/mcp-snapshots.ts` writes the exact tool list and every schema a
+client was shown, with a sha-256 over canonical JSON, into `governance` as `mcp-snapshot:<id>`, so
+a later dispute can be checked; `mcp.snapshot` records, compares and lists. Resources gained
+`documents://library`, `runs://recent`, `run://<id>` and `resources/subscribe`, and every resource
+is now scoped: it is listed and readable only when the settings would allow the tool that reads the
+same thing, and a refused one answers "unknown resource" rather than admitting it exists. Prompts
+read the real saved-procedure shape (`definition.parameters`) and carry their blanks; a missing
+required one is refused by name.
+**As a client.** `src/mcp-lifecycle.ts` is a manager that opens somebody else's server when a task
+calls `acquire` and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an
+idle connection before refusing a busy one, retry with growing backoff, and per-profile settings.
+**It is not on the production path yet**: `loadIntegrations` still connects every configured MCP
+server eagerly at startup, and nothing calls `acquire`, so `known()` and `health()` are empty on a
+normal install and the Connections card and `mcp.servers` say so. Wiring it up means deferring tool
+registration too, because discovery happens at connect; that is a batch of its own. `src/integrations/
+mcp-oauth.ts` does RFC 8414 discovery and RFC 7591 dynamic client registration, then hands a
+synthesised provider to the existing `OAuthConnections` so PKCE and the locker are unchanged; the
+identity is remembered so a second sign-in does not register twice. `src/mcp-workbench.ts` is
+Settings → Try a server: list, call one by hand, see the raw answer, every try written to the audit
+under the new `mcp.tried` action. `src/mcp-apps.ts` serves a page an MCP app sent under
+`sandbox; default-src 'none'; …; frame-ancestors 'self'`, with the tags the frame would refuse
+stripped anyway, at a one-time address that expires in five minutes — a frame cannot carry the
+session key, so the address is the secret. Two new look-only tools, `mcp.dry_run` and
+`mcp.servers`, and one new read-only permission, `mcp.read`. `tests/mcp-mode.test.mjs` (12 tests)
+covers every one of these; the existing MCP, integrations and catalog-diet suites are untouched and
+green. Covers the mcp-server-mode theme (#68).
+
+## Batch 20 (wave 7) — orchestration, second pass: styles, patches, processes, flows
+Six things, all backend-first with additive UI in Specialists, Procedures and Skills only, and no
+new dependency. **Specialist styles** (`src/specialist-styles.ts`): a specialist declares a `style`
+that changes its loop rather than only its prompt. `react` is told to open each reply with one
+`Thought:` line; the runtime takes that line off the answer, records it as a `react.scratch` event
+and leaves it in the stored transcript, so the model keeps its own trail while the person never
+reads it. `plan-execute` turns on the existing plan runner for a delegated sub-task, which an
+ordinary child never gets. `critic` is narrowed to read-only permissions in `activeSpecialist()` —
+narrowing, so the escalation check is untouched. `researcher` and `coder` seed `openCatalog` with
+the toolboxes their work always needs. **Multi-file changes** (`src/code-change.ts`): `code.patch`
+and `code.change_set` plan the whole change first (`CodeEditor.planPatch`/`preview`/`writeAll`, made
+public; `files.patch` is unchanged and its tests untouched), refuse binary files, write through the
+existing `writeObserver` so every file lands in the file history, and then run the owner's configured
+check program — which is what makes "the assistant sees what it broke in its very next step" true
+rather than aspirational. The change set's `target()` names the files, so one approval reads "2
+files: a.txt, b.txt". **Background processes** (`src/processes.ts`): a dedicated `Running` class
+rather than `ShellProcess`, because a dev server needs a ring buffer and must not sit behind
+`BranchShell`'s single-slot guard; it reuses the exported job object and tree-kill helpers. Keyed by
+**session**, not run — `onRunFinished` fires every round, so keying by run would kill a server before
+the next one. Stopped on `store.onSessionClosed` (new, fired from `purgeSession`) and on
+`createBranch().close()`. **Deferred calls and tool search** are intercepted in `callTool` beside
+`tools.expand`, because the per-run `ToolCatalog` lives in the runtime and a registered tool cannot
+see what is closed; a deferral settles through the existing follow-up queue, not a new mechanism.
+**Flows** (`src/flows.ts`): the wave-6 `Workflows` seen as nodes and edges, with branch steps
+yielding a labelled edge each way. `src/workflows.ts` is a byte-for-byte copy from
+`wave6/collab-workflows`, which had not reached `wave2/integration` when this batch started — the
+copy is deliberate so an add/add merge is clean. Node-completion callbacks are a before/after diff of
+the step states around the run rather than a hook inside `Workflows`, again to keep that file
+identical. **Skill self-improvement** (`src/skill-revisions.ts`): the governance draft is now shown
+as a line diff, tried against the last three real tasks that used the skill with `dryRun` on the
+parent context (so the child inherits it), and refused for acceptance until that trial says the draft
+did no worse. `skills.sync` writes and reads skills as `.md` in a workspace folder. Plugins get a
+local catalog (`src/plugin-catalog.ts`) with sha256 fingerprints, install from a folder or a zip
+(reusing `zipRead`/`zipWrite` from `src/skill-package.ts`), the manifest shown first, and no remote
+source of any kind. `tests/orchestration-2.test.mjs` covers all of it in 24 tests. Covers agent-orchestration (#55), skills-and-recipes (#78) and the
+plugin-and-extension-system (#70) leftovers.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

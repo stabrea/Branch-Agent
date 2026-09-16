@@ -117,7 +117,8 @@ export function readSkillPackage(bytes: Buffer): SkillPackageContents {
 }
 
 type ZipEntry = [name: string, text: string];
-function zipWrite(entries: ZipEntry[]): Buffer {
+/** Writes a small zip; also used to make the one file a plugin can be handed over as. */
+export function zipWrite(entries: ZipEntry[]): Buffer {
   const locals: Buffer[] = [], central: Buffer[] = [];
   let offset = 0;
   for (const [name, text] of entries) {
@@ -139,7 +140,8 @@ function zipWrite(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...locals, directory, end]);
 }
 
-function zipRead(bytes: Buffer): Map<string, string> {
+/** Reads a small zip; also used to open a plugin someone handed over as one file. */
+export function zipRead(bytes: Buffer): Map<string, string> {
   let end = bytes.length - 22;
   while (end >= 0 && bytes.readUInt32LE(end) !== 0x06054b50) end--;
   if (end < 0) throw new Error("This file is not a skill package");

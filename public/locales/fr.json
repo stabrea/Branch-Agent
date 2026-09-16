@@ -41,6 +41,7 @@
   "inspector.summary": "Ce qui s'est passé",
   "inspector.rounds": "Appels au modèle",
   "inspector.calls": "Outils utilisés",
+  "inspector.thinking": "Ce qu'il se disait, étape par étape",
   "inspector.plan": "Le plan suivi",
   "inspector.verdicts": "Ce qu'a dit le relecteur",
   "inspector.steering": "Ce que vous avez dit en cours de route",

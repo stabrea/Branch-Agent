@@ -156,7 +156,7 @@ async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boo
   try { return await Promise.race([promise.then(() => true), new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), ms); })]); }
   finally { clearTimeout(timer); }
 }
-async function killWindowsTree(pid: number): Promise<boolean> {
+export async function killWindowsTree(pid: number): Promise<boolean> {
   const root = process.env.SystemRoot;
   if (!root) return false;
   const child = spawn(join(root, 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'],
@@ -169,7 +169,7 @@ async function killWindowsTree(pid: number): Promise<boolean> {
   if (!(await settledWithin(done, 5000))) { child.kill('SIGKILL'); child.unref(); }
   return succeeded;
 }
-async function killProcessGroup(pid: number): Promise<void> {
+export async function killProcessGroup(pid: number): Promise<void> {
   const kill = (signal: NodeJS.Signals) => {
     try { process.kill(-pid, signal); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;

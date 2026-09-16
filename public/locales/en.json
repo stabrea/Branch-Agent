@@ -39,6 +39,7 @@
   "inspector.summary": "What happened",
   "inspector.rounds": "Times it asked the model",
   "inspector.calls": "Tools it used",
+  "inspector.thinking": "What it was thinking, step by step",
   "inspector.plan": "The plan it worked through",
   "inspector.verdicts": "What the reviewer said",
   "inspector.steering": "What you told it mid-task",

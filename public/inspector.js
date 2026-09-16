@@ -81,8 +81,8 @@ function draw(view) {
   const head = el("div", undefined, "inspect-head-lines");
   head.append(
     el("p", view.run?.prompt?.slice(0, 200) || "Task", "inspect-prompt"),
-    el("p", [view.run?.status, seconds(view.seconds), view.cost?.display, formatDate(view.run?.createdAt ?? Date.now())]
-      .filter(Boolean).join(" · "), "meta"),
+    el("p", [view.run?.status, view.style ? `working style: ${view.style}` : "", seconds(view.seconds), view.cost?.display,
+      formatDate(view.run?.createdAt ?? Date.now())].filter(Boolean).join(" · "), "meta"),
   );
   /* Wave 7: the reply itself, rendered by the shared markdown renderer like everywhere else. */
   const answer = view.run?.output
@@ -93,6 +93,8 @@ function draw(view) {
     section("inspector.answer", answer),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
+    // A think-then-act specialist's line of reasoning for each round; never part of the answer.
+    section("inspector.thinking", (view.thinking ?? []).map((line) => lineRow(line.text, formatDate(line.at, { timeStyle: "medium" })))),
     section("inspector.plan", view.plan.map((step) => lineRow(step.title, step.detail))),
     section("inspector.verdicts", view.verdicts.map((v) => lineRow(v.verdict, v.reason))),
     section("inspector.steering", view.steering.map((s) => lineRow(s.text, formatDate(s.at)))),
