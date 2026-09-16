@@ -316,8 +316,11 @@ export class MemoryFacts {
 
 /** When the owner asked to approve memory changes, the model's change waits as a suggestion. */
 function staged(store: Store, context: { owner: string; runId: string }, proposal: Record<string, unknown>) {
-  if (!store.review.settings(context.owner).requireApproval) return null;
-  const saved = store.review.propose(context.owner, { ...proposal, runId: context.runId });
+  // A suggestion waits in the scope it was made in, so a profile's suggestion never turns up in
+  // the owner's Memory view and the owner's never turns up in theirs.
+  const owner = memoryScope(store, context);
+  if (!store.review.settings(owner).requireApproval) return null;
+  const saved = store.review.propose(owner, { ...proposal, runId: context.runId });
   return { staged: true, proposalId: saved.id, message: "Saved as a suggestion. The owner can accept it in the Memory view." };
 }
 /** Hybrid retrieval, when it is wired: the same shape src/memory-retrieval.ts provides. */
@@ -325,38 +328,50 @@ export interface FactSearch {
   search(owner: string, query: string, agent?: string, limit?: number, signal?: AbortSignal):
     Promise<{ record: MemoryRecord; score: number; importance: number; matched: string }[]>;
 }
+/**
+ * Where facts are saved and read for whoever is using the app right now. With no household profile
+ * switched on this is the owner and nothing changes. With one on, it is that profile: what the
+ * assistant learns during their task is saved under their name, and the owner's own facts are not
+ * there to be read — the same separation their conversations already have. Models, settings and
+ * the secrets locker still belong to the owner; only what is remembered moves.
+ */
+export const memoryScope = (store: Store, context: { owner: string }): string =>
+  context.owner === store.profiles.ownerName ? store.profiles.scope() : context.owner;
+
 export function registerMemory(registry: ToolRegistry, store: Store, retrieval?: FactSearch): void {
   registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp. Give entity and attribute when the fact is about someone or something and may change later (a newer fact ends the earlier one). Scope shared makes it visible to specialists.",
     permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
+      const owner = memoryScope(store, context);
       const sessionId = store.run(context.runId)?.sessionId;
-      if (sessionId && store.memorySuppressed(context.owner, sessionId))
+      if (sessionId && store.memorySuppressed(owner, sessionId))
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
       const scope = context.agent ? (value.scope === "shared" ? "shared" : `agent:${context.agent}`) : value.scope;
       const { scope: _requested, ...rest } = value; void _requested;
       return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", context.owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), sourceRunId: context.runId });
+        ?? store.save("memory", owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), sourceRunId: context.runId });
     } });
   registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment (default now), for details that change over time.",
     permission: "memory.read", parameters: AtMemorySchema,
-    execute: async (value, context) => store.memoryAt(context.owner, value, context.agent) });
+    execute: async (value, context) => store.memoryAt(memoryScope(store, context), value, context.agent) });
   registry.register({ name: "memory.timeline", description: "Every saved fact about an entity in the order it became true, including ones that have ended.",
     permission: "memory.read", parameters: z.object({ entity: z.string().trim().min(1).max(120) }).strict(),
-    execute: async (value, context) => store.memoryTimeline(context.owner, value.entity, context.agent) });
+    execute: async (value, context) => store.memoryTimeline(memoryScope(store, context), value.entity, context.agent) });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
-      ?? store.updateMemory(context.owner, value, context.runId) });
+      ?? store.updateMemory(memoryScope(store, context), value, context.runId) });
   registry.register({ name: "memory.search", description: "Search this owner's facts. Matches by words and, where the provider allows it, by meaning; the most useful facts come first.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
     execute: async (value, context) => {
-      if (!retrieval) return store.searchMemory(context.owner, value.query, context.agent);
-      const hits = await retrieval.search(context.owner, value.query, context.agent, 20, context.signal);
+      const owner = memoryScope(store, context);
+      if (!retrieval) return store.searchMemory(owner, value.query, context.agent);
+      const hits = await retrieval.search(owner, value.query, context.agent, 20, context.signal);
       return hits.map((hit) => ({ ...hit.record, score: hit.score, importance: hit.importance, matched: hit.matched }));
     } });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
-    execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", context.owner, value.id) });
+    execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", memoryScope(store, context), value.id) });
 }
 
 function summary(record: MemoryRecord) {

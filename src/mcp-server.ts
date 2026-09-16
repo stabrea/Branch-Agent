@@ -59,6 +59,30 @@ export const McpSharingSchema = z
   .strict();
 export type McpSharing = z.infer<typeof McpSharingSchema>;
 
+/**
+ * How Branch serves other AI tools, as opposed to what it shares with them. Two numbers: how long
+ * a quiet connection is kept, and how long a call that needs the owner's yes waits for one.
+ */
+export const McpServingSchema = z
+  .object({
+    /** A connection nobody has said anything on for this long is dropped, as well as at the cap. */
+    idleMinutes: z.number().int().min(1).max(1440).default(30),
+    /** How long a call needing the owner's yes waits in the app before the client is told to retry. */
+    askWaitSeconds: z.number().int().min(0).max(600).default(120),
+  })
+  .strict();
+export type McpServing = z.infer<typeof McpServingSchema>;
+/** The serving settings, read fresh so a change in Settings takes effect on the very next call. */
+export function readServingSettings(store: Store, owner: string): McpServing {
+  const saved = McpServingSchema.safeParse(store.get('settings', owner, 'mcp-serving')?.data ?? {});
+  return saved.success ? saved.data : McpServingSchema.parse({});
+}
+export function saveServingSettings(store: Store, owner: string, input: unknown): McpServing {
+  const value = McpServingSchema.parse({ ...readServingSettings(store, owner), ...(input as object ?? {}) });
+  store.save('settings', owner, 'mcp-serving', value);
+  return value;
+}
+
 /** A tool only reads when its permission ends in `.read`; anything else can change things. */
 export const toolChangesThings = (permission: string): boolean => !/\.read$/.test(permission);
 
@@ -171,11 +195,32 @@ export class McpServer {
     this.sessions.clear();
   }
 
+  /** The clock, so a test can step over half an hour without waiting it out. */
+  now: () => number = () => Date.now();
+
+  /**
+   * Drops every connection nobody has said anything on for a while. A connection with a stream
+   * open is left alone however quiet it is: the stream is Branch talking, not the client, and a
+   * client that opened one and is waiting to be told something has not gone away.
+   */
+  dropIdleSessions(): string[] {
+    const limit = readServingSettings(this.store, this.runtime.owner).idleMinutes * 60_000;
+    const cutoff = this.now() - limit;
+    const gone: string[] = [];
+    for (const session of [...this.sessions.values()]) {
+      if (session.listeners.size || session.lastSeen > cutoff) continue;
+      this.deleteSession(session.id);
+      gone.push(session.id);
+    }
+    return gone;
+  }
+
   /** Get or create a session for a given session ID. */
   getSession(sessionId?: string): McpSession {
+    this.dropIdleSessions();
     const id = sessionId ?? randomBytes(24).toString('hex');
     const found = this.sessions.get(id);
-    if (found) { found.lastSeen = Date.now(); return found; }
+    if (found) { found.lastSeen = this.now(); return found; }
     // A name nobody has used before opens a new conversation, but only so many may be open, or a
     // caller that made one up every time would fill this computer's memory.
     while (this.sessions.size >= SESSION_LIMIT) {
@@ -184,12 +229,14 @@ export class McpServer {
       this.deleteSession(quietest.id);
     }
     const created = new McpSession(id);
+    created.lastSeen = this.now();
     this.sessions.set(id, created);
     return created;
   }
 
   /** Whether this is a conversation Branch actually opened, rather than a name somebody made up. */
   hasSession(sessionId: string): boolean {
+    this.dropIdleSessions();
     return this.sessions.has(sessionId);
   }
 

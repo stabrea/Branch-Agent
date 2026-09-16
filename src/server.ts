@@ -46,6 +46,7 @@ import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js
 import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
@@ -1349,17 +1350,22 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     const mcp = app.mcpServer;
     if (!mcp) throw new HttpError(500, "Sharing is not available");
     if (request.method === "GET")
-      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+      return { ...mcp.sharing(), ...readServingSettings(app.store, app.runtime.owner), tools: shareableTools(app.registry) };
     if (request.method === "POST") {
       const body = await readBody(request);
-      const sharing = McpSharingSchema.parse(body);
+      // How long a quiet connection is kept and how long a call waits for the owner's yes are
+      // saved separately, so a screen that does not know about them cannot reset them by saving.
+      const { idleMinutes, askWaitSeconds, ...rest } = (body as Record<string, unknown> | null) ?? {};
+      const serving = saveServingSettings(app.store, app.runtime.owner,
+        { ...(idleMinutes === undefined ? {} : { idleMinutes }), ...(askWaitSeconds === undefined ? {} : { askWaitSeconds }) });
+      const sharing = McpSharingSchema.parse(rest);
       const known = new Set(app.registry.names());
       const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
       // A screen that does not know about answering other assistants must not switch it off by saving.
       const said = (body as Record<string, unknown> | null)?.a2a;
       const a2a = typeof said === "boolean" ? said : mcp.sharing().a2a;
       app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a });
-      return { ...mcp.sharing(), tools: shareableTools(app.registry) };
+      return { ...mcp.sharing(), ...serving, tools: shareableTools(app.registry) };
     }
   }
   throw new HttpError(404, "Endpoint not found");

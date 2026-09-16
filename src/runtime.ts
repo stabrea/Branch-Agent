@@ -36,6 +36,7 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
+import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -869,7 +870,9 @@ export class Runtime {
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context),
       },
     ];
-    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId, context.agent);
+    // Read under whoever is using the app: with a household profile switched on, their task is
+    // given their own remembered facts and never the owner's.
+    const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);

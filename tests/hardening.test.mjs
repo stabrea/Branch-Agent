@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { startServer } from "../dist/server.js";
 import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
@@ -108,4 +109,115 @@ test("5 — a conversation sees only the programs it started", async (t) => {
 
   // The owner still sees every program on the computer in the Activity screen.
   assert.equal(app.processes.list({ active: true }).length, 1);
+});
+
+/** The same app with an HTTP server in front of it, for the routes an owner presses buttons on. */
+async function served(t, reply = () => say("done")) {
+  const { app, root } = await fixture(t, reply);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close().catch(() => undefined));
+  const headers = { authorization: `Bearer ${server.token}`, "content-type": "application/json", origin: server.url };
+  const call = async (path, body) => {
+    const response = await fetch(server.url + path, body === undefined
+      ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  };
+  return { app, server, headers, call };
+}
+
+test("4 — a connection nobody has said anything on is dropped, one with a stream open is not", async (t) => {
+  const { app } = await fixture(t);
+  const mcp = app.mcpServer;
+  let clock = Date.parse("2026-09-16T09:00:00Z");
+  mcp.now = () => clock;
+  app.store.save("settings", app.runtime.owner, "mcp-serving", { idleMinutes: 30, askWaitSeconds: 120 });
+
+  const quiet = mcp.getSession().id;
+  const talking = mcp.getSession().id;
+  const watching = mcp.getSession().id;
+  mcp.openStream(watching, () => undefined);
+
+  clock += 20 * 60_000;
+  assert.equal(mcp.hasSession(quiet), true, "twenty minutes is not long enough");
+  mcp.getSession(talking);
+
+  clock += 20 * 60_000;
+  assert.equal(mcp.hasSession(quiet), false, "forty minutes quiet and it is gone");
+  assert.equal(mcp.hasSession(talking), true, "the one that spoke twenty minutes ago is kept");
+  assert.equal(mcp.hasSession(watching), true, "and one with a stream open is never dropped for being quiet");
+
+  clock += 60 * 60_000;
+  assert.deepEqual(mcp.dropIdleSessions(), [talking], "the stream-holder stays, the talker has gone quiet too");
+});
+
+test("4 — how long a quiet connection is kept is a setting the owner can change", async (t) => {
+  const { call } = await served(t);
+  const before = await call("/api/mcp/settings");
+  assert.equal(before.body.idleMinutes, 30, "half an hour unless the owner says otherwise");
+  assert.equal(before.body.askWaitSeconds, 120);
+  const saved = await call("/api/mcp/settings", { enabled: true, exposedTools: [], idleMinutes: 5 });
+  assert.equal(saved.body.idleMinutes, 5);
+  assert.equal(saved.body.askWaitSeconds, 120, "and a screen that never mentioned the other one left it alone");
+  const kept = await call("/api/mcp/settings", { enabled: true, exposedTools: [] });
+  assert.equal(kept.body.idleMinutes, 5, "saving without it does not reset it");
+});
+
+test("6 — a drafted skill cannot skip its trial without the owner saying so in as many words", async (t) => {
+  const { app, call } = await served(t);
+  const document = (body) => `---\nname: tidying\ndescription: How to do the tidying thing properly.\n---\n${body}\n`;
+  const skill = app.store.skills.install(app.runtime.owner, { document: document("Put things away.") });
+  const second = app.store.skills.update(app.runtime.owner, skill.id,
+    { document: document("Put things away, then say so."), expectedRevision: skill.revision });
+  app.store.save("settings", app.runtime.owner, `skill-candidate:${skill.id}:${second.headVersion}`,
+    { fromRunId: "r1", createdAt: new Date().toISOString() });
+  const body = { skillId: skill.id, version: second.headVersion };
+
+  const untried = await call("/api/skill-revisions/accept", body);
+  assert.equal(untried.status, 400);
+  assert.match(untried.body.error, /Try the draft on the last few tasks first/);
+
+  const forcedWithoutWords = await call("/api/skill-revisions/accept", { ...body, force: true });
+  assert.equal(forcedWithoutWords.status, 400);
+  assert.match(forcedWithoutWords.body.error, /confirm it in the app/);
+
+  const wrongWords = await call("/api/skill-revisions/accept", { ...body, force: true, confirm: "yes" });
+  assert.equal(wrongWords.status, 400, "close enough is not enough");
+
+  const done = await call("/api/skill-revisions/accept",
+    { ...body, force: true, confirm: "I have not tried this draft and I want it anyway" });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.decision, "accepted");
+  const record = app.store.audit.list(app.runtime.owner, { limit: 20 }).find((entry) => entry.action === "skill.forced");
+  assert.ok(record, "and it is written down");
+  assert.match(record.subject, /tidying version 2/);
+  assert.match(record.reason, /without being tried/);
+});
+
+test("12 — what a profile's task learns is theirs, and the owner's facts are not there to read", async (t) => {
+  const { app, call } = await served(t);
+  const owner = app.runtime.owner;
+  app.store.save("memory", owner, "owner-fact", { text: "The boiler code is on the fridge", source: "owner" });
+
+  const made = await call("/api/profiles", { name: "Sam", pin: "4321" });
+  await call("/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
+  const scope = `profile:${made.body.id}`;
+  const run = app.store.createRun(scope, "Sam's own task");
+  const context = app.runtime.context({ runId: run.id });
+
+  const searched = await app.registry.execute("memory.search", { query: "boiler" }, context);
+  assert.deepEqual(searched, [], "the owner's facts are not Sam's to read");
+
+  await app.registry.execute("memory.put", { text: "Sam's bus is the 14", source: "Sam" }, context);
+  assert.equal(app.store.list("memory", scope).length, 1, "what Sam's task learned is saved under Sam");
+  assert.equal(app.store.list("memory", owner).length, 1, "and the owner's memory is exactly as it was");
+  assert.equal(app.store.list("memory", owner)[0].id, "owner-fact");
+
+  await call("/api/profiles/switch", { profileId: null });
+  const ownersRun = app.store.createRun(owner, "the owner's own task");
+  const found = await app.registry.execute("memory.search", { query: "boiler" },
+    app.runtime.context({ runId: ownersRun.id }));
+  assert.equal(found.length, 1, "the owner still finds their own");
+  const busless = await app.registry.execute("memory.search", { query: "bus" },
+    app.runtime.context({ runId: ownersRun.id }));
+  assert.deepEqual(busless, [], "and does not see what Sam's task learned");
 });
