@@ -23,6 +23,7 @@ import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
+import type { ReliabilityInput } from "./reliability.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -38,6 +39,8 @@ export async function createBranch(options: {
   web?: unknown;
   owner?: string;
   retryPolicy?: RetryPolicyInput;
+  /** Stall, tool time and context-size limits for ordinary runs. */
+  reliability?: ReliabilityInput;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -66,6 +69,7 @@ export async function createBranch(options: {
     workspace,
     options.owner ?? "local",
     retryPolicy,
+    options.reliability,
   );
   const knowledge = new Knowledge(store, registry, runtime);
   registerMemory(registry, store);
@@ -80,9 +84,9 @@ export async function createBranch(options: {
   });
   registerKnowledge(registry, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
-  registerWeb(registry, web);
+  registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   const channels = new ChannelRouter(store, runtime);
-  const scheduler = new Scheduler(store, runtime, (channel, chatId, text) => channels.deliver(channel, chatId, text));
+  const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
@@ -148,6 +152,12 @@ export * from "./channels/router.js";
 export * from "./channels/telegram.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
+export * from "./reliability.js";
+export * from "./skill-scan.js";
+export * from "./receipts.js";
+export * from "./content-guard.js";
+export * from "./activity.js";
+export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
 export * from "./provider-retry.js";

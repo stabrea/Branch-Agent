@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "../store.js";
 import type { Runtime } from "../runtime.js";
+import { Deliveries } from "./deliveries.js";
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -40,20 +41,45 @@ const pairSchema = z.object({
   requestedAt: z.string(), approvedAt: z.string().optional(),
 }).strict();
 type Pair = z.infer<typeof pairSchema>;
-export const replyLimit = 3500;
 
 export class ChannelRouter {
   private readonly adapters = new Map<string, { adapter: ChannelAdapter; policy: ChannelPolicy }>();
-  constructor(private readonly store: Store, private readonly runtime: Runtime) {}
+  readonly deliveries: Deliveries;
+  private pump: ReturnType<typeof setInterval> | undefined;
+  private flushing: Promise<void> = Promise.resolve();
+  constructor(private readonly store: Store, private readonly runtime: Runtime, public pumpMs = 10000) {
+    this.deliveries = new Deliveries(store, runtime.owner);
+  }
   async attach(adapter: ChannelAdapter, policy: ChannelPolicy): Promise<void> {
     if (this.adapters.has(adapter.id)) throw new Error(`Channel ${adapter.id} is already attached`);
     this.adapters.set(adapter.id, { adapter, policy: ChannelPolicySchema.parse(policy) });
     await adapter.start((message) => this.handle(message).then(() => undefined));
+    if (!this.pump) { this.pump = setInterval(() => void this.flush(), this.pumpMs); this.pump.unref(); }
+    await this.flush();
   }
   async detachAll(): Promise<void> {
+    if (this.pump) clearInterval(this.pump);
+    this.pump = undefined;
     const stops = [...this.adapters.values()].map(({ adapter }) => adapter.stop());
     this.adapters.clear();
     await Promise.allSettled(stops);
+  }
+  /** Sends every due chunk on every connected channel, one flush at a time. */
+  flush(): Promise<void> {
+    return (this.flushing = this.flushing.then(async () => {
+      for (const [id, { adapter }] of this.adapters)
+        await this.deliveries.flush(id, (chatId, text, replyTo) => adapter.send(chatId, text, replyTo)).catch(() => undefined);
+    }));
+  }
+  /** Outbound messages that are waiting or gave up, for the owner to see and retry. */
+  outstanding() {
+    return this.deliveries.outstanding().map((d) => ({ id: d.id, channel: d.channel, chatId: d.chatId, status: d.status, attempts: d.attempts,
+      lastError: d.lastError, nextAt: d.nextAt, preview: d.text.slice(0, 120), createdAt: d.createdAt }));
+  }
+  async retryDelivery(id: string) {
+    const row = this.deliveries.retry(id);
+    await this.flush();
+    return this.deliveries.list().find((d) => d.id === row.id) ?? row;
   }
   summary() {
     const owner = this.runtime.owner;
@@ -64,12 +90,18 @@ export class ChannelRouter {
       chats: this.chats(owner),
     };
   }
-  /** Sends text to a chat on a connected channel, for scheduled deliveries. */
-  async deliver(channel: string, chatId: string, text: string): Promise<{ messageId?: string | undefined }> {
-    const entry = this.adapters.get(channel);
-    if (!entry) throw new Error(`Channel ${channel} is not connected`);
-    const messageId = await entry.adapter.send(chatId, text);
-    return { messageId };
+  /**
+   * Queues text for a chat and sends it if the channel is up. The key makes a repeat call a no-op,
+   * so a task finished while the channel was down is delivered once, in order, after reconnect.
+   */
+  async deliver(channel: string, chatId: string, text: string, key = `delivery:${Date.now()}:${randomInt(1e9)}`, replyTo?: string): Promise<{ messageId?: string | undefined; queued: number }> {
+    if (!this.adapters.has(channel)) throw new Error(`Channel ${channel} is not connected`);
+    this.deliveries.enqueue(channel, chatId, text, key, replyTo);
+    await this.flush();
+    const now = this.deliveries.list().filter((d) => d.key === key);
+    const first = now.find((d) => d.seq === 0);
+    if (first?.status === "dead") throw new Error(`Could not deliver to ${channel}: ${first.lastError ?? "unknown error"}`);
+    return { messageId: first?.messageId ?? undefined, queued: now.filter((d) => d.status === "pending").length };
   }
   /** Chats that have talked to the assistant, usable as delivery targets. */
   chats(owner: string) {
@@ -92,9 +124,9 @@ export class ChannelRouter {
       await adapter.send(message.chatId, text, message.messageId);
       return access;
     }
-    return this.answer(adapter, message);
+    return this.answer(message);
   }
-  private async answer(adapter: ChannelAdapter, message: InboundMessage): Promise<Outcome> {
+  private async answer(message: InboundMessage): Promise<Outcome> {
     const owner = this.runtime.owner, key = `channel-session:${message.channel}:${message.chatId}`;
     const saved = this.store.get("settings", owner, key)?.data as { sessionId?: string } | undefined;
     const sessionId = saved?.sessionId && this.store.ownsSession(owner, saved.sessionId) ? saved.sessionId : undefined;
@@ -103,14 +135,15 @@ export class ChannelRouter {
       const run = await this.runtime.run({
         prompt, ...(sessionId ? { sessionId } : {}),
         permissions: this.runtime.registry.permissions().filter((p) => p !== "shell.execute"),
+        onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
         title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });
       const text = run.status === "completed" ? run.output || "(no reply)" : run.status === "needs_input" ? run.output : `I could not finish that (${run.status}).`;
-      await adapter.send(message.chatId, text.length > replyLimit ? text.slice(0, replyLimit - 1) + "…" : text, message.messageId);
+      await this.deliver(message.channel, message.chatId, text, `reply:${run.id}`, message.messageId).catch(() => undefined);
       return run.status === "completed" || run.status === "needs_input" ? "replied" : "failed";
     } catch (error) {
-      await adapter.send(message.chatId, "Something went wrong on my side; the owner can see the details in Activity.", message.messageId).catch(() => undefined);
+      await this.deliver(message.channel, message.chatId, "Something went wrong on my side; the owner can see the details in Activity.", `reply-error:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
       void error;
       return "failed";
     }

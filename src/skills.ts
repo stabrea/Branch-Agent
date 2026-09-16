@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import { SkillScanPolicySchema, describeFindings, scanSkill, type SkillFinding, type SkillScanPolicy } from "./skill-scan.js";
 import {
   parseSkillDocument, skillDocumentInput, skillRevisionInput, skillVersionInput,
   type SkillMetadata,
@@ -16,6 +18,20 @@ export class InstalledSkills {
       skill_id TEXT NOT NULL REFERENCES installed_skills(id) ON DELETE CASCADE,
       version INTEGER NOT NULL, document TEXT NOT NULL, metadata TEXT NOT NULL, created_at TEXT NOT NULL,
       PRIMARY KEY(skill_id,version));`);
+    if (!db.prepare("PRAGMA table_info(skill_versions)").all().some((row) => row.name === "scan"))
+      db.exec("ALTER TABLE skill_versions ADD COLUMN scan TEXT NOT NULL DEFAULT '[]'");
+  }
+  /** The owner's choice for risky skills: block them (default) or hold them for review. */
+  policy(owner: string): SkillScanPolicy {
+    const row = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id='skill-scan'").get(owner);
+    const parsed = SkillScanPolicySchema.safeParse(row ? JSON.parse(String(row.data)) : {});
+    return parsed.success ? parsed.data.policy : "block";
+  }
+  private scanned(owner: string, document: string): SkillFinding[] {
+    const findings = scanSkill(document);
+    if (findings.length && this.policy(owner) === "block")
+      throw new Error(`This skill was not saved because it ${describeFindings(findings)}. Change the skill, or set the skill policy to review.`);
+    return findings;
   }
   private row(owner: string, id: string): Row {
     const row = this.db.prepare("SELECT * FROM installed_skills WHERE owner=? AND id=?").get(owner, id);
@@ -26,13 +42,13 @@ export class InstalledSkills {
     const row = this.db.prepare("SELECT * FROM skill_versions WHERE skill_id=? AND version=?").get(id, version);
     if (!row) throw new Error("Skill version not found");
     return { id, version, document: String(row.document), metadata: JSON.parse(String(row.metadata)) as SkillMetadata,
-      createdAt: String(row.created_at) };
+      createdAt: String(row.created_at), findings: JSON.parse(String(row.scan ?? "[]")) as SkillFinding[] };
   }
   private summary(row: Row) {
     const id = String(row.id), head = this.version(id, Number(row.head_version));
     const activeVersion = row.active_version === null ? null : Number(row.active_version);
     return { id, revision: Number(row.revision), name: head.metadata.name, description: head.metadata.description,
-      headVersion: head.version, activeVersion,
+      headVersion: head.version, activeVersion, findings: head.findings, needsReview: head.findings.length > 0 && activeVersion !== head.version,
       activeName: activeVersion === null ? null : this.version(id, activeVersion).metadata.name };
   }
   list(owner: string) {
@@ -44,7 +60,7 @@ export class InstalledSkills {
     const versions = this.db.prepare("SELECT version FROM skill_versions WHERE skill_id=? ORDER BY version DESC")
       .all(id).map(row => {
         const entry = this.version(id, Number(row.version));
-        return { version: entry.version, name: entry.metadata.name, description: entry.metadata.description, createdAt: entry.createdAt };
+        return { version: entry.version, name: entry.metadata.name, description: entry.metadata.description, createdAt: entry.createdAt, findings: entry.findings };
       });
     return { ...summary, document: this.version(id, summary.headVersion).document, versions };
   }
@@ -63,11 +79,12 @@ export class InstalledSkills {
   }
   install(owner: string, input: unknown) {
     const { document } = skillDocumentInput.parse(input), metadata = parseSkillDocument(document);
+    const findings = this.scanned(owner, document);
     return this.transaction(() => {
       if (this.list(owner).length >= 50) throw new Error("At most 50 installed skills");
       const id = randomUUID(), now = new Date().toISOString();
-      this.db.prepare("INSERT INTO installed_skills VALUES(?,?,1,1,1,?,?)").run(id, owner, now, now);
-      this.insertVersion(id, 1, document, metadata, now);
+      this.db.prepare("INSERT INTO installed_skills VALUES(?,?,1,1,?,?,?)").run(id, owner, findings.length ? null : 1, now, now);
+      this.insertVersion(id, 1, document, metadata, now, findings);
       this.validateCatalog(owner);
       return this.view(owner, id);
     });
@@ -75,21 +92,26 @@ export class InstalledSkills {
   update(owner: string, id: string, input: unknown) {
     const parsed = skillDocumentInput.merge(skillRevisionInput).parse(input);
     const metadata = parseSkillDocument(parsed.document);
+    const findings = this.scanned(owner, parsed.document);
     return this.transaction(() => {
       const row = this.expected(owner, id, parsed.expectedRevision), version = Number(row.head_version) + 1;
       if (version > 20) throw new Error("At most 20 retained versions; install a new skill to continue");
       const now = new Date().toISOString();
-      this.insertVersion(id, version, parsed.document, metadata, now);
+      this.insertVersion(id, version, parsed.document, metadata, now, findings);
       this.db.prepare("UPDATE installed_skills SET head_version=?,revision=revision+1,updated_at=? WHERE id=?")
         .run(version, now, id);
       return this.view(owner, id);
     });
   }
   activate(owner: string, id: string, input: unknown) {
-    const parsed = skillVersionInput.merge(skillRevisionInput).parse(input);
+    const parsed = skillVersionInput.merge(skillRevisionInput).extend({ acknowledge: z.boolean().optional() }).parse(input);
     return this.transaction(() => {
       this.expected(owner, id, parsed.expectedRevision);
-      this.version(id, parsed.version);
+      const { findings } = this.version(id, parsed.version);
+      if (findings.length && this.policy(owner) === "block")
+        throw new Error(`This version cannot be enabled under your skill policy: it ${describeFindings(findings)}.`);
+      if (findings.length && !parsed.acknowledge)
+        throw new Error(`This version needs your review first: it ${describeFindings(findings)}. Tick the acknowledgement to enable it anyway.`);
       this.select(id, parsed.version);
       this.validateCatalog(owner);
       return this.view(owner, id);
@@ -120,8 +142,9 @@ export class InstalledSkills {
     this.db.prepare("UPDATE installed_skills SET active_version=?,revision=revision+1,updated_at=? WHERE id=?")
       .run(version, new Date().toISOString(), id);
   }
-  private insertVersion(id: string, version: number, document: string, metadata: SkillMetadata, now: string) {
-    this.db.prepare("INSERT INTO skill_versions VALUES(?,?,?,?,?)").run(id, version, document, JSON.stringify(metadata), now);
+  private insertVersion(id: string, version: number, document: string, metadata: SkillMetadata, now: string, findings: SkillFinding[]) {
+    this.db.prepare("INSERT INTO skill_versions(skill_id,version,document,metadata,created_at,scan) VALUES(?,?,?,?,?,?)")
+      .run(id, version, document, JSON.stringify(metadata), now, JSON.stringify(findings));
   }
   private validateCatalog(owner: string): void {
     const catalog = this.catalog(owner);

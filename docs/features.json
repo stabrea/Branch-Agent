@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-15T23:40:58.403826+00:00",
+  "assessment_date": "2026-09-16T00:25:38.508373+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -2420,34 +2420,42 @@
       "family": "security",
       "name": "Untrusted-output wrapping and detection",
       "acceptance_criterion": "Wrap untrusted tool output with provenance and apply configured detection policy to an injection fixture.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/integrations/browser.ts"
+          "src/content-guard.ts",
+          "src/integrations/web.ts",
+          "src/index.ts",
+          "tests/trust.test.mjs"
         ],
-        "tests": [],
-        "detail": "System prompt treats tool/memory data as untrusted, but does not implement detection/enforcement."
+        "tests": [
+          "web content is wrapped in provenance and instruction-like lines are flagged, removed or refused by policy"
+        ],
+        "detail": "web.fetch returns a provenance envelope (source, url, fetchedAt, trust: untrusted, note) and warnings for lines that read like instructions to the assistant; web.search snippets are checked the same way. The owner's web policy `injection` (warn, redact, block) decides whether flagged lines are kept, replaced with a notice, or the page/result refused; every detection is a content.flagged event on the run."
       },
-      "remaining": "Add provenance envelopes and configured detection policy tested against injected instructions."
+      "remaining": ""
     },
     {
       "id": "security.audit",
       "family": "security",
       "name": "Execution audit and authenticated successful-call receipts",
       "acceptance_criterion": "Record a tool call and verify its successful-result receipt while detecting a modified result.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/receipts.ts",
           "src/runtime.ts",
-          "src/store.ts"
+          "src/tool-trace.ts",
+          "src/store.ts",
+          "src/server.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "successful tool results carry receipts; edited results and made-up receipts are rejected"
         ],
-        "detail": "Persisted tool.started/completed/failed events are unsigned and have no tamper verification."
+        "detail": "Each successful tool result is hashed and signed (HMAC over run id, call id, tool name, hash and time) with a key derived from the device locker key. GET /api/runs/:id/receipts classifies every tool event (success with genuine receipt, modified, forged, unsigned, failed, blocked, stalled); POST /api/receipts/verify rejects an edited result or a receipt made without the key."
       },
-      "remaining": "Add verifiable successful-result receipts and detect modified results."
+      "remaining": ""
     },
     {
       "id": "security.passkeys",
@@ -2569,19 +2577,21 @@
       "family": "security",
       "name": "Scan skills before activation",
       "acceptance_criterion": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/registry.ts",
-          "src/files.ts",
+          "src/skill-scan.ts",
+          "src/skills.ts",
           "src/server.ts",
-          "src/integrations/browser.ts",
-          "src/integrations/mcp-config.ts"
+          "public/app.js",
+          "tests/trust.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "skills with a pasted secret or exfiltration instructions are blocked, or held for review under the review policy"
+        ],
+        "detail": "Every installed or updated skill version is scanned for hardcoded secrets (AWS/OpenAI/GitHub/Slack keys, private keys, secret-like assignments), exfiltration instructions and rule overrides. Policy block (default) refuses to save it; policy review installs it disabled with the findings shown and requires an explicit acknowledgement to enable that version. Settings: POST /api/skills/policy; Skills view select and per-version findings."
       },
-      "remaining": "Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation."
+      "remaining": ""
     },
     {
       "id": "interop.openai",
@@ -3045,20 +3055,22 @@
       "family": "reliability",
       "name": "Streaming tool activity",
       "acceptance_criterion": "Stream actual tool progress to the client and finish with the tool's real status.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/activity.ts",
           "src/runtime.ts",
-          "src/store.ts",
           "src/server.ts",
-          "public/app.js"
+          "public/app.js",
+          "public/index.html",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "live activity names each step in plain words and shows what is happening right now"
         ],
-        "detail": "Tools produce durable start/completion/failure records; UI polls run state and trace is inspected on demand."
+        "detail": "tool.started events carry a plain-language label; GET /api/activity lists running tasks with the current step and each earlier step's terminal status (done, failed, stopped). The conversation view polls it once a second while a task runs and shows it above the reply."
       },
-      "remaining": "Stream actual in-progress tool activity to clients with terminal tool status."
+      "remaining": ""
     },
     {
       "id": "reliability.context",
@@ -3110,88 +3122,104 @@
       "family": "reliability",
       "name": "Success checks and bounded retry handlers",
       "acceptance_criterion": "Fail an unsuccessful completion check and retry only within the configured attempt bound.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/runtime.ts"
+          "src/reliability.ts",
+          "src/runtime.ts",
+          "tests/reliability.test.mjs",
+          "src/contracts.ts",
+          "src/server.ts"
         ],
         "tests": [
-          "procedure with wrong expected output is never verified",
-          "specialists require evidence to promote and delegation cannot escalate"
+          "declared completion checks are enforced with bounded retries"
         ],
-        "detail": "Procedure/specialist file checks reject mismatches; generic runtime completes on model text even after tool failure, and does not retry checks."
+        "detail": "A run may declare checks (phrases the answer must mention, a pattern, a JSON shape, workspace files that must exist). A miss is recorded as run.check_failed, the model is told what was missing and gets up to maxRetries (0 to 2) more attempts; after that the run fails with a plain reason instead of completing. Available on POST /api/run as `checks`."
       },
-      "remaining": "Enforce declared completion checks for general runs and bounded retries after failure."
+      "remaining": ""
     },
     {
       "id": "reliability.stuck",
       "family": "reliability",
       "name": "Stuck-operation recovery",
       "acceptance_criterion": "Detect a deliberately stalled operation and perform the configured recovery with a recorded outcome.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/reliability.ts",
           "src/runtime.ts",
-          "src/contracts.ts"
+          "tests/reliability.test.mjs",
+          "src/provider-retry.ts"
         ],
-        "tests": [],
-        "detail": "Abort timeouts and failed/cancelled events exist; no stuck detector/recovery policy."
+        "tests": [
+          "a silent model call is detected as stalled and recovered by retrying, then by falling back",
+          "a tool that never finishes is stopped after the tool time limit and the run continues"
+        ],
+        "detail": "A model call that streams nothing for modelStallMs (default 60 s) is aborted as stalled (model.stalled) and recovered per stallRecovery: retry (twice), then fall back to the next preset, or fail with a plain message; every decision is a model.stall_recovery event. A tool call is stopped after toolTimeoutMs (default 90 s) with a tool.stalled event and the run continues with that result."
       },
-      "remaining": "Detect a stalled operation and implement/test the configured recovery with recorded outcome."
+      "remaining": ""
     },
     {
       "id": "reliability.overflow",
       "family": "reliability",
       "name": "Context-limit and truncation recovery",
       "acceptance_criterion": "Recover from injected context-overflow and truncated-output errors within bounded retries.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/reliability.ts",
           "src/runtime.ts",
-          "src/contracts.ts"
+          "tests/reliability.test.mjs"
         ],
-        "tests": [],
-        "detail": "Runtime rejects estimated contexts above 16,000 tokens; no compaction or recovery retries."
+        "tests": [
+          "oversized tool results are clipped for the model and older results shrink instead of overflowing"
+        ],
+        "detail": "Tool results above toolResultChars (default 12,000) are clipped for the model (full result stays in the trace, tool.result_clipped). Before each model call the context is fitted: forced compaction when over the 16,000-token limit, then older tool results shrink to a note (context.shrunk); only if it is still too long does the run stop with a plain message."
       },
-      "remaining": "Implement bounded recovery for context overflow and truncated output."
+      "remaining": ""
     },
     {
       "id": "reliability.proof",
       "family": "reliability",
       "name": "Differentiate successful receipts from failed and blocked audit events",
       "acceptance_criterion": "Distinguish receipt-bearing successful calls from blocked or failed audit events and reject a forged receipt.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/receipts.ts",
           "src/runtime.ts",
-          "src/store.ts"
+          "src/server.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "demo writes, reads, verifies, and persists a multi-step session",
-          "malformed arguments produce a recorded tool error without side effects"
+          "successful tool results carry receipts; edited results and made-up receipts are rejected"
         ],
-        "detail": "Success/failure audit events are distinct, but there are no cryptographic receipts."
+        "detail": "Receipt-bearing successes are distinguished from failed, blocked and stalled tool events in the receipts view, and a forged or transplanted receipt is rejected."
       },
-      "remaining": "Add receipt-bearing successes and forged-receipt rejection."
+      "remaining": ""
     },
     {
       "id": "reliability.checkpoints",
       "family": "reliability",
       "name": "Resume work from provider-neutral safe checkpoints",
       "acceptance_criterion": "Interrupt after a persisted completed tool result, restart and continue without replaying that completed effect.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/runtime.ts",
           "src/store.ts",
-          "src/runtime.ts"
+          "src/transcript.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/reliability.test.mjs"
         ],
         "tests": [
+          "an interrupted task continues from its transcript without repeating tool actions",
           "startup marks previously running work interrupted without replay"
         ],
-        "detail": "Restart marks running tasks interrupted and preserves history; does not resume an interrupted workflow."
+        "detail": "The saved transcript is the execution cursor. Startup marks running tasks interrupted and fills unrecorded tool outcomes with an unknown-outcome result. 'Continue where it stopped' (POST /api/runs/:id/resume) starts a new run in the same conversation from that transcript with no new prompt and no replay; the model is told which outcomes are unknown (run.resumed)."
       },
-      "remaining": "Add durable execution cursor and continue after restart without replaying already-completed effects."
+      "remaining": ""
     },
     {
       "id": "reliability.uncertain-effects",
@@ -3201,70 +3229,80 @@
       "status": "partial",
       "evidence": {
         "paths": [
-          "src/store.ts",
-          "src/runtime.ts"
+          "src/transcript.ts",
+          "src/runtime.ts",
+          "tests/reliability.test.mjs"
         ],
         "tests": [
-          "startup marks previously running work interrupted without replay"
+          "an interrupted task continues from its transcript without repeating tool actions"
         ],
-        "detail": "Startup avoids automatic replay but lacks uncertain-effect ledger/reconciliation enforcement."
+        "detail": "Unknown-outcome tool calls are classified at interruption and on continue; the model is instructed to check actual state before repeating a write."
       },
-      "remaining": "Classify unknown-outcome writes and require recorded external-state reconciliation before an allowed repeat."
+      "remaining": "Enforce a recorded reconciliation step before a repeat of the same write is allowed."
     },
     {
       "id": "reliability.delivery-ledger",
       "family": "reliability",
       "name": "Durable ordered outbound delivery independent of task completion",
       "acceptance_criterion": "Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/contracts.ts",
-          "experiments/accounting.py"
+          "src/channels/deliveries.ts",
+          "src/channels/router.ts",
+          "src/scheduler.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/reliability.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "delivery ledger keeps order, never duplicates, parks dead letters and sends after reconnect"
+        ],
+        "detail": "Every outbound channel message (replies, scheduled results) is written to a ledger first, split into ordered chunks with stable keys (reply:<run>, schedule:<run>). Unavailable channel: chunks wait; on attach/reconnect and every 10 s they go out chat by chat in order; a repeated key is never queued twice."
       },
-      "remaining": "Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect."
+      "remaining": ""
     },
     {
       "id": "reliability.dead-letter",
       "family": "reliability",
       "name": "Transactional queue retries and dead-letter inspection",
       "acceptance_criterion": "Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/runtime.ts",
-          "src/store.ts",
-          "src/contracts.ts",
-          "experiments/accounting.py"
+          "src/channels/deliveries.ts",
+          "src/channels/router.ts",
+          "src/scheduler.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/reliability.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "delivery ledger keeps order, never duplicates, parks dead letters and sends after reconnect"
+        ],
+        "detail": "Failed chunks back off (5 s doubling to 10 min); the fifth failure parks the chunk as dead with its last error. Settings \u2192 Channels lists waiting and dead messages with Try again (POST /api/channels/deliveries/:id/retry)."
       },
-      "remaining": "Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry."
+      "remaining": ""
     },
     {
       "id": "reliability.completion-contract",
       "family": "reliability",
       "name": "Runtime-verified task exit criteria",
       "acceptance_criterion": "Evaluate declared task exit criteria and report failed evidence rather than accepting a child's self-reported completion.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/runtime.ts",
           "src/knowledge.ts",
-          "src/runtime.ts"
+          "src/delegation.ts",
+          "tests/trust.test.mjs"
         ],
         "tests": [
-          "specialists require evidence to promote and delegation cannot escalate",
-          "procedure with wrong expected output is never verified"
+          "exit criteria on a delegated task are checked by the runtime and failed evidence reaches the parent"
         ],
-        "detail": "Specialist evaluation checks real files; subsequent delegate execution itself can complete without evaluating those exit checks."
+        "detail": "specialists.delegate and fan-out tasks accept `checks` (the run check shape); the runtime evaluates them on the child's answer, a miss fails the child with the reason and the parent receives it as unresolved with that evidence (delegation.unresolved)."
       },
-      "remaining": "Apply declared exit criteria to each delegated task outcome and report failed evidence to parent."
+      "remaining": ""
     },
     {
       "id": "reliability.evaluation",

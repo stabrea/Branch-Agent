@@ -981,3 +981,9 @@ summary {
 .attention { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
 .attention-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
 .attention-row strong { color: var(--copper-hi); }
+
+/* Live activity while a task runs */
+.activity { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--well); font-size: 0.92rem; }
+.activity strong { font-weight: 600; }
+.activity .meta { margin: 4px 0 0; }
+.check-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 0.92rem; }

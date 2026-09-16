@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 51 implemented, 42 partial, 1 external and 75 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 63 implemented, 33 partial, 1 external and 72 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -175,15 +175,15 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Host/path allowlists and rate limits (`security.network`) | partial | Path-level rules and the same policy for MCP HTTP and browser requests. |
 | CPU memory and execution limits (`security.resources`) | partial | Enforce CPU/memory and hard execution-time limits that terminate noncooperative tool processes. |
 | Encrypted credential store and hidden prompts (`security.secrets`) | implemented | Covered by the listed local fixtures. |
-| Untrusted-output wrapping and detection (`security.content`) | partial | Add provenance envelopes and configured detection policy tested against injected instructions. |
-| Execution audit and authenticated successful-call receipts (`security.audit`) | partial | Add verifiable successful-result receipts and detect modified results. |
+| Untrusted-output wrapping and detection (`security.content`) | implemented | Covered by the listed local fixtures. |
+| Execution audit and authenticated successful-call receipts (`security.audit`) | implemented | Covered by the listed local fixtures. |
 | Passkey authentication for the assistant service (`security.passkeys`) | missing | Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt. |
 | Block internal-network request forgery (`security.ssrf`) | implemented | Covered by the listed local fixtures. |
 | Cross-origin WebSocket admission control (`security.origin`) | partial | Implement the WebSocket surface and test rejection/acceptance of upgrade origins. |
 | Verify downloaded release provenance and hashes (`security.release-verification`) | partial | Publish and verify a signed attestation alongside the checksum. |
 | End-to-end encrypted relay transport (`security.encrypted-relay`) | missing | Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext. |
 | Pinned SSH host identity for remote execution (`security.host-pinning`) | missing | Execute against a recorded SSH host key and reject a connection whose host identity has changed. |
-| Scan skills before activation (`security.skill-scanning`) | missing | Scan a skill containing a seeded hardcoded secret or exfiltration instruction and enforce the configured block or review policy before activation. |
+| Scan skills before activation (`security.skill-scanning`) | implemented | Covered by the listed local fixtures. |
 
 ## Interop
 
@@ -229,18 +229,18 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 
 | Feature | Status | Remaining acceptance work |
 | --- | --- | --- |
-| Streaming tool activity (`reliability.activity`) | partial | Stream actual in-progress tool activity to clients with terminal tool status. |
+| Streaming tool activity (`reliability.activity`) | implemented | Covered by the listed local fixtures. |
 | Context tokens and cache metrics (`reliability.context`) | partial | Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable. |
 | Visible compaction events (`reliability.compaction`) | implemented | Covered by the listed local fixtures. |
-| Success checks and bounded retry handlers (`reliability.checks`) | partial | Enforce declared completion checks for general runs and bounded retries after failure. |
-| Stuck-operation recovery (`reliability.stuck`) | partial | Detect a stalled operation and implement/test the configured recovery with recorded outcome. |
-| Context-limit and truncation recovery (`reliability.overflow`) | partial | Implement bounded recovery for context overflow and truncated output. |
-| Differentiate successful receipts from failed and blocked audit events (`reliability.proof`) | partial | Add receipt-bearing successes and forged-receipt rejection. |
-| Resume work from provider-neutral safe checkpoints (`reliability.checkpoints`) | partial | Add durable execution cursor and continue after restart without replaying already-completed effects. |
-| Reconcile interrupted writes before retry (`reliability.uncertain-effects`) | partial | Classify unknown-outcome writes and require recorded external-state reconciliation before an allowed repeat. |
-| Durable ordered outbound delivery independent of task completion (`reliability.delivery-ledger`) | missing | Complete a task while its channel is unavailable and deliver queued chunks in order using stable idempotency keys after reconnect. |
-| Transactional queue retries and dead-letter inspection (`reliability.dead-letter`) | missing | Exhaust a message's retry allowance, retain it in a visible dead-letter queue and allow an explicit retry. |
-| Runtime-verified task exit criteria (`reliability.completion-contract`) | partial | Apply declared exit criteria to each delegated task outcome and report failed evidence to parent. |
+| Success checks and bounded retry handlers (`reliability.checks`) | implemented | Covered by the listed local fixtures. |
+| Stuck-operation recovery (`reliability.stuck`) | implemented | Covered by the listed local fixtures. |
+| Context-limit and truncation recovery (`reliability.overflow`) | implemented | Covered by the listed local fixtures. |
+| Differentiate successful receipts from failed and blocked audit events (`reliability.proof`) | implemented | Covered by the listed local fixtures. |
+| Resume work from provider-neutral safe checkpoints (`reliability.checkpoints`) | implemented | Covered by the listed local fixtures. |
+| Reconcile interrupted writes before retry (`reliability.uncertain-effects`) | partial | Enforce a recorded reconciliation step before a repeat of the same write is allowed. |
+| Durable ordered outbound delivery independent of task completion (`reliability.delivery-ledger`) | implemented | Covered by the listed local fixtures. |
+| Transactional queue retries and dead-letter inspection (`reliability.dead-letter`) | implemented | Covered by the listed local fixtures. |
+| Runtime-verified task exit criteria (`reliability.completion-contract`) | implemented | Covered by the listed local fixtures. |
 | Measure task accuracy energy latency and cost (`reliability.evaluation`) | partial | Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs. |
 | Export task traces and service metrics (`reliability.tracing`) | partial | Add trace/metric export to configured observability endpoints. |
 | Live inventory of tools and configuration readiness (`reliability.capability-inventory`) | implemented | Covered by the listed local fixtures. |

@@ -24,6 +24,11 @@ import { assistantIdentity, identityInstructions } from "./identity.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
+import { describeToolCall } from "./activity.js";
+import {
+  CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
+} from "./reliability.js";
 import {
   parseRetryPolicy,
   planRetry,
@@ -33,10 +38,12 @@ import {
 } from "./provider-retry.js";
 
 const childConcurrency = 4;
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown> }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const compactionThreshold = 11000;
 const compactionKeep = 6;
+const contextLimit = 16000;
+const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
 export function compactionSplit(messages: Message[], ids: (number | null)[]): { from: number; to: number } | null {
@@ -64,6 +71,10 @@ export interface RunOptions {
   budget?: BudgetOptions;
   onStarted?: (run: Run) => void;
   onTextDelta?: (text: string) => void;
+  /** Conditions the final answer must meet; the model gets bounded retries when it misses one. */
+  checks?: CompletionCheck;
+  /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
+  resumeFrom?: string;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -72,6 +83,7 @@ export class Runtime {
   private readonly pending = new Set<Promise<unknown>>();
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
+  readonly reliability: ReliabilityOptions;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -79,8 +91,10 @@ export class Runtime {
     readonly workspace: string,
     readonly owner = "local",
     retryPolicy?: RetryPolicyInput,
+    reliability?: ReliabilityInput,
   ) {
     this.retryPolicy = parseRetryPolicy(retryPolicy);
+    this.reliability = ReliabilityOptionsSchema.parse(reliability ?? {});
   }
   /** The default preset's provider; individual runs may select another preset. */
   get provider(): Provider {
@@ -112,6 +126,16 @@ export class Runtime {
   }
   async run(options: RunOptions): Promise<Run> {
     return this.track(() => this.execute(options));
+  }
+  /**
+   * Continues a task that was interrupted (for example by a restart) from its saved transcript.
+   * Tool calls whose outcome was never recorded are marked unknown; nothing is replayed.
+   */
+  async resume(runId: string): Promise<Run> {
+    const previous = this.store.run(runId);
+    if (!previous || previous.owner !== this.owner) throw new Error("Run not found");
+    if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
+    return this.track(() => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id }));
   }
   async executeTool(name: string, args: unknown): Promise<unknown> {
     return this.track(() => this.performTool(name, args));
@@ -227,7 +251,7 @@ export class Runtime {
       depth: parent.depth + 1,
     };
     try {
-      return await this.track(() => this.execute({ prompt, signal: context.signal }, context, instructions));
+      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
     } finally {
       clearTimeout(timer);
       const left = (this.children.get(parent.runId) ?? 1) - 1;
@@ -237,8 +261,9 @@ export class Runtime {
   /** A delegated run plus the check of its answer against the schema the parent asked for. */
   async delegateChecked(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}) {
     const run = await this.delegate(prompt, parent, permissions, instructions, options);
+    const evidence = run.status === "failed" && run.output.startsWith("The answer did not pass its check") ? `: ${run.output}` : "";
     const result: ResultCheck = run.status !== "completed"
-      ? { status: "unresolved", reason: `The child ended with status ${run.status}` }
+      ? { status: "unresolved", reason: `The child ended with status ${run.status}${evidence}` }
       : checkResult(run.output, options.resultSchema);
     if (result.status === "unresolved" && parent.runId)
       this.store.event(parent.runId, "delegation.unresolved", { childRunId: run.id, reason: result.reason });
@@ -256,8 +281,10 @@ export class Runtime {
         const task = byId.get(id)!, spec = resolve(id);
         const context = task.dependsOn.length
           ? `\n\nResults from earlier tasks:\n${task.dependsOn.map((d) => `[${d}] ${outcomes[d]?.output ?? ""}`).join("\n")}` : "";
-        const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions,
-          task.resultSchema ? { resultSchema: task.resultSchema } : {});
+        const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions, {
+          ...(task.resultSchema ? { resultSchema: task.resultSchema } : {}),
+          ...(task.checks ? { checks: CompletionCheckSchema.parse(task.checks) } : {}),
+        });
         outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
       }));
     }
@@ -302,10 +329,8 @@ export class Runtime {
           budget,
           ...(options.permissions ? { permissions: options.permissions } : {}),
         }));
-    this.store.message(run.sessionId, {
-      role: "user",
-      content: options.prompt,
-    });
+    if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
+    else this.store.message(run.sessionId, { role: "user", content: options.prompt });
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
@@ -317,13 +342,19 @@ export class Runtime {
       output = await this.loop(run, context, instructions, options.onTextDelta, {
         ...(options.model !== undefined ? { preset: options.model } : {}),
         ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
-      });
+      }, options.checks);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
       if (error instanceof NeedsInputError) this.store.event(run.id, "attention.needed", { question: error.question });
     }
     return this.settleRun(run, context, status, output);
+  }
+  /** Records the continuation and tells the model which tool outcomes are unknown. */
+  private resumeNote(run: Run, from: string): string {
+    const unknown = this.store.messages(run.sessionId).filter((m) => m.role === "tool" && m.content.includes('"outcome":"unknown"')).length;
+    this.store.event(run.id, "run.resumed", { from, unknownToolOutcomes: unknown });
+    return " This task was interrupted and is now continuing from its saved transcript. A tool result marked outcome unknown may or may not have taken effect: check the actual state before repeating any action that changes something.";
   }
   private failureStatus(context: ToolContext, error: unknown): Run["status"] {
     return context.signal.aborted
@@ -366,7 +397,38 @@ export class Runtime {
     instructions: string,
     onTextDelta?: (text: string) => void,
     override: RunModelOverride = {},
+    checks?: CompletionCheck,
   ): Promise<string> {
+    const { messages, ids } = this.openingMessages(run, context, instructions);
+    const plan = this.models.plan(context.owner, run.sessionId, override);
+    this.store.event(run.id, "model.selected", { ...plan.choice });
+    const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
+    let checkFailures = 0;
+    for (let round = 0; round < 12; round++) {
+      await this.fitContext(run, messages, ids, context, route);
+      const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
+      const assistant: Message = {
+        role: "assistant",
+        content: completion.content,
+        ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}),
+      };
+      messages.push(assistant); ids.push(null);
+      this.store.message(run.sessionId, assistant);
+      if (!completion.toolCalls.length) {
+        if (!checks || await this.answerPasses(run, messages, ids, context, checks, completion.content, checkFailures)) return completion.content;
+        checkFailures++;
+        continue;
+      }
+      for (const call of completion.toolCalls) {
+        const result = await this.callTool(call, context);
+        const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
+        messages.push(message); ids.push(null);
+        this.store.message(run.sessionId, message);
+      }
+    }
+    throw new BudgetError("Maximum 12 model rounds reached");
+  }
+  private openingMessages(run: Run, context: ToolContext, instructions: string): { messages: Message[]; ids: (number | null)[] } {
     const identity = assistantIdentity(this.store, context.owner);
     this.store.event(run.id, "identity.applied", { name: identity.name, revision: identity.revision });
     const messages: Message[] = [
@@ -381,49 +443,44 @@ export class Runtime {
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);
     for (const row of working.rows) { messages.push(row.message); ids.push(row.id); }
-    const plan = this.models.plan(context.owner, run.sessionId, override);
-    this.store.event(run.id, "model.selected", { ...plan.choice });
-    const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
-    for (let round = 0; round < 12; round++) {
-      await this.maybeCompact(run, messages, ids, context, route);
-      const completion = await this.completeWithRetries(
-        run,
-        messages,
-        context,
-        route,
-        onTextDelta,
-      );
-      const assistant: Message = {
-        role: "assistant",
-        content: completion.content,
-        ...(completion.toolCalls.length
-          ? { toolCalls: completion.toolCalls }
-          : {}),
-      };
-      messages.push(assistant); ids.push(null);
-      this.store.message(run.sessionId, assistant);
-      if (!completion.toolCalls.length) return completion.content;
-      for (const call of completion.toolCalls) {
-        const result = await this.callTool(call, context);
-        const message: Message = {
-          role: "tool",
-          toolCallId: call.id,
-          content: JSON.stringify(result),
-        };
-        messages.push(message); ids.push(null);
-        this.store.message(run.sessionId, message);
-      }
-    }
-    throw new BudgetError("Maximum 12 model rounds reached");
+    return { messages, ids };
+  }
+  /** Applies the run's declared checks to a final answer; a miss within the retry allowance asks the model again. */
+  private async answerPasses(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, checks: CompletionCheck, answer: string, failures: number): Promise<boolean> {
+    const problem = await evaluateChecks(answer, checks, context.workspace);
+    if (!problem) { this.store.event(run.id, "run.check_passed", { attempts: failures + 1 }); return true; }
+    this.store.event(run.id, "run.check_failed", { reason: problem, attempt: failures + 1, maxRetries: checks.maxRetries });
+    if (failures >= checks.maxRetries) throw new CheckError(`The answer did not pass its check: ${problem}`);
+    const nudge: Message = { role: "user", content: `Your answer did not pass its check: ${problem}. Fix that and answer again.` };
+    messages.push(nudge); ids.push(null); this.store.message(run.sessionId, nudge);
+    return false;
+  }
+  /** Long tool results are shortened for the model; the full result stays in the trace. */
+  private clipped(run: Run, call: ToolCall, serialised: string): string {
+    const { text, omitted } = clipToolResult(serialised, this.reliability.toolResultChars);
+    if (omitted) this.store.event(run.id, "tool.result_clipped", { name: call.name, id: call.id, omitted, kept: text.length });
+    return text;
+  }
+  /** Keeps the working context under the limit: compaction first, then shrinking older tool results. */
+  private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute): Promise<void> {
+    const tools = this.registry.descriptions(context.permissions);
+    const estimate = () => estimateTokens({ messages, tools });
+    const before = estimate();
+    await this.maybeCompact(run, messages, ids, context, route, before > contextLimit);
+    if (estimate() <= contextLimit) return;
+    const shrunk = shrinkToolResults(messages, 4);
+    const after = estimate();
+    this.store.event(run.id, "context.shrunk", { shrunkResults: shrunk, estimatedBefore: before, estimatedAfter: after });
+    if (after > contextLimit) throw new BudgetError(tooLong);
   }
   /**
    * When the working context grows past the threshold, older stored turns are summarised by the
    * model into a handoff note and replaced in place; recent turns and anything from this run stay.
    */
-  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute): Promise<void> {
+  private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, force = false): Promise<void> {
     const tools = this.registry.descriptions(context.permissions);
     const before = estimateTokens({ messages, tools });
-    if (before <= compactionThreshold) return;
+    if (!force && before <= compactionThreshold) return;
     const split = compactionSplit(messages, ids);
     if (!split) return;
     const preset = route.candidates[route.index]!;
@@ -451,6 +508,7 @@ export class Runtime {
     route: ModelRoute,
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
+    let stalls = 0;
     for (let retriesUsed = 0; ; retriesUsed++) {
       let observedText = false;
       const emit = onTextDelta
@@ -463,6 +521,10 @@ export class Runtime {
       try {
         return await this.complete(run, messages, context, preset, route.reasoning, emit);
       } catch (error) {
+        if (error instanceof StallError) {
+          if (this.recoverStall(run, context, route, error, stalls++)) { retriesUsed = -1; continue; }
+          throw error;
+        }
         const retry = observedText
           ? undefined
           : planRetry(error, retriesUsed, this.retryPolicy);
@@ -483,6 +545,14 @@ export class Runtime {
         await waitForRetry(retry.delayMs, context.signal);
       }
     }
+  }
+  /** After a stalled model call: try again (twice at most), move to the next preset, or give up, as configured. */
+  private recoverStall(run: Run, context: ToolContext, route: ModelRoute, error: StallError, stalls: number): boolean {
+    if (context.signal.aborted) return false;
+    const policy = this.reliability.stallRecovery;
+    const action = policy === "retry" && stalls < 2 ? "retry" : policy !== "fail" && this.fallBack(run, context, route, error) ? "fallback" : "fail";
+    this.store.event(run.id, "model.stall_recovery", { action, stalls: stalls + 1, afterMs: error.afterMs, preset: route.candidates[route.index]!.id });
+    return action !== "fail";
   }
   /** Moves to the next configured preset after an eligible failure; records the cooldown and switch. */
   private fallBack(run: Run, context: ToolContext, route: ModelRoute, error: unknown): boolean {
@@ -518,10 +588,7 @@ export class Runtime {
     context.budget.step(context.signal);
     const tools = this.registry.descriptions(context.permissions);
     const input = estimateTokens({ messages, tools });
-    if (input > 16000)
-      throw new BudgetError(
-        "Context limit exceeded (16000 estimated tokens); start a new session",
-      );
+    if (input > contextLimit) throw new BudgetError(tooLong);
     context.budget.charge(input);
     const maxTokens = Math.min(2048, context.budget.remaining());
     if (maxTokens < 1) throw new BudgetError("Token budget exhausted");
@@ -535,14 +602,11 @@ export class Runtime {
       reasoning,
     });
     try {
-      const raw = await preset.provider.complete({
-        messages,
-        tools,
-        signal: context.signal,
-        maxTokens,
-        ...(reasoning ? { reasoning } : {}),
-        ...(onTextDelta ? { onTextDelta } : {}),
-      });
+      const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
+      const raw = onTextDelta
+        ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
+            preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
+        : await preset.provider.complete({ ...request, signal: context.signal });
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
@@ -556,11 +620,8 @@ export class Runtime {
     } catch (e) {
       if (e instanceof ProviderStreamError)
         this.recordStreamFailure(run, context, e, input);
-      this.store.event(
-        run.id,
-        context.signal.aborted ? "model.cancelled" : "model.failed",
-        { error: errorText(e), usage: this.store.usage(run.id) },
-      );
+      const kind = e instanceof StallError ? "model.stalled" : context.signal.aborted ? "model.cancelled" : "model.failed";
+      this.store.event(run.id, kind, { error: errorText(e), usage: this.store.usage(run.id) });
       throw e;
     }
   }
@@ -596,32 +657,22 @@ export class Runtime {
     call: ToolCall,
     context: ToolContext,
   ): Promise<unknown> {
-    this.store.event(context.runId, "tool.started", {
-      name: call.name,
-      id: call.id,
-    });
+    let args: unknown, validArgs = true;
+    try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
+    this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
+    const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
+    const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {
-      let args: unknown;
-      try {
-        args = JSON.parse(call.arguments);
-      } catch {
-        throw new Error("Invalid JSON tool arguments");
-      }
-      const result = await this.registry.execute(call.name, args, context);
-      this.store.event(context.runId, "tool.completed", {
-        name: call.name,
-        id: call.id,
-        result,
-      });
+      if (!validArgs) throw new Error("Invalid JSON tool arguments");
+      const result = await this.registry.execute(call.name, args, scoped);
+      const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
+      this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       return { ok: true, result };
     } catch (e) {
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) throw e;
-      const error = errorText(e);
-      this.store.event(context.runId, "tool.failed", {
-        name: call.name,
-        id: call.id,
-        error,
-      });
+      const stalled = timeout.aborted;
+      const error = stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e);
+      this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
       return { ok: false, error };
     }
   }

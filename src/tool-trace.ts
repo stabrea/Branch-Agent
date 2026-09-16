@@ -25,7 +25,8 @@ export async function executeTracedTool(
   store.event(context.runId, "tool.started", { ...trace, args });
   try {
     const result = await registry.execute(name, args, context);
-    store.event(context.runId, "tool.completed", { ...trace, result });
+    const receipt = await store.receipts.sign(context.runId, trace.id, name, result);
+    store.event(context.runId, "tool.completed", { ...trace, result, receipt });
     return result;
   } catch (error) {
     store.event(context.runId, "tool.failed", {

@@ -47,6 +47,28 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Release 0.6.0 (batches 10 and 11)
+
+Version 0.6.0. Packaged with the stock electron.exe; 8/8 native tests against the packaged build; zip
+made with `C:\Windows\System32	ar.exe -a -cf` (forward-slash entries, like earlier releases) and a
+two-space `sha256sum`-style checksum file. `npm run package:desktop` does not produce the zip.
+
+## Batch 11 (released in 0.6.0): skill scanning, receipts, content guard, delegated exit criteria, live activity
+
+`src/skill-scan.ts` + policy in `InstalledSkills` (scan column on skill_versions, acknowledge on activate),
+`src/receipts.ts` (HMAC receipts on tool.completed, verify/classify; `/api/runs/:id/receipts`,
+`/api/receipts/verify`), `src/content-guard.ts` wired into web.fetch/web.search with the `injection`
+policy and `content.flagged` events, `checks` on delegate/fan-out, `src/activity.ts` + `/api/activity`
++ the activity panel above the conversation. Receipts need the locker open (createBranch always opens it).
+
+## Batch 10 (released in 0.6.0): completion checks, stalls, overflow, continue, delivery ledger
+
+`src/reliability.ts` (CompletionCheckSchema/evaluateChecks, StallError/withStallWatchdog,
+clipToolResult/shrinkToolResults, ReliabilityOptionsSchema), runtime `checks`, `resume`, `fitContext`,
+stall recovery and tool time limit; `src/channels/deliveries.ts` ledger used by router replies and
+scheduler deliveries (keys reply:<run>, schedule:<run>), Settings → Channels "Messages still to send",
+Activity "Continue where it stopped". Model calls now always stream (the watchdog needs deltas).
+
 ## Process note: v0.5.0 shipped while the PR check was red
 
 The fan-out test used a wall-clock bound (three 120 ms tasks under 460 ms) that hosted runners
