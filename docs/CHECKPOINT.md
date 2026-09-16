@@ -43,6 +43,10 @@ Nothing lives only in chat. Open work is tracked as checklists:
 - Regenerate `docs/features.md` with `branch-public-coverage.py` after ledger updates and mirror
   the change into the family issue with `gh issue edit`.
 
+## Batch 19 (wave 1) — providers
+
+`src/providers/presets.ts` (built-in preset catalog with 12 cloud and local providers); `src/providers/gemini.ts` (native Google Gemini adapter with streaming, tool calling and system instructions); `GET /api/providers/catalog` (list all presets with display names, base URLs and help text), `POST /api/providers/test` (validate an endpoint with a test request, return plain-language reasons for failure), `GET /api/providers/local` (probe for Ollama at 11434 and LM Studio at 1234, list available models). The probe does not go through the network policy so it works even when private addresses are blocked. Presets for Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, Ollama and LM Studio; all conform to OpenAI-compatible Chat Completions protocol except Gemini. Closes audit items A0167 (local model serving), A2365 (local LLMs), and addresses A1139 (transformers local models), A0498 (OpenAI-compatible local models).
+
 ## Batches 7–9 ship as 0.5.0
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.

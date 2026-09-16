@@ -11,6 +11,7 @@ import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
 import type { ModelPreset } from "./models.js";
+export { GeminiProvider } from "./providers/gemini.js";
 
 export interface ProviderOptions {
   endpoint: string;

@@ -156,6 +156,159 @@ async function testModel(app: Branch, body: unknown): Promise<unknown> {
     throw new HttpError(502, `${chosen.name} did not answer: ${errorText(error)}`);
   }
 }
+
+function providersCatalog(): unknown {
+  const { allPresets } = require("./providers/presets.js");
+  return { presets: allPresets() };
+}
+
+async function testProvider(body: unknown): Promise<unknown> {
+  const { preset, endpoint, model, apiKey } = z
+    .object({
+      preset: z.string().min(1).max(64).optional(),
+      endpoint: z.string().url().max(2048).optional(),
+      model: z.string().min(1).max(256).optional(),
+      apiKey: z.string().min(1).max(4096).optional(),
+    })
+    .strict()
+    .parse(body);
+
+  if (!preset && !endpoint)
+    throw new HttpError(400, "Provide either a preset name or an endpoint URL");
+
+  let providerName: string, providerEndpoint: string, providerModel: string, providerKey: string;
+
+  if (preset) {
+    const { findPreset } = require("./providers/presets.js");
+    const presetData = findPreset(preset);
+    if (!presetData) throw new HttpError(400, `Unknown preset: ${preset}`);
+    providerName = presetData.displayName;
+    providerEndpoint = presetData.baseUrl;
+    providerModel = model || presetData.modelIds[0] || "";
+    providerKey = apiKey || "";
+  } else {
+    providerName = "Custom";
+    providerEndpoint = endpoint || "";
+    providerModel = model || "";
+    providerKey = apiKey || "";
+  }
+
+  if (!providerModel || !providerKey)
+    throw new HttpError(400, "Model and API key are required");
+
+  // Validate endpoint: HTTPS or loopback HTTP
+  const url = new URL(providerEndpoint);
+  if (
+    url.protocol !== "https:" &&
+    !(
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    )
+  ) {
+    throw new HttpError(400, "Endpoint requires HTTPS (HTTP allowed only on localhost)");
+  }
+
+  // Try a test request
+  const started = Date.now();
+  try {
+    const testBody = {
+      model: providerModel,
+      max_tokens: 16,
+      messages: [
+        { role: "system", content: "You are an assistant. Reply with OK." },
+        { role: "user", content: "Test" },
+      ],
+    };
+
+    const response = await fetch(new URL(providerEndpoint).origin + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${providerKey}` },
+      body: JSON.stringify(testBody),
+      signal: AbortSignal.timeout(30000),
+      redirect: "error",
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let reason = "Request failed";
+      if (response.status === 401 || response.status === 403) reason = "Invalid API key";
+      else if (response.status === 404) reason = "Model not found";
+      else if (response.status >= 500) reason = "Provider error";
+      throw new HttpError(502, reason);
+    }
+
+    const data = await response.json().catch(() => ({}));
+    const content = (data as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content || "OK";
+
+    return {
+      ok: true,
+      provider: providerName,
+      model: providerModel,
+      reply: content.slice(0, 80),
+      ms: Date.now() - started,
+    };
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("ECONNREFUSED")) throw new HttpError(502, "Connection refused (endpoint not running?)");
+    if (msg.includes("ETIMEDOUT") || msg.includes("timeout")) throw new HttpError(502, "Request timeout");
+    if (msg.includes("ERR_HTTP_REQUEST_TIMEOUT")) throw new HttpError(502, "Request timeout");
+    throw new HttpError(502, `Connection failed: ${msg}`);
+  }
+}
+
+async function localProviders(): Promise<unknown> {
+  const found: Array<{ runtime: string; baseUrl: string; models: string[] }> = [];
+
+  // Probe Ollama at 127.0.0.1:11434
+  try {
+    const response = await fetch("http://127.0.0.1:11434/api/tags", {
+      signal: AbortSignal.timeout(1000),
+      redirect: "error",
+    });
+    if (response.ok) {
+      const data = (await response.json().catch(() => ({ models: [] }))) as { models?: Array<{ name?: string }> };
+      const models = (data.models || [])
+        .filter((m) => m.name && typeof m.name === "string")
+        .map((m) => m.name!.split(":")[0]!);
+      if (models.length > 0) {
+        found.push({
+          runtime: "ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          models,
+        });
+      }
+    }
+  } catch {
+    // Ollama not running
+  }
+
+  // Probe LM Studio at 127.0.0.1:1234
+  try {
+    const response = await fetch("http://127.0.0.1:1234/v1/models", {
+      signal: AbortSignal.timeout(1000),
+      redirect: "error",
+    });
+    if (response.ok) {
+      const data = (await response.json().catch(() => ({ data: [] }))) as { data?: Array<{ id?: string }> };
+      const models = (data.data || [])
+        .filter((m) => m.id && typeof m.id === "string")
+        .map((m) => m.id!);
+      if (models.length > 0) {
+        found.push({
+          runtime: "lm-studio",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          models,
+        });
+      }
+    }
+  } catch {
+    // LM Studio not running
+  }
+
+  return { local: found };
+}
+
 /** The preset that actually served a run: the last recorded selection or fallback, if any. */
 function modelUsed(app: Branch, runId: string) {
   const events = app.store.events(runId).filter((event) => ["model.selected", "model.fallback"].includes(event.kind));
@@ -246,6 +399,9 @@ async function api(
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
+  if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
+  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
+  if (request.method === "GET" && path === "/api/providers/local") return localProviders();
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });

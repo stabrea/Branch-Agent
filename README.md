@@ -44,6 +44,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Desktop model setup with a protected saved key and recovery from invalid settings.
 - OpenAI-compatible and Anthropic provider adapters, plus ChatGPT plan sign-in through OpenAI's device-code route.
 - Named model presets with a workspace default, per-conversation choice, thinking-effort control and ordered fallback with cooldowns; every run records the model that actually answered.
+- Multi-provider support: built-in presets for Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, and local Ollama and LM Studio; native Gemini adapter with streaming and tool calls; provider test endpoint and automatic local runtime detection.
 - One-click updates from GitHub Releases with checksum verification, and `branch update` for source checkouts.
 - Bounded retries for temporary provider failures, preserving completed tool work and attempt accounting.
 - Workspace file tools, owner-scoped memory, versioned procedures and specialists.
