@@ -4,6 +4,8 @@ import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
+import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
+import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { Runtime } from "./runtime.js";
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
@@ -72,15 +74,18 @@ export async function createBranch(options: {
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
-  registerFiles(registry, files, {
-    before: (path, context) => history.before(path, context),
-    after: async (path, context, token) => {
+  const writeObserver = {
+    before: (path: string, context: ToolContext) => history.before(path, context),
+    after: async (path: string, context: ToolContext, token: unknown) => {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
       try { await documents?.refreshPath(context.owner, path, context.signal); } catch { /* indexing never fails a file change */ }
     },
-  });
+  };
+  registerFiles(registry, files, writeObserver);
   registerWorkspaceHistory(registry, history);
+  registerCodeSearch(registry, new WorkspaceSearch(files));
+  registerCodeEdit(registry, files, new CodeEditor(files, writeObserver));
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -203,6 +208,10 @@ export * from "./content-guard.js";
 export * from "./activity.js";
 export * from "./memory-review.js";
 export * from "./workspace-history.js";
+export * from "./ignore.js";
+export * from "./patch.js";
+export * from "./code-search.js";
+export * from "./code-edit.js";
 export * from "./backup.js";
 export * from "./health.js";
 export * from "./openai-compat.js";

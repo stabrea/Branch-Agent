@@ -21,7 +21,13 @@ export function describeToolCall(name: string, args: unknown): string {
     case "files.read": return `Reading ${short(a.path)}`;
     case "files.write": return `Writing ${short(a.path)}`;
     case "files.list": return `Looking through ${short(a.path ?? "the workspace")}`;
-    case "files.search": return `Searching files for “${short(a.query ?? a.pattern)}”`;
+    case "files.search": case "files.grep": return `Searching files for “${short(a.query ?? a.pattern)}”`;
+    case "files.glob": return `Listing files like ${short((a.patterns as string[] | undefined)?.[0])}`;
+    case "files.find": return `Looking for a file called “${short(a.query)}”`;
+    case "files.patch": return "Applying a set of file changes";
+    case "files.edit": return `Changing some text in ${short(a.path)}`;
+    case "files.validate": return `Checking ${short(a.path)} still reads correctly`;
+    case "workspace.map": return "Mapping the workspace";
     case "web.search": return `Searching the web for “${short(a.query)}”`;
     case "web.fetch": return `Reading ${host(a.url)}`;
     case "shell.execute": return "Running a command";

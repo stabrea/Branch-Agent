@@ -345,6 +345,28 @@ available and free (offline); higher-quality voice from provider is optional. Vo
 read-aloud, voice choice, speech rate, provider voice toggle) stored per owner at `GET|POST /api/voice/settings`. Microphone button in composer (hold to record), voice settings panel in Settings,
 read-aloud controls on assistant messages. Covers A1893 (speech-to-text) and A1894 (text-to-speech).
 
+## Batch 20 (wave 2) — workspace search and code editing tools
+
+Seven tools in `src/code-search.ts`, `src/code-edit.ts`, `src/patch.ts` and `src/ignore.ts`, all
+behind the existing `files.read` / `files.write` permissions and `WorkspaceFiles.checked()`
+confinement, with no new routes, settings or dependencies. Reading: `files.glob` (patterns via
+`node:path` `matchesGlob`), `files.grep` (literal or regular expression, context lines, file
+pattern, capitals switch, binary skip by NUL byte), `files.find` (subsequence score with word-
+boundary and basename bonuses) and `workspace.map` (size, language guess and regex-found top-level
+names or Markdown headings, cached per file mtime+size). Writing: `files.patch` applies a
+multi-file unified diff with fuzz 0 — every hunk is matched using its declared line counts and must
+equal the file exactly at the line it names, all new contents are computed before anything is
+written, and a failure part-way restores the files already written; `files.edit` replaces an exact
+string and refuses when the match count is not `expectedOccurrences`. Both go through the same
+write observer as `files.write`, so each changed file keeps its previous bytes and has its own
+Undo. `files.validate` parses JSON and runs this app's own Node with `--check` (parse only, never
+executes) for `.js`/`.mjs`/`.cjs`, returning problems as data; TypeScript is reported as unchecked
+because the compiler is a devDependency only. A `.branchignore` (falling back to `.gitignore`)
+applies to every one of these tools. All results are bounded by serialized size so they stay inside
+the registry's 64 KiB output limit and say `moreAvailable`. Tests: `tests/code-tools.test.mjs`.
+Covers A0435 (ignore-file access controls), A0537 (project maps and syntax validation) and the
+codebase-search families (workspace-search, codebase-search, codebase-indexing).
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

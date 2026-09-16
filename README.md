@@ -82,6 +82,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Schedules: once, on an interval, or every day at a time in your timezone; tasks, reminders, or monitoring checks that remember the last result; results can be sent to a Telegram chat; each schedule keeps its run history; webhooks and `branch trigger` run one on demand.
 - Usage and observability: daily aggregated token and cost tracking, run timelines showing tool calls and model interactions, optional token/cost budgets with pause enforcement, and CSV export of usage reports.
 - Your own documents: add notes, web pages, tables, Word files and spreadsheets from your workspace or by dropping them in, search them and see the exact passages that match, and let the assistant quote them when it answers — with a switch to turn that off. Passages are ranked by the words in them and, when your model connection offers it, also compared by meaning.
+- Looking through and changing code: list files by pattern, search inside them with the lines around each match, find a file from part of its name, and see a short map of what each file holds. Changes are exact — a set of changes either fits every file perfectly or nothing is written, an ambiguous text replacement is refused rather than guessed, and every changed file can still be undone one by one. A `.branchignore` (or your `.gitignore`) keeps files out of all of it.
 - Optional MCP tools and browser automation through explicit configuration.
 - Separate Python accounting and released neural-model experiments.
 
