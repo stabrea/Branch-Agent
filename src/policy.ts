@@ -2,6 +2,7 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
 import { sandboxChoices } from "./sandbox.js";
+import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
 
 export { globMatches } from "./policy-resources.js";
@@ -38,6 +39,17 @@ export const PolicyRuleSchema = z
      * a box, or with no box. Left out, the tool does exactly what it did before rules could say.
      */
     sandbox: z.enum(sandboxChoices).optional(),
+    /**
+     * Where a program this rule covers actually runs: on this computer, in a container, on the
+     * Linux side, or in Windows' own throwaway desktop (see src/sandbox-backends.ts). Left out it
+     * runs on this computer, which is what everything did before rules could say otherwise.
+     */
+    backend: z.enum(sandboxBackends).optional(),
+    /**
+     * The folders of the workspace a program this rule covers may see. Empty means the whole
+     * workspace, which is what every rule written before this behaves as.
+     */
+    paths: z.array(z.string().trim().min(1).max(200)).max(8).optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;

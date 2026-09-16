@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SandboxChoice } from "./sandbox.js";
+import type { SandboxBackendName } from "./sandbox-backends.js";
 
 export const ToolCallSchema = z
   .object({
@@ -235,6 +236,13 @@ export interface ToolContext {
    * behaves exactly as it did before rules could say.
    */
   sandbox?: SandboxChoice;
+  /**
+   * Where a program this call starts is to run, when an approval rule named somewhere other than
+   * this computer, and which folders of the workspace it may see there. Both are set by the
+   * runtime just before the tool runs, exactly as `sandbox` is.
+   */
+  sandboxBackend?: SandboxBackendName;
+  sandboxPaths?: readonly string[];
 }
 export interface ToolDefinition<T = unknown> {
   name: string;
