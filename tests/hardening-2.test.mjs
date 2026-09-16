@@ -62,6 +62,137 @@ test("the app hands its guarded fetch to every reader of passages", async (t) =>
 });
 
 // ---------------------------------------------------------------------------
+// 2. One conversation can stop on several questions at once. A second must not
+//    silently take the first's place, leaving its task waiting for ever.
+// ---------------------------------------------------------------------------
+
+const question = (sessionId, tool, target, fingerprint) => ({
+  runId: `run-${fingerprint}`, sessionId, tool, target, label: `${tool} on ${target}`,
+  question: `Before I go ahead: ${tool}. Is that all right?`, source: "owner", remember: "session",
+  askedAt: new Date().toISOString(), bytes: `{"${target}":1}`, fingerprint,
+});
+
+test("a conversation keeps every question it stopped on, and answers each by its own request", async () => {
+  const { ApprovalGate, maximumPendingPerSession, droppedPendingMessage } = await import("../dist/approvals.js");
+  const gate = new ApprovalGate();
+  const a = "a".repeat(32), b = "b".repeat(32);
+  assert.equal(gate.ask(question("s1", "files.write", "one.txt", a)), null);
+  assert.equal(gate.ask(question("s1", "files.write", "two.txt", b)), null, "a second question does not replace the first");
+  assert.deepEqual(gate.waiting("s1").map((entry) => entry.target), ["one.txt", "two.txt"], "oldest first");
+  // The same exact request asked again is the same question, not a second copy of it.
+  gate.ask(question("s1", "files.write", "one.txt", a));
+  assert.equal(gate.waiting("s1").length, 2);
+  // An answer lands on the request it was given for, whichever place in the list that is.
+  assert.equal(gate.resolve("s1", b).target, "two.txt");
+  assert.equal(gate.waiting("s1").length, 1);
+  // With only one left, an answer with no fingerprint still finds it, as it always did.
+  assert.equal(gate.resolve("s1").target, "one.txt");
+  assert.equal(gate.waiting("s1").length, 0);
+  assert.equal(gate.resolve("s1"), undefined);
+
+  // Past the cap the one that has been waiting longest is handed back, so its task can be told.
+  for (let index = 0; index < maximumPendingPerSession; index++)
+    assert.equal(gate.ask(question("s2", "files.write", `file-${index}.txt`, String(index).padStart(32, "0"))), null);
+  const dropped = gate.ask(question("s2", "files.write", "one-too-many.txt", "f".repeat(32)));
+  assert.equal(dropped?.target, "file-0.txt", "the oldest is the one that goes");
+  assert.equal(gate.waiting("s2").length, maximumPendingPerSession, "and the list never grows past its cap");
+  assert.match(droppedPendingMessage(dropped.label), /waiting longest was let go/);
+});
+
+test("two tasks in one conversation both put their question, and the web card answers each", async (t) => {
+  // Two tasks running side by side in the same conversation, each stopping on a write of its own.
+  // Before, the second question replaced the first and the first task waited for ever.
+  const asked = (path) => ({ content: "", toolCalls: [{ id: `c-${path}`, name: "files.write",
+    arguments: JSON.stringify({ path, content: path }) }] });
+  const { app, root } = await fixture(t, (request) => {
+    const prompt = request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+    return asked(prompt.includes("one") ? "one.txt" : "two.txt");
+  });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "files.write", decision: "ask", remember: "session" }] });
+  const sessionId = app.store.createSession(app.runtime.owner);
+  // The first task stops to ask. The second, in the same conversation, stops to ask about something
+  // else while the first is still waiting — which is where the first used to be quietly replaced.
+  const runs = [await app.runtime.run({ prompt: "write one", sessionId }),
+    await app.runtime.run({ prompt: "write two", sessionId })];
+  assert.deepEqual(runs.map((run) => run.status), ["needs_input", "needs_input"]);
+  const waiting = app.runtime.waitingApprovals(sessionId);
+  assert.equal(waiting.length, 2, "both questions are waiting, not one on top of the other");
+  assert.deepEqual(waiting.map((entry) => entry.target).sort(), ["one.txt", "two.txt"]);
+  assert.equal(new Set(waiting.map((entry) => entry.fingerprint)).size, 2, "each is known by its own request");
+
+  // The app's own approval card answers the second by its fingerprint, over the real route.
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const second = waiting[1];
+  const response = await fetch(`${server.url}/api/policy/approve`, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ sessionId, decision: "allow", remember: "session", fingerprint: second.fingerprint }) });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).target, second.target);
+  assert.deepEqual(app.runtime.waitingApprovals(sessionId).map((entry) => entry.target), [waiting[0].target]);
+  // And the one left is still answerable with no fingerprint at all, as it always was.
+  assert.equal(app.runtime.approve(sessionId, "deny", "session").target, waiting[0].target);
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 0);
+});
+
+test("a chat app's buttons answer the question they were sent for, not whichever came last", async (t) => {
+  const { app } = await fixture(t);
+  const { ApprovalGate } = await import("../dist/approvals.js");
+  const gate = app.runtime.approvals;
+  assert.ok(gate instanceof ApprovalGate);
+  const a = "1".repeat(32), b = "2".repeat(32);
+  const sessionId = app.store.createSession(app.runtime.owner);
+  for (const [target, print] of [["one.txt", a], ["two.txt", b]]) {
+    const run = app.store.createRun(app.runtime.owner, `write ${target}`, sessionId);
+    gate.ask({ ...question(sessionId, "files.write", target, print), runId: run.id });
+  }
+  // The button carries the fingerprint the chat app was shown, which is the older of the two here.
+  const result = app.runtime.approve(sessionId, "allow", "session", a, "telegram");
+  assert.equal(result.target, "one.txt");
+  assert.deepEqual(app.runtime.waitingApprovals(sessionId).map((entry) => entry.target), ["two.txt"]);
+  // The record says it was answered on Telegram, and the task's own origin is kept beside it.
+  const [entry] = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.equal(entry.source, "telegram");
+  assert.equal(entry.origin, "owner");
+});
+
+test("one AI-tool connection may hold more than one question at a time", async (t) => {
+  const { app, root } = await fixture(t, () => say("done"), { web: { allowPrivateAddresses: true } });
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const headers = (extra = {}) => ({ authorization: `Bearer ${server.token}`, origin: server.url,
+    "content-type": "application/json", ...extra });
+  const rpc = async (body, sessionId) => {
+    const response = await fetch(`${server.url}/mcp`, { method: "POST",
+      headers: headers(sessionId ? { "mcp-session-id": sessionId } : {}), body: JSON.stringify(body) });
+    return { response, data: await response.json() };
+  };
+  const started = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize",
+    params: { protocolVersion: "2025-06-18", clientInfo: { name: "probe", version: "1.0.0" } } });
+  const sessionId = started.response.headers.get("mcp-session-id");
+  await fetch(`${server.url}/api/mcp/settings`, { method: "POST", headers: headers(),
+    body: JSON.stringify({ enabled: true, exposedTools: ["files.write"] }) });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "files.write", match: "*", decision: "ask" }] });
+  // This test is about how many questions may wait at once, not about the waiting, so it waits none.
+  app.store.save("settings", app.runtime.owner, "mcp-serving", { idleMinutes: 30, askWaitSeconds: 0 });
+
+  // Two different calls down one connection. Before, the second was turned away as "already
+  // holding as many as it allows"; now both become questions the owner can see and answer.
+  for (const path of ["one.txt", "two.txt"]) {
+    const called = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call",
+      params: { name: "files.write", arguments: { path, content: "x" } } }, sessionId);
+    assert.match(called.data.result.content[0].text, /waiting for your yes in Branch/,
+      `${path} must become a question, not a refusal`);
+  }
+  const waiting = app.runtime.waitingApprovals(`mcp:${sessionId}`);
+  assert.equal(waiting.length, 2, "both calls left a question the owner can answer");
+  assert.deepEqual(waiting.map((entry) => entry.target).sort(), ["one.txt", "two.txt"]);
+  assert.equal(new Set(waiting.map((entry) => entry.fingerprint)).size, 2);
+});
+
+// ---------------------------------------------------------------------------
 // 4. A study's cells take places from the one shared count, and a benchmark is
 //    read only from the workspace or the folder the owner named.
 // ---------------------------------------------------------------------------

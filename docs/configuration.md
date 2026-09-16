@@ -2374,6 +2374,17 @@ The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a 
 carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
 the socket sees what the app sees and can answer under the same binding.
 
+**More than one question at a time.** A conversation can genuinely stop on two things at once — a
+second task started in the same conversation while the first was waiting, or one AI-tool connection
+making two calls — so the questions are kept as a list, oldest first, and the second never takes the
+first's place. `GET /api/policy` returns all of them; the approval card shows each with its own
+exact words. Answering with a fingerprint answers that exact request, whichever of them it is;
+answering without one answers the one that has been waiting longest, which is the only one when
+only one is waiting. Asking the very same request again is the same question, not a second copy. A
+conversation holds at most **eight** waiting questions; at a ninth the one that has been waiting
+longest is let go and its task is stopped with a plain sentence saying so, rather than being left
+waiting on an answer that can no longer arrive. An AI-tool connection may hold the same eight.
+
 **One rule, everywhere.** Every way of answering binds the answer to that fingerprint, and there is
 no route that does not: the approval card in the app, the buttons and the `reply y / a / n` in a
 chat app, `branch approve <task id> yes` on the command line, the question Branch holds open for

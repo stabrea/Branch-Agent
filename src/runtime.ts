@@ -43,8 +43,8 @@ import {
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
-  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, jsonWriteProblem,
-  refusedByPolicy, simulatedResult, sleepFor,
+  ApprovalGate, ApprovalRequiredError, RateLimiter, approvalQuestion, droppedPendingMessage,
+  jsonWriteProblem, refusedByPolicy, simulatedResult, sleepFor, type PendingApproval,
 } from "./approvals.js";
 import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
@@ -1445,15 +1445,31 @@ export class Runtime {
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
     const question = approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
-    this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
+    // A conversation can genuinely stop on more than one thing at once, so the question joins the
+    // list rather than taking the place of whatever was already there. Only when the list is full
+    // does one go, and then the task that was waiting on it is told, in plain words.
+    const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
+    if (dropped) this.letOldestQuestionGo(dropped);
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
       question, bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
     throw new NeedsInputError(question);
+  }
+  /**
+   * A question nobody answered in time, once the conversation had as many waiting as it may have.
+   * The task it belonged to is finished plainly rather than left waiting on an answer that can no
+   * longer arrive, and the same sentence goes on its own record so it can be read afterwards.
+   */
+  private letOldestQuestionGo(dropped: PendingApproval): void {
+    const message = droppedPendingMessage(dropped.label);
+    try {
+      this.store.event(dropped.runId, "policy.ask.dropped", { name: dropped.tool, target: dropped.target, label: dropped.label, message });
+      if (this.store.run(dropped.runId)?.status === "needs_input") this.store.finish(dropped.runId, "failed", message);
+    } catch { /* telling a task it was let go must never break the one that is asking now */ }
   }
   /**
    * Answers the question a paused task stopped on. "session" keeps the answer for the rest of this
@@ -1471,13 +1487,17 @@ export class Runtime {
      */
     answeredOn?: string,
   ): { tool: string; target: string; decision: string; remembered: PolicyRemember; fingerprint: string | null } {
-    const waiting = this.approvals.waiting(sessionId).at(-1);
+    // With a fingerprint the answer lands on that exact request, whichever of the questions this
+    // conversation is waiting on it is; without one, on the oldest, which is the only one when
+    // only one is waiting.
+    const waiting = this.approvals.questionFor(sessionId, fingerprint)
+      ?? (fingerprint === undefined ? undefined : this.approvals.questionFor(sessionId));
     if (!waiting) throw new Error("Nothing in this conversation is waiting for your answer");
     if (remember === "always" && waiting.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
     if (fingerprint !== undefined && waiting.fingerprint !== undefined && fingerprint !== waiting.fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
-    this.approvals.resolve(sessionId);
+    this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,

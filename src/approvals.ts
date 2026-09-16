@@ -46,6 +46,16 @@ export const sessionGrantMs = 60 * 60 * 1000;
 
 const answerKey = (tool: string, target: string): string => `${tool}\u0000${target}`;
 
+/**
+ * Whether two questions are the same one. The fingerprint of the exact bytes is what says so; two
+ * questions with neither fingerprint fall back to the tool and what it is about, which is what a
+ * question with no exact bytes was ever known by.
+ */
+const sameQuestion = (a: PendingApproval, b: PendingApproval): boolean =>
+  a.fingerprint !== undefined || b.fingerprint !== undefined
+    ? a.fingerprint === b.fingerprint
+    : a.tool === b.tool && a.target === b.target;
+
 /** The refusal a "deny" rule gives back, in the one wording the whole app uses. */
 export const refusedByPolicy = (label: string): string =>
   `Your settings do not allow this: ${label}. Tell the person what you wanted to do, and why.`;
@@ -83,9 +93,29 @@ export class ApprovalRequiredError extends Error {
   }
 }
 
+/**
+ * How many questions one conversation may have waiting at once. A conversation that has stopped on
+ * eight things the person has not looked at yet is not one more question away from being useful, so
+ * the ninth is refused outright rather than quietly pushing the oldest out of the list.
+ */
+export const maximumPendingPerSession = 8;
+/** What the task whose question was let go is told, in one sentence and no jargon. */
+export const droppedPendingMessage = (label: string): string =>
+  `This conversation had ${maximumPendingPerSession} questions waiting for an answer, so the one that `
+  + `had been waiting longest was let go rather than kept for ever: ${label}. Nothing was done. `
+  + "Ask again if you still want it.";
+
 export class ApprovalGate {
   private readonly answers = new Map<string, Map<string, SessionGrant>>();
-  private readonly pending = new Map<string, PendingApproval>();
+  /**
+   * The questions each conversation is waiting on, oldest first. It is a list rather than a single
+   * question because two things can genuinely be asked at once — a conversation running two tools
+   * side by side, or one AI-tool connection making two calls — and the second must not silently
+   * take the place of the first, leaving the first waiting on an answer that can never arrive.
+   * Within one conversation a question is known by its fingerprint: the same exact request asked
+   * twice is the same question, so it replaces rather than piles up.
+   */
+  private readonly pending = new Map<string, PendingApproval[]>();
   /**
    * The answer already given in this conversation for the same tool and target. When a fingerprint
    * is supplied and the kept answer was given for a different one, there is no answer: the exact
@@ -134,20 +164,54 @@ export class ApprovalGate {
     this.answers.clear();
     return count;
   }
-  /** Records the question a task stopped on; one conversation waits on one question at a time. */
-  ask(request: PendingApproval): void {
-    this.pending.set(request.sessionId, request);
+  /**
+   * Records a question a task stopped on. Asking the same exact request again replaces the question
+   * already there rather than adding a second copy of it; anything else joins the end of the list.
+   * When the list is already as long as it may be, the one that has been waiting longest is let go
+   * and handed back, so whoever called can tell that task plainly rather than leave it waiting on
+   * an answer that will never come.
+   */
+  ask(request: PendingApproval): PendingApproval | null {
+    const forSession = this.pending.get(request.sessionId) ?? [];
+    this.pending.set(request.sessionId, forSession);
+    const same = forSession.findIndex((entry) => sameQuestion(entry, request));
+    if (same >= 0) { forSession[same] = request; return null; }
+    const dropped = forSession.length >= maximumPendingPerSession ? forSession.shift() ?? null : null;
+    forSession.push(request);
+    return dropped;
   }
-  /** Questions still waiting for an answer, newest last. */
+  /** How many more questions this conversation may be asked before it is full. */
+  roomToAsk(sessionId: string): number {
+    return Math.max(0, maximumPendingPerSession - (this.pending.get(sessionId)?.length ?? 0));
+  }
+  /** Questions still waiting for an answer, oldest first. */
   waiting(sessionId?: string): PendingApproval[] {
-    const all = [...this.pending.values()];
-    return sessionId ? all.filter((entry) => entry.sessionId === sessionId) : all;
+    if (sessionId) return [...(this.pending.get(sessionId) ?? [])];
+    return [...this.pending.values()].flat();
   }
-  /** Takes the question a conversation is waiting on, so it can be answered once. */
-  resolve(sessionId: string): PendingApproval | undefined {
-    const waiting = this.pending.get(sessionId);
-    this.pending.delete(sessionId);
-    return waiting;
+  /**
+   * Takes one question off a conversation's list, so it can be answered once. With a fingerprint it
+   * is that exact request; without one, and with only a single question waiting, it is that one —
+   * which is every older caller, and is why they all still work. Without one and with several
+   * waiting it is the oldest, because that is the one that has been kept waiting longest.
+   */
+  resolve(sessionId: string, fingerprint?: string): PendingApproval | undefined {
+    const forSession = this.pending.get(sessionId);
+    if (!forSession?.length) return undefined;
+    const at = fingerprint === undefined ? 0 : forSession.findIndex((entry) => entry.fingerprint === fingerprint);
+    if (at < 0) return undefined;
+    const [taken] = forSession.splice(at, 1);
+    if (!forSession.length) this.pending.delete(sessionId);
+    return taken;
+  }
+  /**
+   * The question an answer is for: the one with that fingerprint, or — when none was given — the
+   * oldest one still waiting. Looked at without taking it off the list, so whoever is answering can
+   * check it over before saying yes.
+   */
+  questionFor(sessionId: string, fingerprint?: string): PendingApproval | undefined {
+    const forSession = this.pending.get(sessionId) ?? [];
+    return fingerprint === undefined ? forSession[0] : forSession.find((entry) => entry.fingerprint === fingerprint);
   }
   /** Forgets everything remembered for a conversation. */
   forget(sessionId: string): void {
