@@ -31,6 +31,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
+import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
@@ -482,6 +483,7 @@ async function api(
       ...(input.temporary ? { temporary: true } : {}),
       ...(input.checks ? { checks: CompletionCheckSchema.parse(input.checks) } : {}),
       ...(input.dryRun ? { dryRun: true } : {}),
+      ...(input.images?.length ? { images: input.images } : {}),
     });
   }
   if (request.method === "POST" && path === "/api/action") {
@@ -541,7 +543,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy|summary|pins))?$/.exec(path);
+  if (match && match[2] === "summary" && request.method === "GET") return app.store.sessionSummary(owner, match[1]!);
+  if (match && match[2] === "pins") {
+    if (request.method === "GET") return { pins: app.store.sessionSummary(owner, match[1]!).pins };
+    if (request.method === "POST") {
+      const value = z.object({ messageId: z.number().int().positive(), pinned: z.boolean().default(true) }).strict().parse(await readBody(request));
+      return app.store.pinMessage(owner, match[1]!, value.messageId, value.pinned);
+    }
+  }
   if (match && match[2] === "memory-policy") {
     if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     if (request.method === "GET") return { remember: !app.store.memorySuppressed(owner, match[1]!) };
@@ -604,8 +614,12 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
-  if (request.method === "POST" && path === "/api/memory/import")
-    return app.store.importMemory(owner, await readBody(request, maximumMemoryArchiveBytes));
+  if (request.method === "POST" && path === "/api/memory/import") {
+    const body = await readBody(request, maximumMemoryArchiveBytes);
+    // Facts arrive either as the whole-archive file or as JSON Lines; the second kind is deduplicated.
+    const lines = z.object({ jsonl: z.string().max(maximumImportBytes) }).strict().safeParse(body);
+    return lines.success ? app.memory.transfer.import(owner, lines.data.jsonl) : app.store.importMemory(owner, body);
+  }
   if (request.method === "POST" && path === "/api/memory/capacity")
     return app.store.configureMemory(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/memory/forget/preview") {
@@ -614,6 +628,25 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/memory/forget")
     return app.store.forgetMemory(owner, await readBody(request));
+  if (path === "/api/memory/retrieval") {
+    if (request.method === "GET") return app.memory.retrieval.view(owner);
+    if (request.method === "POST") return app.memory.retrieval.configure(owner, await readBody(request));
+  }
+  if (request.method === "POST" && path === "/api/memory/index") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.memory.retrieval.index(owner);
+  }
+  if (request.method === "POST" && path === "/api/memory/search") {
+    const { query, limit } = z.object({ query: z.string().trim().min(1).max(500), limit: z.number().int().min(1).max(50).default(20) })
+      .strict().parse(await readBody(request));
+    return { results: await app.memory.retrieval.search(owner, query, undefined, limit) };
+  }
+  if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
+  if (request.method === "POST" && path === "/api/memory/tidy") {
+    z.object({}).strict().parse(await readBody(request));
+    const { staged, review } = app.memory.hygiene.suggest(owner);
+    return { suggested: staged.length, proposals: staged, review };
+  }
   if (request.method === "POST" && path === "/api/memory/hygiene") return app.store.memoryHygiene(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/archive") return { archived: app.store.archivedMemory(owner) };
   if (request.method === "POST" && path === "/api/memory/consolidate") return app.store.review.consolidate(app.runtime, owner);
@@ -1167,6 +1200,33 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
     }
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/memory/export"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "jsonl") {
+    const jsonl = app.memory.transfer.export(app.runtime.owner);
+    response.writeHead(200, {
+      "content-type": "application/jsonl; charset=utf-8",
+      "content-disposition": 'attachment; filename="memory.jsonl"',
+      "cache-control": "no-store",
+    });
+    response.end(jsonl);
+    return true;
+  }
+  const sessionExport = /^\/api\/sessions\/([a-f0-9-]{36})\/export$/.exec(path);
+  if (sessionExport && request.method === "GET"
+      && new URL(request.url ?? "/", "http://local").searchParams.get("format") === "markdown") {
+    const sessionId = sessionExport[1]!;
+    if (!app.store.ownsSession(app.runtime.owner, sessionId)) throw new HttpError(404, "Conversation not found");
+    const view = app.store.sessionView(app.runtime.owner, sessionId) as { createdAt?: string; title?: string };
+    const markdown = conversationMarkdown({ sessionId, ...(view.createdAt ? { createdAt: view.createdAt } : {}), ...(view.title ? { title: view.title } : {}) },
+      app.store.messages(sessionId));
+    response.writeHead(200, {
+      "content-type": "text/markdown; charset=utf-8",
+      "content-disposition": `attachment; filename="conversation-${sessionId.slice(0, 8)}.md"`,
+      "cache-control": "no-store",
+    });
+    response.end(markdown);
     return true;
   }
   if (request.method === "GET" && path === "/api/usage/export.csv") {

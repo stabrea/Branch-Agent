@@ -5,6 +5,8 @@ import { reconcileTranscript } from "./transcript.js";
 import { SessionHistory } from "./history.js";
 import { SessionBranches } from "./sessions.js";
 import { SessionLibrary } from "./session-library.js";
+import { SessionSummaries, type SessionSummary } from "./session-summary.js";
+import { WorkingSessions, type WorkingNote } from "./working-session.js";
 import { MemoryFacts } from "./memory.js";
 import { InstalledSkills } from "./skills.js";
 import { Projects } from "./projects.js";
@@ -31,6 +33,8 @@ export class Store {
   private readonly history: SessionHistory;
   private readonly branches: SessionBranches;
   private readonly library: SessionLibrary;
+  readonly summaries: SessionSummaries;
+  readonly working: WorkingSessions;
   private readonly memories: MemoryFacts;
   readonly review: MemoryReview;
   private governanceStore: SkillGovernance | undefined;
@@ -80,6 +84,8 @@ export class Store {
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
     this.library = new SessionLibrary(this.db);
+    this.summaries = new SessionSummaries(this.db);
+    this.working = new WorkingSessions(this.db);
     this.recoverInterruptedRuns();
     this.interruptSchedules();
     this.discardTemporarySessions();
@@ -214,6 +220,9 @@ export class Store {
       this.db.prepare("DELETE FROM tasks WHERE session_id=?").run(sessionId);
       const messages = this.db.prepare("DELETE FROM messages WHERE session_id=?").run(sessionId).changes;
       this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(sessionId);
+      this.db.prepare("DELETE FROM session_pins WHERE session_id=?").run(sessionId);
+      this.db.prepare("DELETE FROM session_summaries WHERE session_id=?").run(sessionId);
+      this.db.prepare("DELETE FROM session_work WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(sessionId);
       this.db.exec("COMMIT");
       return { discarded: true, messages: Number(messages) };
@@ -249,14 +258,35 @@ export class Store {
       .prepare("INSERT INTO messages(session_id,body,source_id) VALUES(?,?,?)")
       .run(sessionId, JSON.stringify(message), sourceId ?? null);
   }
-  /** Messages the model should see: a summary of compacted history, then everything after it. */
+  /**
+   * Messages the model should see: a summary of compacted history, then everything after it, plus
+   * any earlier message the owner pinned so it is never folded away.
+   */
   workingMessages(sessionId: string): { summary: string | null; rows: { id: number; message: Message }[] } {
     const compaction = this.db.prepare("SELECT through_id, summary FROM compactions WHERE session_id=?").get(sessionId);
     const after = compaction ? Number(compaction.through_id) : 0;
-    const rows = this.db.prepare("SELECT id, body FROM messages WHERE session_id=? AND id>? ORDER BY id").all(sessionId, after)
+    const pinned = this.summaries.pinnedMessageIds(sessionId);
+    const rows = this.db.prepare("SELECT id, body FROM messages WHERE session_id=? ORDER BY id").all(sessionId)
+      .filter((row) => Number(row.id) > after || pinned.has(Number(row.id)))
       .map((row) => ({ id: Number(row.id), message: JSON.parse(String(row.body)) as Message }));
     return { summary: compaction ? String(compaction.summary) : null, rows };
   }
+  /** Message rows the owner pinned in this conversation, by their current row identifier. */
+  pinnedMessageIds(sessionId: string): Set<number> { return this.summaries.pinnedMessageIds(sessionId); }
+  sessionSummary(owner: string, sessionId: string) {
+    if (!this.ownsSession(owner, sessionId)) throw new Error("Conversation not found");
+    const saved = this.summaries.get(sessionId);
+    return { sessionId, summary: saved?.summary ?? null, text: saved?.text ?? "", createdAt: saved?.createdAt ?? null,
+      pins: this.summaries.pins(sessionId), working: this.working.line(sessionId) };
+  }
+  saveSessionSummary(owner: string, sessionId: string, summary: SessionSummary | null, text: string) {
+    return this.summaries.save(owner, sessionId, summary, text);
+  }
+  pinMessage(owner: string, sessionId: string, messageId: number, pinned: boolean) {
+    if (!this.ownsSession(owner, sessionId)) throw new Error("Conversation not found");
+    return this.summaries.setPinned(sessionId, messageId, pinned);
+  }
+  noteWorking(owner: string, sessionId: string, patch: WorkingNote) { return this.working.note(owner, sessionId, patch); }
   saveCompaction(sessionId: string, throughId: number, summary: string): void {
     this.db.prepare(`INSERT INTO compactions VALUES(?,?,?,?) ON CONFLICT(session_id)
       DO UPDATE SET through_id=excluded.through_id, summary=excluded.summary, created_at=excluded.created_at`)
