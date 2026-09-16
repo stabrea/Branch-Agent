@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
+import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
@@ -1956,13 +1957,38 @@ export async function startServer(
   // Counted separately from the session key, so a chat service that is set up wrongly can slow
   // itself down without ever standing between the owner and their own app.
   const webhookLimiter = new AuthLimiter(options.authLimits);
+
+/**
+ * The widget sits on a page of the owner's own, so its call to the paired listener is cross-origin
+ * and the browser asks permission before sending it. Permission is given only to a website the owner
+ * listed, named exactly rather than with a star, and only while the widget switch is on. Without
+ * this the browser never sends the call at all, so the box on the owner's page could not ask
+ * anything; with a star, any page that had got hold of the pairing key could.
+ */
+function widgetCors(app: Branch, request: IncomingMessage, response: ServerResponse): boolean {
+  const allowed = widgetOrigin(embedSettings(app.store, app.runtime.owner), request.headers.origin);
+  if (!allowed) return false;
+  response.setHeader("access-control-allow-origin", allowed);
+  response.setHeader("vary", "Origin");
+  if ((request.method ?? "GET") !== "OPTIONS") return false;
+  response.setHeader("access-control-allow-methods", "POST, GET");
+  response.setHeader("access-control-allow-headers", "authorization, content-type");
+  response.setHeader("access-control-max-age", "600");
+  response.writeHead(204).end();
+  return true;
+}
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
       if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
+      if (viaRemote && widgetCors(app, request, response)) return;
       if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
+      // The widget's own script is not served while the switch is off, so turning it off takes the
+      // box off the owner's page rather than only hiding the setting.
+      if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {

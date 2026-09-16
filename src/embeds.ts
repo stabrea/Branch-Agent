@@ -18,6 +18,12 @@ export const EmbedSettingsSchema = z.object({
   widget: z.boolean().default(false),
   /** The unsigned browser extension. Off until they say otherwise. */
   extension: z.boolean().default(false),
+  /**
+   * The websites of the owner's own that may carry the widget, written the way a browser writes an
+   * origin ("https://notes.example.com"). Empty means none: the pairing key is not enough on its
+   * own, because any page that got hold of it could otherwise spend it.
+   */
+  widgetSites: z.array(z.string().max(255)).max(20).default([]),
 }).strict();
 export type EmbedSettings = z.infer<typeof EmbedSettingsSchema>;
 const settingsKey = "embeds";
@@ -52,4 +58,25 @@ export async function embedsApi(
   if (path !== "/api/embeds") return null;
   return (request.method ?? "GET") === "POST"
     ? saveEmbedSettings(store, owner, await body()) : embedSettings(store, owner);
+}
+
+/** An origin written the way a browser writes one, for comparing two of them fairly. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    const one = new URL(a), two = new URL(b);
+    return one.protocol === two.protocol && one.hostname.toLowerCase() === two.hostname.toLowerCase()
+      && one.port === two.port;
+  } catch { return false; }
+}
+
+/**
+ * The origin to name back to a browser asking on the widget's behalf, or null to say nothing at all.
+ * The exact origin is named, never a star: a star would let any page that had got hold of the
+ * pairing key spend it. A page served from this computer is refused for the reason in the note at
+ * the top of this file.
+ */
+export function widgetOrigin(settings: EmbedSettings, origin: string | undefined | string[]): string | null {
+  const value = Array.isArray(origin) ? origin[0] : origin;
+  if (!settings.widget || !value || value === "null" || isLoopback(value)) return null;
+  return settings.widgetSites.some((site) => sameOrigin(site, value)) ? value : null;
 }

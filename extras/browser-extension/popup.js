@@ -36,6 +36,21 @@ export function taskFrom(page, note) {
   return lines.join("\n");
 }
 
+/**
+ * The one address this extension may reach, asked for at the moment the owner names it. The manifest
+ * asks for no website up front, so an extension sitting unused can reach nothing at all; Chrome puts
+ * the question to the owner itself, and a no leaves everything exactly as it was.
+ */
+export function hostPattern(where) {
+  const url = new URL(where);
+  return `${url.protocol}//${url.hostname}${url.port ? ":" + url.port : ""}/*`;
+}
+async function mayReach(where) {
+  const origins = [hostPattern(where)];
+  if (await chrome.permissions?.contains({ origins })) return true;
+  return Boolean(await chrome.permissions?.request({ origins }));
+}
+
 /* The address and key are remembered in the extension's own storage, never in the page. */
 chrome.storage?.local.get(["where"]).then((saved) => { if (saved.where) $("where").value = saved.where; });
 
@@ -46,6 +61,12 @@ $("send").addEventListener("click", async () => {
     say("This extension will not talk to Branch on your computer's own address. Turn on reaching Branch from your phone, pair once, and use that address and key.");
     return;
   }
+  try {
+    if (!(await mayReach(where))) {
+      say("Chrome needs your permission for that address before the extension can reach it. Press Send again and say yes.");
+      return;
+    }
+  } catch (error) { say(error.message); return; }
   say("Sending…");
   try {
     const page = await pageNow();

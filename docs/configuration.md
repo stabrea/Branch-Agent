@@ -3398,6 +3398,18 @@ computer is the whole of Branch's authority here, and a page next door must not 
   It reads its address and key off that tag and nowhere else — never out of the page it sits on, and
   never out of any storage.
 
+  **List the pages that may carry it.** A browser asks Branch for permission before letting a page of
+  yours send anything to it, and Branch names back only a website you listed in `widgetSites` (for
+  example `https://notes.example.com`), spelled exactly, never with a star. An empty list means no
+  page may ask, so the box has to be allowed as well as switched on. The key alone is deliberately
+  not enough: a star there would let any page that ever got hold of your key spend it. The script
+  itself is not served at all while the switch is off, so turning the switch off takes the box off
+  your page rather than only hiding the setting.
+
+  **The extension asks for one address, when you name it.** It requests no website when you install
+  it. The first time you press Send, Chrome asks whether it may reach the address you typed, and a no
+  leaves everything as it was.
+
 - **The browser extension** — `extras/browser-extension/`, an unsigned Manifest V3 folder with a
   popup that sends the current page's address, title and selection to Branch as a task. Load it by
   hand: `chrome://extensions` → Developer mode → **Load unpacked**. Install steps and the reasons

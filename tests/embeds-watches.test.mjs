@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ScreenWatches, createBranch, embedSettings, isLoopback, saveEmbedSettings, saveScreenWatchSettings,
+  widgetOrigin,
 } from "../dist/index.js";
 
 const EXTENSION = new URL("../extras/browser-extension/", import.meta.url);
@@ -66,6 +67,12 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
   assert.equal(manifest.background, undefined, "a Manifest V2 background page survived");
   assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "storage"]);
   assert.equal(manifest.host_permissions, undefined, "the extension asks for every site");
+  /* It asks for nothing up front, and for one address at the moment the owner names it. Without
+     this the popup's own fetch is blocked by Chrome and the extension can reach no listener at all. */
+  assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
+  const popup = await readFile(new URL("popup.js", EXTENSION), "utf8");
+  assert.match(popup, /chrome\.permissions\?\.request\(\{ origins \}\)/,
+    "the popup never asks Chrome for the address the owner typed");
 
   const files = (await readdir(EXTENSION)).sort();
   assert.deepEqual(files, ["README.md", "manifest.json", "popup.html", "popup.js"]);
@@ -76,9 +83,31 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
 test("E2 both ways in are off until the owner switches them on", async (t) => {
   const app = await workspace(t);
   const owner = app.runtime.owner;
-  assert.deepEqual(embedSettings(app.store, owner), { widget: false, extension: false });
-  assert.deepEqual(saveEmbedSettings(app.store, owner, { widget: true }), { widget: true, extension: false });
-  assert.deepEqual(embedSettings(app.store, owner), { widget: true, extension: false });
+  assert.deepEqual(embedSettings(app.store, owner), { widget: false, extension: false, widgetSites: [] });
+  assert.deepEqual(saveEmbedSettings(app.store, owner, { widget: true }),
+    { widget: true, extension: false, widgetSites: [] });
+  assert.deepEqual(embedSettings(app.store, owner), { widget: true, extension: false, widgetSites: [] });
+});
+
+test("E2 only a website the owner listed is named back to a browser asking for the box", async (t) => {
+  const app = await workspace(t);
+  const owner = app.runtime.owner;
+
+  // Switched off, nothing is named back, however the site asks.
+  const off = saveEmbedSettings(app.store, owner, { widgetSites: ["https://notes.example.com"] });
+  assert.equal(widgetOrigin(off, "https://notes.example.com"), null, "the switch is still off");
+
+  const on = saveEmbedSettings(app.store, owner, { widget: true });
+  assert.equal(widgetOrigin(on, "https://notes.example.com"), "https://notes.example.com",
+    "the site the owner listed is named back, exactly and not as a star");
+  assert.equal(widgetOrigin(on, "https://notes.example.com:443"), "https://notes.example.com:443",
+    "the same origin written with its usual port is the same origin");
+  for (const stranger of ["https://notes.example.com.evil.test", "http://notes.example.com",
+    "https://other.example.com", "null", undefined, "http://127.0.0.1:8765", "http://localhost:8765"])
+    assert.equal(widgetOrigin(on, stranger), null, `${stranger} was named back to the browser`);
+
+  // A browser sends one origin; a header arriving twice must not become a way past the list.
+  assert.equal(widgetOrigin(on, ["https://other.example.com", "https://notes.example.com"]), null);
 });
 
 test("E3 a page watch sends its news through a channel the owner connected", async (t) => {
