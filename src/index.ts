@@ -1091,6 +1091,8 @@ export * from "./integrations/mcp-oauth.js";
 // identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
 // make, what each project has cost, and watching a folder.
 export * from "./api-openapi.js";
+// The owner's handbook, which the app serves to itself so Help opens beside the screen you are on.
+export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
 export * from "./lockdown.js";

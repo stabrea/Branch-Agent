@@ -371,3 +371,34 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 .row-fields input,
 .row-fields select { width: 100%; max-width: 100%; }
 .log-row { overflow-wrap: anywhere; }
+
+/* Help in the app: one handbook chapter, read in the pane on the right. Tokens only, no new
+   colours — it borrows the reading rhythm rendered replies already have. */
+.context-help-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  padding-right: var(--s1);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s2);
+}
+.context-help-body h1 { font-size: 1.04rem; }
+.context-help-body h2 { font-size: 0.96rem; }
+.context-help-body h3 { font-size: 0.88rem; }
+.context-help-body table { font-size: 0.78rem; }
+.context-help-body > :first-child { margin-top: 0; }
+/* Its own class rather than .context-link, which the pane hides while nothing is connected —
+   help has to be readable before a model is. */
+.context-help-close {
+  width: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--copper-text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.context-help-close:hover { text-decoration: underline; }
+.context-help-close:focus-visible { outline: var(--ring); }

@@ -104,6 +104,7 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
@@ -249,6 +250,8 @@ async function staticFile(
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
+    // Help in the app: the owner's handbook, opened in the pane on the right.
+    "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
@@ -587,6 +590,12 @@ async function api(
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OtherApiError ? new HttpError(error.status, error.message) : error;
     });
+  // The owner's handbook, so Help opens beside the screen a person is on. Reading only.
+  if (request.method === "GET" && (path === "/api/help" || path.startsWith("/api/help/"))) {
+    const answer = helpApi(path);
+    if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
+    return answer;
+  }
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));

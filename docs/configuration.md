@@ -327,7 +327,7 @@ Branch normally uses a fresh browser that no website knows you in. **Settings �
 
 To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
 
-Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`.
+Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`. `extraRefusedHosts` is your own list of further websites your browser may never be pointed at; it is added to the built-in list of banks and password sites, and nothing you can put there takes one off that list.
 
 **The honest limits:** this only works with Chrome or Edge, only on this computer, and only when you started the browser with that door open — Branch never starts it for you and never opens one you can see. A browser started the ordinary way cannot be borrowed.
 
@@ -458,7 +458,7 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. The date itself is `oldAddressesEndOn`, written down the first time this copy of Branch makes an address, so the card can name a day rather than say "soon". After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -3649,3 +3649,48 @@ because it writes outside this folder.
 - **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
   commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
   become a task. Still open.
+
+## Every setting named, so nothing is only in the code (batch 26, wave 8)
+
+`scripts/check-docs.mjs` reads every settings schema in `src/` and fails if a field is not named
+here. These were only in the code until it started running.
+
+### Voice
+
+Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings → Voice** writes:
+
+| Setting | What it is |
+| --- | --- |
+| `autoReadAloud` | Read every reply aloud as it arrives. |
+| `voiceId` | Which voice reads aloud. Which ones exist depends on this computer. |
+| `speechRate` | How fast it reads, from 0.5 to 2 times normal speed. |
+| `useProviderVoice` | Prefer the connected service's higher-quality voice over the browser's. |
+| `sttRoute` | Who writes out what you say: `auto`, `openai`, `gemini`, or `local` (a speech program here). |
+| `sttModel` | The model name to use for writing speech out, when the route wants one. |
+| `ttsRoute` | Who reads replies aloud: `auto`, `openai`, `gemini`, or `windows` (the voices Windows ships). |
+| `ttsModel` | The model name to use for reading aloud, when the route wants one. |
+| `keepAudioOnThisComputer` | Nothing containing sound may leave. Both cloud routes then refuse in plain words, and so does a live conversation. |
+| `replyWithVoiceOnChannels` | Answer a voice note on a chat app with a voice note back. Telegram only, today. |
+| `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
+| `localSpeechModel` | The model file that program should use. |
+| `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
+| `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
+| `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
+| `keepLiveRecordings` | Note in the task's record how much sound a live conversation carried — the size of each piece and nothing else. The sound itself is never kept either way. |
+
+### The rest
+
+- **Connections** (`src/connections-preset.ts`): `activePreset` is which connection answers by
+  default in this workspace, `fallbackOrder` the connections to try in order when one fails, and
+  `cooldownMs` how long a failed connection rests before it is tried again.
+- **Pictures** (`src/media-settings.ts`): `imageModel` is which model makes them (leave it empty for
+  the connection's own default) and `imagePrices` your own corrections to the per-picture prices,
+  for a service whose price Branch does not know.
+- **The waiting line** (`POST /api/queue/settings`): `atOnce` is how many tasks may work at the same
+  time.
+- **A standing brief** (`src/briefs.ts`): `lastSentAt` is when it last went out and `nextAt` when it
+  is next due. Branch writes both; they are not for you to set.
+- **Programs left running** (`src/processes.ts`): `maxRunning` is how many at once, `maxMinutes` how
+  long one may live before it is stopped, and `bufferBytes` how much of what it printed is kept to
+  show you.
