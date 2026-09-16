@@ -53,6 +53,10 @@ export const commandAlias = (command: string): string => (command.trim().split(/
  * Which kind of thing a call is about. The tool's own name decides first, because a browser click
  * is about a website whatever its arguments look like; the arguments decide after that.
  */
+/** A bare host name and nothing else: no slash, no space, at least one dot or "localhost". */
+const looksLikeHost = (value: string): boolean =>
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(value) || value.toLowerCase() === "localhost";
+
 export function resourceOf(tool: string, permission: string, target: string, args: unknown): PolicyResource | null {
   if (!target) return null;
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
@@ -60,9 +64,10 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   if (tool === "shell.execute" || /^(shell|terminal)\./.test(tool)) return { kind: "command", value: commandAlias(target) };
   if (/^(channels|email)\./.test(tool) || /^(channels|email)\./.test(permission))
     return { kind: "channel", value: String(a.channel ?? a.to ?? a.chat ?? target) };
-  if (typeof a.path === "string") return { kind: "path", value: target };
-  if (typeof a.url === "string") return { kind: "host", value: target };
-  return null;
+  // Otherwise the target itself says what kind of thing it is. Going by the target rather than the
+  // arguments means a tool that reports what it touches through its own `target()` — which is how a
+  // tool with no top-level `path` is meant to do it — is covered by a folder rule like any other.
+  return looksLikeHost(target) ? { kind: "host", value: target } : { kind: "path", value: target };
 }
 
 /** Whether a rule's resource matcher fits what the call is about. A different kind never matches. */

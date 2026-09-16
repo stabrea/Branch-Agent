@@ -1261,7 +1261,8 @@ the model, each tool call and each sub-task. Each span points at the one above i
 a tree rather than a list. The ids follow the W3C trace context standard, so a viewer you already
 have understands them. They are written to a `spans` table beside the events, and every attribute
 goes through the same scrubber as everything else, so a saved password or key cannot be in one.
-`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's.
+`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's. The newest
+20 000 are kept and older ones are let go once per launch, so the table cannot grow without end.
 When Branch hands work to another assistant, or sends a webhook, it puts the standard
 `traceparent` header on the call, and when another assistant sends work here with that header the
 task joins their trace instead of starting a new one. One piece of work across two assistants is
@@ -1300,6 +1301,10 @@ rule written before this behaves — nothing you already had changes.
 A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
 covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
 about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+Which kind a call counts as is worked out from what the call says it would touch, not from its
+arguments: a bare website name is a website, and anything else is a folder or file. That means a
+tool that reports what it touches through its own `target()` — as a tool with no plain `path`
+argument is meant to — is covered by a folder rule like any other.
 Browser clicking, typing and uploading go through these same rules with the website as the thing
 they are about; they do not get a second set of their own.
 Settings → When to check with me shows every rule as a sentence — "Ask before writing files under
@@ -1315,10 +1320,15 @@ ends, and ends the moment you lock Branch. `GET /api/rules/allowed?session=<id>`
 conversation is allowed to do right now and when each one runs out.
 A yes is tied to the exact request it was given for. The approval card shows those exact words,
 with any saved password or key already taken out, and the answer carries a fingerprint of them. If
-the assistant changes the command by one character, the old yes does not cover it and it has to ask
-again. `POST /api/policy/approve` accepts an optional `fingerprint`; an answer whose fingerprint
-does not match what the task is waiting on is refused with a plain message.
+the assistant changes so much as one character — the same file with different contents counts — the
+old yes does not cover it and it has to ask again. `POST /api/policy/approve` accepts an optional
+`fingerprint`; an answer whose fingerprint does not match what the task is waiting on is refused
+with a plain message.
+The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
+carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
+the socket sees what the app sees and can answer under the same binding.
 ### Wrong keys are counted
 Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
-message saying so and a line in the record of what the assistant was allowed to do. A correct key
-clears the count at once, so mistyping twice never holds you up.
+message saying so and a line in the record of what the assistant was allowed to do, filed under
+"Somewhere kept getting the key wrong and was made to wait". The right key is checked first and
+clears the count at once, so a stale tab in your own browser can never shut you out of your own app.

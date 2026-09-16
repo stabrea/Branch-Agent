@@ -74,7 +74,7 @@ export function noteAuthFailure(
   const state = limiter.fail(source, now);
   if (state.until === now + limiter.lockoutMs)
     audit(store, owner, {
-      action: "policy.changed", actor: source, subject: `${what} from ${source}`,
+      action: "auth.refused", actor: source, subject: `${what} from ${source}`,
       reason: `${state.failures} wrong tries in a row; further tries are refused for ${Math.round(limiter.lockoutMs / 60000)} minute(s)`,
       source: "system", outcome: "refused",
     });

@@ -513,8 +513,9 @@ export class Runtime {
       "branch.tokens.input": usage.reportedInput || usage.estimatedInput || 0,
       "branch.tokens.output": usage.reportedOutput || usage.estimatedOutput || 0,
     });
-    // The ids are dropped only after a sub-task can no longer be started underneath this one.
-    if (!parent) this.tracer.forget(run.id);
+    // Nothing looks a task up after it has settled — a sub-task registers while its parent is still
+    // running — so every task lets go of its ids here, child runs included.
+    this.tracer.forget(run.id);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
@@ -1175,7 +1176,10 @@ export class Runtime {
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
-    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember });
+    // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
+    // watching the socket sees the same question the app does and can answer under the same binding.
+    this.store.event(context.runId, "policy.ask", { name: call.name, id: call.id, label, target, remember,
+      question, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint: about.fingerprint });
     throw new NeedsInputError(question);
   }
   /**

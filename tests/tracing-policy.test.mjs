@@ -417,6 +417,12 @@ test("P1: a rule can be about a folder, a website or a command, and says so as a
   assert.deepEqual(resourceOf("shell.execute", "shell.execute", "rm -rf build", { executable: "rm" }),
     { kind: "command", value: "rm" }, "a command rule is about the program being run");
   assert.equal(resourceOf("files.write", "files.write", "", {}), null, "nothing to be about is not a resource");
+  // A tool that says what it touches through its own target() has no top-level path, and is still
+  // covered by a folder rule: the target's shape decides, not the arguments.
+  assert.deepEqual(resourceOf("media.image", "media.write", "media/poster.png", { prompt: "a poster", save: "poster.png" }),
+    { kind: "path", value: "media/poster.png" });
+  assert.deepEqual(resourceOf("agents.ask", "agents.ask", "ada.example.com", { agent: "Ada" }),
+    { kind: "host", value: "ada.example.com" }, "a bare host name is a website wherever it came from");
 
   assert.equal(
     ruleSentence({ tool: "files.write", match: "*", applies: "any", decision: "ask", resource: { kind: "path", pattern: "finance" } }),
@@ -563,23 +569,114 @@ test("P3: a yes is bound to the exact bytes, so a changed command has to ask aga
     { sessionId: paused.sessionId, decision: "allow", remember: "session", fingerprint: waiting.fingerprint });
   assert.equal(right.status, 200);
 
-  // The same command runs without asking; one character different and it asks again.
+  // The very same command runs without asking again.
   provider.reset();
   const same = (await api("POST", "/api/run", { prompt: "again", sessionId: paused.sessionId })).body;
   assert.equal(same.status, "completed", same.output);
-  provider.reset();
-  provider.requests.length = 0;
-  const changed = await fixtureChange(app, api, paused.sessionId);
-  assert.equal(changed.status, "needs_input", "a changed command is a new question");
 });
 
-/** Replays the conversation with a command that differs by one argument. */
-async function fixtureChange(app, api, sessionId) {
-  app.runtime.models.default.provider.requests.length = 0;
-  const steps = [calls({ id: "c2", name: "shell.execute", arguments: JSON.stringify({ executable: "git", args: ["push"] }) }), say("done")];
-  let at = 0;
-  app.runtime.models.default.provider.complete = async () => steps[Math.min(at++, steps.length - 1)]();
-  return (await api("POST", "/api/run", { prompt: "and push", sessionId })).body;
+test("P3: same tool, same target, different bytes — the old yes does not cover it", async (t) => {
+  // files.write reports the path as its target, so the grant key is identical either way. Only the
+  // fingerprint of the exact bytes tells the two calls apart, which is what this proves.
+  const first = [calls(write("c1", "notes.txt", "one")), say("done")];
+  const second = [calls(write("c2", "notes.txt", "two")), say("done")];
+  let script = first, at = 0;
+  const provider = {
+    name: "scripted",
+    async complete() { return script[Math.min(at++, script.length - 1)](); },
+  };
+  const root = await mkdtemp(join(tmpdir(), "branch-bytes-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  const api = async (method, path, body) => {
+    const response = await fetch(server.url + path, {
+      method, headers: { authorization: `Bearer ${server.token}`, ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write notes" })).body;
+  assert.equal(paused.status, "needs_input");
+  const asked = (await api("GET", "/api/policy")).body.waiting[0];
+  assert.equal(asked.target, "notes.txt");
+  await api("POST", "/api/policy/approve", { sessionId: paused.sessionId, decision: "allow", remember: "session" });
+  at = 0;
+  const repeat = (await api("POST", "/api/run", { prompt: "write notes", sessionId: paused.sessionId })).body;
+  assert.equal(repeat.status, "completed", "the identical write is not asked about again");
+
+  script = second; at = 0;
+  const changed = (await api("POST", "/api/run", { prompt: "write it differently", sessionId: paused.sessionId })).body;
+  assert.equal(changed.status, "needs_input", "the same file with different contents is a new question");
+  const again = (await api("GET", "/api/policy")).body.waiting[0];
+  assert.equal(again.target, "notes.txt", "the target is the same, so only the bytes told them apart");
+  assert.notEqual(again.fingerprint, asked.fingerprint);
+});
+
+test("P3: the question, its exact bytes and its fingerprint reach a phone over the socket", async (t) => {
+  const { app, api, server } = await served(t, [calls(write("c1", "over-the-wire.txt", "x")), say("done")]);
+  await api("POST", "/api/policy", { preset: "ask-before-changes" });
+  const paused = (await api("POST", "/api/run", { prompt: "write it" })).body;
+  assert.equal(paused.status, "needs_input");
+  const messages = await readSocket(server, paused.id);
+  const question = messages.find((message) => message.kind === "policy.ask");
+  assert.ok(question, "the question itself travels over the socket");
+  assert.equal(question.data.name, "files.write");
+  assert.equal(question.data.target, "over-the-wire.txt");
+  assert.equal(question.data.bytes, JSON.stringify({ path: "over-the-wire.txt", content: "x" }),
+    "the exact bytes, cleaned of anything saved, go with it");
+  assert.equal(question.data.fingerprint, argumentFingerprint(question.data.bytes));
+  assert.ok(messages.some((message) => message.kind === "end"), "the socket closes when the task stops");
+  // A client that read the socket can answer with what it was shown, and the binding accepts it.
+  const answered = await api("POST", "/api/policy/approve",
+    { sessionId: paused.sessionId, decision: "allow", remember: "session", fingerprint: question.data.fingerprint });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.body.fingerprint, question.data.fingerprint);
+  assert.ok(app.store.events(paused.id).some((event) => event.kind === "policy.ask"));
+});
+
+/** Opens the run socket the way a phone would and reads every message until it ends. */
+async function readSocket(server, runId) {
+  const { connect } = await import("node:net");
+  const { createHash, randomBytes } = await import("node:crypto");
+  const { readFrame } = await import("../dist/ws.js");
+  const url = new URL(server.url);
+  const key = randomBytes(16).toString("base64");
+  const socket = connect(Number(url.port), url.hostname);
+  await new Promise((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+  socket.write([
+    `GET /api/runs/${runId}/ws HTTP/1.1`, `Host: ${url.host}`, "Upgrade: websocket", "Connection: Upgrade",
+    `Sec-WebSocket-Key: ${key}`, "Sec-WebSocket-Version: 13", `Sec-WebSocket-Protocol: bearer, ${server.token}`, "", "",
+  ].join("\r\n"));
+  const messages = [];
+  await new Promise((resolve, reject) => {
+    let buffer = Buffer.alloc(0), upgraded = false;
+    const finish = () => { socket.destroy(); resolve(); };
+    const timer = setTimeout(finish, 8000);
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      if (!upgraded) {
+        const at = buffer.indexOf("\r\n\r\n");
+        if (at < 0) return;
+        const head = buffer.subarray(0, at).toString("utf8");
+        if (!head.startsWith("HTTP/1.1 101")) { clearTimeout(timer); socket.destroy(); reject(new Error(head)); return; }
+        assert.ok(head.includes(createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")));
+        buffer = buffer.subarray(at + 4);
+        upgraded = true;
+      }
+      for (let frame = readFrame(buffer); frame; frame = readFrame(buffer)) {
+        buffer = buffer.subarray(frame.consumed);
+        if (frame.opcode !== 0x1) continue;
+        const message = JSON.parse(frame.payload.toString("utf8"));
+        messages.push(message);
+        if (message.kind === "end") { clearTimeout(timer); finish(); return; }
+      }
+    });
+    socket.on("error", () => { clearTimeout(timer); resolve(); });
+    socket.on("close", () => { clearTimeout(timer); resolve(); });
+  });
+  return messages;
 }
 
 // ----------------------------------------------------- P4: wrong keys counted
@@ -605,13 +702,15 @@ test("P4: wrong keys are counted per place, then made to wait, and written down"
   const locked = await tryKey(wrong);
   assert.equal(locked.status, 429, "after three wrong keys that place is made to wait");
   assert.match((await locked.json()).error, /Too many wrong tries/);
-  const entry = app.store.audit.list(app.runtime.owner, { limit: 20 })
-    .find((row) => row.reason.includes("wrong tries in a row"));
-  assert.ok(entry, "the lockout is written into the record");
+  const entry = app.store.audit.list(app.runtime.owner, { action: "auth.refused" })[0];
+  assert.ok(entry, "the lockout is written into the record under its own heading");
+  assert.match(entry.reason, /wrong tries in a row/);
   assert.equal(entry.outcome, "refused");
   assert.equal(entry.source, "system");
-  // The right key is still refused while the wait is on, which is what a wait means.
-  assert.equal((await tryKey(server.token)).status, 429);
+  assert.ok(app.store.audit.counts(app.runtime.owner).some((row) => row.action === "auth.refused" && row.count === 1));
+  // The owner's own key is checked first, so a wait can never shut them out of their own app.
+  assert.equal((await tryKey(server.token)).status, 200, "the right key still works, and clears the count");
+  assert.equal((await tryKey(wrong)).status, 401, "and the count really started again");
 });
 
 // ------------------------------------------------------- the store underneath

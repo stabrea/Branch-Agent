@@ -152,18 +152,17 @@ function authorize(
     throw new HttpError(403, "Origin rejected");
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
+  const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
+  const correct =
+    supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
   const from = requestSource(request.socket?.remoteAddress, request.headers["x-forwarded-for"]);
+  // The right key is checked first and clears the count at once, so the owner's own app can never
+  // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
+  if (correct) { limits?.limiter.succeed(from); return; }
   const waiting = limits?.limiter.refusal(from, "key");
   if (waiting) throw new HttpError(429, waiting);
-  const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
-  if (
-    supplied.length !== token.length ||
-    !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
-  ) {
-    limits?.onFailure(from);
-    throw new HttpError(401, "Local session token required");
-  }
-  limits?.limiter.succeed(from);
+  limits?.onFailure(from);
+  throw new HttpError(401, "Local session token required");
 }
 async function staticFile(
   path: string,

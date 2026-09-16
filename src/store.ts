@@ -102,6 +102,9 @@ export class Store {
     this.recoverInterruptedRuns();
     this.interruptSchedules();
     this.discardTemporarySessions();
+    // The newest 20 000 spans are kept and the rest let go, once per launch, so a machine left
+    // running for weeks does not grow a spans table without end.
+    try { this.spans.prune("local"); } catch { /* tidying is never a reason not to start */ }
   }
   private migrateUsage(): void {
     const usageColumns = this.db
