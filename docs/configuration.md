@@ -177,6 +177,20 @@ For an HTTP server:
 
 These are configuration examples, not supplied servers. Use the actual version and tool names advertised by your server. A mismatch prevents startup. Stdio programs are trusted executable code and are not sandboxed by the MCP connector. Only explicitly selected credential environment variables are passed in addition to SDK platform defaults. HTTP redirects are rejected.
 
+## Usage and observability
+
+Access **Usage** in the left navigation to see your assistant's token consumption, estimated costs, and run performance. The interface shows:
+
+- **Daily breakdown**: token usage (input/output), run count, failures, and estimated cost per day over the last 30 days
+- **By model**: token usage and cost aggregated by model preset used
+- **Budget settings** (optional): set a maximum monthly token budget and optionally pause new runs when the limit is reached; pass this as a `POST /api/usage/budget { maxMonthlyTokens: number, pauseAtBudget: boolean }` request
+- **Run timeline**: click Activity → run → timeline (visible in the detail pane) to see a timestamped sequence of tool calls, model invocations, retries, and stalls for that specific run
+- **CSV export**: download the current period's usage data as a CSV file for analysis in a spreadsheet
+
+Costs are estimated from reported or estimated tokens multiplied by per-preset pricing configured in your workspace. Only terminal runs (completed, failed, cancelled, budget_exceeded, interrupted) are included in aggregates; running tasks are not counted until they finish. Estimated tokens come from the runtime; reported tokens come from the provider's response, when available.
+
+Setting a token budget lets you control spending. When `pauseAtBudget` is enabled, the runtime refuses new runs with a plain-language message that tells the owner where to raise the limit. Budgets are per-month, calculated from the first run of each calendar month.
+
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
 ## Long conversations and questions for you

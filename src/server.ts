@@ -304,6 +304,29 @@ async function api(
     const action = actionSchema.parse(await readBody(request));
     return app.runtime.executeTool(action.tool, action.args);
   }
+  // Usage and observability routes
+  if (request.method === "GET" && path === "/api/usage") {
+    const url = new URL(request.url ?? "/", "http://local");
+    const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
+    const by = (url.searchParams.get("by") ?? "day") as "day" | "model" | "conversation" | "source";
+    return app.store.usage().aggregateUsage(range, by);
+  }
+  if (request.method === "GET" && /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.test(path)) {
+    const match = /^\/api\/runs\/([a-f0-9-]{36})\/timeline$/.exec(path);
+    if (!match) throw new HttpError(400, "Invalid run ID");
+    const run = app.store.run(match[1]!);
+    if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
+    return { timeline: app.store.usage().getRunTimeline(run.id) };
+  }
+  if (request.method === "GET" && path === "/api/usage/budget") {
+    const budget = app.store.get("settings", app.runtime.owner, "usage_budget")?.data;
+    return { budget: budget || null };
+  }
+  if (request.method === "POST" && path === "/api/usage/budget") {
+    const input = z.object({ maxMonthlyTokens: z.number().int().positive(), pauseAtBudget: z.boolean() }).strict().parse(await readBody(request));
+    app.store.save("settings", app.runtime.owner, "usage_budget", input);
+    return { budget: input };
+  }
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -625,6 +648,27 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  if (request.method === "GET" && path === "/api/usage/export.csv") {
+    const url = new URL(request.url ?? "/", "http://local");
+    const range = (url.searchParams.get("range") ?? "30d") as "7d" | "30d" | "90d" | "all";
+    const data = app.store.usage().aggregateUsage(range, "day");
+    const csv = ["date,runs,toolCalls,tokensInput,tokensOutput,estimatedCost,failures"]
+      .concat(
+        data.map((d) =>
+          [d.date, d.runs, d.toolCalls, d.tokens.input, d.tokens.output, d.estimatedCost.toFixed(4), d.failures].join(
+            ","
+          )
+        )
+      )
+      .join("\n");
+    response.writeHead(200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="usage-${range}.csv"`,
+      "cache-control": "no-store",
+    });
+    response.end(csv);
     return true;
   }
   if (request.method === "POST" && path === "/v1/chat/completions") {

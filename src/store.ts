@@ -14,6 +14,7 @@ import { MemoryReview } from "./memory-review.js";
 import { exportBackup, importBackup } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
+import { UsageStore } from "./usage.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries";
@@ -374,6 +375,7 @@ export class Store {
         .run(owner, id).changes > 0
     );
   }
+  usage(): UsageStore { return new UsageStore(this.db); }
   memoryCapacity(owner: string) { return this.memories.capacity(owner); }
   configureMemory(owner: string, input: unknown) { return this.memories.configure(owner, input); }
   updateMemory(owner: string, input: unknown, sourceRunId: string) {

@@ -26,6 +26,7 @@
       <nav aria-label="Main navigation">
         <button class="nav active" data-view="chat">Conversation</button
         ><button class="nav" data-view="runs">Activity</button
+        ><button class="nav" data-view="usage">Usage</button
         ><button class="nav" data-view="memory">Memory</button
         ><button class="nav" data-view="skills">Skills</button
         ><button class="nav" data-view="specialists">Specialists</button
@@ -169,6 +170,7 @@
           <div id="runs-list" class="card-list"></div>
           <article id="run-detail" class="card" hidden></article>
         </section>
+        <section id="usage" class="view" hidden></section>
         <section id="memory" class="view" hidden>
           <form id="history-search-form" class="card form-grid">
             <div><label for="history-query">Search past conversations</label>
@@ -585,6 +587,7 @@
     </div>
     <script src="/update-screen.js"></script>
     <script src="/app.js" type="module"></script>
+    <script src="/usage.js"></script>
     <script src="/acorn.js" type="module"></script>
   </body>
 </html>
