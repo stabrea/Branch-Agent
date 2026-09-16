@@ -128,6 +128,12 @@ test("a package's declared web call runs under the network rules with a locker s
   assert.match(JSON.stringify(app.store.events(run.id)), /skill\.tool_called/);
   await assert.rejects(app.registry.execute("skill.weather.lookup", { town: "Lagos" }, app.runtime.context({ permissions: ["files.read"] })), /Permission denied: skills\.http/);
   await assert.rejects(app.registry.execute("skill.weather.lookup", {}, app.runtime.context()), /expected string/, "a missing input is refused before any call is made");
+  // The way to take a newer package: remove the skill, which frees the tool name, then install again.
+  const last = app.store.skills.view("local", installed.skill.id);
+  await api(`skills/${installed.skill.id}/remove`, { expectedRevision: last.revision });
+  assert.ok(!app.registry.names().includes("skill.weather.lookup"), "removing the skill takes its tool out of the catalog");
+  const again = await api("skills/package/install", { file, approve: true });
+  assert.equal(again.installed, true, "removing the skill frees the name so a newer package installs");
 });
 
 /** A registry that can be switched from version 1.0.0 to 2.0.0 of the same skill. */

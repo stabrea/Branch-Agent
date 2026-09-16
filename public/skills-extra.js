@@ -32,6 +32,10 @@ let pending = null;
 async function loadSkillChoices() {
   const select = $("skill-package-which");
   if (!select) return;
+  // A package whose tools could not be put back this time is worth saying out loud.
+  api("skills/packages").then(({ problems }) => {
+    if (problems?.length) say("skill-package-status", problems.map((problem) => `${problem.skill} could not be loaded: ${problem.error}`).join(" "));
+  }).catch(() => undefined);
   const state = await api("state").catch(() => ({ skills: [] }));
   const chosen = select.value;
   select.replaceChildren(...(state.skills || []).map((skill) => {
@@ -125,7 +129,8 @@ async function loadSuggestions() {
 
 async function loadPlugins() {
   try {
-    const { plugins } = await api("plugins");
+    const { plugins, problems } = await api("plugins");
+    if (problems?.length) say("plugins-status", problems.map((problem) => `${problem.id} could not be loaded: ${problem.error}`).join(" "));
     fill("plugins-list", plugins, (plugin) => {
       const row = el("div", undefined, "card");
       row.append(el("strong", plugin.summary?.name ?? plugin.id),
