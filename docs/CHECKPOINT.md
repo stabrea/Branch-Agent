@@ -47,6 +47,25 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 19 (wave 1) — documents
+
+`src/documents.ts` (library, settings, search, retrieval), `src/document-text.ts` (ZIP reader, docx/xlsx/HTML/plain
+extraction), `src/document-embeddings.ts` (batched `/embeddings` client, cosine, reciprocal rank fusion),
+`public/documents.js` + a Documents view. Passages live in `document_chunks` (integer `chunk_id`) with a standalone
+FTS5 table `document_search` maintained by explicit inserts and deletes — no `content=` external-content table, so
+there is no delete-with-old-values dance; `PRAGMA compile_options` is checked at startup and a build without FTS5
+falls back to LIKE with a printed warning. Meaning-based search is optional: `OpenAIProvider.embeddings()` returns
+`{ endpoint, apiKey }` (every other provider gives nothing, detected by duck typing in `providerEmbeddings`), vectors
+are stored as Float32 blobs, and the wording and meaning orders are fused with RRF (k=60). Embedding calls reuse the
+provider URL rule (`assertProviderEndpoint`, extracted from `validateOptions`) rather than `NetworkPolicy`, because a
+local provider on loopback is legitimate here and the traffic goes to the provider's own address. Retrieval is
+injected in `Runtime.loop` right after `openingMessages`, before the stored turns, only for the owner's own runs
+(`depth === 0`, no `agent`), capped at 900 characters per passage; it is evented, never fatal. A document made from a
+workspace file is rebuilt through the existing `registerFiles` `after` hook. Uploads arrive base64-encoded in JSON
+(`readBody` cap 28 MB for the 20 MB file limit) rather than through `rawApi`, which is for handlers that write their
+own response. The earlier `wave1/documents` attempt's chunk table is dropped and rebuilt on first open; it never
+shipped in a release.
+
 ## Batch 18 (local, unreleased): teams, linked chats, reconciliation gate, skill registry, evaluation suite, hand-over via Task Scheduler
 
 `src/teams.ts`, `src/registry-install.ts`, `src/evaluation.ts`; `ChannelRouter.link`; `Runtime.reconciliationBlock`

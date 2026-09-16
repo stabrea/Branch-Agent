@@ -27,6 +27,7 @@ const titles = {
   schedules: "Schedules",
   settings: "Settings",
   skills: "Skills",
+  documents: "Documents",
 };
 function el(tag, text, className) {
   const node = document.createElement(tag);

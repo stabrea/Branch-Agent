@@ -68,11 +68,13 @@ export async function createBranch(options: {
   const registry = new ToolRegistry();
   files.scope = () => store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
+  let documents: DocumentLibrary | undefined;
   registerFiles(registry, files, {
     before: (path, context) => history.before(path, context),
     after: async (path, context, token) => {
       const change = await history.change(path, token as Awaited<ReturnType<typeof history.before>>);
       if (context.runId) store.event(context.runId, "file.changed", { ...change });
+      try { await documents?.refreshPath(context.owner, path); } catch { /* indexing never fails a file change */ }
     },
   });
   registerWorkspaceHistory(registry, history);
@@ -91,8 +93,9 @@ export async function createBranch(options: {
   registerHistory(registry, store);
   registerSessions(registry, store);
   registerSkills(registry, store);
-  const documents = new DocumentLibrary(store.sqlite);
-  registerDocuments(registry, documents, files);
+  documents = new DocumentLibrary(store, runtime.models, files);
+  registerDocuments(registry, documents);
+  runtime.documents = documents;
   registry.register({
     name: "user.ask", permission: "user.ask",
     description: "Stop and ask the person a question when you cannot proceed without their answer. The task pauses; their next message in this conversation is the answer.",
@@ -124,6 +127,7 @@ export async function createBranch(options: {
     runtime,
     files,
     knowledge,
+    documents,
     scheduler,
     chatgpt,
     version,

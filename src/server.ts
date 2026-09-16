@@ -109,6 +109,7 @@ async function staticFile(
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+    "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     "/fonts/archivo.woff2": ["fonts/archivo.woff2", "font/woff2"],
@@ -583,19 +584,25 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/** A 20 MB file arrives base64 encoded, which is a third larger again. */
+const documentBodyBytes = 28 * 1024 * 1024;
 async function documentsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  if (request.method === "GET" && path === "/api/documents")
-    return { documents: [] };
-  if (request.method === "POST" && path === "/api/documents/search") {
-    const input = z.object({ query: z.string() }).strict().parse(await readBody(request));
-    const results = await app.store.sqlite.prepare(`
-      SELECT DISTINCT dc.chunk_text, d.name
-      FROM document_chunks dc
-      JOIN documents d ON d.id = dc.document_id
-      WHERE d.owner = ? LIMIT 3
-    `).all(app.runtime.owner);
-    return { results: results.slice(0, 3) };
+  const owner = app.runtime.owner, library = app.documents;
+  if (path === "/api/documents/settings") {
+    if (request.method === "GET") return library.settings(owner);
+    if (request.method === "POST") return library.configure(owner, await readBody(request));
   }
+  if (request.method === "GET" && path === "/api/documents") return library.view(owner);
+  if (request.method === "POST" && path === "/api/documents")
+    return library.add(owner, await readBody(request, documentBodyBytes));
+  if (request.method === "POST" && path === "/api/documents/search")
+    return { results: await library.search(owner, await readBody(request)) };
+  if (request.method === "POST" && path === "/api/documents/reindex") {
+    const { id } = z.object({ id: z.string().min(1).max(100) }).strict().parse(await readBody(request));
+    return library.reindex(owner, id);
+  }
+  const one = /^\/api\/documents\/([a-f0-9-]{36})$/.exec(path);
+  if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
 export async function startServer(

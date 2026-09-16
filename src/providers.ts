@@ -63,8 +63,9 @@ function originalName(wire: string, request: CompletionRequest): string {
   if (!tool) throw new Error("Provider returned an unknown tool");
   return tool.name;
 }
-function validateOptions(options: ProviderOptions): void {
-  const url = new URL(options.endpoint);
+/** The rule every provider address follows: HTTPS, or plain HTTP only on this computer, and nothing extra in the address. */
+export function assertProviderEndpoint(endpoint: string): URL {
+  const url = new URL(endpoint);
   if (
     url.protocol !== "https:" &&
     !(
@@ -79,8 +80,19 @@ function validateOptions(options: ProviderOptions): void {
     throw new Error(
       "Provider endpoint must not contain credentials, query, or fragment",
     );
+  return url;
+}
+function validateOptions(options: ProviderOptions): void {
+  assertProviderEndpoint(options.endpoint);
   if (!options.model || !options.apiKey)
     throw new Error("Provider model and API key are required");
+}
+/** Address and key for a provider's other OpenAI-shaped routes, such as `/embeddings`. */
+export interface EmbeddingEndpoint { endpoint: string; apiKey: string }
+/** The embeddings route of a provider that offers one; every other provider gives nothing. */
+export function providerEmbeddings(provider: Provider): EmbeddingEndpoint | null {
+  const accessor = (provider as { embeddings?: () => EmbeddingEndpoint | null }).embeddings;
+  return typeof accessor === "function" ? accessor.call(provider) : null;
 }
 async function post(
   options: ProviderOptions,
@@ -144,6 +156,10 @@ export class OpenAIProvider implements Provider {
   readonly name = "openai-compatible";
   constructor(private readonly options: ProviderOptions) {
     validateOptions(options);
+  }
+  /** This provider speaks the OpenAI shape, so the same address and key also serve `/embeddings`. */
+  embeddings(): EmbeddingEndpoint | null {
+    return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);

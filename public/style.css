@@ -1000,3 +1000,9 @@ summary {
 .update-panel .progress { margin: 12px 0 8px; }
 .progress.indeterminate .progress-bar { width: 40% !important; animation: update-slide 1.2s ease-in-out infinite alternate; }
 @keyframes update-slide { from { transform: translateX(-20%); } to { transform: translateX(170%); } }
+
+/* Documents: the drop area, and the highlighted words inside a found passage. */
+#documents-drop { border-style: dashed; transition: border-color 120ms ease, background 120ms ease; }
+#documents-drop.dropping { border-color: var(--good); background: var(--well); }
+#documents-drop input[type="file"] { margin-top: 10px; font-size: 12px; }
+#documents-results mark { background: #86d6a02e; color: inherit; border-radius: 3px; padding: 0 2px; }
