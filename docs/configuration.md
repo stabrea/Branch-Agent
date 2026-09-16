@@ -98,7 +98,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key |
 | Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
 | GitHub Models | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key |
 | Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses |
 | Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key |
 | Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key |
@@ -111,7 +111,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key |
 | Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
 | Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key |
-| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out | just a key |
+| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out, live conversation | just a key |
 | OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key |
 | OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
 | Perplexity | in the cloud | OpenAI | conversation, as it types | just a key |
@@ -536,7 +536,27 @@ Costs are estimated the same honest way as everything else: published per-minute
 
 Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
 
-**Not built: live two-way voice calls** (the OpenAI Realtime WebSocket, audit A1212 and A2293). Branch checks every outbound address against its network policy before each request, and that policy has no hook for a WebSocket; a realtime session would either skip the check or need a new dependency, and this build refuses both. Hold-to-talk does the same job over the ordinary routes. There is no wake word and nothing listens unless you are holding the button.
+### Live conversation (wave 8)
+
+A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
+
+**What is sent.** While a live conversation is open, the sound of your microphone goes to the model service you are connected to, continuously, and its answer comes back as sound. Both sides are also written out in words, and those words go into the conversation on screen as ordinary messages, so afterwards you can read what was said. **The sound itself is not kept anywhere** — not in the database, not in a file, and there is no setting that changes that. It is sent, played and forgotten. The one setting near it, *Note in the task's record how much sound a live conversation carried*, writes down the size of each piece of sound and nothing else, so you can see how much went back and forth; switch it on only if you want that detail.
+
+**You need a connection that offers it.** Only OpenAI and Google Gemini offer this today, and only those two lines of the connections table are marked *live conversation*. On any other connection the **Talk live** button does not appear at all, and the Voice screen says so in a sentence. Hold-to-talk still works on everything.
+
+**"Keep sound on this computer" refuses it outright.** A live conversation is sound leaving this computer by definition, so with that setting on Branch will not start one, and says why. There is no way round it: the refusal is in the service, before anything is opened.
+
+**How to interrupt.** Press **Talk live** again while it is talking. The sound stops instantly on your side, the answer is cancelled at the service, whatever it had heard of you so far is thrown away, and it is listening again. You can also just **type** while it is talking: what you type is sent straight into the same conversation and answered out loud, without waiting for it to finish.
+
+**What it costs.** A live conversation is charged by the minute, and it is more expensive than typing — roughly $0.30 a minute for OpenAI and $0.15 for Gemini on published prices read on 2026-09-16. Branch counts the usage each service reports and writes it into the task's record as it goes. Two limits stop it running away, both in **Settings → Voice**: **how many minutes** one conversation may last (10 by default) and **how much** it may cost ($1.00 by default). When either is reached, Branch says one sentence out loud telling you it is stopping and why, and then stops — it never just goes silent.
+
+**Tools still need your permission.** If the model asks for a tool mid-conversation, it goes through exactly the same approval settings as a tool call in a typed conversation. Something allowed runs; something refused comes back as a refusal; something that needs your yes **does not run** — the question appears on screen as the usual card, and the model is told it is waiting for you and says so out loud. It cannot talk its way past the gate.
+
+**What is written down.** Every connection that stays open is recorded once in *What the assistant was allowed to do* as **A connection that stays open was made to a service outside this computer**, and leaves a span in the trace, naming only the host and the path — never the whole address, because Gemini takes its key in the address.
+
+**Honest limits.** Branch has been tested against local stand-ins speaking OpenAI's and Gemini's documented live message shapes. It has **not** been tested against the real services with real sound; treat "Branch speaks the right language" as what is proved, not "this has been heard working".
+
+Routes: `POST /api/voice/live` (opens a task for a live conversation and answers with whether one is possible); the conversation itself runs on the task's existing socket `/api/runs/<id>/ws`, with your microphone going up as binary frames and the answer coming back as binary frames numbered so they play in order. `GET /api/voice/plan` reports under `live` whether the connection in use can hold one, and the limits it would run under.
 
 ### Which model does what (wave 7)
 

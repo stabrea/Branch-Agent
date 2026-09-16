@@ -20,6 +20,9 @@ export const auditActions = [
   // A drafted skill switched on without the trial it is meant to pass first. Only the owner can
   // do it, only by saying so in as many words, and it is written down every time.
   "skill.forced",
+  // Wave 8: a connection that stays open — a live voice conversation — reaches outside this
+  // computer for as long as it lasts, so every one is written down: which host, and how it ended.
+  "network.connected",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -84,6 +87,7 @@ const actionLabels: Record<AuditAction, string> = {
   "mcp.tried": "You tried out another AI tool's server",
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
+  "network.connected": "A connection that stays open was made to a service outside this computer",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

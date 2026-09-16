@@ -475,7 +475,10 @@ test("the voice plan says which service would do the work and where the sound wo
   const deps = { store: app.store, models: app.runtime.models, owner: "local", voice: app.voice, policy: app.web.policy, fetch };
   const plan = voicePlan(deps);
   assert.ok(plan.prices.perMinute["whisper-1"] > 0);
-  assert.match(plan.realtimeNote, /Live two-way voice calls/);
+  // Wave 8: a live conversation exists now, so the note says what one needs rather than that there
+  // is none, and the Voice screen also reports whether this connection can hold one.
+  assert.match(plan.realtimeNote, /live conversation/);
+  assert.equal(plan.live.available, false, "the connection in this test cannot hold one, and the screen says so");
   assert.match(whereAudioGoes("local", "windows"), /Nothing leaves this computer/);
   assert.match(whereAudioGoes("openai", "openai"), /sent to your model provider/);
   saveVoiceSettings(app.store, "local", { ...voiceSettings(app.store, "local"), keepAudioOnThisComputer: true });

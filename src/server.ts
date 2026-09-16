@@ -39,6 +39,7 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
@@ -230,6 +231,8 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    // Wave 8: the composer's live-conversation button and everything behind it.
+    "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
@@ -1984,7 +1987,9 @@ export async function startServer(
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }
-      await serveRunSocket(app.store, run.id, request, socket);
+      // Wave 8: the same socket also carries a live voice conversation, when the browser asks for
+      // one. Nothing is opened until it does, so an ordinary task is unchanged.
+      await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
   });
   configureLimits(server);
