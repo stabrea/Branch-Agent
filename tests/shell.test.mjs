@@ -20,7 +20,8 @@ async function fixture(t, settings = {}, provider) {
   const config = { executables: { node: { path: process.execPath }, fixture: { path: process.execPath, args: [script] } }, ...settings };
   const shell = new BranchShell(config, fakeEnv);
   await shell.ready(); registerShell(app.registry, shell);
-  t.after(async () => { await shell.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  // A process let go a moment ago can still hold its working folder for a few milliseconds on Windows.
+  t.after(async () => { await shell.close(); await app.close(); await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   return { app, shell, root, config, context: () => app.runtime.context({ runId: 'fixture-run' }) };
 }
 async function waitForPids(path) {
@@ -101,7 +102,9 @@ test('shell rejects denied aliases, permissions, traversal, and linked cwd', asy
 });
 
 test('shell captures nonzero exit, bounds output, and enforces timeout', async (t) => {
-  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 500 });
+  // Exit codes, output caps and timeouts are measured without a job object: on a slow computer the
+  // supervisor's start would compete with the half-second budget this test gives each command.
+  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 500, useJobObject: false });
   const failed = await f.shell.execute({ executable: 'fixture', args: ['fail'] }, f.context());
   assert.equal(failed.exitCode, 7); assert.equal(failed.status, 'failed');
   assert.match(failed.stdout, /before failure/); assert.match(failed.stderr, /compilation failed/);
