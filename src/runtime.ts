@@ -35,6 +35,7 @@ import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
+import { routeByProfile } from "./model-profiles.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -646,9 +647,16 @@ export class Runtime {
    * for this run or this conversation always wins, so nothing is taken out of the owner's hands.
    */
   private routed(run: Run, owner: string, override: RunModelOverride): RunModelOverride {
+    if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
+    // A routing profile (wave 7) is the owner's own named set of choices. It is asked first, and
+    // whichever rule fired is written down so the inspector can say why this model and not another.
+    const byProfile = routeByProfile(this.store, this.models, owner, "chat");
+    if (byProfile.preset) {
+      this.store.event(run.id, "model.routed", { preset: byProfile.preset, kind: "profile", reason: byProfile.reason });
+      return { ...override, preset: byProfile.preset };
+    }
     // Off by default, so this costs nothing until the owner asks for it.
     if (!routingSettings(this.store, owner).enabled) return override;
-    if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
     const toolCount = this.store.messages(run.sessionId).filter((message) => message.role === "tool").length;
     const choice = routeForTask(this.store, this.models, owner, { prompt: run.prompt, toolCount });
     if (!choice.preset) return override;

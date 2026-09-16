@@ -45,7 +45,9 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
-import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
+import { voiceSettings, saveVoiceSettings } from "./voice.js";
+import { voiceApi } from "./voice-api.js";
+import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
@@ -170,6 +172,8 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
+    "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
@@ -525,8 +529,11 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
-  if (request.method === "POST" && path === "/api/voice/settings")
-    return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
+  // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
+  // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
+  if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
+      || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe")
+    return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
   // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
   if (request.method === "GET" && path === "/api/media/settings")
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
@@ -1561,13 +1568,15 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     }
     const audio = new Uint8Array(Buffer.concat(chunks));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const text = await transcribeAudio(audio, audioEndpoint, app.web.policy, globalThis.fetch);
+      // One service decides which route writes this out, and refuses outright when the owner has
+      // said audio must stay on this computer. The length comes from the recorder, for the cost.
+      const seconds = Number(new URL(request.url ?? "/", "http://local").searchParams.get("seconds"));
+      const written = await app.voice.transcribe(app.runtime.owner, {
+        bytes: audio, mediaType: (contentType.split(";")[0] ?? "audio/webm").trim(), name: "recording",
+        ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
+      });
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ text }));
+      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1575,15 +1584,18 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/speak") {
-    const body = z.object({ text: z.string().max(4000) }).strict().parse(await readBody(request));
+    const body = z.object({
+      text: z.string().max(4000), voice: z.string().max(80).optional(), speed: z.number().min(0.5).max(2).optional(),
+    }).strict().parse(await readBody(request));
     try {
-      // Get the active provider's audio endpoints
-      const plan = app.runtime.models.plan(app.runtime.owner, "voice");
-      const provider = plan.candidates[0]?.provider ?? null;
-      const audioEndpoint = provider?.audio?.() ?? null;
-      const audio = await generateSpeech(body.text, audioEndpoint, app.web.policy, globalThis.fetch);
-      response.writeHead(200, { "content-type": "audio/mpeg", "cache-control": "no-store" });
-      response.end(Buffer.from(audio));
+      const spoken = await app.voice.speak(app.runtime.owner, {
+        text: body.text, voice: body.voice ?? "", speed: body.speed ?? 1,
+      });
+      response.writeHead(200, {
+        "content-type": spoken.mediaType, "cache-control": "no-store",
+        "x-voice-route": spoken.route, "x-voice-name": encodeURIComponent(spoken.voice),
+      });
+      response.end(Buffer.from(spoken.bytes));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -1714,6 +1726,13 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   });
   response.end(body);
   return true;
+}
+/** Everything the voice and model-routing screens need, gathered in one place (wave 7). */
+function voiceDeps(app: Branch) {
+  return {
+    store: app.store, models: app.runtime.models, owner: app.runtime.owner,
+    voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
+  };
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
