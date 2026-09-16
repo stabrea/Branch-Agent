@@ -99,9 +99,11 @@ async function copyText(text, button) {
   setTimeout(() => { button.textContent = original; }, 2500);
 }
 
-function snippet(name, entry) {
+/** The page never shows the session key itself; Copy puts the real value on the clipboard. */
+function snippet(name, entry, secret) {
   const item = el("div", undefined, "item");
-  item.append(el("h3", name), el("p", entry.note, "subtle"), el("pre", entry.configExample));
+  const shown = secret ? entry.configExample.split(secret).join("YOUR_SESSION_KEY") : entry.configExample;
+  item.append(el("h3", name), el("p", entry.note, "subtle"), el("pre", shown));
   const copy = el("button", "Copy");
   copy.type = "button";
   copy.addEventListener("click", () => void copyText(entry.configExample, copy));
@@ -116,9 +118,9 @@ function renderConnection(connection) {
     ? "Claude Desktop starts its own copy of Branch in the background, using the app installed on this computer and your existing records."
     : `Claude Desktop starts its own copy of Branch by running "${connection.stdio.command} ${connection.stdio.args.join(" ")}", which needs Branch installed as a command.`,
     "subtle"));
-  box.append(snippet("Claude Desktop", connection.claudeDesktop));
-  box.append(snippet("Claude Code", connection.claudeCode));
-  box.append(snippet("Cursor", connection.cursor));
+  box.append(snippet("Claude Desktop", connection.claudeDesktop, connection.bearerToken));
+  box.append(snippet("Claude Code", connection.claudeCode, connection.bearerToken));
+  box.append(snippet("Cursor", connection.cursor, connection.bearerToken));
   box.append(el("p", "Claude Code and Cursor talk to Branch over this computer's own address, so Branch has to be open. The key in those settings is private: anyone who has it can use Branch.", "subtle"));
 }
 
