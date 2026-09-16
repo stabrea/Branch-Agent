@@ -9,6 +9,12 @@ import type { RunArtifacts } from '../artifacts.js';
 import { BrowserSession, type DownloadRecord } from './browser-session.js';
 import { BrowserProfiles, profileNameSchema, type StorageState } from './browser-profiles.js';
 import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName, screenshot, waitFor } from './browser-page.js';
+import { AnnotateSchema, MarkRegistry, annotate, clearMarks } from './browser-marks.js';
+import { ExtractSchemaSchema, extractSchema } from './browser-schema.js';
+import { resolve as healResolve, type HealTarget } from './browser-heal.js';
+import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, type AttachedBrowser } from './browser-attach.js';
+import { startRecording } from './browser-trace.js';
+import type { Store } from '../store.js';
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -50,6 +56,15 @@ interface RunEntry {
   actions: number;
   host: string;
   profile: string | null;
+  /** The numbers handed out to the things on the pages this task has looked at. */
+  marks: MarkRegistry;
+  /** The owner's own browser, while this task is borrowing it. */
+  borrowed: AttachedBrowser | null;
+}
+/** Where the trace of one task is written, when the launch keeps traces. */
+export interface BrowserTracer {
+  start(runId: string, kind: 'tool', name: string, attributes?: Record<string, unknown>):
+    { end(status: 'ok' | 'error', message?: string, attributes?: Record<string, string | number | boolean>): void } | null;
 }
 
 export class BranchBrowser {
@@ -72,6 +87,12 @@ export class BranchBrowser {
   artifacts: RunArtifacts | undefined;
   /** The workspace, for files sent to a website and files a website sends back. */
   files: WorkspacePaths | undefined;
+  /** Where a task's steps are written down, so a healed action can say which way worked. */
+  tracer: BrowserTracer | undefined;
+  /** The settings store, so "let Branch use my browser" can be read again before every attach. */
+  store: Store | undefined;
+  /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
+  connect: typeof attach = attach;
 
   private allowed(value: string): boolean {
     try { return this.origins.has(new URL(value).origin); } catch { return false; }
@@ -109,6 +130,7 @@ export class BranchBrowser {
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
     const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
+      marks: new MarkRegistry(), borrowed: null,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
     return created;
@@ -129,6 +151,10 @@ export class BranchBrowser {
       throw new Error('Browser destination is not an allowed origin');
     await this.policy?.assertAllowed(new URL(url), 'browser address');
     const entry = this.entry(context), origin = new URL(url).origin;
+    // In the owner's own browser the refusals that keep the screen control away from banks and
+    // password managers apply to website names too.
+    const refused = entry.borrowed ? attachedAddressRefusal(url) : null;
+    if (refused) throw new Error(refused);
     if (!entry.origins.has(origin) && entry.origins.size >= this.config.maxOriginsPerRun)
       throw new Error(originStop(this.config.maxOriginsPerRun));
     return this.operation(context, async page => {
@@ -183,6 +209,51 @@ export class BranchBrowser {
   async extract(options: z.infer<typeof ExtractSchema>, context: ToolContext) {
     return this.operation(context, page => extract(page, options));
   }
+  /** Data in the exact shape the assistant asked for, or a refusal naming the field that did not fit. */
+  async extractShaped(options: z.infer<typeof ExtractSchemaSchema>, context: ToolContext) {
+    return this.operation(context, page => extractSchema(page, options));
+  }
+  /**
+   * Numbers everything on the page that can be pressed or typed into and hands back the list. The
+   * numbers belong to the things themselves, so they survive the page redrawing itself.
+   */
+  async annotate(options: z.infer<typeof AnnotateSchema>, context: ToolContext) {
+    const entry = this.entry(context);
+    return this.operation(context, async page => {
+      const found = await annotate(page, options, entry.marks);
+      return { url: found.url, map: found.map, numbered: found.marks.length, truncated: found.truncated,
+        marks: found.marks.map(mark => ({ id: mark.id, role: mark.role, name: mark.name })) };
+    });
+  }
+  /** Takes the numbered labels off the page again. */
+  async clearMarks(context: ToolContext) {
+    return this.operation(context, async page => { await clearMarks(page); return { cleared: true, url: page.url() }; });
+  }
+  /**
+   * Presses or types into a thing, trying several ways of finding it before giving up: the
+   * selector given, what it is called, the words on it, then its number. The way that worked is
+   * written into the task's trace.
+   */
+  async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
+    const entry = this.entry(context);
+    return this.operation(context, async page => {
+      const found = await healResolve(page, input);
+      if (input.action === 'fill') {
+        if ((await found.locator.getAttribute('type'))?.trim().toLowerCase() === 'password')
+          throw new Error('Password fields require a dedicated credential integration');
+        await found.locator.fill(input.value ?? '');
+      } else if (input.action === 'check') await found.locator.check();
+      else await found.locator.click();
+      this.noteHealing(context, entry, input.action, found.way, found.attempts);
+      return { url: page.url(), action: input.action, foundBy: found.way, attempts: found.attempts, tried: found.tried };
+    }, input.action === 'click' ? 500 : 0);
+  }
+  /** Writes down which way of finding the thing worked, so a step that keeps healing can be fixed. */
+  private noteHealing(context: ToolContext, entry: RunEntry, action: string, way: string, attempts: number): void {
+    const span = this.tracer?.start(context.runId, 'tool', `browser.act ${action}`,
+      { host: entry.host, foundBy: way, attempts });
+    span?.end('ok', '', { foundBy: way, attempts, healed: way !== 'selector' });
+  }
   /** Sends one file from the person's workspace to a file box on the page. */
   async upload(selector: string, path: string, context: ToolContext) {
     if (!this.files) throw new Error('Sending a file to a website needs the workspace');
@@ -191,6 +262,52 @@ export class BranchBrowser {
       await page.locator(selector).first().setInputFiles(target);
       return { uploaded: path, selector };
     });
+  }
+  /**
+   * Borrows the browser the owner already has open, so websites that know them stay signed in.
+   * Only for this task, only when they turned it on for this task, and let go of at the end.
+   */
+  async borrow(context: ToolContext) {
+    if (!this.store) throw new Error('Using your own browser is switched off for this launch');
+    const settings = readAttachSettings(this.store, context.owner);
+    const refused = attachRefusal(settings, context.runId);
+    if (refused) throw new Error(refused);
+    const entry = this.entry(context);
+    if (entry.borrowed) return this.borrowedReport(entry);
+    if (entry.session.started())
+      throw new Error('Ask for your own browser before opening a page: this task already has a browser window of its own');
+    const attached = await this.connect(settings.port);
+    entry.borrowed = attached;
+    entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
+    return this.borrowedReport(entry);
+  }
+  private borrowedReport(entry: RunEntry) {
+    const attached = entry.borrowed!;
+    return { using: 'your own browser', version: attached.version, yourTabsOpen: attached.existingPages,
+      note: 'Branch works in its own new tab and closes only that one. Banks and password sites are refused.' };
+  }
+  /** Gives the owner's browser back. Nothing of theirs is closed; Branch only stops listening. */
+  async giveBack(context: ToolContext) {
+    const entry = this.sessions.get(this.key(context));
+    if (!entry?.borrowed) return { released: false };
+    await this.closeRun(context);
+    return { released: true };
+  }
+  /** Starts keeping a recording of this task's browser window. */
+  async startRecording(context: ToolContext) {
+    const entry = this.entry(context);
+    await entry.session.record(startRecording);
+    return { recording: true, note: 'Pictures of each step are kept. The page\'s own markup is not, so no password can get into the file.' };
+  }
+  /** Ends the recording and keeps it beside the task's other files. */
+  async keepRecording(context: ToolContext) {
+    const artifacts = this.artifacts;
+    if (!artifacts) throw new Error('Recordings are switched off because there is nowhere to keep the file');
+    const entry = this.entry(context);
+    const bytes = await entry.session.keepRecording();
+    const kept = await artifacts.write(context.runId, `browser-recording-${randomUUID().slice(0, 8)}.zip`,
+      'application/zip', bytes);
+    return { ...kept, note: 'Open this in Playwright\'s trace viewer to watch what the browser did.' };
   }
   async tab(action: 'list' | 'open' | 'select' | 'close', index: number | undefined, context: ToolContext) {
     const entry = this.entry(context), session = entry.session;
@@ -374,9 +491,42 @@ function registerBrowserExtras(registry: ToolRegistry, browser: BranchBrowser,
     parameters: z.object({ action: z.enum(['list', 'open', 'select', 'close']),
       index: z.number().int().min(0).max(9).optional() }).strict(),
     execute: (a, c) => browser.tab(a.action, a.index, c), target: host });
+  registerBrowserSecondPass(registry, browser, host);
   registry.register({ name: 'browser.profile', permission: 'browser.interact',
     description: 'Saved sign-ins: list them, make an empty one, remove one, or use one for this task so the website already knows the person. The person signs in by hand in Settings; you never see their password.',
     parameters: z.object({ action: z.enum(['list', 'create', 'remove', 'use']),
       name: z.string().min(1).max(40).optional() }).strict(),
     execute: (a, c) => browser.profileAction(a.action, a.name, c) });
+}
+
+/**
+ * The second pass of browser tools: describing a page by numbering the things on it, pulling data
+ * out in a named shape, acting on something several different ways before giving up, borrowing the
+ * owner's own browser, and keeping a recording of what happened.
+ */
+function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowser,
+  host: (a: unknown, c: ToolContext) => string): void {
+  registry.register({ name: 'browser.annotate', permission: 'browser.read',
+    description: 'Number everything on the page you can press or type into and list them, so you can say "press 3" instead of guessing at a selector. A number stays with the same thing while the task lasts.',
+    parameters: AnnotateSchema, execute: (a, c) => browser.annotate(a, c) });
+  registry.register({ name: 'browser.unmark', permission: 'browser.read',
+    description: 'Take the numbered labels off the page again, so a picture shows it the way the website meant it.',
+    parameters: z.object({}).strict(), execute: (_a, c) => browser.clearMarks(c) });
+  registry.register({ name: 'browser.shape', permission: 'browser.read',
+    description: 'Pull data off the page in the exact shape you name: a field list, each with where to read it and whether it is words, a number, a yes/no, a date or an address. Anything that does not fit is refused by name rather than guessed at.',
+    parameters: ExtractSchemaSchema, execute: (a, c) => browser.extractShaped(a, c) });
+  registry.register({ name: 'browser.act', permission: 'browser.interact',
+    description: 'Press, type into or tick something, found by selector, by name, by the words on it, or by its number from browser.annotate. Several ways are tried before it gives up. This may submit data or perform an external action.',
+    parameters: z.object({ action: z.enum(['click', 'fill', 'check']),
+      selector: z.string().min(1).max(300).optional(), name: z.string().min(1).max(300).optional(),
+      mark: z.number().int().min(1).max(500).optional(), value: z.string().max(4000).optional() }).strict(),
+    execute: (a, c) => browser.act(a, c), target: host });
+  registry.register({ name: 'browser.borrow', permission: 'browser.interact',
+    description: 'Work in the browser the person already has open, so websites they are signed in to know them. Only when they turned this on for this task in Settings. Banks and password sites are always refused, and their own tabs are never touched.',
+    parameters: z.object({ action: z.enum(['borrow', 'give back']) }).strict(),
+    execute: (a, c) => a.action === 'borrow' ? browser.borrow(c) : browser.giveBack(c), target: host });
+  registry.register({ name: 'browser.recording', permission: 'browser.read',
+    description: 'Keep a recording of what the browser does in this task, to look at afterwards. Start it, then keep it when the work is done.',
+    parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),
+    execute: (a, c) => a.action === 'start' ? browser.startRecording(c) : browser.keepRecording(c) });
 }

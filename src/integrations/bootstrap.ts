@@ -97,7 +97,14 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   /** Where screenshots and saved pages are kept, beside the private database. */
   artifacts?: RunArtifacts;
   /** Saved browser sign-ins, encrypted with the device's locker key. */
-  browserProfiles?: BrowserProfiles }
+  browserProfiles?: BrowserProfiles;
+  /**
+   * The two halves of the shared "look at this, press that" tools. The window half is always
+   * there; the page half is filled in here once a browser turns out to be configured.
+   */
+  computer?: { page?: unknown };
+  /** Settings and spans, so the browser can read the "use my browser" switch and record healing. */
+  store?: unknown; tracer?: unknown }
 
 /** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
 export const GitConfigSchema = z.object({
@@ -148,6 +155,10 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.files = channels?.files;
       browser.artifacts = channels?.artifacts;
       browser.profiles = channels?.browserProfiles;
+      browser.store = channels?.store as never;
+      browser.tracer = channels?.tracer as never;
+      // The page half of the shared "look at this, press that" tools is this browser.
+      if (channels?.computer) channels.computer.page = browser;
       hosted.browser = browser;
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }

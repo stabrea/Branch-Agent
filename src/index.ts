@@ -72,6 +72,7 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
+import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
@@ -168,6 +169,10 @@ export async function createBranch(options: {
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
   registerDesktop(registry, desktop);
+  // Wave 7: one short way of saying "look at this, press that" for both a web page and a window.
+  // The page half is filled in later, if and when a browser is configured for this launch.
+  const computer: ComputerLayers = { window: desktop };
+  registerComputer(registry, computer);
   const presets = options.presets ?? [defaultPreset(options.provider ?? new DemoProvider())];
   const runtime = new Runtime(
     store,
@@ -508,6 +513,9 @@ export async function createBranch(options: {
       files,
       artifacts,
       browserProfiles,
+      computer,
+      store,
+      tracer: runtime.tracer,
       context: (runId: string) => runtime.context({ runId }),
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */

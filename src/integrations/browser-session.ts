@@ -11,6 +11,12 @@ export interface SessionOptions {
   storageState?: StorageState | undefined;
   /** Saves a file the website sent; anything it rejects is reported and the file is dropped. */
   saveDownload?: ((download: Download) => Promise<DownloadRecord>) | undefined;
+  /**
+   * The owner's own browser, borrowed for this task. When it is set nothing new is made and
+   * nothing of theirs is closed: Branch opens its own tab in their window, checks only its own
+   * tabs against the website list, and lets go again at the end.
+   */
+  attached?: { context: BrowserContext; detach: () => Promise<void> } | undefined;
 }
 
 export class BrowserSession {
@@ -32,6 +38,7 @@ export class BrowserSession {
     if (this.closed) throw new Error('Browser run is closed');
   }
   private async open(): Promise<Page> {
+    if (this.options.attached) return this.openBorrowed(this.options.attached.context);
     try {
       const browser = await this.launch();
       this.checkOpen();
@@ -51,6 +58,19 @@ export class BrowserSession {
       throw error;
     }
   }
+  /**
+   * The owner's own window. Their tabs are left entirely alone: the website list is applied to
+   * Branch's own tab only, nothing of theirs is watched, and nothing of theirs is closed.
+   */
+  private async openBorrowed(context: BrowserContext): Promise<Page> {
+    this.checkOpen();
+    this.context = context;
+    this.borrowed = true;
+    context.setDefaultTimeout(10000);
+    return this.newPage();
+  }
+  /** True while this run is working inside the owner's own browser rather than one of its own. */
+  private borrowed = false;
   /** Raised while a tab the assistant asked for is being created, so it is not mistaken for a pop-up. */
   private creatingTab = 0;
   /** Every page this run opens watches for message boxes and for files the site sends. */
@@ -58,6 +78,9 @@ export class BrowserSession {
     if (!this.context) throw new Error('Browser run is closed');
     this.creatingTab++;
     const page = await this.context.newPage().finally(() => { this.creatingTab--; });
+    // In the owner's own browser the website list is put on Branch's tab alone, so their other
+    // tabs carry on exactly as before.
+    if (this.borrowed) await page.route('**/*', this.route);
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       void dialog.dismiss().catch(() => undefined);
@@ -137,15 +160,43 @@ export class BrowserSession {
   }
   /** Cookies and site storage as they are now, for saving back into a named sign-in. */
   async storageState(): Promise<StorageState | null> {
-    if (!this.context) return null;
+    // The owner's own browser is never copied out of: their cookies stay theirs.
+    if (!this.context || this.borrowed) return null;
     return (await this.context.storageState()) as unknown as StorageState;
   }
+  /** True while this run is working inside the owner's own browser. */
+  isBorrowed(): boolean { return this.borrowed; }
   close(): Promise<void> {
     this.closed = true;
     return this.closing ??= this.drain();
   }
   private async drain(): Promise<void> {
     await this.opening?.catch(() => undefined);
+    await this.recording?.cancel().catch(() => undefined);
+    if (this.borrowed) {
+      // Only Branch's own tabs go; the owner's window and their tabs are left exactly as they were.
+      for (const page of this.pages) await page.close().catch(() => undefined);
+      await this.options.attached?.detach();
+      return;
+    }
     await this.context?.close();
   }
+  /** The recording of this run, while one is being made. */
+  private recording: { stop(): Promise<Buffer>; cancel(): Promise<void> } | undefined;
+  /** Starts recording this run's browser window, through the given starter. */
+  async record(start: (context: BrowserContext) => Promise<{ stop(): Promise<Buffer>; cancel(): Promise<void> }>): Promise<void> {
+    if (this.recording) throw new Error('This task is already being recorded');
+    await (this.opening ??= this.open());
+    if (!this.context) throw new Error('Browser run is closed');
+    this.recording = await start(this.context);
+  }
+  /** Ends the recording and hands back the file. */
+  async keepRecording(): Promise<Buffer> {
+    if (!this.recording) throw new Error('This task is not being recorded. Start a recording first.');
+    const current = this.recording;
+    this.recording = undefined;
+    return current.stop();
+  }
+  /** True while a recording is being made, so the context pane can say so. */
+  isRecording(): boolean { return !!this.recording; }
 }
