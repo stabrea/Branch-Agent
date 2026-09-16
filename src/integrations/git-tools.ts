@@ -59,6 +59,63 @@ export function registerGit(registry: ToolRegistry, git: GitTools): void {
     parameters: z.object({ folder, action: z.enum(["add", "remove", "list"]).default("list"), name: copyName.optional(), branch: branchName.optional() }).strict(),
     execute: (input, context: ToolContext) => git.worktree(input, context.signal),
   });
+  registerWorktrees(registry, git);
+  registerPlanBranches(registry, git);
+}
+
+/**
+ * The same parallel copies, one tool per thing you might want to do, because "add", "list" and
+ * "remove" behind one name is a step the model has to think about rather than read.
+ */
+function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
+  registry.register({
+    name: "git.worktree_add", permission: "git.write",
+    description: "Make a parallel copy of the repository for an experiment, on a line of work of its own. Copies live only in the .branch-worktrees folder inside the workspace.",
+    parameters: z.object({ folder, name: copyName, branch: branchName.optional() }).strict(),
+    target: (args) => `parallel copy ${args.name}`,
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "add" }, context.signal),
+  });
+  registry.register({
+    name: "git.worktree_list", permission: "git.read",
+    description: "The parallel copies of a repository that exist right now.",
+    parameters: z.object({ folder }).strict(),
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "list" }, context.signal),
+  });
+  registry.register({
+    name: "git.worktree_remove", permission: "git.write",
+    description: "Remove a parallel copy of the repository and everything left in it.",
+    parameters: z.object({ folder, name: copyName }).strict(),
+    target: (args) => `remove parallel copy ${args.name}`,
+    execute: (input, context: ToolContext) => git.worktree({ ...input, action: "remove" }, context.signal),
+  });
+}
+
+/**
+ * Plan branches: try something risky in a parallel copy, look at exactly what it changed, and only
+ * then bring it back. The copy and its line of work are named after the plan, so nothing the owner
+ * is working on is touched until the merge is asked for.
+ */
+function registerPlanBranches(registry: ToolRegistry, git: GitTools): void {
+  registry.register({
+    name: "git.plan_start", permission: "git.write",
+    description: "Start trying a plan in a parallel copy of the repository, on a line of work named after it. Nothing the person is working on is touched.",
+    parameters: z.object({ folder, name: copyName, from: branchName.optional() }).strict(),
+    target: (args) => `try "${args.name}" in a parallel copy`,
+    execute: (input, context: ToolContext) => git.planStart(input, context.signal),
+  });
+  registry.register({
+    name: "git.plan_diff", permission: "git.read",
+    description: "What trying a plan changed, compared with where it started. Look at this before merging it back.",
+    parameters: z.object({ folder, name: copyName, against: branchName.optional() }).strict(),
+    execute: (input, context: ToolContext) => git.planDiff(input, context.signal),
+  });
+  registry.register({
+    name: "git.plan_merge", permission: "git.write",
+    description: "Bring a plan's work back onto the line of work you are on, and put the parallel copy away. The person is asked first.",
+    parameters: z.object({ folder, name: copyName, message: z.string().trim().max(200).optional(), remove: z.boolean().default(true) }).strict(),
+    target: (args) => `merge "${args.name}" back into the current line of work`,
+    execute: (input, context: ToolContext) => git.planMerge(input, context.signal),
+  });
 }
 
 /** Sending and receiving work; registered only when the owner has switched remote access on. */

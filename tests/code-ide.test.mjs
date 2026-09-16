@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { createBranch, saveLanguageServerSettings, saveDebugSettings, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab } from "../dist/index.js";
 import { registerGitHubProject } from "../dist/integrations/git-tools.js";
+import { GitRunner, locateGit } from "../dist/integrations/git-run.js";
 
 const here = join(fileURLToPath(import.meta.url), "..");
 const fakeLanguageServer = join(here, "fixtures", "fake-language-server.mjs");
@@ -226,6 +228,92 @@ test("a debugger launches with breakpoints, steps, shows the names in view and s
   const ended = await app.runtime.executeTool("debug.stop", {});
   assert.equal(ended.action, "stopped");
   await assert.rejects(app.runtime.executeTool("debug.variables", {}), /Nothing is being debugged/);
+});
+
+// ---------------------------------------------------------------- parallel copies and plan branches
+
+const installedGit = await locateGit();
+const needsGit = { skip: installedGit ? false : "Git is not installed on this computer" };
+
+/** A workspace that is a real repository with one saved version in it. */
+async function repository(t) {
+  const made = await fixture(t);
+  const runner = new GitRunner();
+  const run = async (args, cwd = made.workspace) => {
+    const outcome = await runner.run({ cwd, args }, AbortSignal.timeout(30000));
+    assert.equal(outcome.status, "completed", `${args.join(" ")}: ${outcome.stderr}`);
+    return outcome.stdout;
+  };
+  await run(["init", "--initial-branch=main"]);
+  await run(["config", "user.name", "Test Owner"]);
+  await run(["config", "user.email", "owner@example.invalid"]);
+  await put(made.workspace, "song.txt", "one\n");
+  await run(["add", "."]);
+  await run(["commit", "--message", "first"]);
+  return { ...made, run, context: made.app.runtime.context({ runId: "fixture-run" }) };
+}
+
+test("parallel copies are added, listed and removed, and stay in the one folder", { ...needsGit }, async (t) => {
+  const { app, workspace, context } = await repository(t);
+
+  const added = await app.registry.execute("git.worktree_add", { folder: ".", name: "try-one", branch: "experiment" }, context);
+  assert.equal(added.path, ".branch-worktrees/try-one");
+  assert.ok(existsSync(join(workspace, ".branch-worktrees", "try-one", "song.txt")), "the copy really is there");
+
+  const listed = await app.registry.execute("git.worktree_list", { folder: "." }, context);
+  assert.deepEqual(listed.copies.map((copy) => copy.name), ["try-one"]);
+
+  await app.registry.execute("git.worktree_remove", { folder: ".", name: "try-one" }, context);
+  const after = await app.registry.execute("git.worktree_list", { folder: "." }, context);
+  assert.deepEqual(after.copies, []);
+
+  await assert.rejects(
+    app.registry.execute("git.worktree_add", { folder: ".", name: "../escape" }, context),
+    /lowercase letters/,
+    "a name that would climb out of the folder is refused",
+  );
+});
+
+test("a plan is tried in a parallel copy, its difference shown, and only then merged back", { ...needsGit }, async (t) => {
+  const { app, workspace, run, context } = await repository(t);
+
+  const started = await app.registry.execute("git.plan_start", { folder: ".", name: "rewrite" }, context);
+  assert.equal(started.branch, "plan/rewrite");
+  const copy = join(workspace, ".branch-worktrees", "rewrite");
+
+  await writeFile(join(copy, "song.txt"), "one\ntwo\n");
+  await run(["add", "."], copy);
+  await run(["commit", "--message", "add a line"], copy);
+
+  const difference = await app.registry.execute("git.plan_diff", { folder: ".", name: "rewrite" }, context);
+  assert.deepEqual(difference.files, ["song.txt"]);
+  assert.match(difference.text, /\+two/);
+  const text = async () => (await readFile(join(workspace, "song.txt"), "utf8")).replace(/\r/g, "");
+  assert.equal(await text(), "one\n", "the owner's own copy is untouched until the merge");
+
+  const merged = await app.registry.execute("git.plan_merge", { folder: ".", name: "rewrite", message: "keep the rewrite" }, context);
+  assert.equal(merged.merged, true);
+  assert.equal(merged.into, "main");
+  assert.equal(await text(), "one\ntwo\n", "now it is back");
+  const after = await app.registry.execute("git.worktree_list", { folder: "." }, context);
+  assert.deepEqual(after.copies, [], "the parallel copy was put away");
+});
+
+test(".branchignore refuses a read by name and keeps the file out of the map", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await put(workspace, "diary/private.md", "# not for the assistant\n");
+  await put(workspace, "src/open.ts", "export const open = 1;\n");
+  await put(workspace, ".branchignore", "diary/\n");
+
+  await assert.rejects(
+    app.runtime.executeTool("files.read", { path: "diary/private.md" }),
+    /branchignore/,
+    "the refusal names the rule that caused it",
+  );
+  const listed = await app.runtime.executeTool("files.list", { path: "." });
+  assert.equal(listed.entries.some((entry) => entry.name === "diary"), false);
+  const map = await app.runtime.executeTool("code.map", {});
+  assert.equal(map.files.some((file) => file.path.startsWith("diary/")), false, "and indexing skips it too");
 });
 
 // ---------------------------------------------------------------- GitHub and GitLab reading
