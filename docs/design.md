@@ -69,6 +69,51 @@ Two rules matter more than the rest because they were the two faults this pass w
   `public/app.js` takes `["what this is", "what to do about it"]` and draws an `.empty-state`, not
   a bare "No skills installed."
 
+### The artifact card (wave 8)
+
+An artifact — a page, a drawing, a chart or a script the assistant wrote — sits **inside a reply**,
+not on a section screen, so it deliberately breaks two of the rules above:
+
+- It is **not a `.card`**, and its title is **not a heading**. A reply is already a document with a
+  shape of its own; an `<h2>` in the middle of one would push its way into that shape and be read
+  out as part of it. The title is `<p class="artifact-title"><strong>`, and the card rule in
+  `tests/shell-ui.test.mjs` therefore does not apply to it.
+- It carries **several equal buttons** rather than one filled one — Open larger, Copy code, Save to
+  workspace, Run this script. None of them is "the thing this card is for": the artifact is.
+  They are all `.quiet`.
+
+What it keeps: the one-sentence purpose line under the title, which here says what the frame can and
+cannot do ("Shown in a sealed frame: it cannot run a script, reach this page, or reach the
+internet"), and the reading face throughout. The code that produced it is folded away behind a
+`<details>`, because it is the thing the card exists to spare the owner from reading.
+
+The frame is `width: 100%` with a `min-height`, and the chart's SVG is `width: 100%; height: auto`
+inside a wrapper that hides its overflow, so at 400 px neither makes the reading column scroll
+sideways. The chart's data table gets the ordinary `.md-table-scroll` wrapper, which is the one
+place a sideways scroll is allowed.
+
+Chart colours come from eight `--series-N` tokens in `public/tokens.css` — Forest first, Daylight
+darkened so text on a slice stays readable. Nothing in `public/charts.js` writes a colour down: the
+values are read off the running page, which is also how they reach a sandboxed artifact, since a
+frame under `default-src 'none'` cannot link a stylesheet.
+
+### The flow editor (wave 8)
+
+The editor keeps the wave-7 picture and puts the list under it, in that order, because the picture is
+the thing the owner is reasoning about and the list is how they change it. The picture redraws on
+every keystroke from the steps being edited, so a change is seen before it is saved — the one place
+in the app where drawing on every input is worth the work, because the whole point is watching the
+shape change.
+
+The side form under each step shows **only the boxes that kind of step needs**. This is not tidiness:
+`WorkflowStepSchema` refuses a prompt step with no prompt and a branch step with no words to look
+for, so a form offering every box for every kind would produce a refusal the owner could not read.
+The rules live in one table, `STEP_FIELDS` in `public/flow-editor.js`, beside the kinds they belong
+to.
+
+Move up, Move down and Take it out are `.text-button`s on the row they act on; Add a step, Save and
+Run are `.quiet` in a row of their own under the list, because they act on the whole flow.
+
 ## The glossary
 
 One name per idea, across every screen, the rail, the palette and the language files. The words on

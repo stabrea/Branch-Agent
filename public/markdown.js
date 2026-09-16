@@ -57,8 +57,23 @@ function paragraph(tag, text, className) {
   node.append(...inlineNodes(text));
   return node;
 }
+/**
+ * Wave 8: some fenced blocks are worth showing rather than reading — a page, a drawing, a chart,
+ * a script the owner may want to run. `public/artifacts.js` registers itself here and is asked
+ * first; when it says it does not handle this language, the plain code block is what comes back.
+ * Keeping the hook here means this file still knows nothing about frames or charts.
+ */
+let artifactRenderer = null;
+export function setArtifactRenderer(render) { artifactRenderer = render; }
+
 /** A fenced block: the language written out, a copy button, and the code exactly as it came. */
 export function codeBlock(code, language) {
+  const artifact = artifactRenderer?.(code, String(language ?? "").toLowerCase());
+  if (artifact) return artifact;
+  return plainCodeBlock(code, language);
+}
+/** The code exactly as it came, with its language and a copy button. Never anything more. */
+export function plainCodeBlock(code, language) {
   const box = el("div", undefined, "code-block");
   const head = el("div", undefined, "code-head");
   head.append(el("span", language || "text", "code-language"));
