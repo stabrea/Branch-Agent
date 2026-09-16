@@ -258,6 +258,25 @@
             <h3>Set aside</h3>
             <div id="archived-list" class="card-list"></div>
           </div>
+          <div class="card" id="memory-tidy-card">
+            <h2>Repeats, disagreements and facts you never use</h2>
+            <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
+            <div class="input-row">
+              <button id="memory-tidy-look" type="button">Look for problems</button>
+              <button id="memory-tidy-suggest" type="button">Turn them into suggestions</button>
+            </div>
+            <label class="check-row"><input type="checkbox" id="memory-meaning" /> Also match facts by meaning, not only by their words</label>
+            <p id="memory-meaning-note" class="subtle"></p>
+            <div class="input-row"><button id="memory-index" type="button">Prepare facts for matching by meaning</button></div>
+            <h3>Take facts elsewhere</h3>
+            <p>One fact per line, the format other assistants read and write. Bringing facts back in never makes a second copy of something already saved.</p>
+            <div class="input-row">
+              <button id="memory-jsonl-export" type="button">Save facts to a file</button>
+              <button id="memory-jsonl-import" type="button">Bring facts in from a file</button>
+              <input id="memory-jsonl-file" type="file" accept=".jsonl,application/jsonl,text/plain" hidden />
+            </div>
+            <p id="memory-tidy-status" role="status"></p>
+          </div>
           <div class="card">
             <p id="memory-count" role="status"></p>
             <form id="memory-capacity-form" class="form-grid">
@@ -750,6 +769,10 @@
         <button id="context-change-model" class="context-link" type="button">Change the model</button>
       </div>
       <div class="context-block">
+        <h2 class="context-head">What we are doing</h2>
+        <div id="context-working" class="context-rows"></div>
+      </div>
+      <div class="context-block">
         <h2 class="context-head">Running now</h2>
         <div id="context-tasks" class="context-rows"></div>
       </div>
@@ -794,5 +817,6 @@
     <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
+    <script src="/memory-tidy.js" type="module"></script>
   </body>
 </html>

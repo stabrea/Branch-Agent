@@ -52,6 +52,10 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Conversation branches from earlier messages, with separate subsequent histories.
 - Searchable saved conversations with resume, duplication and JSON export/import.
 - Editable memory facts with revision checks, per-owner capacity and JSON export/import.
+- Saved facts stay tidy: repeats, newer facts that disagree with older ones and never-used facts are found and offered as suggestions you accept or reject; an accepted one is set aside where it can be brought back, never deleted.
+- Facts are found by their words and, where the model offers it, by meaning, with the most useful facts first; JSON Lines export and import that never makes a second copy, and conversations saved as Markdown.
+- A long conversation keeps a structured note of it — what we are doing, what was decided, what is still open, files touched — and any message you pin stays in front of the assistant.
+- Show the assistant a picture when the model can look at one; a model that cannot says so plainly.
 - A first-run setup that ends with a real test call: ChatGPT plan, API key or offline demonstration.
 - Temporary conversations that never enter search, the library or memory and are discarded when you move on.
 - "Forget what this conversation saved": preview and remove a conversation's own memory facts, keep the ones you edited, and stop that conversation from saving again on its own.
