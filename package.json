@@ -20,7 +20,8 @@
     "demo": "npm run build && node dist/cli.js demo",
     "doctor": "npm run build && node dist/cli.js doctor",
     "desktop": "npm run build && electron .",
-    "package:desktop": "npm run build && electron scripts/prepare-icon.cjs && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs"
+    "package:desktop": "npm run build && electron scripts/prepare-icon.cjs && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs",
+    "docs:providers": "node scripts/docs-providers.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

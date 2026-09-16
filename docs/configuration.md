@@ -53,6 +53,92 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `GET /api/providers/local` probes for Ollama at `127.0.0.1:11434` and LM Studio at `127.0.0.1:1234`, lists available models for any local runtime that responds, and returns an empty list if neither is running. The probe uses a short timeout and does not go through the network policy (local detection must succeed even when private addresses are otherwise blocked).
 
+### Which model services work (wave 7)
+
+Every model service Branch knows about is written down in `data/providers.json`, not in code. Each
+line says which wire shape the service speaks, where it lives, how it wants to be shown a key, what
+it can do, and where it publishes its prices. Correct that file and the Settings list, this table
+and the setup route all change together; adding a service that speaks a shape Branch already knows
+needs no code at all.
+
+Routes:
+
+- `GET /api/connections/catalog` — the whole catalog, with the date the prices were checked.
+- `POST /api/connections/from-preset` — `{ provider, key, extras, model?, name? }`. Branch checks
+  the key by using it *before* anything is saved, puts the key in the secrets locker under the
+  project `model-connections`, registers the connection, and answers with the models it found. The
+  key never appears in the answer, in an error message or in the log.
+
+The table below is generated from `data/providers.json` by `npm run docs:providers`. Do not edit it
+by hand; edit the data file and run that command.
+
+<!-- providers:start -->
+
+Branch knows 38 model services. Every one of them has been tested against a fake of the
+service, not against the real one, so treat this as "Branch speaks the right language", not as
+"this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
+
+| Service | Where it runs | Speaks | What it can do | What you have to fill in |
+| --- | --- | --- | --- | --- |
+| AWS Bedrock | in the cloud | Bedrock | conversation, pictures in, tools, as it types | The AWS region your models are enabled in; Your AWS access key id |
+| Anthropic | in the cloud | Anthropic | conversation, pictures in, tools, as it types | just a key |
+| Azure OpenAI | in the cloud | Azure | conversation, pictures in, tools, fixed format, as it types, compare passages | Your Azure resource name; The name you gave the deployment |
+| Baidu Qianfan | in the cloud | OpenAI | conversation, tools, as it types, compare passages | just a key |
+| Cerebras | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
+| Cloudflare Workers AI | in the cloud | OpenAI | conversation, tools, as it types, compare passages, pictures out | Your Cloudflare account id |
+| Cohere | in the cloud | Cohere v2 | conversation, tools, fixed format, as it types, compare passages | just a key |
+| DeepSeek | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
+| Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key |
+| Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
+| GitHub Models | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses |
+| Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key |
+| Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Jan | on this computer | OpenAI | conversation, tools, as it types | just a key |
+| LM Studio | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| LiteLLM proxy | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| LocalAI | on this computer | OpenAI | conversation, tools, as it types, compare passages, speech, pictures out | just a key |
+| MiniMax | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Mistral | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key |
+| Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key |
+| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out | just a key |
+| OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key |
+| OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Perplexity | in the cloud | OpenAI | conversation, as it types | just a key |
+| Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
+| Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key |
+| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you |
+| Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
+| Voyage AI | in the cloud | OpenAI | compare passages | just a key |
+| Zhipu GLM | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
+| llama.cpp | on this computer | OpenAI | conversation, tools, fixed format, as it types, compare passages | just a key |
+| vLLM | on this computer | OpenAI | conversation, tools, as it types | just a key |
+| xAI (Grok) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, pictures out | just a key |
+
+Services that need something more than a key, or that do not publish a list of their models:
+
+- **AWS Bedrock** — Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above.
+- **Azure OpenAI** — Needs your resource name and the name you gave the deployment; the model is chosen by the deployment, not by the model name.
+- **Baidu Qianfan** — Baidu's Qianfan in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
+- **Cloudflare Workers AI** — Needs your Cloudflare account id as well as a token. Model names start with @cf/.
+- **Cohere** — Cohere speaks its own shape rather than OpenAI's. Nothing extra to fill in.
+- **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
+- **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
+- **MiniMax** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+- **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.
+- **Perplexity** — Answers questions with sources of its own. It does not publish a list of models, so Branch cannot check the key without using it.
+- **Portkey** — A gateway that sits in front of other services and speaks OpenAI's shape. Which model answers depends on the configuration you set up there.
+- **Qwen (Alibaba DashScope)** — Alibaba's DashScope in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
+- **Something else that speaks OpenAI's shape** — For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer.
+- **Voyage AI** — Compares passages only; it does not hold conversations, so it cannot be a connection that answers you. Use it for searching your own documents.
+- **Zhipu GLM** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+
+<!-- providers:end -->
+
 ### Models on this computer
 
 **Settings → Models on this computer** manages Ollama and LM Studio directly, so a model can answer without anything leaving this machine and without any charge.
