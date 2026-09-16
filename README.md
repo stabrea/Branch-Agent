@@ -61,6 +61,11 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - "Forget what this conversation saved": preview and remove a conversation's own memory facts, keep the ones you edited, and stop that conversation from saving again on its own.
 - Projects with their own instructions, preferred model and secrets; switch the active project to change all three.
 - A secrets locker: values are encrypted with a key kept outside the database, reach a program only as environment variables of a host command in the active project, are scrubbed from its output, and are never shown again.
+- Say which secret without saying the secret: write `secret://project/NAME` anywhere a key is wanted, and the real value is only ever looked up at the moment of the call, then taken back out of every answer, log line, receipt and failure message. Replace a secret with the date recorded, be reminded before one goes stale, and see which task used which secret.
+- Sign in to other services the ordinary way: their own page in your browser, the answer coming back only to this computer, the key straight into the locker, and renewed by itself when it runs out. Branch Agent never sees the password.
+- Lock the app after a quiet spell: it keeps answering from what it knows but will not open the locker until you unlock it.
+- Personal details — email addresses, phone numbers, card and bank numbers, national id numbers — are hidden in messages that leave this computer, and left exactly as they are in the files you ask it to read. An optional content check can hold a message back.
+- Commands on Windows run inside a job the system itself polices: the memory and processor ceilings are real, and everything the command started is cleared up afterwards. An offline mode points ordinary tools at a dead address so they fail fast instead of reaching the internet.
 - Approval rules with three ready-made settings — ask before changes, work freely in the workspace, or read only — plus a practice run that changes nothing and per-conversation pace limits.
 - Terminal commands `/models`, `/model <id>` and `/think <level>` that the web view respects.
 - Telegram channel: message your assistant from a direct chat or a group, each chat with its own conversation; strangers pair with a six-digit code you approve; groups answer when mentioned or replied to.

@@ -168,8 +168,12 @@ test('parent exit with a descendant holding pipes returns bounded cleanup status
   if (process.platform === 'win32') {
     assert.equal(result.status, 'descendant_pipes');
     assert.equal(result.cleanup.status, 'incomplete');
-    assert.equal(alive(pids.child), true, 'The result must honestly identify the Windows orphan limitation');
-    process.kill(pids.child, 'SIGKILL');
+    // A job object kills the orphan as it is let go; without one, the old limitation still holds.
+    if (result.isolation === 'job-object') await gone(pids.child);
+    else {
+      assert.equal(alive(pids.child), true, 'The result must honestly identify the Windows orphan limitation');
+      process.kill(pids.child, 'SIGKILL');
+    }
   } else assert.equal(result.status, 'descendant_pipes');
   await gone(pids.parent); await gone(pids.child);
   await f.shell.close();
