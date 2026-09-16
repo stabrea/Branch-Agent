@@ -39,7 +39,7 @@ import {
 } from "./provider-retry.js";
 
 const childConcurrency = 4;
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -167,7 +167,7 @@ export class Runtime {
     if (permissions.some((p) => !parent.permissions.has(p))) throw new Error("Delegation permission escalation denied");
     const timeoutMs = options.timeoutMs ?? 120000;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
-    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget() };
+    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(), ...(options.agent ? { agent: options.agent } : {}) };
     let started: Run | undefined;
     const startedAt = new Promise<Run>((resolve) => { started = undefined; void resolve; });
     void startedAt;
@@ -304,6 +304,7 @@ export class Runtime {
       signal: AbortSignal.any([parent.signal, timeout.signal]),
       permissions: new Set(permissions),
       depth: parent.depth + 1,
+      ...(options.agent ? { agent: options.agent } : {}),
     };
     try {
       return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}) }, context, instructions));
@@ -328,7 +329,7 @@ export class Runtime {
    * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
    * results into later prompts; every result is merged under the parent run.
    */
-  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string }): Promise<FanoutOutcome> {
+  async fanout(parent: ToolContext, tasks: FanoutTask[], resolve: (id: string) => { permissions: string[]; instructions: string; agent?: string }): Promise<FanoutOutcome> {
     const waves = fanoutWaves(tasks), byId = new Map(tasks.map((t) => [t.id, t]));
     const outcomes: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> = {};
     for (const wave of waves) {
@@ -339,6 +340,7 @@ export class Runtime {
         const { run, result } = await this.delegateChecked(task.prompt + context, parent, spec.permissions, spec.instructions, {
           ...(task.resultSchema ? { resultSchema: task.resultSchema } : {}),
           ...(task.checks ? { checks: CompletionCheckSchema.parse(task.checks) } : {}),
+          ...(spec.agent ? { agent: spec.agent } : {}),
         });
         outcomes[id] = { runId: run.id, status: run.status, output: run.output, result };
       }));
@@ -519,7 +521,7 @@ export class Runtime {
           identityInstructions(identity) + instructions + this.store.projects.instructions(context.owner) + skillInstructions(this.store, context) + pinnedSkillInstructions(this.store, context),
       },
     ];
-    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId);
+    const snapshot = this.store.review.sessionSnapshot(context.owner, run.sessionId, context.agent);
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);

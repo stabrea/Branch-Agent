@@ -193,6 +193,7 @@ function renderMemory() {
   cards.forEach((node, index) => { if (target.children[index] !== node) target.insertBefore(node, target.children[index] || null); });
   if (!cards.length) target.append(el("div", "Save a preference, decision, or useful fact.", "empty"));
   renderLearning();
+  if (!renderMemory.archivedOnce) { renderMemory.archivedOnce = true; void renderArchived(); }
   if (focused?.isConnected && document.activeElement !== focused) {
     focused.focus({ preventScroll: true });
     if (selection) focused.setSelectionRange(...selection);
@@ -246,6 +247,8 @@ function memoryCard(record) {
   node.dataset.memoryId = record.id;
   const edit = button("Edit", () => { memoryEditors.set(record.id, { ...record.data, revision: record.revision }); renderMemory(); });
   edit.disabled = memoryEditors.has(record.id);
+  if (record.data.entity) node.append(el("p", `About ${record.data.entity}${record.data.attribute ? " · " + record.data.attribute : ""} · from ${date(record.data.validFrom || record.createdAt)}${record.data.validTo ? " until " + date(record.data.validTo) : ""}`, "meta"));
+  if (record.data.scope && record.data.scope !== "private") node.append(el("p", record.data.scope === "shared" ? "Specialists may see this" : `Only the ${record.data.scope.slice(6)} specialist sees this`, "meta"));
   node.append(el("p", record.data.source), el("p", date(record.createdAt), "meta"), edit,
     button("History", () => showMemoryHistory(node, record)),
     button("Delete", async () => { await api("action", { tool: "memory.delete", args: { id: record.id } }); memoryEditors.delete(record.id); await refresh(); }));
@@ -1042,6 +1045,20 @@ function renderConversationContext() {
     context.append(conversationButton("Open original conversation", () => openConversation(original)));
   }
   if (!currentTemporary) context.append(conversationButton("Forget what this conversation saved to memory", () => previewForget(context)));
+  if (!currentTemporary) void renderMemoryPolicy(context);
+}
+/** A switch for whether this conversation may save memory on its own. */
+async function renderMemoryPolicy(context) {
+  let policy;
+  try { policy = await api(`sessions/${sessionId}/memory-policy`); } catch { return; }
+  const row = el("label", undefined, "check-row");
+  const box = el("input"); box.type = "checkbox"; box.checked = policy.remember;
+  row.append(box, document.createTextNode(" This conversation may save things to memory on its own"));
+  box.addEventListener("change", async () => {
+    try { await api(`sessions/${sessionId}/memory-policy`, { remember: box.checked }); toast(box.checked ? "It may remember from here again." : "It will not remember from this conversation on its own."); }
+    catch (e) { toast(e.message); box.checked = !box.checked; }
+  });
+  context.append(row);
 }
 async function previewForget(context) {
   let preview;
@@ -1310,8 +1327,35 @@ form("memory-form", () =>
   action("memory.put", {
     text: $("memory-text").value,
     source: $("memory-source").value,
+    ...($("memory-entity").value.trim() ? { entity: $("memory-entity").value.trim() } : {}),
+    ...($("memory-attribute").value.trim() ? { attribute: $("memory-attribute").value.trim() } : {}),
+    ...($("memory-shared").checked ? { scope: "shared" } : {}),
   }),
 );
+async function renderArchived() {
+  try {
+    const { archived } = await api("memory/archive");
+    list("archived-list", archived, (r) => {
+      const node = el("div", undefined, "record");
+      node.append(el("p", r.data.text), el("p", `Set aside ${date(r.archivedAt)}`, "meta"),
+        button("Bring back", async () => { await api(`memory/archive/${encodeURIComponent(r.id)}/restore`, {}); toast("Back in memory."); await refresh(); await renderArchived(); }));
+      return node;
+    }, "Nothing has been set aside.");
+  } catch { /* shown on the next visit */ }
+}
+$("tidy-preview").addEventListener("click", async () => {
+  try {
+    const result = await api("memory/hygiene", { olderThanDays: Number($("tidy-days").value) || 180, action: "preview" });
+    list("tidy-list", result.stale, (s) => { const node = el("div", undefined, "record"); node.append(el("p", s.text), el("p", `Last touched ${date(s.updatedAt)}`, "meta")); return node; }, "Nothing that old is in memory.");
+  } catch (e) { toast(e.message); }
+});
+$("tidy-archive").addEventListener("click", async () => {
+  try {
+    const result = await api("memory/hygiene", { olderThanDays: Number($("tidy-days").value) || 180, action: "archive" });
+    toast(result.archived.length ? `${result.archived.length} set aside.` : "Nothing that old is in memory.");
+    $("tidy-list").replaceChildren(); await refresh(); await renderArchived();
+  } catch (e) { toast(e.message); }
+});
 form("memory-capacity-form", async () => {
   const submitted = $("memory-capacity").value;
   await api("memory/capacity", { maxFacts: Number(submitted) });

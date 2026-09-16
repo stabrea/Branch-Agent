@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inventory_date": "2026-09-15",
-  "assessment_date": "2026-09-16T01:10:45.524678+00:00",
+  "assessment_date": "2026-09-16T01:16:33.739103+00:00",
   "scope": "Versioned capability snapshot; not a claim of exhaustive current or future feature parity.",
   "status_definitions": {
     "implemented": "Full entry behavior is present in source and supported by inspected local fixtures; excludes live configured-service readiness.",
@@ -360,18 +360,19 @@
       "family": "routing",
       "name": "Shared agent identity with separate conversations",
       "acceptance_criterion": "Recall a shared permitted memory in two sessions while keeping their message histories separate.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/runtime.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "two conversations recall the same permitted memory while their histories stay separate"
         ],
-        "detail": "Memory is owner-scoped, sessions have separate message rows, and tools allow lookup; no cross-session acceptance fixture."
+        "detail": "Two distinct conversations of the same owner recall the same permitted fact through memory.search while their message histories stay separate."
       },
-      "remaining": "Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate."
+      "remaining": ""
     },
     {
       "id": "routing.isolated-agents",
@@ -1300,36 +1301,42 @@
       "family": "memory",
       "name": "Explicit agent and project memory boundaries",
       "acceptance_criterion": "Verify that memory queries return only entries in the agent and explicitly shared scopes.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
+          "src/memory.ts",
+          "src/memory-review.ts",
+          "src/runtime.ts",
           "src/knowledge.ts",
-          "src/store.ts"
+          "src/contracts.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "memory is source/time attributed and isolated by owner"
+          "private, shared and agent scopes decide what a delegated specialist can recall, while the owner sees everything"
         ],
-        "detail": "Owner query isolation exists; agent scope and configurable shared scope are absent."
+        "detail": "Facts carry a scope: private (owner only, default), shared, or agent:<id>. Delegated specialists run with an agent id; their memory.search/memory.at/timeline and their conversation snapshot see only shared facts and their own, their memory.put lands in their own scope unless marked shared, and the owner sees everything."
       },
-      "remaining": "Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes."
+      "remaining": ""
     },
     {
       "id": "memory.lineage",
       "family": "memory",
       "name": "Source lineage and admission controls",
       "acceptance_criterion": "Record source-session lineage for an admitted memory and exclude a denied session from automatic ingestion.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/server.ts"
+          "src/memory.ts",
+          "src/server.ts",
+          "public/app.js",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "authenticated API executes real demo and exposes events and usage"
+          "a conversation can be told to stop remembering on its own and allowed again, and tidy-up sets old facts aside restorably"
         ],
-        "detail": "Explicit writes store source, timestamp and sourceRunId; no automatic ingestion or source-session admission mechanism."
+        "detail": "Every fact keeps source, time, sourceRunId and originRunId. Each conversation has an admission switch (GET/POST /api/sessions/:id/memory-policy, and in the conversation panel): denied conversations cannot save memory on their own; temporary conversations never can; forgetting a conversation also denies it. Allowing again re-admits it."
       },
-      "remaining": "Add session admission/denial policy and automatic-ingestion exclusion fixtures."
+      "remaining": ""
     },
     {
       "id": "memory.forget",
@@ -1427,16 +1434,21 @@
       "family": "memory",
       "name": "Time-aware entity and relationship memory",
       "acceptance_criterion": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time.",
-      "status": "missing",
+      "status": "implemented",
       "evidence": {
         "paths": [
-          "src/knowledge.ts",
-          "src/store.ts"
+          "src/memory.ts",
+          "src/store.ts",
+          "public/app.js",
+          "public/index.html",
+          "tests/memory-scopes.test.mjs"
         ],
-        "tests": [],
-        "detail": "Read-only inspection found no implementation of this acceptance entry. Generic SDK/dependency capability is not credited."
+        "tests": [
+          "facts about an entity change over time and a time-qualified question gets the fact valid then"
+        ],
+        "detail": "A fact may name an entity, an attribute and validFrom; saving a newer fact for the same entity and attribute ends the earlier one at that moment (kept as a version, reason superseded). memory.at answers which facts were true at a given time and memory.timeline lists an entity's facts in order; the Memory view shows about/detail/from-until."
       },
-      "remaining": "Store changing facts about an entity and answer a time-qualified query using the fact valid at that time."
+      "remaining": ""
     },
     {
       "id": "memory.linked-wiki",
@@ -1600,18 +1612,20 @@
       "family": "learning",
       "name": "Inspect edit prune and archive learning",
       "acceptance_criterion": "List learned memories and skills, edit one, and remove or archive one through the learning view.",
-      "status": "partial",
+      "status": "implemented",
       "evidence": {
         "paths": [
           "public/app.js",
-          "src/knowledge.ts"
+          "public/index.html",
+          "src/memory.ts",
+          "tests/memory-scopes.test.mjs"
         ],
         "tests": [
-          "browser UI connects, runs demo, saves memory, and fits mobile viewport"
+          "a conversation can be told to stop remembering on its own and allowed again, and tidy-up sets old facts aside restorably"
         ],
-        "detail": "Memory list/add/delete and specialist/procedure list/revise exist, but memory editing and skill removal/archive are absent."
+        "detail": "The Memory view edits, deletes, shows history and restores versions of facts; Tidy up previews and sets aside facts untouched for N days and brings them back; suggestions can be accepted or rejected; skills can be disabled (archived) or removed with all versions."
       },
-      "remaining": "Complete learning-view edit/remove/archive operations for memories and skills."
+      "remaining": ""
     },
     {
       "id": "learning.cache",

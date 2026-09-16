@@ -47,6 +47,15 @@ Nothing lives only in chat. Open work is tracked as checklists:
 
 Coverage 51 implemented, 42 partial, 75 missing, 1 external of 169.
 
+## Batch 15 (local, unreleased): time-qualified facts, memory scopes, admission switch, tidy-up view
+
+`MemoryDataSchema` gained entity/attribute/validFrom/validTo/scope (scope optional so exports keep their
+shape); `closeEarlier` ends the previous fact and keeps a version (reason superseded); `memory.at`,
+`memory.timeline`; `ToolContext.agent` set by `Knowledge.delegate`/fan-out (`activeSpecialist` returns the
+id) and honoured by search/at/timeline, memory.put's default scope and the session snapshot;
+`/api/sessions/:id/memory-policy` reuses memory_suppressions; Memory view: about/detail/shared fields,
+Tidy up + Set aside list; conversation panel: remember switch.
+
 ## Batch 14 (local, unreleased): recipe inputs and result shapes, templates, project folders
 
 `src/recipes.ts` (ParametersSchema, bindInputs, substitute, placeholders) used by `Knowledge.bound()` in

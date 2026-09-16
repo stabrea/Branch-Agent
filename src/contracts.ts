@@ -135,6 +135,8 @@ export interface ToolContext {
   budget: Budget;
   permissions: ReadonlySet<string>;
   depth: number;
+  /** Set for delegated specialists: memory reads are limited to shared facts and this agent's own. */
+  agent?: string;
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

@@ -305,7 +305,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.searchSessions(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/sessions/import")
     return app.store.importSession(owner, await readBody(request, maximumArchiveBytes));
-  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups))?$/.exec(path);
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})(?:\/(export|duplicate|model|discard|skill|followups|memory-policy))?$/.exec(path);
+  if (match && match[2] === "memory-policy") {
+    if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
+    if (request.method === "GET") return { remember: !app.store.memorySuppressed(owner, match[1]!) };
+    if (request.method === "POST") {
+      const { remember } = z.object({ remember: z.boolean() }).strict().parse(await readBody(request));
+      return { remember: !app.store.setMemorySuppressed(owner, match[1]!, !remember) };
+    }
+  }
   if (match && match[2] === "followups") {
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {

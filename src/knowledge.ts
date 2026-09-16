@@ -349,13 +349,14 @@ export class Knowledge {
     const state = this.required("specialists", owner, id).data as unknown as SpecialistState;
     const version = state.activeVersion === state.version ? state : state.history.find((v) => v.version === state.activeVersion);
     if (!version || !version.evaluationPassed) throw new Error(`Specialist ${id} has no evaluated active version`);
-    return { permissions: version.definition.permissions, instructions: version.definition.instructions };
+    return { permissions: version.definition.permissions, instructions: version.definition.instructions, agent: id };
   }
   async delegate(context: ToolContext, id: string, prompt: string, options: { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean } = {}) {
     this.require(context, "specialists.use");
     const spec = this.activeSpecialist(context.owner, id);
-    if (options.background) return this.runtime.delegateBackground(prompt, context, spec.permissions, spec.instructions, options);
-    return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, options);
+    const scoped = { ...options, agent: id };
+    if (options.background) return this.runtime.delegateBackground(prompt, context, spec.permissions, spec.instructions, scoped);
+    return this.runtime.delegateChecked(prompt, context, spec.permissions, spec.instructions, scoped);
   }
   async fanout(context: ToolContext, tasks: (FanoutTask & { specialist: string })[]) {
     this.require(context, "specialists.use");

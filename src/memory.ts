@@ -12,7 +12,21 @@ export const MemoryDataSchema = z.object({
   sourceRunId: z.string().max(200).default(""),
   /** The run that first saved the fact; survives later edits so a conversation can be forgotten precisely. */
   originRunId: z.string().max(200).optional(),
+  /** Who or what the fact is about, and which detail, so facts can change over time. */
+  entity: z.string().trim().min(1).max(120).optional(),
+  attribute: z.string().trim().min(1).max(80).optional(),
+  /** When the fact became true and when it stopped being true (null or absent while current). */
+  validFrom: z.iso.datetime().optional(),
+  validTo: z.iso.datetime().nullable().optional(),
+  /** private (owner only, default), shared (also visible to delegated specialists), or agent:<id>. */
+  scope: z.string().regex(/^(private|shared|agent:[a-zA-Z0-9_.:-]{1,80})$/).optional(),
 }).strict();
+/** Scopes a reader may see: everything for the owner, shared plus its own for a delegated specialist. */
+export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {
+  if (!agent) return true;
+  const scope = record.data.scope ?? "private";
+  return scope === "shared" || scope === `agent:${agent}`;
+}
 const NewMemoryDataSchema = MemoryDataSchema.extend({
   text: z.string().trim().min(1).max(4000),
   source: z.string().trim().min(1).max(500).default("Saved by workspace owner"),
@@ -32,7 +46,17 @@ export const UpdateMemorySchema = z.object({
   id: MemoryIdSchema, text: z.string().trim().min(1).max(4000),
   source: z.string().trim().min(1).max(500), expectedRevision: z.number().int().positive(),
 }).strict();
+export const PutMemorySchema = z.object({
+  text: z.string().trim().min(1).max(4000),
+  source: z.string().trim().min(1).max(500),
+  entity: z.string().trim().min(1).max(120).optional(),
+  attribute: z.string().trim().min(1).max(80).optional(),
+  validFrom: z.iso.datetime().optional(),
+  scope: z.enum(["private", "shared"]).optional(),
+}).strict();
+export const AtMemorySchema = z.object({ entity: z.string().trim().min(1).max(120), attribute: z.string().trim().min(1).max(80).optional(), at: z.iso.datetime().optional() }).strict();
 export interface MemoryRecord extends SavedRecord { revision: number }
+type MemoryData = z.infer<typeof MemoryDataSchema>;
 type ArchiveRecord = z.infer<typeof RecordSchema>;
 
 export function parseMemoryArchive(input: unknown) {
@@ -175,6 +199,7 @@ export class MemoryFacts {
     const parsed = NewMemoryDataSchema.parse(input), previous = this.get(owner, id);
     const origin = previous ? (previous.data.originRunId || previous.data.sourceRunId) : (parsed.originRunId || parsed.sourceRunId);
     const data = { ...parsed, ...(origin ? { originRunId: origin } : {}) };
+    if (!previous && data.entity && data.attribute) this.closeEarlier(owner, data.entity, data.attribute, data.validFrom ?? new Date().toISOString());
     if (!previous) this.requireRoom(owner, 1);
     if (previous?.revision === Number.MAX_SAFE_INTEGER) throw new Error("Memory revision limit reached");
     if (previous) this.keepVersion(owner, previous, "before edit");
@@ -183,6 +208,41 @@ export class MemoryFacts {
       ON CONFLICT(id,owner) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at,revision=memory.revision+1`)
       .run(id, owner, JSON.stringify(data), now, now);
     return this.get(owner, id)!;
+  }
+  /** A newer fact about the same entity and detail ends the earlier one at the moment the new one starts. */
+  private closeEarlier(owner: string, entity: string, attribute: string, validFrom: string): void {
+    for (const record of this.list(owner)) {
+      const d = record.data as MemoryData;
+      if (d.entity !== entity || d.attribute !== attribute || (d.validTo ?? null) !== null) continue;
+      if ((d.validFrom ?? record.createdAt) >= validFrom) continue;
+      this.keepVersion(owner, record, "superseded");
+      this.db.prepare("UPDATE memory SET data=?, updated_at=?, revision=revision+1 WHERE owner=? AND id=?")
+        .run(JSON.stringify({ ...d, validTo: validFrom }), new Date().toISOString(), owner, record.id);
+    }
+  }
+  /** Facts about an entity that were true at a moment: started on or before it and not ended by then. */
+  at(owner: string, input: unknown, agent?: string) {
+    const { entity, attribute, at } = AtMemorySchema.parse(input);
+    const moment = at ?? new Date().toISOString();
+    return this.list(owner).filter((record) => visibleTo(record, agent)).filter((record) => {
+      const d = record.data as MemoryData;
+      if (d.entity?.toLowerCase() !== entity.toLowerCase()) return false;
+      if (attribute && d.attribute?.toLowerCase() !== attribute.toLowerCase()) return false;
+      const from = d.validFrom ?? record.createdAt;
+      return from <= moment && (!d.validTo || d.validTo > moment);
+    }).map((record) => { const d = record.data as MemoryData; return { id: record.id, text: d.text, entity: d.entity, attribute: d.attribute, validFrom: d.validFrom ?? record.createdAt, validTo: d.validTo ?? null, scope: d.scope }; });
+  }
+  /** Every fact about an entity in the order it became true, ended ones included. */
+  timeline(owner: string, entity: string, agent?: string) {
+    return this.list(owner).filter((record) => visibleTo(record, agent) && (record.data as MemoryData).entity?.toLowerCase() === entity.toLowerCase())
+      .map((record) => { const d = record.data as MemoryData; return { id: record.id, text: d.text, attribute: d.attribute, validFrom: d.validFrom ?? record.createdAt, validTo: d.validTo ?? null, scope: d.scope }; })
+      .sort((a, b) => a.validFrom.localeCompare(b.validFrom));
+  }
+  /** Lets a conversation save memory again, or stops it from doing so on its own. */
+  setSuppressed(owner: string, sessionId: string, suppressed: boolean): boolean {
+    if (suppressed) this.db.prepare("INSERT OR IGNORE INTO memory_suppressions VALUES(?,?,?)").run(owner, sessionId, new Date().toISOString());
+    else this.db.prepare("DELETE FROM memory_suppressions WHERE owner=? AND session_id=?").run(owner, sessionId);
+    return this.suppressed(owner, sessionId);
   }
   update(owner: string, input: unknown, sourceRunId: string) {
     const value = UpdateMemorySchema.parse(input), previous = this.get(owner, value.id);
@@ -215,11 +275,12 @@ export class MemoryFacts {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
     return { imported: additions.length, unchanged: archive.records.length - additions.length };
   }
-  search(owner: string, query: string) {
+  search(owner: string, query: string, agent?: string) {
     const normalized = query.normalize("NFC").toLowerCase();
     const results: MemoryRecord[] = [];
     let bytes = 2;
     for (const record of this.list(owner)) {
+      if (!visibleTo(record, agent)) continue;
       if (!String(record.data.text).normalize("NFC").toLowerCase().includes(normalized)) continue;
       const size = Buffer.byteLength(JSON.stringify(record)) + 1;
       if (bytes + size > 48000 || results.length === 20) break;
@@ -245,22 +306,30 @@ function staged(store: Store, context: { owner: string; runId: string }, proposa
   return { staged: true, proposalId: saved.id, message: "Saved as a suggestion. The owner can accept it in the Memory view." };
 }
 export function registerMemory(registry: ToolRegistry, store: Store): void {
-  registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp.",
-    permission: "memory.write", parameters: UpdateMemorySchema.pick({ text: true, source: true }),
+  registry.register({ name: "memory.put", description: "Save an explicit bounded fact with source and timestamp. Give entity and attribute when the fact is about someone or something and may change later (a newer fact ends the earlier one). Scope shared makes it visible to specialists.",
+    permission: "memory.write", parameters: PutMemorySchema,
     execute: async (value, context) => {
       const sessionId = store.run(context.runId)?.sessionId;
       if (sessionId && store.memorySuppressed(context.owner, sessionId))
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
+      const scope = context.agent ? (value.scope === "shared" ? "shared" : `agent:${context.agent}`) : value.scope;
+      const { scope: _requested, ...rest } = value; void _requested;
       return staged(store, context, { kind: "put", text: value.text, source: value.source })
-        ?? store.save("memory", context.owner, randomUUID(), { ...value, sourceRunId: context.runId });
+        ?? store.save("memory", context.owner, randomUUID(), { ...rest, ...(scope ? { scope } : {}), sourceRunId: context.runId });
     } });
+  registry.register({ name: "memory.at", description: "Facts about an entity that were true at a given moment (default now), for details that change over time.",
+    permission: "memory.read", parameters: AtMemorySchema,
+    execute: async (value, context) => store.memoryAt(context.owner, value, context.agent) });
+  registry.register({ name: "memory.timeline", description: "Every saved fact about an entity in the order it became true, including ones that have ended.",
+    permission: "memory.read", parameters: z.object({ entity: z.string().trim().min(1).max(120) }).strict(),
+    execute: async (value, context) => store.memoryTimeline(context.owner, value.entity, context.agent) });
   registry.register({ name: "memory.update", description: "Correct an existing fact using its current revision. Stale edits are rejected.",
     permission: "memory.write", parameters: UpdateMemorySchema,
     execute: async (value, context) => staged(store, context, { kind: "update", memoryId: value.id, text: value.text, source: value.source })
       ?? store.updateMemory(context.owner, value, context.runId) });
   registry.register({ name: "memory.search", description: "Search this owner's facts by literal text, returning bounded matches and their edit revisions.",
     permission: "memory.read", parameters: z.object({ query: z.string().max(200) }).strict(),
-    execute: async (value, context) => store.searchMemory(context.owner, value.query) });
+    execute: async (value, context) => store.searchMemory(context.owner, value.query, context.agent) });
   registry.register({ name: "memory.delete", description: "Delete an owner-scoped memory.", permission: "memory.write",
     parameters: z.object({ id: MemoryIdSchema }).strict(),
     execute: async (value, context) => staged(store, context, { kind: "delete", memoryId: value.id }) ?? store.delete("memory", context.owner, value.id) });

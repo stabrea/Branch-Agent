@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { MemoryFacts, MemoryRecord } from "./memory.js";
+import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
 
 /**
  * Governance for what the assistant learns: exact versions of every memory, whole-memory
@@ -121,12 +121,12 @@ export class MemoryReview {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
   /** The memory snapshot a conversation started with; the same one is returned for the rest of that conversation. */
-  sessionSnapshot(owner: string, sessionId: string): { text: string; count: number; reused: boolean; takenAt: string } {
+  sessionSnapshot(owner: string, sessionId: string, agent?: string): { text: string; count: number; reused: boolean; takenAt: string } {
     const key = `memory-snapshot:${sessionId}`;
     const saved = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(owner, key);
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;
-    for (const record of this.memories.list(owner).slice(0, memorySnapshotLimits.facts)) {
+    for (const record of this.memories.list(owner).filter((r) => visibleTo(r, agent)).slice(0, memorySnapshotLimits.facts)) {
       const line = `- ${String(record.data.text).replace(/\s+/g, " ").trim()}`;
       if (chars + line.length > memorySnapshotLimits.chars) break;
       lines.push(line); chars += line.length + 1;

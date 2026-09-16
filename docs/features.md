@@ -2,7 +2,7 @@
 
 This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
 
-The source/fixture audit recorded 80 implemented, 24 partial, 1 external and 64 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+The source/fixture audit recorded 85 implemented, 20 partial, 1 external and 63 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
 
 Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
 
@@ -32,7 +32,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Mention activation and engagement policies (`routing.activation`) | implemented | Covered by the listed local fixtures. |
 | Sender allowlists and pairing (`routing.pairing`) | implemented | Covered by the listed local fixtures. |
 | Conversation spanning channels (`routing.shared-session`) | missing | Continue one conversation from two linked channels with both surfaces observing the same ordered history. |
-| Shared agent identity with separate conversations (`routing.shared-identity`) | partial | Demonstrate two distinct sessions explicitly recalling the same permitted memory while keeping histories separate. |
+| Shared agent identity with separate conversations (`routing.shared-identity`) | implemented | Covered by the listed local fixtures. |
 | Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
 | Search resume duplicate import and export sessions (`routing.lifecycle`) | implemented | Covered by the listed local fixtures. |
 | Temporary chats excluded from history and memory (`routing.temporary`) | implemented | Covered by the listed local fixtures. |
@@ -92,13 +92,13 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
 | Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |
 | External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
-| Explicit agent and project memory boundaries (`memory.scope`) | partial | Add explicitly shared scopes and demonstrate eligible queries across agent/private/shared scopes. |
-| Source lineage and admission controls (`memory.lineage`) | partial | Add session admission/denial policy and automatic-ingestion exclusion fixtures. |
+| Explicit agent and project memory boundaries (`memory.scope`) | implemented | Covered by the listed local fixtures. |
+| Source lineage and admission controls (`memory.lineage`) | implemented | Covered by the listed local fixtures. |
 | Preview removal of tracked derived memory (`memory.forget`) | implemented | Covered by the listed local fixtures. |
 | Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
 | Automatic archival and expiry of stale memory (`memory.hygiene`) | implemented | Covered by the listed local fixtures. |
 | Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
-| Time-aware entity and relationship memory (`memory.temporal-graph`) | missing | Store changing facts about an entity and answer a time-qualified query using the fact valid at that time. |
+| Time-aware entity and relationship memory (`memory.temporal-graph`) | implemented | Covered by the listed local fixtures. |
 | Editable linked knowledge pages (`memory.linked-wiki`) | missing | Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval. |
 | Shared memory through independent host adapters (`memory.cross-agent`) | missing | Ingest a supported host's session log and retrieve its permitted memory through a second host adapter. |
 | Locally searchable email calendar and message datasets (`memory.connector-datasets`) | missing | Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers. |
@@ -112,7 +112,7 @@ Machine-readable criteria, source paths, test names and remaining work are in [f
 | Versioned durable memory (`learning.versioning`) | implemented | Covered by the listed local fixtures. |
 | Post-task memory and skill review (`learning.review`) | implemented | Covered by the listed local fixtures. |
 | Pending memory write review (`learning.approval`) | implemented | Covered by the listed local fixtures. |
-| Inspect edit prune and archive learning (`learning.journey`) | partial | Complete learning-view edit/remove/archive operations for memories and skills. |
+| Inspect edit prune and archive learning (`learning.journey`) | implemented | Covered by the listed local fixtures. |
 | Bounded session-start memory snapshots (`learning.cache`) | implemented | Covered by the listed local fixtures. |
 | Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | implemented | Covered by the listed local fixtures. |
 | Evidence-governed skill lifecycle and rollback (`learning.governance`) | partial | Add skill degradation policy based on eligible recorded evidence and prove complete skill governance semantics. |

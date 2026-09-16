@@ -199,8 +199,19 @@
               maxlength="500"
               value="Saved by workspace owner"
               required
-            /><button>Save memory</button>
+            /><label for="memory-entity">About (optional: a person, place or thing)</label
+            ><input id="memory-entity" maxlength="120" placeholder="e.g. Mum" /><label for="memory-attribute">Which detail (optional)</label
+            ><input id="memory-attribute" maxlength="80" placeholder="e.g. phone number — a newer detail replaces the older one from that day on" /><label class="check-row"><input type="checkbox" id="memory-shared" /> Specialists may see this fact too</label
+            ><button>Save memory</button>
           </form>
+          <div class="card">
+            <h2>Tidy up</h2>
+            <p>Facts you have not touched for a while can be set aside. Set-aside facts are kept and can be brought back.</p>
+            <div class="input-row"><label for="tidy-days" class="sr-only">Older than (days)</label><input id="tidy-days" type="number" min="1" max="3650" value="180" /><span>days untouched</span><button id="tidy-preview" type="button">Show what would be set aside</button><button id="tidy-archive" type="button">Set them aside</button></div>
+            <div id="tidy-list" class="card-list" aria-live="polite"></div>
+            <h3>Set aside</h3>
+            <div id="archived-list" class="card-list"></div>
+          </div>
           <div class="card">
             <p id="memory-count" role="status"></p>
             <form id="memory-capacity-form" class="form-grid">

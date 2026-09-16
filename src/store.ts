@@ -372,7 +372,10 @@ export class Store {
   updateMemory(owner: string, input: unknown, sourceRunId: string) {
     return this.memories.update(owner, input, sourceRunId);
   }
-  searchMemory(owner: string, query: string) { return this.memories.search(owner, query); }
+  searchMemory(owner: string, query: string, agent?: string) { return this.memories.search(owner, query, agent); }
+  memoryAt(owner: string, input: unknown, agent?: string) { return this.memories.at(owner, input, agent); }
+  memoryTimeline(owner: string, entity: string, agent?: string) { return this.memories.timeline(owner, entity, agent); }
+  setMemorySuppressed(owner: string, sessionId: string, suppressed: boolean) { return this.memories.setSuppressed(owner, sessionId, suppressed); }
   exportMemory(owner: string) { return this.memories.export(owner); }
   importMemory(owner: string, input: unknown) { return this.memories.import(owner, input); }
   forgetMemoryPreview(owner: string, sessionId: string) { return this.memories.forgetPreview(owner, sessionId); }
