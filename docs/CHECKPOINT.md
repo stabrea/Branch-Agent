@@ -373,6 +373,30 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 23 (wave 4) — talking to assistants other people built
+
+Branch could be used by other AI tools over MCP; now it can also be one agent among several.
+**A2A server** (`src/a2a.ts`, `src/a2a-routes.ts`): `/.well-known/agent.json` publishes a card —
+name, address, `bearer` auth, streaming, and skills taken from the list the owner already ticked
+for sharing, plus `branch.ask`. `/a2a` takes JSON-RPC `tasks/send`, `tasks/sendSubscribe` (SSE
+frames carrying one state update per recorded step, then the artifact, then a `final` update),
+`tasks/get` and `tasks/cancel`. Every task is an ordinary run with `source: "a2a"`, an `a2a.task`
+event naming the caller, and the usual signed receipts. The switch is `a2a` inside the existing
+`settings/mcp-sharing`; while it is off both routes are 404, not 403. Only text parts are accepted,
+one caller gets 20 tasks a minute (`-32003` / HTTP 429), and `RunSource` gained `"a2a"` and
+`"acp"` so `cappedPolicy` holds both to "Ask before changes". **A2A client**
+(`src/a2a-client.ts`): `agents.remote { add | list | remove }` reads another install's card through
+the network policy and saves it; `agents.ask { agent, task }` sends the words of the task and
+nothing else, with a 60 s (max 120 s) wait, ten asks a minute per agent, and the answer charged to
+the run's budget. `GET /api/agents/discover?targets=…` probes only the addresses the owner types
+in — no mDNS, no dependency — and `GET /api/agents/pairing` returns a `branch://add-agent?…` link
+the other install redeems with `POST /api/agents/pair`. **ACP** (`src/acp.ts`, `branch acp-serve`):
+bidirectional newline-delimited JSON-RPC on stdio — `initialize`, `session/new`, `session/prompt`
+with `session/update` chunks, `session/cancel` — and a step that needs a yes becomes an outbound
+`session/request_permission` whose answer goes straight to `runtime.approve`. Documented with a Zed
+`agent_servers` example. Tests: `tests/interop-agents.test.mjs` (16, including a spawned
+`acp-serve`). No new dependency.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
