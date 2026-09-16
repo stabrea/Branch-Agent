@@ -59,7 +59,7 @@ function notes(catalog) {
 }
 
 const catalog = JSON.parse(await readFile(resolve("data/providers.json"), "utf8"));
-const block = [
+const rawBlock = [
   start,
   "",
   `Branch knows ${catalog.services.length} model services. Every one of them has been tested against a fake of the`,
@@ -77,6 +77,9 @@ const block = [
 
 const path = resolve("docs/configuration.md");
 const doc = await readFile(path, "utf8");
+// Match the line endings the file already uses, so a Windows checkout does not regenerate forever.
+const newline = doc.includes("\r\n") ? "\r\n" : "\n";
+const block = rawBlock.replace(/\r?\n/g, newline);
 const from = doc.indexOf(start), to = doc.indexOf(end);
 if (from < 0 || to < 0) {
   console.error(`docs/configuration.md is missing the ${start} / ${end} markers`);
