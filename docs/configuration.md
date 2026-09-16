@@ -3306,18 +3306,37 @@ crossed while nobody was looking. These are the same two figures the conversatio
 uses — how long, and how much — so there is one idea in the product rather than two; that setting had
 not landed when this was written, so this keeps the minimal shape and will read from it when it does.
 
+The three figures (`src/knowledge-manage.ts`, `RetentionSchema`, saved under the settings key
+`knowledge-retention`, read and written through `POST /api/knowledge/retention`): `keepDays` is how
+many days a file may go unread before it is suggested for removal, `maximumDocuments` how many files
+one collection may hold, and `maximumChunks` how many passages. **Zero means no limit**, and all
+three are zero until you set them, so nothing is suggested until you ask for it.
+
 ### What the assistant remembers, as Markdown in your workspace (A2185)
 
-`memory.mirror` writes everything the assistant remembers into a `memory/` folder in your workspace
-as ordinary Markdown: one note per kind of fact, rewritten from scratch each time. The database
-stays the real store; this is a window onto it, which makes what the assistant knows readable in any
-editor, searchable with any tool, and — because it is a folder of Markdown — usable by a notes app
-such as Obsidian pointed at the same workspace. (The Obsidian bridge itself is on another branch and
-had not landed when this was written; nothing here depends on it.)
+Everything the assistant remembers is written into a `memory/` folder in your workspace as ordinary
+Markdown: one note per kind of fact, rewritten from scratch each time. The database stays the real
+store; this is a window onto it, which makes what the assistant knows readable in any editor,
+searchable with any tool, and — because it is a folder of Markdown — usable by a notes app such as
+Obsidian pointed at the same workspace.
 
 The folder is read-only to the assistant's own file tools. A change made in it would be undone the
 next time the mirror is written, and a change nobody can keep is worse than a plain refusal, so
 `files.write` refuses it in one sentence that says where to change the fact instead.
+
+For the same reason **there is no tool that writes the mirror**: giving the assistant a second way
+into the one folder it may not edit would take the refusal back. The app writes the notes itself
+after every task that finishes, and skips the writing when nothing has changed, so they keep up
+without being asked. `POST /api/memory/mirror` writes them on demand for the Memory screen; send
+`{"force": true}` to write them even when nothing has changed.
+
+This is *not* the [notes-folder bridge](#your-notes-folder-the-obsidian-bridge-batch-22-wave-8).
+That bridge writes tagged notes into a vault folder you name, through `insideVault`; the mirror
+writes into your workspace, through the ordinary workspace checks, and never resolves a vault path.
+One caution if you use both: if you point the notes folder at your workspace and call its folder
+`memory`, the bridge writes straight to disk and does not go through the read-only rule above, so a
+note it syncs there would be wiped the next time the mirror is written. Give the bridge a folder of
+its own.
 
 ### Text pasted in for one job (A1117)
 
@@ -3334,6 +3353,7 @@ space in front of every later turn with text that stopped mattering an hour ago.
 `/api/knowledge/pictures`, `/api/knowledge/manage`, `/api/knowledge/refresh`,
 `/api/knowledge/export`, `/api/knowledge/import`, `/api/knowledge/retention`,
 `/api/knowledge/retention/check`, and `GET /api/knowledge/extras` for the panel.
+`POST /api/memory/mirror` writes the Markdown mirror of what is remembered.
 
 ### Already covered, and not applicable
 

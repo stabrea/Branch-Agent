@@ -2106,9 +2106,24 @@ and refused in one sentence when `supportsImages` says no. All five are register
 
 Memory gained `src/memory-mirror.ts` — a regenerated Markdown mirror under `memory/`, one note per
 fact kind — and the enforcement that makes "read-only by the model" real: `WorkspaceFiles` grew
-`readOnly` and `checkedForWrite`, and `files.write` now goes through it. `src/memory-ephemeral.ts` is
-the per-task store for pasted text, dropped on `onRunFinished`. `KnowledgeBases` gained one narrow
-public method, `putDocument`, shared by import and by picture descriptions.
+`readOnly` and `checkedForWrite`, and `files.write` now goes through it. There is deliberately **no
+tool** for the mirror: a second way for the model to write the one folder it may not edit would take
+that refusal back, so it regenerates on `onRunFinished` (the fingerprint makes an unchanged store
+free) and answers `POST /api/memory/mirror` for the panel. It writes through `WorkspaceFiles.checked`
+and never resolves a vault path, so `insideVault` does not come into it; the one gap, recorded in
+`docs/configuration.md`, is an owner who points the notes-folder bridge at the workspace and names its
+folder `memory`. `src/memory-ephemeral.ts` is the per-task store for pasted text, dropped on
+`onRunFinished`; its three tools declare the **documents** toolbox, not memory — the memory box is for
+what lasts, and nothing in that store does. `KnowledgeBases` gained one narrow public method,
+`putDocument`, shared by import and by picture descriptions.
+
+A note for whoever lands next in these toolboxes. `tests/catalog-diet.test.mjs` caps
+`expand(["files","memory","agents"])` at 8,000 characters; staging alone is at 7,977 and this branch
+leaves it at 7,973. The margin is 27 characters, so the next tool registered in any of those three
+groups breaks that suite, and no amount of description trimming will buy the room back. The durable
+fix belongs to the catalog: capping the descriptions in the *expand listing* alone (they are a finding
+aid — the full text arrives with the schemas in the catalog itself) gives 8,029 at 100 characters and
+7,806 at 90. That is `wave6/catalog-diet`'s file, so it is left to that branch rather than done here.
 
 `tests/docs-3.test.mjs`, 22 tests. The load-bearing ones: a written file of each kind read back by
 the existing readers; an edit that leaves five parts byte-identical (asserted by comparing packed
