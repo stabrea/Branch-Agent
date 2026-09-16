@@ -98,12 +98,20 @@ test("a newer fact about the same subject wins and the older one is archived wit
   const archived = app.store.archivedMemory("local").find((record) => record.id === older.id);
   assert.match(archived.note, /coffee/, "the note names the newer fact");
 
+  // A label that heads a list is not a subject: two notes do not disagree with each other.
+  put(app, "Note: buy milk", { validFrom: "2026-02-01T00:00:00.000Z" });
+  put(app, "Note: call the dentist", { validFrom: "2026-03-01T00:00:00.000Z" });
+  put(app, "Address: 12 Elm Row", { validFrom: "2026-02-01T00:00:00.000Z" });
+  put(app, "Address: 40 Oak Lane", { validFrom: "2026-03-01T00:00:00.000Z" });
+  assert.deepEqual(app.memory.hygiene.review("local").contradictions, [], "a one-word or list label is not a subject");
+
   // A rejected suggestion changes nothing at all.
   const second = put(app, "Preferred drink: cocoa", { validFrom: "2026-09-01T00:00:00.000Z" });
+  const before = app.store.list("memory", "local").length;
   const again = app.memory.hygiene.suggest("local");
-  assert.equal(again.staged.length, 1);
+  assert.deepEqual(again.staged.map((proposal) => proposal.kind), ["archive"]);
   app.store.review.decide("local", again.staged[0].id, false);
-  assert.equal(app.store.list("memory", "local").length, 3);
+  assert.equal(app.store.list("memory", "local").length, before);
   assert.ok(app.store.list("memory", "local").some((record) => record.id === second.id));
 });
 

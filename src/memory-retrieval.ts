@@ -28,6 +28,19 @@ export interface MemoryHit {
   matched: "words" | "meaning" | "both";
 }
 const candidates = 40;
+/** A search answer never exceeds this, the same ceiling literal fact search has always kept to. */
+export const maximumSearchBytes = 48000;
+/** As many of the best hits as fit, so one long fact can never make an answer the caller cannot hold. */
+function bounded(hits: MemoryHit[], limit: number): MemoryHit[] {
+  const kept: MemoryHit[] = [];
+  let bytes = 2;
+  for (const hit of hits) {
+    const size = Buffer.byteLength(JSON.stringify(hit)) + 1;
+    if (kept.length >= limit || bytes + size > maximumSearchBytes) break;
+    kept.push(hit); bytes += size;
+  }
+  return kept;
+}
 
 /** Recency, how often it has been used, and whether the owner stood behind it. */
 export function importanceOf(record: MemoryRecord, uses: number, now: number = Date.now()): number {
@@ -140,11 +153,12 @@ export class MemoryRetrieval {
     if (!words.length && !meaning.length) return [];
     const fused = fuseRanks([words, meaning].filter((list) => list.length));
     const uses = this.useCounts(owner);
-    const hits = [...fused.entries()].map(([id, rank]) => {
+    const ordered = [...fused.entries()].map(([id, rank]) => {
       const record = byId.get(id)!, importance = importanceOf(record, uses.get(id) ?? 0);
       const matched = words.includes(id) && meaning.includes(id) ? "both" : meaning.includes(id) ? "meaning" : "words";
       return { record, importance, score: Number((rank * importance).toFixed(6)), matched } as MemoryHit;
-    }).sort((a, b) => b.score - a.score).slice(0, limit);
+    }).sort((a, b) => b.score - a.score);
+    const hits = bounded(ordered, limit);
     this.noteUse(owner, hits.map((hit) => hit.record.id));
     return hits;
   }

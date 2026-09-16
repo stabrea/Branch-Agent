@@ -154,6 +154,37 @@ test("malformed provider responses fail validation", async (t) => {
   );
 });
 
+test("both real adapters say they can be shown a picture and send it in their own shape", async (t) => {
+  const picture = { mediaType: "image/png", name: "square.png", data: Buffer.from("stand-in png bytes").toString("base64") };
+  const withPicture = {
+    ...request,
+    messages: [
+      { role: "system", content: "system" },
+      { role: "user", content: "what is this?", images: [picture] },
+    ],
+  };
+  const openai = await fixture(t, () => ({ choices: [{ message: { content: "a square" } }] }));
+  const openaiProvider = new OpenAIProvider({ endpoint: openai.endpoint, model: "fixture", apiKey: "k" });
+  assert.equal(openaiProvider.supportsImages(), true);
+  await openaiProvider.complete(withPicture);
+  const openaiTurn = openai.requests[0].body.messages.at(-1);
+  assert.deepEqual(openaiTurn.content, [
+    { type: "text", text: "what is this?" },
+    { type: "image_url", image_url: { url: `data:image/png;base64,${picture.data}` } },
+  ]);
+
+  const anthropic = await fixture(t, () => ({ content: [{ type: "text", text: "a square" }] }));
+  const anthropicProvider = new AnthropicProvider({ endpoint: anthropic.endpoint, model: "fixture", apiKey: "k" });
+  assert.equal(anthropicProvider.supportsImages(), true);
+  await anthropicProvider.complete(withPicture);
+  const anthropicTurn = anthropic.requests[0].body.messages.at(-1);
+  assert.deepEqual(anthropicTurn.content[0], {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: picture.data },
+  });
+  assert.deepEqual(anthropicTurn.content[1], { type: "text", text: "what is this?" });
+});
+
 test("real provider configuration is explicit and has no credential fallback", () => {
   assert.equal(providerFromEnv({}).name, "offline-demo-fixture");
   assert.throws(

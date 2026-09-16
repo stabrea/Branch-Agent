@@ -265,9 +265,10 @@ export class Store {
   workingMessages(sessionId: string): { summary: string | null; rows: { id: number; message: Message }[] } {
     const compaction = this.db.prepare("SELECT through_id, summary FROM compactions WHERE session_id=?").get(sessionId);
     const after = compaction ? Number(compaction.through_id) : 0;
-    const pinned = this.summaries.pinnedMessageIds(sessionId);
-    const rows = this.db.prepare("SELECT id, body FROM messages WHERE session_id=? ORDER BY id").all(sessionId)
-      .filter((row) => Number(row.id) > after || pinned.has(Number(row.id)))
+    const pinned = [...this.summaries.pinnedMessageIds(sessionId)];
+    const keep = pinned.length ? ` OR id IN (${pinned.map(() => "?").join(",")})` : "";
+    const rows = this.db.prepare(`SELECT id, body FROM messages WHERE session_id=? AND (id>?${keep}) ORDER BY id`)
+      .all(sessionId, after, ...pinned)
       .map((row) => ({ id: Number(row.id), message: JSON.parse(String(row.body)) as Message }));
     return { summary: compaction ? String(compaction.summary) : null, rows };
   }

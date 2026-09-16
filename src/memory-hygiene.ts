@@ -42,12 +42,21 @@ export function wordSimilarity(a: string, b: string): number {
   for (const word of left) if (right.has(word)) shared++;
   return Number(((2 * shared) / (left.size + right.size)).toFixed(4));
 }
-/** Who or what a fact is about: its entity and detail, or the label before the colon in its text. */
+/** Labels that head a list rather than name a subject; two notes do not disagree with each other. */
+export const listLabels = ["note", "notes", "todo", "task", "reminder", "idea", "tip", "question", "fyi"];
+/**
+ * Who or what a fact is about: its entity and detail, or the label before the colon in its text.
+ * A one-word label ("Address:") is too loose to tell a changed fact from an unrelated one, so only
+ * a label of two or more words counts, and never one that heads a list.
+ */
 export function subjectOf(record: MemoryRecord): string | null {
   const data = record.data as { entity?: string; attribute?: string; text?: string };
   if (data.entity) return normaliseFact(`${data.entity} ${data.attribute ?? ""}`);
-  const label = String(data.text ?? "").split(":")[0] ?? "";
-  return label && label.length <= 80 && label.length < String(data.text ?? "").length ? normaliseFact(label) : null;
+  const text = String(data.text ?? ""), label = text.split(":")[0] ?? "";
+  if (!label || label.length > 80 || label.length >= text.length) return null;
+  const words = normaliseFact(label).split(" ").filter(Boolean);
+  if (words.length < 2 || listLabels.includes(words[0]!)) return null;
+  return words.join(" ");
 }
 /** What a fact claims about its subject: the part after the colon, or the whole text. */
 export function claimOf(record: MemoryRecord): string {

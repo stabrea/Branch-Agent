@@ -479,7 +479,9 @@ unpriced rather than inventing a figure.
 `src/memory-hygiene.ts` looks for three things that go wrong in a fact store on their own: the same
 thing saved twice (token-overlap ≥ 0.8, or cosine ≥ 0.92 where both facts have vectors), a newer
 fact that disagrees with an older one about the same subject (entity+attribute where present, else
-the label before the colon; which one is newer comes from `validFrom`, not insert order), and — only
+the label before the colon — which must be two or more words and must not head a list, so two
+`Note:` facts and two `Address:` facts are left alone; which one is newer comes from `validFrom`,
+not insert order), and — only
 above nine tenths of the configured capacity — the facts that have earned their place least. Every
 finding becomes a proposal in the **existing** `memory_proposals` queue under three new kinds
 (`merge`, `archive`, `forget`); accepting one calls the new `MemoryFacts.setAside`, which moves the
@@ -492,7 +494,11 @@ and `providerEmbeddings` accessor, and the two orders combined with `fuseRanks`.
 multiplied by an importance score — recency (30-day decay) × `1 + ln(1+uses)` × 1.5 when the owner
 saved or corrected it — and `memory_uses` counts a fact every time retrieval returns it. The same
 ordering now drives `MemoryReview.sessionSnapshot` through a new `orderFacts` hook. A per-owner
-`useEmbeddings` switch turns meaning off; without a key nothing changes hands.
+`useEmbeddings` switch turns meaning off; without a key nothing changes hands. An answer is bounded
+at 48 KiB of UTF-8, the ceiling the old literal search kept to. Two of the three retrieval states
+are tested (BM25+cosine+RRF, and words alone with meaning off or no key); the third — a build of
+SQLite without FTS5, which falls back to `plainMatches` — is implemented but **untested**, exactly
+as the same fallback in `documents.ts` is.
 Compaction now asks for JSON and keeps a **structured** summary (`goals`, `decisions`,
 `openQuestions`, `filesTouched`) in `session_summaries`, rendering it back into the handoff message;
 a model that replies in prose still gets today's behaviour, which is why
