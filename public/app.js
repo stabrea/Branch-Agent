@@ -1,4 +1,5 @@
 export const $ = (id) => document.getElementById(id);
+globalThis.toast = (message) => toast(message);
 export function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = false;

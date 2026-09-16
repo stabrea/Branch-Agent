@@ -1,3 +1,4 @@
+const $ = (id) => document.getElementById(id);
 /**
  * Voice input and output for the web UI.
  * Handles microphone recording, transcription, and text-to-speech playback.
