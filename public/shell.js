@@ -392,6 +392,8 @@ function entries() {
     { label: "Appearance settings", hint: "Ctrl ,", run: () => $("appearance-shortcut").click() },
     { label: "Check for updates", hint: "Action", run: () => { displayView("settings"); $("updates-check")?.click(); } },
   );
+  /* One "Help: <chapter>" line per handbook chapter, so any of them opens by name. */
+  found.push(...(globalThis.branchHelp?.helpEntries() ?? []));
   for (const project of projects)
     found.push({ label: project.name, hint: "Project", run: () => switchProject(project.id) });
   for (const heading of document.querySelectorAll("#procedures-list h3"))
@@ -471,6 +473,10 @@ export function openPalette() {
   drawPalette("");
   input.focus();
   void drawPaletteLabels();
+  /* The handbook chapters may not be in hand yet; draw again once they are. */
+  void globalThis.branchHelp?.ready?.().then(() => {
+    if (palette?.hidden === false) drawPalette(palette.querySelector("input").value);
+  });
 }
 /**
  * The same chips as Recents, inside the Ctrl+K box. Choosing one narrows the conversations the box

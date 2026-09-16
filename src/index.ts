@@ -65,6 +65,8 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { SessionTokens } from "./session-tokens.js";
+import { CommandSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -95,6 +97,8 @@ import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
+// Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
+import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -113,6 +117,9 @@ import type { IssueAccess } from "./integrations/issue-tools.js";
 // Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
+// Wave 8: the to-do list, and reports saved in several forms.
+import { Todos, registerTodos } from "./todos.js";
+import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
@@ -283,6 +290,10 @@ export async function createBranch(options: {
   const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
   credentials.gate = () => sessionLock.require();
   store.secrets.credentials = credentials;
+  // Batch 20 (wave 8): a password fetched by a command of the owner's own, behind the same lock.
+  const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
+  commandSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(commandSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -480,6 +491,11 @@ export async function createBranch(options: {
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
+  // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
+  // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
+  const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
+    () => desktop.enabled(runtime.owner), deliverMessage);
+  registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
@@ -502,6 +518,14 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
+  // items in one place, with a due day handed on to the schedules rather than timed here.
+  const todos = new Todos(store.sqlite);
+  registerTodos(registry, todos, runtime.owner);
+  // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
+  // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
+  const obsidian = new ObsidianBridge(store, runtime.owner);
+  registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -607,6 +631,9 @@ export async function createBranch(options: {
     fillSecrets: (headers) =>
       store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
   });
+  // Short-lived, scoped keys for anything that is not the app window. The master session key is
+  // never one of these; see src/session-tokens.ts.
+  const sessionTokens = new SessionTokens(store.sqlite, store);
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -617,6 +644,13 @@ export async function createBranch(options: {
     if (!spans.length) return;
     const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
     const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    // Batch 20 (wave 8): the same send carries the task's own story as OpenTelemetry log records,
+    // tied to the trace by its id, so a collector shows the words beside the shape.
+    const root = spans.find((span) => !span.parentSpanId) ?? spans[0];
+    await traceExport.sendLogs(store.events(runId).map((event) => ({
+      runId, kind: event.kind, createdAt: event.createdAt, data: event.data,
+      ...(root ? { traceId: root.traceId, spanId: root.spanId } : {}),
+    }))).catch(() => null);
     const failed = results.find((result) => !result.ok);
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
@@ -736,6 +770,12 @@ export async function createBranch(options: {
     calendar,
     /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
     flows,
+    /** Wave 8: the things still to be done, written down where the owner can see them. */
+    todos,
+    /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
+    obsidian,
+    /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
+    screenWatches,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
@@ -788,6 +828,8 @@ export async function createBranch(options: {
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
+    /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
+    sessionTokens,
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
       // Wave 8: a connection that stays open must not outlive the app either.
@@ -997,6 +1039,14 @@ export * from "./profile-roles.js";
 export * from "./replay.js";
 export * from "./orchestration-modes.js";
 export * from "./flows.js";
+// Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
+export * from "./todos.js";
+export * from "./reports.js";
+export * from "./artifact-pages.js";
+export * from "./dashboards.js";
+export * from "./obsidian.js";
+export * from "./embeds.js";
+export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
@@ -1061,9 +1111,21 @@ export * from "./integrations/mcp-oauth.js";
 // identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
 // make, what each project has cost, and watching a folder.
 export * from "./api-openapi.js";
+// The owner's handbook, which the app serves to itself so Help opens beside the screen you are on.
+export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
+// may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
+export * from "./session-tokens.js";
+export * from "./vault-sources.js";
+export * from "./channels/allowlist.js";
+export * from "./remote/gateway-auth.js";
+export * from "./providers/cli-agent.js";
+export * from "./cli-attach.js";
+export * from "./cli-completion.js";
+export * from "./cli-run.js";

@@ -1,0 +1,17 @@
+# Wave 3 task: more messaging channels (Discord, Slack, WhatsApp Cloud API, email)
+
+Rules: docs/agents/briefs/wave1/BUILD.md. Branch: wave3/channels from the local branch wave2/integration (`git checkout -b wave3/channels wave2/integration`). Theme: messaging-channels (#59), the channel-adapter family (36 rows). The UI shell was just redesigned (public/shell.js, rail, context pane); do not restructure UI. Channel settings live in the existing Channels/connections area; keep UI edits small and additive.
+
+Read: src/channels/* (the Telegram channel is the model: `Channel` interface with start/stop/send/botName, pairing, allowlists, activation modes, delivery ledger with retries, `link` to a conversation), src/network-policy.ts, docs/configuration.md "Channels" section, tests/channels.test.mjs.
+
+Build four adapters that implement the same Channel interface and plug into the existing router unchanged, each with a node:http fake in tests and no dependencies:
+1. Discord: bot token; Gateway over WebSocket (use the existing src/ws.ts client pieces if reusable, else a minimal RFC 6455 client without dependencies; heartbeat, identify, resume, reconnect with backoff), MESSAGE_CREATE → router message; replies via REST with 2000-char chunking and rate-limit headers respected; DM and guild channels; mentions and reply threads as "addressed".
+2. Slack: bot token + app-level token with Socket Mode (WebSocket, envelope acks), message and app_mention events; replies via chat.postMessage with threads; per-channel allowlist; markdown → mrkdwn conversion for bold/italic/code/links.
+3. WhatsApp Cloud API: webhook receiver (reuse the triggers' unauthenticated-route pattern with the verify-token challenge and X-Hub-Signature-256 HMAC check) and Graph API send (text, and images as a URL or bytes if the existing router supports attachments; otherwise text only, documented); 24-hour session window awareness: outside it, queue the message in the delivery ledger with a plain-language status.
+4. Email (IMAP idle-free polling + SMTP send) implemented with Node built-ins over TLS sockets (a minimal IMAP4rev1 client: LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH headers/text, STORE \Seen; a minimal SMTP client with STARTTLS/implicit TLS, AUTH PLAIN/LOGIN, 8BITMIME). Reply threading via In-Reply-To/References. Allowlist by sender address. If this proves too large, deliver IMAP read + SMTP send for plain text only and say what is left.
+
+Shared: every adapter goes through the network policy for outbound calls, stores its secrets in the locker (never in settings JSON), reports health (connected / reconnecting / needs attention with a plain reason) to GET /api/channels, participates in pairing and allowlists exactly like Telegram, and supports `link` to an existing conversation.
+
+Tests (tests/channels-more.test.mjs): each adapter against its fake server: inbound message → run → outbound reply with correct chunking/threading; allowlist refusal; reconnect after a dropped socket (Discord/Slack); webhook signature refusal (WhatsApp); IMAP unseen fetch and SMTP send with the right headers; secrets never in logs or GET /api/channels output.
+
+Acceptance: M1 four adapters selectable in the connections settings with plain-language setup help and a Test button; M2 all share the router unchanged (diff to src/channels/router.ts is additive and small); M3 reconnect proven; M4 secrets redaction proven; M5 docs/configuration.md sections; M6 no dependency. Report which channel-adapter family rows you consider done (name the channels).

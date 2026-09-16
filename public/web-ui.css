@@ -303,3 +303,102 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .meter-fill { transition: none; }
 }
+
+/* ---------- Artifacts and charts (wave 8) ----------
+   A card beside the words: a sealed frame for a page or a drawing, a chart drawn in the page, or
+   a script with a button. Every colour is a token; nothing here writes one down. */
+.artifact {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+  max-width: 100%;
+}
+.artifact-title { font-size: 0.95rem; margin: 0 0 0.2rem; }
+.artifact-note { margin: 0 0 0.6rem; }
+.artifact-body { max-width: 100%; }
+.artifact-frame {
+  width: 100%;
+  min-height: 14rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--paper);
+}
+.artifact-actions,
+.chart-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.artifact-output {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem;
+  max-height: 14rem;
+  overflow: auto;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--well);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.artifact-code { margin-top: 0.6rem; }
+.artifact-code > summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+
+/* The picture keeps its own aspect and never makes the reading column scroll sideways. */
+.chart { max-width: 100%; }
+.chart-figure { width: 100%; max-width: 100%; overflow: hidden; }
+.chart-svg { display: block; width: 100%; height: auto; }
+.chart-svg rect,
+.chart-svg path,
+.chart-svg circle { cursor: default; }
+.chart-reading { min-height: 1.2em; margin: 0.3rem 0 0; font-variant-numeric: tabular-nums; }
+
+/* ---------- The to-do card, reports and the record (wave 8) ---------- */
+.context-form { display: grid; gap: 0.35rem; margin-top: 0.5rem; }
+.context-form input { width: 100%; max-width: 100%; }
+.todo-row { display: grid; gap: 0.2rem; }
+.todo-label { display: flex; align-items: flex-start; gap: 0.45rem; font-family: inherit; }
+.todo-label input[type="checkbox"] { margin-top: 0.2rem; flex: 0 0 auto; }
+.todo-done { text-decoration: line-through; color: var(--muted); }
+.todo-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.report-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0; }
+.row-fields { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.row-fields > div { flex: 1 1 10rem; min-width: 0; }
+.row-fields input,
+.row-fields select { width: 100%; max-width: 100%; }
+.log-row { overflow-wrap: anywhere; }
+
+/* Help in the app: one handbook chapter, read in the pane on the right. Tokens only, no new
+   colours — it borrows the reading rhythm rendered replies already have. */
+.context-help-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  padding-right: var(--s1);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s2);
+}
+.context-help-body h1 { font-size: 1.04rem; }
+.context-help-body h2 { font-size: 0.96rem; }
+.context-help-body h3 { font-size: 0.88rem; }
+.context-help-body table { font-size: 0.78rem; }
+.context-help-body > :first-child { margin-top: 0; }
+/* Its own class rather than .context-link, which the pane hides while nothing is connected —
+   help has to be readable before a model is. */
+.context-help-close {
+  width: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--copper-text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.context-help-close:hover { text-decoration: underline; }
+.context-help-close:focus-visible { outline: var(--ring); }

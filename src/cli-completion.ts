@@ -9,8 +9,8 @@ export type CompletionShell = (typeof completionShells)[number];
 /** Every subcommand, with the options that belong to it. Also drives `branch help`. */
 export const cliCommands: { name: string; summary: string; options: string[] }[] = [
   { name: "start", summary: "Run the local web app", options: [] },
-  { name: "chat", summary: "Talk to the assistant in this terminal", options: ["--plain"] },
-  { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--preset", "--save-preset", "--budget", "--timeout"] },
+  { name: "chat", summary: "Talk to the assistant in this terminal", options: ["--plain", "--attach", "--session", "--watch"] },
+  { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--preset", "--save-preset", "--budget", "--timeout", "--session", "--resume", "--fork"] },
   { name: "status", summary: "Tasks working now, questions waiting, and a health summary", options: ["--json"] },
   { name: "logs", summary: "Print what happened during one task", options: ["--json"] },
   { name: "approve", summary: "Answer a task that stopped to ask: approve <task id> yes|no", options: ["--json"] },
@@ -33,6 +33,10 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "skill", summary: "Pack a skill folder, or install a skill file: skill pack | skill install", options: ["--author", "--package-version", "--approve"] },
   { name: "plugin", summary: "See and switch plugins on or off: plugin list | enable | disable", options: [] },
   { name: "update", summary: "Update a copy installed from Git", options: [] },
+  // Batch 20 (wave 8): short-lived keys, schedules over the running engine, and one task's trace.
+  { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
+  { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },
+  { name: "trace", summary: "The trace number for one task, and whether it was sent anywhere", options: ["--json"] },
 ];
 
 const commandNames = (): string => cliCommands.map((command) => command.name).join(" ");
@@ -120,6 +124,24 @@ export function completionScript(shell: string): string {
   if (shell === "powershell" || shell === "pwsh") return powershellScript();
   throw new Error(`Completion is available for: ${completionShells.join(", ")}. Try: branch completion bash`);
 }
+
+/**
+ * Batch 20 (wave 8): the help for one subcommand. `branch <command> --help` answers this and stops,
+ * so asking what a command does never runs it, never opens the database and never reaches a model.
+ */
+export function commandHelp(name: string): string | null {
+  const command = cliCommands.find((entry) => entry.name === name);
+  if (!command) return null;
+  return [
+    `branch ${command.name}${command.options.length ? " [options]" : ""}`,
+    "",
+    `  ${command.summary}`,
+    ...(command.options.length ? ["", "Options:", ...command.options.map((option) => `  ${option}`)] : []),
+  ].join("\n");
+}
+/** Whether the words after a command are asking what it does rather than telling it to work. */
+export const asksForHelp = (words: readonly string[]): boolean =>
+  words.some((word) => word === "--help" || word === "-h" || word === "help");
 
 /** The usage text for `branch` with no arguments it understands. */
 export function usageText(): string {

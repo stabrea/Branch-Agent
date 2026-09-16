@@ -327,7 +327,7 @@ Branch normally uses a fresh browser that no website knows you in. **Settings �
 
 To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
 
-Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`.
+Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`. `extraRefusedHosts` is your own list of further websites your browser may never be pointed at; it is added to the built-in list of banks and password sites, and nothing you can put there takes one off that list.
 
 **The honest limits:** this only works with Chrome or Edge, only on this computer, and only when you started the browser with that door open — Branch never starts it for you and never opens one you can see. A browser started the ordinary way cannot be borrowed.
 
@@ -458,7 +458,7 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. The date itself is `oldAddressesEndOn`, written down the first time this copy of Branch makes an address, so the card can name a day rather than say "soon". After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -2880,6 +2880,11 @@ honour it — the result each of them hands back says which box it actually ran 
 security boundary: the program still runs on this computer as you. It is you deciding how much rope
 one tool gets.
 
+A rule can only tighten what the settings already say, never loosen it. If Settings says scripts may
+not reach the internet, a rule that asks for **in a box** or **no box** still leaves the internet
+shut off for them; the box gets looser, the way out stays closed. To let scripts reach the internet
+you turn that on in Settings, in one place, on purpose.
+
 ## Your own checks, before something happens (batch 26, wave 8)
 
 A hook used to be told about things after they had already happened. There is now one more moment,
@@ -3204,3 +3209,488 @@ These rows of the audit are done, by a feature that exists under another name.
   (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
+
+## What Branch is not (batch 22, wave 8)
+
+Some rows of the audit describe a *demonstration written for one Python or Rust toolkit*, not a
+capability. Branch is a local Windows desktop assistant with one web app of its own, so these are
+recorded here as deliberately out of scope rather than left open for ever.
+
+- **A1131 Gradio UI**, **A1536 Gradio web application** — Gradio is a Python notebook-style web
+  toolkit. Branch's own web app is the interface; adding Gradio would mean running Python beside the
+  app to draw a second, worse one.
+- **A1676 Streamlit demo UI**, **A2198 Streamlit web UI** — the same, for Streamlit.
+- **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
+- **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
+  this one. The web app here is plain modules served by the app itself, with no build step.
+- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
+  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
+  in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
+  and update for no new behaviour.
+- **A2200 Desktop pet UI** — a floating animated character on the desktop. Branch's desktop presence
+  is a window and a tray icon; a pet is charm, not capability, and it would need the always-on-top
+  overlay the screen-control rules deliberately forbid.
+- **A1984 Multi-user web chat** — Branch is single-owner by design: one person, one workspace, one
+  set of keys on their own computer. Sharing is a read-only page (`src/conversation-share.ts`) and a
+  paired remote listener, never a second account.
+
+### Already covered, under another name (batch 22, wave 8)
+
+- **A0527 chat web UI**, **A0704 local web UI**, **A0956 web UI example**, **A1192 development web UI
+  and API**, **A1774 web control UI and WebChat**, **A2033 web console**, **A2157 web management
+  panel** — all one thing: the app shell in `public/index.html` with the rail, the conversation
+  column and the ten sections (see docs/design.md), served by `src/server.ts` on this computer and
+  covered by `tests/shell-ui.test.mjs` and `tests/web-ui.test.mjs`.
+- **A2015 Web dashboard and webchat** — the audit's "no file upload UI" is out of date: the Documents
+  section takes a file from disk and accepts one dropped on the page (`public/documents.js`).
+- **A0401 Dashboard and desktop** — the desktop app is `src/desktop/main.ts` with its own settings,
+  updater and conversation export; see "The desktop app" above.
+- **A1585 Cross-platform GUI control** — screen and keyboard control is
+  `src/integrations/desktop.ts`, behind its own switch and the Stop banner. It is Windows-only on
+  purpose: this is a Windows desktop assistant, and a cross-platform layer would mean three
+  untestable back ends.
+- **A1452 Web crawling** — `src/integrations/web.ts` fetches and reads a page through the network
+  policy, and `src/integrations/browser.ts` drives a real browser when a page needs one. There is no
+  Crawl4AI: it is a Python library, and a whole-site crawler is not something a personal assistant
+  should be able to start on its own.
+- **A2197 Terminal UIs** — the terminal interface is `src/terminal-tui.ts`: the conversation, the
+  live task, approvals and the token figures for each round, drawn with the app's own style helpers.
+  It is Node, not Rust, and that is the whole of the difference the audit found.
+- **A1522 Browser recording artifacts** — `src/integrations/browser-trace.ts` keeps everything the
+  browser did during one task as a single Playwright trace file, off unless the owner asks.
+- **A1637 Live WebSocket run channel** — `src/ws.ts` carries the run lifecycle and is authenticated:
+  the session token travels in `Sec-WebSocket-Protocol` as `bearer, <token>` and is compared in
+  constant time.
+- **A0500 Tracing and debugging**, **A1677 pipeline logging and usage accounting**, **A0798 run and
+  vertex monitoring** — `src/tracing.ts` opens a span for the run and for every model round, tool
+  call, retrieval, delivery and sub-task inside it, with the usage figures on the model spans; the
+  inspector draws them.
+- **A0400 Usage analytics**, **A0367 usage analytics and reports** — the Usage section's month view
+  (`src/usage.ts`, `src/pricing.ts`) plus "Save as report" below, which writes the same figures out
+  as Markdown, a page, or print.
+- **A0605 Approval-gated plans** — the approval gate (`src/approvals.ts`) holds a task at a step and
+  keeps the answer; the to-do list below is where a plan's steps are now written down and ticked.
+- **app-building (App-builder SDK MCP server)** — Branch is itself an MCP server (`branch mcp-serve`,
+  `src/mcp-server.ts`), so another tool can drive it; and the artifact frame below is the same
+  sandbox that shows a small page an MCP server sends back.
+
+## Artifacts: what a reply can show as well as say (batch 22, wave 8)
+
+When a reply carries a fenced `html`, `svg` or `chart` block, Branch shows it as a card beside the
+words rather than leaving markup to read. Four buttons sit under it: **Open larger**, **Copy code**,
+**Save to workspace**, and — for a `javascript` or `python` block — **Run this script**.
+
+**A page or a drawing goes into a frame that is sealed shut.** It is served from Branch's own
+address at `/artifact/<name>`, under the same content policy an MCP app gets (`src/mcp-apps.ts`):
+`sandbox` with nothing after it, which gives the page an origin of its own and stops every script,
+plus `default-src 'none'`, which refuses every fetch. The frame itself carries `sandbox=""` — no
+`allow-same-origin` — so it cannot reach the page around it, the session key, or the network.
+Unlike an MCP app's address, an artifact's is **not** used up by the first fetch: a frame may
+reload and "Open larger" may show the same one again. It expires after ten minutes.
+
+The app's own colours are passed in as CSS variables, read off the running page, so an artifact
+matches the theme instead of fighting it. Every value is checked against a short pattern first.
+
+**A script is never run by the frame.** The frame runs nothing at all. The button is a button on
+Branch's own page, and it goes through `POST /api/tools/try` to `code.run`, which is off until the
+owner switches it on in Settings → Developer and which stops to ask like any other tool.
+
+**Charts** are drawn in the page from a `chart` block — `{"type":"bar|line|pie","title":…,"data":
+[{"label":…,"value":…}]}`. The number under the pointer is written out in words, the same numbers
+can be shown as a table instead, and **Save as a picture** turns the drawing into a PNG using the
+browser's own canvas. Nothing is drawn on this computer's side and no drawing library is loaded.
+
+**Save to workspace** keeps the artifact beside the task it came out of (`POST /api/artifacts/save`),
+where the Documents section lists it under "Made by the assistant".
+
+Routes: `POST /api/artifacts/page` mints an address, `GET /artifact/<name>` serves it,
+`POST /api/artifacts/save` keeps one. Files: `src/artifact-pages.ts`, `public/artifacts.js`,
+`public/charts.js`.
+
+## Save as report (batch 22, wave 8)
+
+Any task can be written out to keep or hand on, from Activity → **Save a task as a report**:
+
+- **Save as notes** — Markdown: headings and prose, nothing a reader needs a program to open.
+- **Save as a page** — one self-contained HTML page with its colours written into it and no script
+  at all, the same renderer a shared conversation uses (`src/conversation-share.ts`).
+- **Open the print view** — the same page with print rules, opened in a window of its own. This is
+  how a PDF is made: the browser's own "Save as PDF". Branch never draws a PDF on this computer.
+- **Save every step** — one task's whole trajectory as a page: every step it took, what came back,
+  and how it ended.
+
+Every form goes through the same redaction pass that guards a shared conversation, so a key that
+appeared in a tool result does not leave in a file the owner emails on; the result says how many
+things were blanked out. Routes: `POST /api/reports`, `GET /api/reports/episode/<task>`. Files:
+`src/reports.ts`, `public/reports.js`.
+
+## The to-do list (batch 22, wave 8)
+
+A plain list of what is still to be done, in the context pane beside the conversation. The
+assistant writes its plan there as it works (`todos.add`, `todos.done`, `todos.list`) and the owner
+can type a line of their own. An item with a day on it can be turned into a **reminder**, which puts
+it in the schedules — the one part of the app that keeps time. The to-do list grows no clock of its
+own.
+
+Routes: `GET`/`POST /api/todos`, `POST /api/todos/<id>/done`, `POST /api/todos/<id>/remind`,
+`DELETE /api/todos/<id>`. Files: `src/todos.ts`, `public/todos.js`.
+
+## The flow editor (batch 22, wave 8)
+
+Under Procedures, **Change a flow** turns the wave-7 picture into something the owner can change.
+Add a step, take one away, move one earlier or later, and fill in the boxes that kind of step needs —
+the side form shows only those, because the saved shape (`src/workflows.ts`) refuses a prompt step
+with no prompt and a branch step with no words to look for. The picture above the list redraws as
+you type; nothing is saved until Save, which sends exactly a name, a line about it and the steps to
+`PUT /api/flows/<id>`.
+
+Under the picture, **While it runs** shows each step, where it has got to and when it started. It is
+read from `GET /api/flows/<id>` while a flow is working. The note each finished step sends goes out
+over a webhook to whoever asked to hear about it (`flow.node`), not to this page, so asking the app
+how the flow is getting on is the honest way to keep the timeline current.
+
+Beside it, **How often should it repeat?** offers a rhythm and a time and writes the answer out in
+plain words — "every weekday at 09:00" — before filling in the schedule boxes below. Files:
+`public/flow-editor.js`.
+
+## Your notes folder (the Obsidian bridge) (batch 22, wave 8)
+
+The owner uses Obsidian, and Obsidian's own files are ordinary Markdown in an ordinary folder. So
+this is a **folder bridge and nothing more**: there is no Obsidian plugin here, nothing is installed
+into Obsidian, and Obsidian does not have to be running.
+
+Switch it on in Settings → **Your notes folder**, name the folder in full, and name the subfolder
+Branch may write into. Branch then writes memory facts, knowledge cards, saved reports and
+conversation exports there as Markdown notes with front matter carrying Branch's own numbers, and
+reads back the notes tagged `#branch` as documents it can search.
+
+Three rules make it safe to point at a folder full of the owner's own writing:
+
+1. **Confined.** Every path is resolved for real — following any shortcut — and must still sit inside
+   the folder named, with the separator part of the comparison, so `notes-other` is never mistaken
+   for `notes`.
+2. **Never overwritten.** Each note carries a hash of what Branch wrote. If the file no longer
+   matches it, the owner has edited it, and the new version is written beside it as
+   `<name>.branch-conflict.md`. Nothing the owner typed is lost.
+3. **Only what it is given.** Reading back takes only notes carrying `#branch`, so pointing at a
+   whole vault does not pull private writing into the assistant's documents.
+
+Tools: `obsidian.sync`, `obsidian.read`. Routes: `GET`/`POST /api/obsidian`,
+`POST /api/obsidian/write`, `GET /api/obsidian/notes`. File: `src/obsidian.ts`.
+
+## Reaching Branch from other pages (batch 22, wave 8)
+
+Two ways in from outside Branch's own window, both **off until the owner switches them on** in
+Settings → **Reaching Branch from other pages**, and both for the owner's own pages and their own
+browser. Neither is for publishing anywhere.
+
+Both obey the same rule: they may only talk to the **paired remote listener**, with the key pairing
+gave the owner, and they refuse a loopback address outright. The key the app's own page uses on this
+computer is the whole of Branch's authority here, and a page next door must not be able to borrow it.
+
+- **The small ask box** — `public/widget.js`, included by a page of the owner's own:
+
+      <script src="http://your-machine.tailnet.ts.net:8765/widget.js"
+              data-branch="http://your-machine.tailnet.ts.net:8765"
+              data-key="the key pairing gave you"></script>
+
+  It reads its address and key off that tag and nowhere else — never out of the page it sits on, and
+  never out of any storage.
+
+  **List the pages that may carry it.** A browser asks Branch for permission before letting a page of
+  yours send anything to it, and Branch names back only a website you listed in `widgetSites` (for
+  example `https://notes.example.com`), spelled exactly, never with a star. An empty list means no
+  page may ask, so the box has to be allowed as well as switched on. The key alone is deliberately
+  not enough: a star there would let any page that ever got hold of your key spend it. The script
+  itself is not served at all while the switch is off, so turning the switch off takes the box off
+  your page rather than only hiding the setting.
+
+  **The extension asks for one address, when you name it.** It requests no website when you install
+  it. The first time you press Send, Chrome asks whether it may reach the address you typed, and a no
+  leaves everything as it was.
+
+- **The browser extension** — `extras/browser-extension/`, an unsigned Manifest V3 folder with a
+  popup that sends the current page's address, title and selection to Branch as a task. Load it by
+  hand: `chrome://extensions` → Developer mode → **Load unpacked**. Install steps and the reasons
+  behind them are in that folder's README.
+
+Route: `GET`/`POST /api/embeds`. File: `src/embeds.ts`.
+
+## The record, how busy a connection is, and what asking twice saved (batch 22, wave 8)
+
+Three readings of things the app already writes down:
+
+- **The record** (Activity → *The record of what happened*): every step every task took, narrowed by
+  the kind of step, by the task, or by when it happened, and saved as a file of one line each — the
+  shape a log file has, so it opens in anything. `GET /api/log`, `GET /api/log/export`.
+- **How busy each connection is** (Usage): how many calls went to each model service in the last
+  minute and the last hour, beside the allowance that service reports in its own answers
+  (`x-ratelimit-*`). `GET /api/request-rates`.
+- **What asking twice saved** (Usage): every round answered out of the kept-answers store, with what
+  it would have cost had it been sent. `GET /api/cached-answers`.
+
+The terminal view now says what each finished task used as well, and what it cost, so the figures
+are not the web app's alone. File: `src/dashboards.ts`, `public/logs.js`.
+
+## Watches that tell you something (batch 22, wave 8)
+
+A page watch already sends its news wherever the owner asked — the activity list, or a chat they
+have connected (`monitor.create`, `notifyVia: {channel, chatId}`). Wave 8 adds a **screen watch**:
+Branch takes a picture of one rectangle every so often and says when it looks different.
+
+This is the most intrusive thing in the app, so it is fenced three ways: it is off until the owner
+switches it on, it refuses to run unless **using your screen** is switched on as well, and it keeps a
+fingerprint of the picture rather than the picture — nothing that was on screen is written to disk.
+A password manager showing on screen stops it outright, as it stops any other picture of the screen.
+
+Tools: `monitors.screen.create`, `monitors.screen.check`. File: `src/screen-watch.ts`.
+
+## Asking a specialist one question (batch 22, wave 8)
+
+The composer has a **Who should answer** picker beside the Temporary toggle. Leave it on "Your
+assistant" and nothing changes. Choose a specialist and that one message goes to it; the reply is
+signed with that specialist's name instead of the assistant's, and the next message goes back to the
+assistant unless the specialist is chosen again. What the owner typed is what they see: the
+delegation is machinery and is not shown back to them. File: `public/app.js`.
+
+## Short-lived keys, where a password comes from, who may message, and the command line (batch 20, wave 8)
+
+This section closes the open rows of the secrets-and-auth (#69), tracing-and-telemetry (#63) and
+cli-and-tui (#72) themes. Some of it is new, some points at a feature that already does the job,
+and some is written down here as deliberately not built.
+
+### Short-lived keys for a script (A0100, A1930)
+
+The local session key the app prints when it starts never runs out and may do everything. That is
+right for the app's own window and wrong for anything you paste into a script, a browser extension
+or the client library. So there is a second kind of key, made from the command line:
+
+```
+branch token create --scope read --minutes 60 --name "My dashboard"
+branch token list
+branch token revoke <id>
+```
+
+- `--scope read` may look at things only: any request that is not a GET is refused, in those words.
+  `--scope run` may also start a task. Neither may ever become the master key.
+- The key is shown once. Only its hash is kept (`session_tokens` in the database), so nothing can
+  read it back out of Branch afterwards.
+- It stops working at the minute you named, and `branch token revoke` stops it sooner.
+- Making one and taking one back are both written into the record of what the assistant was allowed
+  to do, as "A short-lived key for a script was made or taken back".
+- The master key is checked **first** on every request, so a mistake in this feature can hold up a
+  script and never you. A wrong short-lived key is counted by the same rate limit as a wrong master
+  key. See `src/session-tokens.ts` and `authorize` in `src/server.ts`.
+
+These are one feature answering two audited rows: A0100 ("session API-key authentication") and
+A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
+
+### Where a saved password can come from (A1807, A0221)
+
+`src/vault-sources.ts` writes down the contract every source follows: a scheme (the part after
+`secret://`), a label, and one method that turns a reference into a value at the moment it is
+needed. Every source obeys the same three rules — nothing is looked up early, every look-up is
+scrubbed out of results and logs, and every look-up is written into the record.
+
+| Reference | Where the value comes from |
+| --- | --- |
+| `secret://<project>/NAME` | Branch's own locker, encrypted on this computer. |
+| `secret://cmd/<name>` | A command **you listed in Settings** that prints the password. |
+| `secret://bitwarden/<item>`, `secret://1password/<path>` | Your password manager's own command line, when you have switched that on. |
+| `env`, `file` | A value already in a program's environment, or in a file you pointed at. |
+
+The command source is new. It is off until you turn it on, and the command is never free text —
+`secret-commands` in your settings holds the list:
+
+```json
+{
+  "enabled": true,
+  "commands": [
+    { "name": "deploy", "command": "C:/tools/get-deploy-key.exe", "args": ["--quiet"], "note": "the deploy key" }
+  ]
+}
+```
+
+`secret://cmd/deploy` then runs exactly that program — no shell, no window, a stripped environment
+(only `PATH`, `TEMP` and the few a program needs to find itself), a ten-second limit, and a 64 KiB
+cap on what it may print. A name that is not in your list never starts a process at all. A missing
+program, a non-zero exit and an empty answer each get their own plain sentence.
+
+### One list of who may message the assistant (A0686)
+
+Each chat app carried a list of its own. `src/channels/allowlist.ts` is the one shape for all of
+them: a rule names a channel (or `*`) and a sender (or `*`) and says `allow` or `block`.
+
+- **A block anywhere wins**, so "never this person" cannot be undone by a broader rule.
+- `unknown` says what happens to somebody no rule covers: `pair` offers them a code to be approved
+  with (as before), `block` turns them away.
+- The per-channel lists still work and are read after this one, so nothing you already set up stops
+  working.
+
+### What a phone must satisfy (A1003, A1004, A1804)
+
+The extra door that faces your private Tailscale address has a chain of named steps, and **every
+step in it must pass** — so adding a step can only make the door harder to open:
+
+- `token` — the same local key the window on this computer uses.
+- `pairing` — at least one phone has been let in on this computer. This step is a switch rather
+  than a check on who is calling; `device` below is the one that tells one phone from another.
+- `device` — the phone must send back the secret it was given when it paired
+  (`x-branch-device` and `x-branch-device-key`), so a key copied off one phone is no use on another.
+
+The default chain is `token, pairing`. Set it in `remote-gateway-auth`; the phones that have been
+let in are in `remote-devices`, and only the fingerprint of each secret is kept.
+
+**Signing in through somebody else's identity service (OIDC, a social login, WebAuthn against an
+outside authenticator) is deliberately not one of the steps** — A1897, A2003, A2074, A2095, A2216.
+There is one owner, the door faces their own private network, and putting an outside company on the
+path a phone takes to reach this computer would make it less private, not more.
+
+### The third OpenTelemetry signal, the logs route, and one task's trace (A0056, A0800, A1440)
+
+- **Logs.** When sending traces is on and the destination is a collector that speaks
+  OpenTelemetry, each finished task's own story goes out as OTLP **log records** to `/v1/logs`
+  beside the spans at `/v1/traces` and the counters at `/v1/metrics`. Each record carries the trace
+  id, so a viewer shows the words beside the span they came from. Langfuse and LangSmith have no
+  logs signal, so for those nothing is sent.
+- **The logs route.** `GET /api/logs` answers one JSON object per line (`application/x-ndjson`),
+  filtered with `run`, `kind` and `limit`, behind the same local key as everything else. That is
+  the "logs API" a log shipper reads. **There is no Grafana or Loki client here on purpose**: a
+  collector of yours already reads OpenTelemetry, so the way to Grafana is to point one at the OTLP
+  address above rather than to teach Branch a second protocol.
+- **One task's trace.** `branch trace <task id>` prints the trace id, how many steps were recorded
+  and of what kinds, whether sending is on and where to, and whether the last send arrived. The
+  same trace id is what Langfuse and LangSmith are given, so the number you read here is the number
+  you search for there.
+
+### What a task's spans cover (A1149, A0856, A1498, A1583, A0799, A1287, A1523)
+
+One implementation, in `src/tracing.ts` and `src/tracing-shapes.ts`, projected into three shapes.
+A task now has a span for each of: the task itself (`run`), each model round (`model`), each tool
+call (`tool`), looking something up in your own documents (`retrieval`), the answer going back out
+to a chat app (`delivery`), and each sub-task (`child`). A delivery happens after the task has
+settled, so it is joined back to the task's own trace rather than floating on its own.
+
+### The record of what the assistant was allowed to do, widened (A1931)
+
+Four more kinds of moment are written down: a short-lived key made or taken back
+(`token.issued`), a connection to a model service added or removed (`connection.changed`),
+Lockdown turned on or off (`lockdown.changed`), and your own browser window borrowed and given back
+(`browser.borrowed`). Handing the whole assistant over as one file and switching who is using the
+computer now write a line too.
+
+### Installing the `branch` command (A1159)
+
+`package.json` carries `"bin": { "branch": "./dist/cli.js" }`, so the command line can be installed
+like any npm command:
+
+```
+npm run pack:cli          # builds, then writes branch-agent-<version>.tgz — publishes nothing
+npm install -g ./branch-agent-0.15.0.tgz
+branch --help
+```
+
+`scripts/pack-cli.mjs` only reads this folder and writes one file. Installing is your own step,
+because it writes outside this folder.
+
+### More of the command line (A0012, A0306, A0910, A2103)
+
+- `branch <command> --help` says what one command does, and stops. Asking is never the same thing
+  as doing: no workspace, database or connection is opened.
+- `branch run` takes `--session <id>` to carry on in a conversation, `--resume <task id>` to pick a
+  stopped task up where it left off (with no new words needed), and `--fork <session id>` to work in
+  a copy so the conversation it came from is left exactly as it was.
+- `branch chat --attach` joins the conversation the engine already running in the background is
+  having: it lists the conversations, picks one (`--session`), prints what has been said, and either
+  says something or just watches. Two terminals can be in one conversation at once and each sees
+  what the other said. It goes through the same door, with the same key, as the app window.
+- `branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | list | remove <id>` works
+  against that same running engine over `/api/schedules`.
+- **A coding assistant you already have, used as a model.** `cli-agent` is a provider shape that
+  runs an installed tool's own command line: Claude Code (`claude -p --output-format json`), Codex
+  (`codex exec --json`) or the GitHub Copilot CLI. The prompt goes in on standard input, the answer
+  comes out of the tool's JSON where it prints JSON. Nothing is stored, no key is asked for, and
+  **the tool's own sign-in is the only sign-in there is** — which is what each row says beside it.
+  `GET /api/providers/cli-agents` lists them; `POST` the same address offers one in the model list.
+  It never asks for tool calls: it answers in words and Branch decides what to do.
+
+### Already true, and checked (A0284, A0383, A0425, A0488, A0551, A0723, A0793, A1191, A0137, A2404, A0614, A2177, A1497)
+
+- **A command line exists**, and has since the first release: `src/cli.ts`, with every command in
+  one list (`cliCommands` in `src/cli-completion.ts`) that drives the checking, `branch help`, the
+  per-command help and the bash and PowerShell completion scripts. A test runs `--help` for every
+  command in that list.
+- **A local web client** is the app itself: the pages in `public/` served by `src/server.ts` on
+  `http://127.0.0.1:3210`, behind the local key.
+- **An interactive terminal view** is `branch chat` — the full drawn view from wave 4
+  (`src/terminal-tui.ts`) where the terminal can be drawn on, the plain stream otherwise.
+- **Session authentication and pairing** is the local key plus the invitation flow above.
+- **A profile needs its PIN**, and five wrong ones in a row are made to wait five minutes
+  (`src/profiles.ts`).
+- **LangSmith** is one of the three destinations traces can be sent to (`src/tracing-export.ts`).
+
+### Not applicable, and why
+
+- **A2003, A2095, A2216, A1897, A2074 (social login, web-UI password reset, multi-user accounts,
+  OIDC, WebAuthn)** — Branch is one person's assistant on their own computer. There is nobody to
+  register, no password to reset, and no second account to keep apart. What protects it is that it
+  listens on this computer only, behind a key on disk. See the chain above.
+- **A0566 Sentry error telemetry** — nothing about you is collected or sent anywhere, which is a
+  written non-goal. A crash is already recorded as an error span (`recordUncaughtErrors` in
+  `src/tracing.ts`) and goes to **your** collector when you turn sending on.
+- **A1620, A1751 (optional analytics, execution telemetry)** — the same non-goal. The counters page
+  and the usage ledger are yours and stay here.
+- **A0681 tracing/logging** is a Rust library for a Rust program; this is TypeScript.
+- **A1334 application logging guidance** — `GET /api/logs` and the OTLP logs signal above are the
+  answer for this tree.
+- **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
+  separately; `secret://cmd/<name>` above is the general form of the same idea.
+- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
+  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
+  become a task. Still open.
+
+## Every setting named, so nothing is only in the code (batch 26, wave 8)
+
+`scripts/check-docs.mjs` reads every settings schema in `src/` and fails if a field is not named
+here. These were only in the code until it started running.
+
+### Voice
+
+Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings → Voice** writes:
+
+| Setting | What it is |
+| --- | --- |
+| `autoReadAloud` | Read every reply aloud as it arrives. |
+| `voiceId` | Which voice reads aloud. Which ones exist depends on this computer. |
+| `speechRate` | How fast it reads, from 0.5 to 2 times normal speed. |
+| `useProviderVoice` | Prefer the connected service's higher-quality voice over the browser's. |
+| `sttRoute` | Who writes out what you say: `auto`, `openai`, `gemini`, or `local` (a speech program here). |
+| `sttModel` | The model name to use for writing speech out, when the route wants one. |
+| `ttsRoute` | Who reads replies aloud: `auto`, `openai`, `gemini`, or `windows` (the voices Windows ships). |
+| `ttsModel` | The model name to use for reading aloud, when the route wants one. |
+| `keepAudioOnThisComputer` | Nothing containing sound may leave. Both cloud routes then refuse in plain words, and so does a live conversation. |
+| `replyWithVoiceOnChannels` | Answer a voice note on a chat app with a voice note back. Telegram only, today. |
+| `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
+| `localSpeechModel` | The model file that program should use. |
+| `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
+| `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
+| `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
+| `keepLiveRecordings` | Note in the task's record how much sound a live conversation carried — the size of each piece and nothing else. The sound itself is never kept either way. |
+
+### The rest
+
+- **Connections** (`src/connections-preset.ts`): `activePreset` is which connection answers by
+  default in this workspace, `fallbackOrder` the connections to try in order when one fails, and
+  `cooldownMs` how long a failed connection rests before it is tried again.
+- **Pictures** (`src/media-settings.ts`): `imageModel` is which model makes them (leave it empty for
+  the connection's own default) and `imagePrices` your own corrections to the per-picture prices,
+  for a service whose price Branch does not know.
+- **The waiting line** (`POST /api/queue/settings`): `atOnce` is how many tasks may work at the same
+  time.
+- **A standing brief** (`src/briefs.ts`): `lastSentAt` is when it last went out and `nextAt` when it
+  is next due. Branch writes both; they are not for you to set.
+- **Programs left running** (`src/processes.ts`): `maxRunning` is how many at once, `maxMinutes` how
+  long one may live before it is stopped, and `bufferBytes` how much of what it printed is kept to
+  show you.

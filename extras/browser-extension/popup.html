@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Send to Branch</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; padding: 12px; width: 22rem; }
+      label { display: block; margin: 8px 0 2px; }
+      input, button { width: 100%; box-sizing: border-box; padding: 6px; }
+      button { margin-top: 10px; cursor: pointer; }
+      p { margin: 8px 0 0; white-space: pre-wrap; }
+      .quiet { color: #555; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <strong>Send this page to Branch</strong>
+    <p class="quiet">
+      Your paired Branch only. Turn on reaching Branch from your phone, pair once, and paste that
+      address and key here. This never uses the key the app's own page uses on your computer.
+    </p>
+    <label for="where">Your paired Branch address</label>
+    <input id="where" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
+    <label for="key">The key pairing gave you</label>
+    <input id="key" type="password" autocomplete="off" />
+    <label for="note">Anything to add</label>
+    <input id="note" type="text" placeholder="Summarise this for me" />
+    <button id="send" type="button">Send it</button>
+    <p id="said" role="status" aria-live="polite"></p>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

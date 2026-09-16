@@ -273,3 +273,29 @@
   --composer-bg: #fffdf8;
   --step-bg: rgba(23, 40, 30, 0.04);
 }
+
+/* ---------- Chart series (wave 8) ----------
+   Eight colours a chart cycles through, so bars and slices are told apart without
+   any file but this one writing a colour down. Forest first, then the Daylight set:
+   both are drawn from the copper/leaf family already above, darkened for Daylight so
+   text on top of a slice stays readable. */
+:root {
+  --series-1: #e07033;
+  --series-2: #86d6a0;
+  --series-3: #f2c572;
+  --series-4: #8fb8d8;
+  --series-5: #c9a7e0;
+  --series-6: #d3e3b6;
+  --series-7: #f28b7a;
+  --series-8: #9fb3aa;
+}
+:root[data-theme="daylight"] {
+  --series-1: #b5651d;
+  --series-2: #1f7a45;
+  --series-3: #8a5a00;
+  --series-4: #35618a;
+  --series-5: #6b4a8a;
+  --series-6: #5c7030;
+  --series-7: #b3321f;
+  --series-8: #4d5f57;
+}

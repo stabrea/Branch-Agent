@@ -38,7 +38,11 @@ export const sandboxSentence = (choice: SandboxChoice): string => sandboxSentenc
  * have done before this existed. A tool with no rule behaves as it always did.
  */
 export function sandboxShape(choice: SandboxChoice | null | undefined, fallback: SandboxShape): SandboxShape {
-  return choice ? shapes[choice] : fallback;
+  if (!choice) return fallback;
+  // A rule may hold a program more tightly than the settings already do, never more loosely. If the
+  // settings say this tool has no way out to the internet, no choice on a rule opens that way again:
+  // the owner switched the internet off in one place and should not have it come back in another.
+  return { job: shapes[choice].job, netless: shapes[choice].netless || fallback.netless };
 }
 
 /** The choice a shape amounts to, for reporting back what a program actually ran under. */

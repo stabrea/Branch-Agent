@@ -220,6 +220,16 @@ export class Scheduler {
       return { ...target, at, error: message };
     }
   }
+  /**
+   * Batch 20 (wave 8): takes a schedule off the list for good. Without this the only way to be rid
+   * of one was to pause it for ever, which is not the same thing and does not read the same way.
+   */
+  remove(context: ToolContext, id: string): { id: string; removed: boolean } {
+    if (!context.permissions.has("schedules.manage"))
+      throw new Error("Permission denied: schedules.manage");
+    if (!this.store.get("schedules", context.owner, id)) return { id, removed: false };
+    return { id, removed: this.store.delete("schedules", context.owner, id) };
+  }
   setPaused(context: ToolContext, id: string, paused: boolean): SavedRecord {
     if (!context.permissions.has("schedules.manage"))
       throw new Error("Permission denied: schedules.manage");
@@ -280,6 +290,13 @@ export function registerSchedules(
       .object({ id: z.string().uuid(), paused: z.boolean() })
       .strict(),
     execute: async (a, c) => scheduler.setPaused(c, a.id, a.paused),
+  });
+  registry.register({
+    name: "schedules.remove",
+    description: "Delete a schedule for good, so it never runs again.",
+    permission: "schedules.manage",
+    parameters: z.object({ id: z.string().uuid() }).strict(),
+    execute: async (a, c) => scheduler.remove(c, a.id),
   });
   registry.register({
     name: "schedules.list",

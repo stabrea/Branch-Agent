@@ -473,3 +473,38 @@ test("Q6 each of the ten sections has its own words on file", async (t) => {
     assert.ok(mine.length > 0, `${view} has no words of its own behind a key`);
   }
 });
+
+/* Wave 8: the coverage test is tightened. It used to ask only that every key in the markup had
+   English words; now it asks the other way round — that no button, field label or tick box on the
+   page says anything that is not behind a key, so switching the language leaves nothing in English. */
+test("Q6 every button and field label on the page says its words through a key", async (t) => {
+  const html = await readFile(join(PUBLIC, "index.html"), "utf8");
+  const nameless = [];
+  /* A button or label whose whole content is plain words must carry the key for those words. */
+  for (const [whole, attributes, text] of html.matchAll(/<(?:button|label)\b([^>]*)>([^<]{1,200})<\/(?:button|label)>/g))
+    if (!/\bdata-t[=\s]/.test(attributes) && text.trim()) nameless.push(text.trim().slice(0, 60));
+  /* A tick box carries its words after the input; they belong in a span with a key of their own. */
+  for (const [, attributes, , text] of html.matchAll(/<label\b([^>]*)>(<input[^>]*?\/?>)\s*([^<]{2,200})<\/label>/g))
+    if (!/\bdata-t[=\s]/.test(attributes) && text?.trim()) nameless.push(text.trim().slice(0, 60));
+  assert.deepEqual(nameless, [], "these controls still say their words in English only");
+
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  assert.ok(Object.keys(english).filter((key) => key.startsWith("action.")).length > 80,
+    "the buttons on the page are not all behind keys");
+  assert.ok(Object.keys(english).filter((key) => key.startsWith("field.")).length > 80,
+    "the field labels on the page are not all behind keys");
+});
+
+/* Words that are genuinely the same in both languages — proper names, and words French borrowed
+   whole. Anything else left in English is a translation that was never written. */
+const SHARED_WITH_FRENCH = new Set([
+  "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
+]);
+test("Q6 French is a real translation, not the English file under another name", async (t) => {
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  const french = JSON.parse(await readFile(join(PUBLIC, "locales", "fr.json"), "utf8"));
+  const copied = Object.keys(english).filter((key) =>
+    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]));
+  assert.deepEqual(copied, [], "these keys still answer in English when French is chosen");
+  assert.ok(Object.keys(french).length >= Object.keys(english).length, "French answers every key");
+});
