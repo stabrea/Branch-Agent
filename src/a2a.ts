@@ -187,9 +187,10 @@ export class A2aServer {
     const { id } = TaskIdParamsSchema.parse(params);
     const record = this.tasks.get(id);
     if (!record) throw new A2aError(-32001, `Task ${id} is not known to this assistant`);
-    this.runtime.cancel(record.runId);
+    if (record.runId) this.runtime.cancel(record.runId);
     const run = this.store.run(record.runId);
-    if (!run) throw new A2aError(-32001, `Task ${id} is not known to this assistant`);
+    // A task cancelled before its run had even begun still answers as cancelled, with no answer.
+    if (!run) return this.taskView(record, blankRun(record, this.runtime.owner));
     return this.taskView(record, { ...run, status: run.status === "running" ? "cancelled" : run.status });
   }
 
@@ -228,6 +229,12 @@ export class A2aServer {
     }
   }
 }
+
+/** A task stopped before any work began: there is nothing recorded, and nothing to hand back. */
+const blankRun = (record: A2aTaskRecord, owner: string): Run => ({
+  id: record.runId, sessionId: record.sessionId, owner, prompt: "", status: "cancelled",
+  output: "", createdAt: record.createdAt, updatedAt: record.createdAt,
+});
 
 /** One recorded step, in words a person or another agent can read. */
 export function stepText(kind: string, data: Record<string, unknown>): string {
