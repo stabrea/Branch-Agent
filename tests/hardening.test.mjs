@@ -99,11 +99,16 @@ test("5 — a conversation sees only the programs it started", async (t) => {
 
   const started = await app.registry.execute("process.start", { program: "node", args: ticker, name: "the ticker" }, mine);
   t.after(() => app.processes.stop(started.id).catch(() => undefined));
-  await delay(200);
+  // A newly started program takes a moment to say anything, and longer on a busy machine.
+  let output = "";
+  for (let at = 0; at < 100 && !/tick/.test(output); at++) {
+    await delay(50);
+    output = (await app.registry.execute("process.read", { id: started.id }, mine)).output;
+  }
 
   const own = await app.registry.execute("process.list", {}, mine);
   assert.deepEqual(own.processes.map((entry) => entry.name), ["the ticker"], "the conversation that started it sees it");
-  assert.match((await app.registry.execute("process.read", { id: started.id }, mine)).output, /tick/);
+  assert.match(output, /tick/);
 
   const other = await app.registry.execute("process.list", {}, theirs);
   assert.deepEqual(other.processes, [], "another conversation sees nothing at all");
