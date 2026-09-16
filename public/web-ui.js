@@ -93,6 +93,7 @@ await Promise.all([
   import("./reports.js"),
   import("./todos.js"),
   import("./logs.js"),
+  import("./flow-editor.js"),
 ]);
 wireOfflineBanner();
 registerServiceWorker();

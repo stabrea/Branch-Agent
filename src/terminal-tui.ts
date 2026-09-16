@@ -2,6 +2,9 @@ import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import type { Event, ImagePart, Run } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
+import type { Store } from "./store.js";
+// Wave 8: the terminal says what a round used and what it cost, as the web app already does.
+import { estimateCost, formatCost, pricingTableInUse } from "./pricing.js";
 import type { PendingApproval } from "./approvals.js";
 import type { ReasoningEffort } from "./models.js";
 import { LineEditor } from "./terminal-input.js";
@@ -340,6 +343,9 @@ class Tui {
     if (run.status === "completed") {
       this.emit(paint(this.style, "green", "Assistant:"));
       this.emit(safe(run.output));
+      // Wave 8: the terminal says what the task used, as the web app's meter already does.
+      const used = usageLine(this.runtime.store, run);
+      if (used) this.emit(paint(this.style, "dim", used));
       return;
     }
     const waiting = this.runtime.approvals.waiting(run.sessionId).at(-1);
@@ -393,6 +399,41 @@ class Tui {
 }
 
 const cleanName = (value: unknown): string => String(value ?? "").replace(/[^a-zA-Z0-9_.:-]/g, "?").slice(0, 100);
+
+/**
+ * Wave 8: what a task used, in one line, for the terminal. Reported figures are what the service
+ * itself counted; where it counted nothing, the estimate is named as an estimate rather than
+ * passed off as the real number. Nothing at all is said when neither is known.
+ */
+export function usageLine(store: Store, run: Run): string | null {
+  const used = store.usage(run.id);
+  const at = (name: string): number => used[name] ?? 0;
+  const reported = at("reportedInput") + at("reportedOutput");
+  const estimated = at("estimatedInput") + at("estimatedOutput");
+  if (!reported && !estimated) return null;
+  const words = reported
+    ? `${at("reportedInput")} in, ${at("reportedOutput")} out (counted by the service)`
+    : `about ${at("estimatedInput")} in, about ${at("estimatedOutput")} out (an estimate)`;
+  const cost = runCost(store, run, used);
+  return `[tokens: ${words}${cost ? ` · ${cost}` : ""}]`;
+}
+
+/**
+ * What one task cost, priced with whatever model actually answered. Where no price is on file for
+ * that model, nothing is said at all rather than a figure nobody can stand behind.
+ */
+export function runCost(store: Store, run: Run, used: Record<string, number>): string | null {
+  const model = store.events(run.id)
+    .filter((event) => event.kind === "model.completed" && typeof event.data.model === "string")
+    .map((event) => String(event.data.model)).at(-1);
+  if (!model) return null;
+  const { overrides } = pricingTableInUse(store, run.owner);
+  const estimate = estimateCost(model, {
+    input: used.reportedInput ?? used.estimatedInput ?? 0,
+    output: used.reportedOutput ?? used.estimatedOutput ?? 0,
+  }, overrides);
+  return estimate.amount === null ? null : `${model} · ${formatCost(estimate)}`;
+}
 /**
  * One compact row per step, and nothing at all for events that are only interesting inside. Tool
  * results and error bodies never reach here: only the name of the tool and what it was asked to

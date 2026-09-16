@@ -478,6 +478,62 @@
           </p>
           <button id="flows-refresh" class="secondary" data-t="action.show-the-flows">Show the flows</button>
           <div id="flows-list" class="card-list"></div>
+          <!-- Wave 8: changing a flow rather than only looking at one (public/flow-editor.js). -->
+          <article id="flow-editor" class="card">
+            <h2 data-t="editor.title">Change a flow</h2>
+            <p class="meta" data-t="editor.intro">
+              Add a step, take one away, move one earlier or later, and fill in what that kind of
+              step needs. The picture above the list changes as you go; nothing is saved until you
+              press Save.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="editor-flow" data-t="field.which-flow">Which flow</label>
+                <select id="editor-flow"></select>
+              </div>
+              <div>
+                <label for="editor-name" data-t="field.name">Name</label>
+                <input id="editor-name" type="text" maxlength="80" />
+              </div>
+            </div>
+            <label for="editor-description" data-t="field.what-this-flow-does">What this flow does</label>
+            <input id="editor-description" type="text" maxlength="500" />
+            <div id="editor-picture" class="editor-picture"></div>
+            <div id="editor-steps" class="card-list"></div>
+            <div class="row-fields">
+              <div>
+                <label for="editor-kind" data-t="field.kind-of-step">Kind of step</label>
+                <select id="editor-kind"></select>
+              </div>
+            </div>
+            <div class="report-actions">
+              <button id="editor-add" type="button" class="quiet" data-t="action.add-a-step">Add a step</button>
+              <button id="editor-save" type="button" class="quiet" data-t="action.save-this-flow">Save this flow</button>
+              <button id="editor-run" type="button" class="quiet" data-t="action.run-this-flow">Run this flow</button>
+            </div>
+            <p id="editor-status" class="meta" role="status" aria-live="polite"></p>
+            <h3 data-t="editor.timeline">While it runs</h3>
+            <div id="editor-timeline" class="card-list"></div>
+          </article>
+          <!-- Wave 8: how often a task repeats, in plain words (A2093). -->
+          <article id="repeat-picker" class="card">
+            <h2 data-t="repeat.title">How often should it repeat?</h2>
+            <p class="meta" data-t="repeat.intro">
+              Choose a rhythm and see it written out in plain words before you use it.
+            </p>
+            <div class="row-fields">
+              <div>
+                <label for="repeat-every" data-t="field.every">Every</label>
+                <select id="repeat-every"></select>
+              </div>
+              <div>
+                <label for="repeat-at" data-t="field.at-what-time">At what time</label>
+                <input id="repeat-at" type="time" value="09:00" />
+              </div>
+            </div>
+            <p id="repeat-preview" class="meta" role="status" aria-live="polite"></p>
+            <button id="repeat-use" type="button" class="quiet" data-t="action.use-this-rhythm">Use this rhythm</button>
+          </article>
         </section>
         <section id="schedules" class="view" hidden>
           <p class="section-intro" data-t="schedules.intro.tasks-your-assistant-starts-on">

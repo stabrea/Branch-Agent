@@ -14,6 +14,7 @@ import {
   RequestCounter, Todos, buildReport, cachedAnswers, createBranch, episodeReport, logJsonl,
   readLog, remindAbout, requestAllowances,
 } from "../dist/index.js";
+import { usageLine } from "../dist/terminal-tui.js";
 
 async function workspace(t, provider) {
   const root = await mkdtemp(join(tmpdir(), "branch-wave8-"));
@@ -143,6 +144,21 @@ test("T3 the record can be narrowed down and saved as one line each", async (t) 
   const parsed = file.trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(parsed.length, oneKind.lines.length, "the saved file is not one line per step");
   assert.equal(parsed[0].kind, "model.completed");
+});
+
+test("T3 the terminal view says what a finished task used", async (t) => {
+  const app = await workspace(t, { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } });
+  const run = await app.runtime.run({ prompt: "count the beans" });
+  const line = usageLine(app.store, run);
+  assert.ok(line, "the terminal has no token figures to show after a task");
+  assert.match(line, /^\[tokens: /);
+  assert.match(line, /in,.*out/, "the line says nothing about what went in or came back");
+  /* The scripted model reports nothing, so the figures must be named as estimates, not passed off. */
+  assert.match(line, /an estimate/);
+
+  /* A task nothing was ever counted for says nothing at all, rather than a row of zeroes. */
+  const empty = { ...run, id: "00000000-0000-4000-8000-000000000000" };
+  assert.equal(usageLine(app.store, empty), null);
 });
 
 test("T3 how busy a connection is sits beside the allowance the service reports", async (t) => {
