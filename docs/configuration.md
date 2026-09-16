@@ -2776,6 +2776,13 @@ set fails or never finishes — falls back to one ordinary call per question rat
 work, and the answer says in one line why. What the set cost is read from what the service reported,
 never guessed.
 
+**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
+submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
+yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
+Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
+`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
+Turning the setting on today changes nothing except the sentence you get back.
+
 ### Lockdown: one switch (A0615)
 
 - `GET /api/lockdown` — whether it is on, since when, and in plain words what it stops.

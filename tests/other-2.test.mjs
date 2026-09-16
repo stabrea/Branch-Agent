@@ -440,6 +440,14 @@ test("a project's instructions, model and knowledge bases apply, and cost groups
 
 /* ---- A0344: watching a folder ---- */
 
+test("the context branch watch builds is allowed to replay a saved procedure", async (t) => {
+  const { app } = await fixture(t);
+  // `watchCommand` builds exactly this context and hands it to knowledge.replayProcedure, which
+  // opens by demanding procedures.use. Without it every change would throw instead of running.
+  const context = app.runtime.context({ signal: AbortSignal.timeout(1000), source: "owner" });
+  assert.equal(context.permissions.has("procedures.use"), true);
+});
+
 test("branch watch runs the action on a change, never twice at once, and stops cleanly", async (t) => {
   const base = await mkdtemp(join(tmpdir(), "branch-watch-"));
   t.after(() => discard(base));

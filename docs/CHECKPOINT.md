@@ -1754,7 +1754,10 @@ sent, nothing charged, and the round marked `cached` with a zero cost and a reas
 inside" screen. An answer that asks for a tool is never kept, because replaying it would replay the
 tool. `src/batch-inference.ts` hands a whole set of questions over where the connection offers it
 (an optional `batch()` on `Provider`), polls, collects, and prices the set from what the service
-reported; anything that goes wrong falls back to one ordinary call per question and says why.
+reported; anything that goes wrong falls back to one ordinary call per question and says why. The
+machinery and the fallback are done and tested against fakes, but **no real connection implements
+`batch()` yet** — OpenAI's and Anthropic's own batch adapters are still to write, so today every set
+falls back. A1351/A1352 are therefore partial, not done.
 
 `src/lockdown.ts` is one switch. On, every tool waits for a yes and host programs, the screen, the
 borrowed browser, sending messages out and telling other programs what happened are all off. The
