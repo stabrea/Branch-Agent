@@ -19,6 +19,10 @@ import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
+// Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
+// tools that report what a call would do and how those connections are faring.
+import { McpConnections } from "./mcp-lifecycle.js";
+import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
 import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
 import { createRequire } from "node:module";
@@ -295,6 +299,12 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
+  // Somebody else's AI-tool server is opened only when a task first needs it, and closed when that
+  // task ends. Each household profile keeps its own settings for how long and how many.
+  const mcpConnections = new McpConnections(store, () => store.profiles.scope());
+  registry.onRunFinished(async (context) => mcpConnections.releaseRun(context.runId));
+  registerMcpTools(registry, store, files.base, mcpConnections);
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
@@ -386,6 +396,8 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    /** Other AI tools' servers, opened only while a task needs one and closed when it ends. */
+    mcpConnections,
     /** Answering assistants elsewhere over the agent-to-agent protocol. */
     a2a,
     /** Assistants elsewhere this one may hand work to. */
@@ -475,6 +487,8 @@ export async function createBranch(options: {
       stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
+      mcpServer.close();
+      await mcpConnections.closeAll();
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -664,3 +678,10 @@ export * from "./run-queue.js";
 export * from "./execution-limit.js";
 export * from "./calendar.js";
 export * from "./profiles.js";
+// Wave 7 (Branch as a first-class MCP citizen, both ways round).
+export * from "./mcp-policy.js";
+export * from "./mcp-snapshots.js";
+export * from "./mcp-lifecycle.js";
+export * from "./mcp-apps.js";
+export * from "./mcp-workbench.js";
+export * from "./integrations/mcp-oauth.js";
