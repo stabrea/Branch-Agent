@@ -1546,3 +1546,104 @@ the **documents** toolbox, not the memory one, because a knowledge base is a set
 The listing tool
 is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
 stored recipes and specialists.
+## Traces, the counters page and the permission rules (batch 19, wave 7)
+### There is no telemetry, and there never will be
+Branch Agent collects nothing about you and sends nothing to the people who made it. There is no
+"help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
+collected in the first place. Everything on this page is about *you* choosing to send *your own*
+traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
+type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+button, it now carries the last 200 steps with their names, timings and outcomes, and every value
+in it has been through the same scrub as the rest of the folder.
+### Spans: the shape of a task while it runs
+Every task gets a trace of its own, and a step — a *span* — for the task itself, each round with
+the model, each tool call and each sub-task. Each span points at the one above it, so the trace is
+a tree rather than a list. The ids follow the W3C trace context standard, so a viewer you already
+have understands them. They are written to a `spans` table beside the events, and every attribute
+goes through the same scrubber as everything else, so a saved password or key cannot be in one.
+`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's. The newest
+20 000 are kept and older ones are let go once per launch, so the table cannot grow without end.
+When Branch hands work to another assistant, or sends a webhook, it puts the standard
+`traceparent` header on the call, and when another assistant sends work here with that header the
+task joins their trace instead of starting a new one. One piece of work across two assistants is
+therefore one trace.
+### Sending traces somewhere you run
+`GET`/`POST /api/tracing/settings` holds `enabled` (false until you change it), `destination`
+(`otlp`, `langfuse` or `langsmith`), `endpoint`, `headers`, `batchSize`, `retries` and
+`serviceName`. Once it is on, each task sends its own steps as soon as it finishes, and
+`POST /api/tracing/test` sends the last five so you can check the address before relying on it.
+Turning sending on without an address is refused rather than half-done.
+`includeErrors` adds the crashes Branch recorded — an uncaught failure in the engine, with the
+stack scrubbed — to what goes out, which is the whole of "send crash reports to my own endpoint":
+they go to *your* address and nowhere else, and there is no third-party crash service involved.
+A header value may be `secret://<project>/<NAME>` instead of the key itself. The real value is
+looked up from the locker at the moment of the call and is never in the settings, never in a log
+and never in an error message. Every send — successful or not — is written into the record of what
+the assistant was allowed to do, with the host it went to and how many steps went with it.
+All three destinations speak plain JSON over HTTP; no library is installed for any of them. OTLP
+posts to `/v1/traces` (and `/v1/metrics` for the counters), Langfuse to `/api/public/ingestion`,
+LangSmith to `/runs/batch`, unless the address you typed already has a path of its own. A failed
+send is tried again a couple of times with a growing pause, and the address rules are checked
+before every single try.
+**A collector on this computer needs one extra step.** Branch refuses private and local addresses
+by default, so sending to `http://localhost:4318` is blocked until you allow private addresses —
+`allowPrivateAddresses` in the `web` section of the integrations file, the same switch Web reading
+uses. The refusal says so itself rather than leaving you to guess, and an address that is not
+allowed is refused once rather than tried again and again. That default is deliberate: it is the
+same rule that stops a web page reaching things on your own network.
+These screens are the owner's own. While somebody else's profile is switched on, the steps, the
+rules and the sending settings are all refused, exactly like the owner's secrets and saved
+workflows.
+### The counters page
+`GET /api/metrics` answers in the plain text a monitoring tool scrapes, behind the same local key
+as everything else: how many tasks there are and what state they are in, tokens in and out, the
+estimated cost this month, tool calls and failures, how many conversations have been shortened, how
+many steps have been recorded, and a histogram of how long tool calls take. Usage → **Health**
+shows the same numbers in plain words. Queue depth is not reported: there is no single queue to
+count, so a made-up number is left out rather than invented.
+### Permission rules about one particular thing
+A rule can now name what it is about as well as which tool it covers: a folder or file (`path`), a
+website (`host`), a messaging account (`channel`) or a command (`command`). A rule with one of
+these is looked at before the broader rules, so "never write anything under finance" beats "writing
+files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
+rule written before this behaves — nothing you already had changes.
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
+about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+Which kind a call counts as is worked out from what the call says it would touch, not from its
+arguments: a bare website name is a website, and anything else is a folder or file. That means a
+tool that reports what it touches through its own `target()` — as a tool with no plain `path`
+argument is meant to — is covered by a folder rule like any other.
+Browser clicking, typing and uploading go through these same rules with the website as the thing
+they are about; they do not get a second set of their own.
+Settings → When to check with me shows every rule as a sentence — "Ask before writing files under
+finance", "Never allow browsing example.com" — with a button to take one away, a short form to add
+one, and a **Try a decision out** box that says what would happen and which rule decided, without
+saving or running anything.
+`GET /api/rules` lists the rules with their sentences. `POST /api/rules/add` takes one rule,
+`POST /api/rules/remove {"index": 0}` takes one away, and `POST /api/rules/test {"tool": "...",
+"target": "..."}` answers with the decision and the sentence behind it.
+### Yes for this conversation, and what it is tied to
+"Yes, for this conversation" is a grant with an end: it lasts an hour, ends when the conversation
+ends, and ends the moment you lock Branch. `GET /api/rules/allowed?session=<id>` lists what a
+conversation is allowed to do right now and when each one runs out.
+A yes is tied to the exact request it was given for. The approval card shows those exact words,
+with any saved password or key already taken out, and the answer carries a fingerprint of them. If
+the assistant changes so much as one character — the same file with different contents counts — the
+old yes does not cover it and it has to ask again. `POST /api/policy/approve` accepts an optional
+`fingerprint`; an answer whose fingerprint does not match what the task is waiting on is refused
+with a plain message.
+The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
+carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
+the socket sees what the app sees and can answer under the same binding.
+### Wrong keys are counted
+Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
+message saying so and a line in the record of what the assistant was allowed to do, filed under
+"Somewhere kept getting the key wrong and was made to wait". The right key is checked first and
+clears the count at once, so a stale tab in your own browser can never shut you out of your own app.
+"The same place" means the address the connection itself came from. A header a caller writes for
+itself, such as `x-forwarded-for`, is ignored: Branch has no proxy in front of it, so trusting one
+would only let a single guesser pretend to be a thousand different places. On this computer's own
+listener that makes every local program one place, which is the honest answer; the phone's listener
+sees each device separately. The socket a running task streams over is not counted, so a wrong key
+there is refused without being held against anyone.

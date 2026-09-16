@@ -139,16 +139,18 @@ export class A2aServer {
   }
 
   /** Runs one task to the end and answers with it. The caller waits; `sendSubscribe` streams instead. */
-  async send(params: SendParams, agent: string): Promise<unknown> {
+  async send(params: SendParams, agent: string, traceparent?: string | null): Promise<unknown> {
     const { record, prompt } = this.begin(params, agent);
-    const run = await this.execute(record, prompt, this.sessionFor(params.sessionId));
+    const run = await this.execute(record, prompt, this.sessionFor(params.sessionId), traceparent);
     return this.taskView(record, run);
   }
 
   /** The shared way of running a task: held to the rules for work the owner did not start. */
-  private async execute(record: A2aTaskRecord, prompt: string, sessionId: string | undefined): Promise<Run> {
+  private async execute(record: A2aTaskRecord, prompt: string, sessionId: string | undefined, traceparent?: string | null): Promise<Run> {
     const run = await this.runtime.run({
       prompt, source: "a2a", ...(sessionId ? { sessionId } : {}),
+      // An assistant that already had a trace open passes it on, so its work and ours are one trace.
+      ...(traceparent ? { traceparent } : {}),
       signal: AbortSignal.timeout(this.options.taskTimeoutMs),
       onStarted: (started) => { record.runId = started.id; record.sessionId = started.sessionId; this.announce(record, prompt); },
     });

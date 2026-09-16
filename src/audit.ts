@@ -12,6 +12,8 @@ import type { Store } from "./store.js";
 export const auditActions = [
   "approval.decided", "secret.used", "policy.changed", "channel.paired",
   "data.exported", "profile.switched", "practice.switched",
+  // Batch 19 (wave 7): somewhere kept giving the wrong key, PIN or pairing code and was made to wait.
+  "auth.refused",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -56,6 +58,7 @@ const actionLabels: Record<AuditAction, string> = {
   "data.exported": "Something was exported out of the app",
   "profile.switched": "The active project was switched",
   "practice.switched": "The practice workspace was switched on or off",
+  "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

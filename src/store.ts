@@ -24,6 +24,7 @@ import { UsageStore } from "./usage.js";
 import { Labels } from "./labels.js";
 import { ShareLinks } from "./conversation-share.js";
 import { Profiles } from "./profiles.js";
+import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows";
@@ -60,6 +61,7 @@ export class Store {
    */
   guardEvent: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data;
   private auditStore: AuditLog | undefined;
+  private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -101,6 +103,8 @@ export class Store {
     this.skills = new InstalledSkills(this.db);
     this.projects = new Projects(this);
     this.migrateUsage();
+    // The spans table is created up front, so the metrics page can count them from the first launch.
+    void this.spans;
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
     this.library = new SessionLibrary(this.db);
@@ -110,6 +114,9 @@ export class Store {
     this.interruptSchedules();
     this.interruptWorkflows();
     this.discardTemporarySessions();
+    // The newest 20 000 spans are kept and the rest let go, once per launch, so a machine left
+    // running for weeks does not grow a spans table without end.
+    try { this.spans.prune("local"); } catch { /* tidying is never a reason not to start */ }
   }
   private migrateUsage(): void {
     const usageColumns = this.db
@@ -489,6 +496,10 @@ export class Store {
     );
   }
   usageStore(): UsageStore { return new UsageStore(this.db); }
+  /** The spans of running and finished tasks, beside the events. Created on first use. */
+  get spans(): SpanStore {
+    return (this.spanStore ??= new SpanStore(this.db));
+  }
   memoryCapacity(owner: string) { return this.memories.capacity(owner); }
   configureMemory(owner: string, input: unknown) { return this.memories.configure(owner, input); }
   updateMemory(owner: string, input: unknown, sourceRunId: string) {
