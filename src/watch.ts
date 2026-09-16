@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from "node:fs";
+import { realpathSync, watch, type FSWatcher } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 
@@ -41,7 +41,13 @@ export function watchFolder(
   onError: (error: unknown) => void = () => undefined,
 ): WatchHandle {
   const options = WatchOptionsSchema.parse(input);
-  const root = resolve(folder);
+  /*
+   * Windows still keeps short names for some folders ("RUNNER~1"), and the watcher underneath Node
+   * compares the name it is handed against the folder it was given. Watching a short name therefore
+   * stops the whole program with an assertion rather than an error anything here could catch, so the
+   * folder is asked for its real, long name first.
+   */
+  const root = realpathSync.native(resolve(folder));
   let timer: NodeJS.Timeout | null = null;
   let running: Promise<void> | null = null;
   let again = false;
