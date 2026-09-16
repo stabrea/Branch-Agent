@@ -63,6 +63,11 @@ import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
+// Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
+import { KnowledgeBases } from "./knowledge-bases.js";
+import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
+import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
+import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
 import { ProviderPlugins } from "./provider-plugins.js";
 import type { IssueAccess } from "./integrations/issue-tools.js";
@@ -249,6 +254,26 @@ export async function createBranch(options: {
   retrieval.add(new DocumentRetriever(documents));
   retrieval.add(new MemoryRetriever(memory.retrieval));
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // Knowledge bases. Reading passages is charged to the task that asked for it, exactly the way a
+  // model answer is; background reading has no task, so it is recorded as an event instead.
+  const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
+    { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) });
+  knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
+  retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
+  memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
+  const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
+  // Facts written during a task are compared by meaning as soon as it finishes, never during it.
+  registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
+  const documentContext = documents;
+  // A knowledge base the owner attached is put in front of a task first; documents follow.
+  runtime.documents = {
+    contextFor: async (owner, prompt, signal) =>
+      (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
+      ?? documentContext.contextFor(owner, prompt, signal),
+  };
+  scheduler.onTick.add(async (now) => { await consolidation.tick(runtime.owner, now); });
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
   let closing: Promise<void> | undefined;
@@ -265,6 +290,10 @@ export async function createBranch(options: {
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
     retrieval,
+    /** Named sets of folders and files, read into passages and searched by words and by meaning. */
+    knowledgeBases,
+    /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
+    consolidation,
     /** The practice workspace: made-up files to try tools on safely. */
     practice,
     /** Model connections plugins have brought. */
@@ -490,6 +519,13 @@ export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
 export * from "./memory-hygiene.js";
+export * from "./memory-consolidate.js";
+export * from "./embeddings.js";
+export * from "./vector-store.js";
+export * from "./chunking.js";
+export * from "./bm25.js";
+export * from "./knowledge-bases.js";
+export * from "./knowledge-tools.js";
 export * from "./memory-export.js";
 export * from "./citations.js";
 export * from "./data-table.js";

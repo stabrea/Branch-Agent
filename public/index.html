@@ -522,6 +522,29 @@
           </form>
           <p id="documents-status" role="status"></p>
           <div id="documents-list" class="card-list"></div>
+          <div class="card" id="knowledge-card">
+            <h3>Knowledge</h3>
+            <p class="subtle" id="knowledge-meaning">A knowledge base is a name you give to whole folders of your work, so the assistant can find the right page and tell you where it came from.</p>
+            <form id="knowledge-create-form">
+              <label for="knowledge-name">Name this knowledge base</label>
+              <div class="input-row">
+                <input id="knowledge-name" type="text" maxlength="120" placeholder="Handbook" />
+                <input id="knowledge-folder" type="text" maxlength="500" placeholder="notes" />
+                <button type="submit">Create</button>
+              </div>
+              <p class="subtle">The second box is the folder inside your workspace to read. You can add more folders afterwards.</p>
+            </form>
+            <p id="knowledge-status" role="status"></p>
+            <div id="knowledge-list" class="card-list"></div>
+            <form id="knowledge-search-form">
+              <label for="knowledge-query">Ask your knowledge bases</label>
+              <div class="input-row">
+                <input id="knowledge-query" type="search" maxlength="500" placeholder="what does the handbook say about holiday?" />
+                <button type="submit">Search</button>
+              </div>
+              <div id="knowledge-results" class="card-list"></div>
+            </form>
+          </div>
           <div class="card">
             <h3>Made by the assistant</h3>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
@@ -978,6 +1001,7 @@
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
+    <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>

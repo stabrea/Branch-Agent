@@ -86,8 +86,17 @@ export class MemoryRetrieval {
     this.store.save("settings", owner, "memory-retrieval", value);
     return value;
   }
+  /**
+   * Set at start-up: puts the shared store of passages already read in front of whichever reader
+   * the provider offers, so a fact that has not changed is never sent anywhere twice.
+   */
+  wrapEmbedder: ((embedder: Embedder) => Embedder) | undefined;
   /** The provider's embeddings route, or nothing when there is no key or the owner turned it off. */
   private client(owner: string): Embedder | null {
+    const base = this.baseClient(owner);
+    return base && this.wrapEmbedder ? this.wrapEmbedder(base) : base;
+  }
+  private baseClient(owner: string): Embedder | null {
     const settings = this.settings(owner);
     if (!settings.useEmbeddings) return null;
     const route = this.models ? providerEmbeddings(this.models.plan(owner, "").candidates[0]!.provider) : null;
