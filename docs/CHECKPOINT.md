@@ -1162,6 +1162,38 @@ nothing in `tests/compaction-attention.test.mjs` needed touching — it imports 
 which now means the 11,000 floor, and the conversation share alone is well past that when it
 compacts. Covers the
 context-management theme (#82) and the reliability inventory item (#16).
+## Batch 24 (wave 7) — knowledge bases that actually retrieve
+
+Documents could already be searched by their words and, with an OpenAI-shaped key, by meaning. What
+was missing was everything above that: whole folders as a named thing, passages that remember where
+they came from, a ranking that does not depend on which SQLite you happen to have, and a reader that
+works for more than one provider shape. `src/embeddings.ts` puts one `Embeddings` interface over
+three shapes — OpenAI-compatible `/embeddings`, Gemini `batchEmbedContents`, and Ollama's own route
+for a model on this computer — chosen from the owner's existing model plan, with the provider retry
+policy behind it, a cost charged to the asking task through the usage ledger, and a plain refusal
+when nothing connected can read passages. Every reading is kept in `embedding_cache` under
+sha256(passage + model), so re-reading a library is free and a knowledge base and a saved fact that
+say the same words are read once between them. `src/vector-store.ts` defines `VectorBackend` and
+ships one implementation: a `vectors` table with cosine worked out in TypeScript, comfortable to
+about 50k passages in a collection; the HTTP adapter contract for a real vector database is written
+in docs/configuration.md and deliberately not in code. `src/chunking.ts` cuts Markdown at its
+headings and everything else into overlapping paragraph windows, with deterministic passage names and
+per-passage title, heading path and page. `src/bm25.ts` is a pure-TypeScript BM25 that ranks the
+candidates FTS5 narrows down — and ranks them the same way on a build with no FTS5 at all.
+`src/knowledge-bases.ts` and `src/knowledge-tools.ts` are the collections themselves: create, add,
+remove, reindex with progress events, and a hybrid search that fuses the word order and the meaning
+order with reciprocal rank fusion and then hands them to the wave-6 reranker, every result carrying
+its file, heading and page. `knowledge.ask` has the model read the best passages and answer with
+numbered sources. A collection ticked "use this when answering" goes in front of the task ahead of
+the document library, and a `KnowledgeRetriever` joins documents and saved facts behind the wave-6
+`Retriever` interface. For memory, `src/memory-consolidate.ts` adds the nightly pass on the existing
+scheduler beat: newly written facts get their comparison by meaning (through the same cache), and
+near-duplicates are written into the review queue as suggested merges — it never deletes anything.
+The Knowledge card lives at the foot of the existing Documents section in `public/knowledge.js`.
+
+The listing tool is `knowledge.collections`, not the brief's `knowledge.list`, because
+`knowledge.list` was already taken by the stored recipes and specialists. No dependency was added.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

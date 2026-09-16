@@ -1442,3 +1442,70 @@ The files `/web-ui.js`, `/web-ui.css`, `/markdown.js`, `/i18n.js`, `/inspector.j
 `/token-meter.js`, `/playground.js`, `/service-worker.js`, `/manifest.webmanifest`,
 `/locales/en.json`, `/locales/fr.json` and the app icons are served from the same local allowlist
 as the rest of the interface.
+
+## Knowledge bases (batch 24, wave 7)
+
+A **knowledge base** is a name you give to whole folders or single files of your own work. It sits in
+the **Knowledge** card at the bottom of **Documents**. Name one, point it at a folder inside your
+workspace, and press **Create**; **Read it again** re-reads it after the files change. Each one shows
+how many files and passages it holds, how many are matched by meaning, which model read it and when.
+
+Reading a knowledge base cuts every file into passages. A Markdown file is cut at its headings, so a
+passage never straddles two sections and each one carries the headings above it; everything else is
+cut into overlapping windows of whole paragraphs (about 1500 characters with 200 of overlap). Word,
+spreadsheet, web, table and plain-text files are read with the readers Branch already has — no new
+file formats are added here, and a PDF is skipped rather than half-read. Passage names are worked out
+from the file and the wording, so the same folder always produces the same passages with the same
+names. Up to 20 folders or files per knowledge base, 400 files in total, 5 MB a file.
+
+**What is sent where.** Passages are compared by meaning only if a model you have already connected
+can do it. An OpenAI-shaped connection is asked at its `/embeddings` route; a Gemini connection at
+`batchEmbedContents`; a model running on this computer through Ollama's own `/api/embeddings`, in
+which case **nothing leaves this computer**. LM Studio speaks the OpenAI shape and is reached the same
+way, also without leaving the machine. The card says which of those is happening. If none of your
+connections can do it, Branch says so in one sentence and the knowledge base still works by its words
+alone. Every reading is kept here under a fingerprint of the passage and the model, so reading the
+same folder twice costs nothing, and the cost of a first reading is charged to the task that asked for
+it, exactly like a model answer. Background reading has no task to charge, so it is recorded as a
+`knowledge.index.progress` event instead.
+
+**How a search works.** The passages are narrowed with SQLite's full-text search where this build has
+it, then ranked by BM25 worked out in Branch itself — so a rare word counts for far more than a common
+one, and the ranking is the same on every build. That order and the order by meaning are combined with
+reciprocal rank fusion, and the second pass from the reranking settings puts the best first. Every
+result names its file, its heading path and its page where one was known. A knowledge base you tick
+**Use this when answering** is put in front of every task with numbered sources, the way your own
+documents already can be; an attached knowledge base is offered before the document library, and the
+documents fall in behind it when it has nothing to say. Turning **Use my documents when answering**
+off at the top of the panel turns knowledge bases off as well, so that one switch always means "put
+none of my own writing in front of my tasks". A file that is too large or that no reader could turn
+into text is counted in the knowledge base's note rather than passed over in silence.
+
+**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
+the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
+knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
+interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
+similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
+`fingerprints` against the service's own REST API — `search` sending the query vector and the
+collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
+chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
+be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
+written today.
+
+**Saved facts.** Facts are compared by meaning as well as by their words through the same store of
+readings, so nothing is ever read twice. A quiet pass runs at most once a day on the scheduler's beat:
+it gives newly written facts their comparison by meaning and writes near-duplicates into the review
+queue as suggested merges. It never deletes or changes a fact — you accept or ignore each suggestion
+in **Memory**, the same as every other tidying suggestion. Settings live under `memory-consolidation`
+(`enabled`, `everyHours`, `lastRunAt`).
+
+Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
+now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
+`{ collection, attached }`, `POST /api/knowledge/source` with `{ collection, source }` or
+`{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
+`knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
+`knowledge.add`, `knowledge.remove` and `knowledge.reindex` under `documents.write`. The listing tool
+is `knowledge.collections` rather than `knowledge.list`, because `knowledge.list` already means the
+stored recipes and specialists.
