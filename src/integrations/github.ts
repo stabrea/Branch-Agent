@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { scrubSecrets } from "../locker.js";
 import type { NetworkPolicy } from "../network-policy.js";
+import type { TrackerIssue } from "./issue-context.js";
 
 /**
  * A small, direct connection to GitHub for the few things people actually ask for: make me a
@@ -68,6 +69,37 @@ export class GitHubAccess {
         address: issue.html_url, isPullRequest: Boolean(issue.pull_request),
       })),
     };
+  }
+  /** Issues whose words match, across one repository, best match first. */
+  async searchIssues(input: { repo: string; query: string; limit: number }): Promise<{ tracker: "github"; repository: string; issues: { key: string; title: string; state: string; address: string }[] }> {
+    const query = new URLSearchParams({ q: `repo:${input.repo} in:title,body ${input.query}`.slice(0, 250), per_page: String(input.limit) });
+    const found = (await this.request("GET", `search/issues?${query}`)) as { items?: Record<string, unknown>[] };
+    return {
+      tracker: "github", repository: input.repo,
+      issues: (found.items ?? []).slice(0, input.limit).map((issue) => ({
+        key: `${input.repo}#${issue.number}`, title: String(issue.title ?? "").slice(0, 200),
+        state: String(issue.state ?? ""), address: String(issue.html_url ?? ""),
+      })),
+    };
+  }
+  /** One issue with what people wrote underneath it, in the shape every tracker answers in. */
+  async getIssue(input: { repo: string; number: number }): Promise<TrackerIssue> {
+    const issue = (await this.request("GET", `repos/${input.repo}/issues/${input.number}`)) as Record<string, unknown>;
+    const comments = (await this.request("GET", `repos/${input.repo}/issues/${input.number}/comments?per_page=20`)) as Record<string, unknown>[];
+    return {
+      tracker: "github", reference: `${input.repo}#${input.number}`,
+      title: String(issue.title ?? "").slice(0, 300), body: String(issue.body ?? "").slice(0, 20000),
+      state: String(issue.state ?? ""), address: String(issue.html_url ?? ""),
+      comments: (Array.isArray(comments) ? comments : []).slice(0, 20).map((comment) => ({
+        author: String((comment.user as { login?: unknown } | undefined)?.login ?? "someone"),
+        at: String(comment.created_at ?? ""), body: String(comment.body ?? "").slice(0, 4000),
+      })),
+    };
+  }
+  /** Writes a comment on an issue. */
+  async commentIssue(input: { repo: string; number: number; body: string }): Promise<{ tracker: "github"; key: string; added: boolean; address: string }> {
+    const added = (await this.request("POST", `repos/${input.repo}/issues/${input.number}/comments`, { body: input.body.slice(0, 8000) })) as Record<string, unknown>;
+    return { tracker: "github", key: `${input.repo}#${input.number}`, added: Boolean(added.id), address: String(added.html_url ?? "") };
   }
   async createIssue(input: { repo: string; title: string; body?: string | undefined }): Promise<unknown> {
     const created = (await this.request("POST", `repos/${input.repo}/issues`, { title: input.title, body: input.body ?? "" })) as Record<string, unknown>;

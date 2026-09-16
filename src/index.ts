@@ -55,8 +55,17 @@ import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
+import { DataTables, registerData } from "./data-tools.js";
+import { Research, registerResearch } from "./research.js";
+import { Monitors, registerMonitors } from "./monitors.js";
+import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
+import { audit } from "./audit.js";
+import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
+import { PracticeWorkspace } from "./practice-workspace.js";
+import { ProviderPlugins } from "./provider-plugins.js";
+import type { IssueAccess } from "./integrations/issue-tools.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -189,12 +198,18 @@ export async function createBranch(options: {
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
+  const version = String(createRequire(import.meta.url)("../package.json").version);
+  const userAgent = `BranchAgent/${version}`;
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
   // Skill packages people can hand to each other, and single-file plugins the owner switches on.
   const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
   skillPackages.replayRecipe = (recipe, _event, runId) => replayNamedRecipe(knowledge, store, runtime, recipe, runId);
   const packageProblems = skillPackages.restore();
+  // Model connections a plugin brought; nothing is registered until a plugin is switched on, so
+  // this has to exist before the plugins the owner already chose are loaded back.
+  const providerPlugins = new ProviderPlugins(runtime.models, web.policy, globalThis.fetch, userAgent);
   const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
+  plugins.providers = providerPlugins;
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
@@ -204,8 +219,17 @@ export async function createBranch(options: {
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
-  const version = String(createRequire(import.meta.url)("../package.json").version);
-  const userAgent = `BranchAgent/${version}`;
+  // Figures, looking things up properly, watching pages, and the one message first thing.
+  const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
+  const dataTables = new DataTables(files, web, writeObserver);
+  registerData(registry, dataTables, artifacts);
+  const research = new Research(store, web, files, documents, writeObserver);
+  registerResearch(registry, research);
+  const monitors = new Monitors(store, web, deliverMessage);
+  registerMonitors(registry, monitors);
+  const brief = new MorningBrief(store, monitors, documents, deliverMessage);
+  registerBrief(registry, brief);
+  scheduler.onTick.add(async (now) => { await monitors.tick(runtime.owner, now); await brief.tick(runtime.owner, now); });
   // Test suites kept as data, their history, and comparing one suite across model choices.
   const evaluationSuites = new SuiteRunner(store, runtime, version);
   scheduler.evaluations = evaluationSuites;
@@ -220,6 +244,13 @@ export async function createBranch(options: {
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
   registerRemoteAgents(registry, remoteAgents);
+  // Documents and saved facts are both asked the same way, and the best answer is put first.
+  const retrieval = new Retrieval(store, runtime.owner, runtime.models);
+  retrieval.add(new DocumentRetriever(documents));
+  retrieval.add(new MemoryRetriever(memory.retrieval));
+  documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // A safe folder of made-up files to try things in before pointing the app at real work.
+  const practice = new PracticeWorkspace(store, files);
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -232,6 +263,17 @@ export async function createBranch(options: {
     media,
     /** Finding, tidying and moving saved facts. */
     memory,
+    /** Documents and saved facts behind one interface, with the best answer put first. */
+    retrieval,
+    /** The practice workspace: made-up files to try tools on safely. */
+    practice,
+    /** Model connections plugins have brought. */
+    providerPlugins,
+    /**
+     * Searching, reading and commenting on issues, once the launcher has loaded the integration
+     * settings. It stays null while no tracker is set up.
+     */
+    issues: null as null | IssueAccess,
     git,
     scheduler,
     chatgpt,
@@ -252,9 +294,16 @@ export async function createBranch(options: {
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
-    secretsFor: (context: ToolContext, names: string[]) =>
-      store.secrets.resolve(context.owner, store.projects.active(context.owner).id, names,
-        { runId: context.runId, purpose: "host command" }),
+    secretsFor: async (context: ToolContext, names: string[]) => {
+      const project = store.projects.active(context.owner).id;
+      const values = await store.secrets.resolve(context.owner, project, names,
+        { runId: context.runId, purpose: "host command" });
+      // The names only; a value never leaves the locker, and never reaches this record.
+      for (const name of Object.keys(values))
+        audit(store, context.owner, { action: "secret.used", actor: "a command you allowed", subject: `${name} (project ${project})`,
+          reason: "A command this assistant ran needed it", source: context.source ?? "owner", runId: context.runId, outcome: "handed over" });
+      return values;
+    },
     /** References, replacement dates, the use audit and the shared scrubber. */
     secrets: store.secrets,
     /** Locking the app, by hand or after a quiet spell. */
@@ -265,6 +314,11 @@ export async function createBranch(options: {
     privacy,
     moderation,
     channels,
+    /** Tables open for a task, reports already written, page watches, and the morning brief. */
+    dataTables,
+    research,
+    monitors,
+    brief,
     web,
     hooks,
     teams,
@@ -287,8 +341,13 @@ export async function createBranch(options: {
       router: channels,
       git,
       /** A secret from whichever project is active right now, for GitHub's personal access token. */
-      activeSecret: async (name: string) =>
-        (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "integration" }))[name]!,
+      activeSecret: async (name: string) => {
+        const project = store.projects.active(runtime.owner).id;
+        const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "integration" }))[name]!;
+        audit(store, runtime.owner, { action: "secret.used", actor: "a connection you set up", subject: `${name} (project ${project})`,
+          reason: "A service this assistant talked to needed it", outcome: "handed over" });
+        return value;
+      },
       secret: async (name: string) =>
         (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "channel" }))[name]!,
       web,
@@ -432,6 +491,14 @@ export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
 export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
+export * from "./citations.js";
+export * from "./data-table.js";
+export * from "./data-chart.js";
+export * from "./data-tools.js";
+export * from "./research.js";
+export * from "./research-claims.js";
+export * from "./monitors.js";
+export * from "./brief.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
 export * from "./media.js";
@@ -439,3 +506,13 @@ export * from "./media-audio.js";
 export * from "./media-images.js";
 export * from "./media-settings.js";
 export * from "./media-video.js";
+export * from "./audit.js";
+export * from "./tool-categories.js";
+export * from "./ask-first.js";
+export * from "./practice-workspace.js";
+export * from "./retrieval.js";
+export * from "./provider-plugins.js";
+export * from "./misc-api.js";
+export * from "./integrations/linear.js";
+export * from "./integrations/issue-context.js";
+export * from "./integrations/issue-tools.js";

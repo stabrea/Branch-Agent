@@ -12,11 +12,22 @@ import { DemoProvider } from "./demo.js";
 import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
+import { startTui } from "./terminal-tui.js";
+import { looksInteractive } from "./terminal-style.js";
+import { cliCommands, completionScript, usageText } from "./cli-completion.js";
+import type { Run } from "./contracts.js";
+import {
+  answerFromCommand, usePreset, exitCodeFor, parseRunArgs, runForScripts, statusSnapshot,
+  timelineLines, type RunFlags,
+} from "./cli-run.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
 import { readFile, writeFile } from "node:fs/promises";
+// Wave 5 (deployment): background running and setting-up repairs.
+import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
+import { doctorFix, doctorText } from "./doctor-fix.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -29,6 +40,7 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
       app.channelHost,
     );
     app.browser = integrations.hosted.browser ?? null;
+    app.issues = integrations.hosted.issues ?? null;
     return {
       app,
       close: async () => {
@@ -53,7 +65,11 @@ async function serve(
   const port = Number(process.env.BRANCH_PORT ?? 3210);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid BRANCH_PORT");
-  const server = await startServer(app, { dataDir, port });
+  const server = await startServer(app, {
+    dataDir, port, presence: "daemon",
+    executable: process.env.BRANCH_EXECUTABLE ?? null,
+    installRoot: process.env.BRANCH_INSTALL_ROOT ?? null,
+  });
   console.log(
     `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
   );
@@ -75,11 +91,13 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve", "acp-serve", "skill", "plugin"].includes(command))
-    throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | acp-serve | update" +
-        ' | skill pack <folder> [out.branchskill] --author "Name" | skill install <file.branchskill> [--approve] | plugin list | plugin enable <id> | plugin disable <id>',
-    );
+  if (command === "daemon") return runDaemonCommand();
+  // Printing a completion script or the command list needs no workspace, database or integrations.
+  if (command === "completion") { console.log(completionScript(process.argv[3] ?? "")); return; }
+  if (["help", "--help", "-h"].includes(command)) { console.log(usageText()); return; }
+  // One list drives the command check, `branch help` and the completion scripts: see cliCommands.
+  if (!cliCommands.some((entry) => entry.name === command))
+    throw new Error(`${usageText()}\n\nI do not know the command "${command}".`);
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
   const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
@@ -107,9 +125,14 @@ async function main(): Promise<void> {
       syncChatGPTPresets(app.runtime.models, app.chatgpt!, false, app.userAgent);
       console.log("Signed out of ChatGPT.");
     } else if (command === "chat") {
-      await startTerminal(app.runtime);
+      // The full view needs a terminal that can be drawn on; anything else gets the plain stream.
+      const full = looksInteractive(process.env, process.stdout.isTTY) && !process.argv.includes("--plain");
+      await (full ? startTui(app.runtime) : startTerminal(app.runtime));
       return;
-    } else if (command === "mcp-serve") {
+    } else if (command === "status") { await printStatus(app); return; }
+    else if (command === "logs") { printLogs(app); return; }
+    else if (command === "approve") { printApproval(app); return; }
+    else if (command === "mcp-serve") {
       await serveMcpStdio(app.mcpServer);
       return;
     } else if (command === "acp-serve") {
@@ -202,23 +225,69 @@ async function pluginCommand(app: Awaited<ReturnType<typeof createBranch>>): Pro
   if (action === "disable") { app.plugins.disable(id); console.log(`${id} is off. Its tools are out of the catalog.`); return; }
   throw new Error("Usage: node dist/cli.js plugin list | plugin enable <id> | plugin disable <id>");
 }
+/**
+ * `branch run` and `branch demo`. With `--json` every event goes to stdout as one JSON object per
+ * line while the task works, and the human wording goes to stderr, so a script can read one and a
+ * person can watch the other. The exit code says what happened: see `exitCodeFor`.
+ */
 async function runOnce(
   app: Awaited<ReturnType<typeof createBranch>>,
   command: string,
 ): Promise<void> {
-  const dryRun = process.argv.includes("--dry-run");
-  const prompt = command === "demo"
-    ? "Run the deterministic file write/read/verify fixture."
-    : process.argv.slice(3).filter((word) => word !== "--dry-run").join(" ");
-  if (!prompt)
-    throw new Error('Provide a prompt: node dist/cli.js run "your request"');
-  const run = await app.runtime.run({ prompt, ...(dryRun ? { dryRun: true } : {}) });
-  console.log(JSON.stringify({
-    run,
-    usage: app.store.usage(run.id),
-    events: app.store.events(run.id),
-  }, null, 2));
-  if (run.status !== "completed") process.exitCode = 1;
+  const flags: RunFlags = parseRunArgs(process.argv.slice(3));
+  if (command === "demo") flags.prompt = "Run the deterministic file write/read/verify fixture.";
+  if (!flags.prompt) throw new Error('Provide a prompt: branch run "your request"');
+  const writer = {
+    line: (value: unknown) => { if (flags.json) process.stdout.write(JSON.stringify(value) + "\n"); },
+    note: (text: string) => console.error(text),
+  };
+  const preset = flags.preset ? usePreset(app.store, app.runtime.owner, flags.preset, flags.savePreset) : undefined;
+  if (preset) writer.note(preset.message);
+  let run: Run;
+  try {
+    run = await runForScripts(app.runtime, flags, writer);
+  } finally {
+    preset?.restore();
+  }
+  if (flags.json) {
+    writer.line({ type: "run", run, usage: app.store.usage(run.id), exitCode: exitCodeFor(run.status) });
+    writer.note(run.status === "completed" ? run.output : `[task ${run.status}] ${run.output}`);
+  } else console.log(JSON.stringify({ run, usage: app.store.usage(run.id), events: app.store.events(run.id) }, null, 2));
+  process.exitCode = exitCodeFor(run.status);
+}
+/** Tasks working now, questions waiting for an answer, and the health summary. */
+async function printStatus(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const snapshot = statusSnapshot(app.runtime);
+  const health = await healthReport(app, { probeProvider: false });
+  if (process.argv.includes("--json")) { console.log(JSON.stringify({ ...snapshot, health }, null, 2)); return; }
+  console.log(`When to check with me: ${snapshot.approvalPreset}`);
+  console.log(snapshot.running.length ? "Working now:" : "Nothing is working right now.");
+  for (const run of snapshot.running) console.log(`  ${run.id} — ${run.prompt}`);
+  for (const waiting of snapshot.waitingForYou) console.log(`  waiting for you: ${waiting.id} — ${waiting.question}`);
+  console.log(health.ok ? "Everything checks out." : "Some checks need attention:");
+  for (const check of health.items) console.log(`  ${check.ok ? "ok" : "x "} ${check.name}: ${check.summary}`);
+}
+function printLogs(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const runId = process.argv[3];
+  if (!runId) throw new Error("Name a task: branch logs <task id>");
+  if (process.argv.includes("--json")) {
+    for (const event of app.store.events(runId)) process.stdout.write(JSON.stringify(event) + "\n");
+    return;
+  }
+  for (const line of timelineLines(app.store, runId)) console.log(line);
+}
+function printApproval(app: Awaited<ReturnType<typeof createBranch>>): void {
+  const [, , , id, answer] = process.argv;
+  if (!id || !answer) throw new Error("Answer a task: branch approve <task id> yes|no");
+  const result = answerFromCommand(app.runtime, id, answer);
+  if (process.argv.includes("--json")) { console.log(JSON.stringify(result)); return; }
+  // The run that asked has already ended, so there is nothing left to answer just this once: the
+  // answer has to be saved as a rule. Say that plainly rather than letting it look like a one-off.
+  console.log(result.decision === "allow"
+    ? `Saved a standing rule: ${result.rule} may go ahead from now on, without asking.`
+    : `Saved a standing rule: ${result.rule} is refused from now on, without asking.`);
+  console.log("This applies to every future task, not just this one. Change it under \"When to check with me\" in Settings.");
+  if (result.decision === "allow") console.log("Run the task again to carry on.");
 }
 /**
  * `branch eval [--suite <id>] [--preset <id>] [--compare a,b] [--json]`. Without a suite it runs
@@ -250,6 +319,26 @@ async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Prom
   const status = await finishChatGPTSignIn(app.runtime.models, auth, app.runtime.owner, app.userAgent);
   console.log(`Signed in${status.email ? " as " + status.email : ""}. ChatGPT models are now available.`);
 }
+/**
+ * `branch daemon install|uninstall|status`: keeps the assistant's engine working in the background,
+ * with no window, from the moment the owner signs in to Windows.
+ */
+async function runDaemonCommand(): Promise<void> {
+  const action = (process.argv[3] ?? "status") as DaemonAction;
+  if (!["install", "uninstall", "status"].includes(action))
+    throw new Error("Usage: node dist/cli.js daemon install | uninstall | status");
+  const executable = process.env.BRANCH_EXECUTABLE ?? process.execPath;
+  const dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
+  const report = await daemonCommand(action, {
+    executable,
+    script: process.env.BRANCH_DAEMON_SCRIPT ?? fileURLToPath(new URL("cli.js", import.meta.url)),
+    dataDir,
+    workspace: resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
+    port: Number(process.env.BRANCH_PORT ?? 3210),
+    launcherPath: join(dataDir, daemonLauncherName),
+  });
+  console.log(report.message);
+}
 /** Refreshes a source checkout in place: pull, install exact dependencies, rebuild. */
 function updateCheckout(): void {
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -266,6 +355,12 @@ async function printDoctor(
   app: Awaited<ReturnType<typeof createBranch>>,
   dataDir: string,
 ): Promise<void> {
+  if (process.argv.includes("--fix") || process.argv.includes("--repair")) {
+    console.log(doctorText(await doctorFix({
+      fix: true, workspace: app.runtime.workspace, port: Number(process.env.BRANCH_PORT ?? 3210),
+    })));
+    return;
+  }
   const health = await healthReport(app, { probeProvider: process.argv.includes("--probe") });
   console.log(
     JSON.stringify(

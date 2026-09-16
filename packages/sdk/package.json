@@ -1,0 +1,20 @@
+{
+  "name": "@branch-agent/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A dependency-free client for a Branch Agent running on this computer",
+  "type": "module",
+  "license": "MIT",
+  "main": "client.mjs",
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types.d.ts",
+      "default": "./client.mjs"
+    }
+  },
+  "files": ["client.mjs", "types.d.ts", "README.md"],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -476,6 +476,31 @@ Shell: `maxMemoryMb` (default 1024) and `maxCpuSeconds` (default 60) stop a comm
 
 A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "string" | "number" | "boolean", required, default, description } }`) and use `{{name}}` in step arguments, expectations and precondition paths; `procedures.verify` and `procedures.replay` take `inputs`, which are bound and checked before any step runs. `resultSchema` (the same JSON-Schema subset as delegation) is applied to the final step's result. `templates.export` / `GET /api/templates/:kind/:id` and `templates.import` / `POST /api/templates/import` move a specialist or recipe definition between installs without ids, evidence or secrets. A project's `folder` scopes every file tool to that folder inside the workspace while the project is active.
 
+## Command line and terminal
+
+`branch <command>` (or `node dist/cli.js <command>`) is the whole command line; `branch help` lists it. Nothing here needs the web app to be running.
+
+**Talking in the terminal.** `branch chat` opens the full terminal view: a status line that stays put above what you type (which model is answering, how many tokens and how much money this conversation has used, and which approval preset is in force), answers wrapped to the window as they stream, and one short row for each step — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done. Press **Ctrl+E** to show or hide what is behind those rows. **Enter** sends, **Alt+Enter** adds another line to the same message, the **up arrow** brings back a message you already sent, **Ctrl+C** stops the task in hand without closing the terminal, and **Ctrl+D** leaves. It is drawn with Node's own readline and escape sequences; there is no extra package involved.
+
+The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new` and `/exit`. `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace.
+
+**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
+
+**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal, when you pass `--plain`, or when you set `NO_COLOR`. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. With `NO_COLOR` set, or `TERM=dumb`, nothing writes a single escape sequence: no colour, no cursor movement, no window title and no progress indicator. `COLUMNS` and `LINES` override the window size. On a terminal that takes them, the window title follows the task in hand and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+
+**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The task finished. |
+| 2 | The task stopped to ask you something; `branch approve` answers it. |
+| 3 | The task failed, was cancelled, or ran past `--timeout`. |
+| 4 | The task ran out of the budget you gave it. |
+
+`branch status` lists the tasks working now, the ones waiting for an answer, and the health summary (`--json` for the same thing as JSON). `branch logs <task id>` prints that task's timeline one line per step (`--json` for the stored events). `branch approve <task id> yes|no` answers a task that stopped to ask. It cannot answer just this once: the program run that stopped has already ended, so the answer is **saved as a standing rule** for that tool and that exact target and applies to every future task, not only this one. The command says so when it runs, and the rule can be changed under **Settings → When to check with me**. For a one-time yes, use the terminal view (`branch chat`) or the settings screen instead.
+
+**Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+
 ## Other programs and streams
 
 `POST /v1/chat/completions` accepts the OpenAI chat shape with the local session token as the bearer token. The last user message becomes the task, system/developer messages travel as caller instructions, `model` may name a preset id, `x-branch-session` (or `metadata.session_id`) continues a conversation, and `stream: true` returns `chat.completion.chunk` events. Every response carries `branch.{run_id, session_id, status}`. `GET /v1/models` lists presets. `GET /api/runs/:id/stream?after=<id>` streams a run's events in order over Server-Sent Events until it ends.
@@ -632,6 +657,34 @@ If your model connection is an OpenAI-compatible one, its `/embeddings` route is
 **Use my documents when answering** puts the three best passages in front of each of your tasks, each labelled with the document it came from, the same way remembered facts are. It is on while your library has something in it and can be switched off. Specialists working on your behalf do not receive them, document text is marked as untrusted, and a retrieval that fails is recorded (`documents.retrieved`, `documents.retrieval_failed`) without stopping the task.
 
 Routes: `GET /api/documents` (the library, the switch and the size limit), `POST /api/documents` with `{ path }`, `{ text }` or `{ name, content }` where `content` is the file's bytes base64-encoded, `DELETE /api/documents/{id}`, `POST /api/documents/search` with `{ query, limit }`, `POST /api/documents/reindex` with `{ id }`, and `GET|POST /api/documents/settings` (`useDocuments`, `embeddingModel`). The tools are `documents.search` and `documents.list` under `documents.read`, and `documents.add` and `documents.remove` under `documents.write`.
+
+## Tables of figures
+
+`data.load` opens a table for the length of one task: give it a workspace file (`.csv`, `.tsv`, `.json`, `.xlsx`), a public address, or pasted text. Up to 5000 rows, 64 columns and 500 characters a cell are kept; anything longer is cut and the answer says so. What comes back is the column names, what kind each column holds, the row count and a five-row preview as a Markdown table — never the whole file, so a big spreadsheet cannot fill the conversation. Up to eight tables can be open at once, and everything is dropped when the task finishes.
+
+`data.describe` gives plain numbers for each column: how many rows are filled, how many are empty, how many different values, and for columns of numbers the smallest, largest, average and middle value. `data.query` answers a question with read-only SQL — one statement, starting with `SELECT` or `WITH`, run against a private in-memory copy of the open tables; anything else is refused. Yes/no columns are held as 1 and 0 there, so compare them as numbers. Both return a `markdown` field that the message column shows as a table.
+
+`data.chart` draws a table as bars, a line or a pie and keeps it beside the task as an SVG file (`{ spec: { type, label, value, title, limit } }`). `data.export` saves a table into your workspace as `.csv` or `.xlsx`; the spreadsheet it writes is the same shape the documents library reads, so an exported file can be added straight back. Exports and research reports go through the same before-and-after as every other file the assistant writes, so each one keeps its previous bytes and has an Undo. The spreadsheet writer has been checked against this app's own reader; opening one in Excel has not been tested. The tools are `data.load`, `data.describe`, `data.query` and `data.chart` under `data.read`, and `data.export` under `data.write`.
+
+## Looking a question up properly
+
+`research.run` takes a question, a depth (`quick`, `standard` or `deep`) and optionally the addresses to read. Quick runs one search and reads up to two pages; standard three searches and six pages; deep six and twelve. Each page is fetched under the same network policy as the rest of web reading, and page text is treated as information, never instructions. The sentences that speak to the question are kept with the address and title they came from.
+
+From `standard` upwards, sentences from different pages that are about the same thing are compared: a claim two or more sources state with the same figures is listed under **What the sources agree on**, and one where their figures differ is listed under **Where the sources disagree**, with each side quoted and numbered. If your document library has something about the question it is read too and cited as one of your own documents.
+
+The report is written to `research/<question>.md` in your workspace with a numbered **Sources** list. Progress is recorded as it goes (`research.progress`, `research.skipped`, `research.flagged` for a page whose lines read like orders to the assistant, `research.finished`) so the pane on the right can show what it is reading. Everything read is saved after each page, so a run that stops on its budget can be carried on: ask the same question again and it picks up where it left off, and the report it writes says it was cut short. `research.list` lists what has been written. The tools are `research.run` under `research.run` and `research.list` under `research.read`; `GET /api/research` returns the same list for the reports panel.
+
+## Watching a page or a search
+
+`monitor.create` starts a watch: `{ url }` or `{ query }`, `every` (minutes, or `"30m"`, `"6h"`, `"1d"`; at least five minutes), an optional `label`, and `notifyVia` — either `"activity"`, which puts the news in your conversation list, or `{ channel, chatId }` to send it to a chat. The first look is taken straight away so the next change is a real change. Each check compares the words against what was seen last time and describes the difference in plain language: how many lines are new, how many are gone, and a few of each. Watches run on the same beat as schedules; one that cannot be read is tried again in an hour and never stops the others.
+
+`monitor.list`, `monitor.check` (look now) and `monitor.remove` complete the set. Routes: `GET|POST /api/monitors`, `POST /api/monitors/{id}/check`, `DELETE /api/monitors/{id}`. `monitor.list` needs `monitors.read`; the rest need `monitors.manage`.
+
+## The morning brief
+
+One message first thing, assembled from what the app already holds: what is planned today, tasks left unfinished, documents added in the last day, watches that changed, and anything you asked to be reminded of. There is no calendar account and nothing is read aloud. Turn it on with `brief.configure` — `enabled`, `dailyAt` (24-hour local time), `timezone`, `deliverTo` (a channel chat, or nothing to leave it in the conversation list), `sections` (any of `schedules`, `tasks`, `documents`, `watches`, `reminders`) and `template`.
+
+The template is ordinary text with `{{date}}`, `{{schedules}}`, `{{tasks}}`, `{{documents}}`, `{{watches}}` and `{{reminders}}` in it; a section you switch off leaves the message entirely, heading and all. `brief.preview` shows what would be sent without sending it, and `brief.send` sends it now. Routes: `GET /api/brief` (preview), `POST /api/brief` (settings), `POST /api/brief/send`. `brief.preview` needs `brief.read`; the other two need `brief.manage`.
 
 ## Conversation search
 
@@ -958,18 +1011,100 @@ match on this computer: no model is asked, nothing is sent anywhere, and a sugge
 installs or switches anything on. The Skills screen shows all of the above, and the interface file
 `/skills-extra.js` is served from the same local allowlist as the rest of the interface.
 
-## Using this computer's screen and keyboard
+## How Branch runs on this computer: installing, starting and reaching it from a phone
 
+**Installing.** The release carries two files: `Branch-Agent-windows-x64.zip` and `Install Branch
+Agent.cmd`. The script unpacks the zip with the `tar.exe` that ships with Windows (PowerShell's
+`Expand-Archive` is the fallback) and then runs `dist/install/install-cli.js` *from inside the
+unpacked app*, using the runtime the download already carries. Nothing has to be installed first and
+nothing is downloaded by the installer itself. It copies the app to
+`%LOCALAPPDATA%\Programs\Branch Agent`, keeps whatever was there in `…\Branch Agent.previous`,
+writes a Start menu shortcut and (unless `--no-desktop-shortcut`) a desktop one through
+`WScript.Shell`, writes `Uninstall Branch Agent.cmd` next to the app, and registers it under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BranchAgent` with a
+`QuietUninstallString`. Only this person's own settings are touched, so no administrator prompt
+appears and nothing has to be signed. Saved work from an older folder layout (`%LOCALAPPDATA%` or
+`%APPDATA%` under `Branch Agent` or `branch-agent`) is copied across once, and never over a folder
+that already holds a database. Uninstalling removes the program, the shortcuts, the sign-in entry
+and the background task; conversations and files are left alone.
+
+**Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
+state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
+program. Without the marker it uses the per-person application-data folder as before.
+`BRANCH_DATA_DIR` and `BRANCH_WORKSPACE` still win over both.
+
+**Starting with Windows.** *Settings → How Branch runs on this computer → Start Branch when I sign
+in to Windows* writes one value, `Branch Agent`, into
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. With *Start quietly in the corner of the
+taskbar* on, the command carries `--start-minimized` and the window stays hidden until the tray icon
+is used. Switching it off deletes the value.
+
+**Keeping Branch working with the window closed.** `branch daemon install | uninstall | status`, or
+the switch in the same settings card, registers a Task Scheduler task called `Branch Agent daemon`
+with `/SC ONLOGON /RL LIMITED`. The task runs `wscript.exe //B //Nologo` against a one-line launcher
+that starts the engine with window style 0, so no console flashes up; the engine itself is
+`dist/cli.js start` run through the app's own executable with `ELECTRON_RUN_AS_NODE=1`. While an
+engine is running it leaves `running.json` in the data folder (port, process id, address). A later
+launch of the window reads that note, checks the process still exists and that the port answers
+`GET /api/state` with the session token from disk, and joins it instead of starting a second engine;
+a note left behind by a crash is removed rather than trusted.
+
+**Reaching Branch from a phone.** Off by default. `POST /api/deployment/remote` with
+`{ "enabled": true }` asks `tailscale status --json` where this computer sits on its private network
+and opens a *second* listener bound to that address alone. The address must be inside
+`100.64.0.0/10`, which is the range Tailscale hands out; anything else, including `0.0.0.0`, is
+refused. The loopback listener is untouched. While remote access is on, the Host and Origin checks
+(one shared `hostAllowed` used by the request handler, the API authorisation and the WebSocket
+upgrade) also accept the Tailscale address and name; nothing else is ever added.
+`POST /api/deployment/remote/invite` makes one invitation: a link carrying only an identifier,
+returned as a QR matrix drawn by `src/remote/qr.ts` (no dependency), plus a six-digit number that is
+**not** in the link. The phone opens `/pair?id=…`, types the number, and `POST /api/pair` — the only
+route exempt from the session token, and only on the remote listener — hands back the key. An
+invitation lasts five minutes, works once, and dies after five wrong numbers.
+
+**Safety copies and going back.** Before an update swaps any files, the updater calls its `backup`
+hook, which writes the whole of the person's saved work to `update-backups/before-<time>-v<version>.json`
+in the data folder and keeps the newest three. Both launches do this: a window running its own
+engine writes the copy itself, and a window that joined a background engine asks that engine for it
+with `POST /api/deployment/backup` and the session token, because the engine is the one that owns
+the saved work. A failure there stops the update either way, and the engine's own sentence is what
+the owner reads, followed by what to do about it — free some space on the drive, or move the data
+folder somewhere Branch can write, then try again. When the reason is size, the sentence says the
+limit (64 MiB). There is no way to skip the copy: an update with nothing to go back to is refused.
+When a version starts for the first time its health report is recorded in `first-start.json`; if it
+did not come up cleanly, the settings card offers *Put back the previous version's saved work*,
+which reads the newest safety copy and restores it with `replaceExisting`. `POST /api/restore` is
+unchanged and still refuses to write over a copy that already holds conversations.
+
+**Updating while an engine works in the background.** The background engine holds the same program
+files open as the window, so a hand-over would hit a locked file. Before the hand-over script is
+written, the window reads `running.json`, asks that process to close (`taskkill /PID <pid> /T`, then
+`/T /F` if it will not), waits a bounded time for it to go and removes the note. An engine that
+still refuses is not treated as a failure: the hand-over script waits for the engine's process id
+as well as the window's, and ends it itself before mirroring anything. Nothing new is started: the
+hand-over still runs through the same hidden Windows Script Host launcher, and every tool is run
+with no window.
+
+**Checking a computer is ready.** `branch doctor --fix`, and the *Check and repair what I can*
+button, look for Git, the private browser Branch uses to read pages, a free address on this
+computer, and a writable files folder. With `--fix` it installs the browser
+(`npx playwright install chromium --only-shell`); the rest come with a plain-language step, because
+installing Git asks questions a script should not answer for someone.
+
+Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
+`POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
+`POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
+`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`/pair` and `/pair.js`.
+## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched
 off, and while it is off every one of these tools answers with one plain sentence instead of
 trying. Turn it on in **Settings → Using your screen and keyboard**, which writes the setting
 `desktop-control` for your owner record.
-
 Routes: `GET /api/desktop/settings` returns `{ enabled, maxActionsPerRun }`; `POST` to the same
 address changes either field. `enabled` is `false` and `maxActionsPerRun` is `40` until you say
 otherwise. The setting is read again before every single action, so switching it off stops work
 that is already under way rather than waiting for the task to finish.
-
 The tools are `desktop.screenshot` (a picture of one window by part of its name, or of a whole
 screen), `desktop.windows` (list the open windows, or bring one to the front, minimise it or close
 it), `desktop.read` (everything in a window listed by name and kind, so the assistant works from
@@ -979,7 +1114,6 @@ words rather than from pixels), `desktop.click`, `desktop.type`, `desktop.key`, 
 `desktop.clipboard` — and none of the three counts as merely looking, so under **Ask before
 changes** every single one stops and asks you first. Photographing your screen is treated as a
 change on purpose.
-
 How it works underneath: one Windows PowerShell script, written once into a private temporary
 folder and called with `-File` so nothing is ever pasted into a command line, driving Windows' own
 accessibility layer (UI Automation) and `user32`. Clicking and typing go through the accessibility
@@ -987,13 +1121,11 @@ layer first — a button is pressed by its name, text is placed into a box direc
 to a real mouse click or key press only when the program offers nothing better. The script runs
 through the same bounded runner the host-command tool uses, so it is stopped by time, by output
 size, or the moment the task is cancelled. No new dependency; nothing is installed.
-
 While any of this is happening a small notice sits on top of everything with a **Stop** button on
 it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
 the action in flight is cut off and every later one in the same task is refused. `POST
 /api/runs/:id/cancel` does the same thing. Every action is written into Activity as
 `desktop.action` with the name of the window it touched, alongside the ordinary signed receipt.
-
 Windows that are never photographed and never typed into: anything whose title or program looks
 like a password manager (Bitwarden, 1Password, KeePass, LastPass, Dashlane, NordPass, Proton Pass,
 Roboform, Enpass, Keeper), the Windows sign-in and permission prompts (`LogonUI`, `consent`,
@@ -1004,9 +1136,7 @@ picture of a whole screen is refused outright while such a window is showing, be
 of the whole screen cannot hide part of itself. `desktop.type` also refuses text that still has a
 `{{placeholder}}` in it or that points at an environment variable, and the screen tools are never
 given the secrets locker at all, so there is no path by which a saved password could be typed.
-
 ### What this cannot do
-
 - **There is no global Esc.** Stopping means the button on the notice, `POST /api/runs/:id/cancel`,
   or closing Branch. Branch does not listen to your keyboard while you are using it yourself, and
   building that would mean watching every key you press, which is a worse trade than it sounds.
@@ -1037,3 +1167,96 @@ given the secrets locker at all, so there is no path by which a saved password c
   down, because ticking "use my screen and keyboard" is not the same as saying "run programs from
   my workspace". Running something has its own switch: the host-command tool.
 - **Windows only.** All of it rests on Windows PowerShell 5.1, UI Automation and `user32`.
+## The client library, issue context, and what the assistant was allowed to do (batch 19, wave 6)
+### A client for scripts on this computer
+`packages/sdk/` is a single file of plain JavaScript that talks to the Branch Agent already running
+here. It installs nothing and is not published anywhere: point an `import` at
+`packages/sdk/client.mjs`. TypeScript users get `packages/sdk/types.d.ts`, which is **generated**
+from the app's own zod schemas by `node scripts/generate-sdk-types.mjs` (run it after
+`npm run build`), so the types cannot promise something the app would refuse. The client covers
+runs (start, `stream` over Server-Sent Events, `watch` over the run socket, steer, cancel, resume,
+approve, receipts, activity), sessions, memory, documents, schedules, policy, the record below,
+"ask me questions first", combined search and issue context; anything else goes through
+`branch.get` / `branch.post`. It needs the local session key, which is the whole of the app's
+security — see `packages/sdk/README.md` for three worked examples.
+### Issues as context
+`{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
+settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
+`issues.comment` (behind `issues.write`). GitHub reuses the token named in `git.github`; Linear
+needs its own key saved in the active project's secrets. Neither key ever goes into a web address,
+and both are scrubbed out of anything reported back.
+`POST /api/issues/context {"url": "..."}` turns an issue address — a GitHub issue or pull-request
+link, `owner/name#12`, or a Linear link or reference such as `ENG-214` — into a passage carrying
+the title, description and up to ten comments, with the address as its citation and a line saying
+the text was written by other people and is to be quoted, not obeyed. Pasting such an address into
+the box you type in pulls that passage into the task. An issue is treated exactly like a web page:
+before the assistant sees it, lines that read like orders aimed at it are flagged, taken out, or
+the whole issue refused, according to the same `web.injection` setting (`warn`, `redact`, `block`)
+that `web.fetch` obeys.
+`github.open_pull_request` takes two more optional fields: `issue` (the issue it settles) and
+`changes` (one line each). Given an issue it reads it first, then writes the description from a
+shared template ending in `Closes owner/name#12`, so merging the pull request closes the issue.
+### What the assistant was allowed to do
+Every moment that widens or narrows what Branch Agent can reach is written into a dedicated
+`audit` table: a question you answered, a saved password handed to a command (**by name only — the
+value never reaches the record**), a change to the approval settings, a messaging account
+connected or disconnected, something exported, and a switch to another project or into the
+practice workspace. The table is append-only, enforced by the database itself: two SQLite triggers
+refuse any attempt to change or remove a row, so nothing — not even Branch — can quietly rewrite
+what happened.
+`GET /api/audit` lists it newest first and accepts `action`, `source`, `from`, `to` and `limit`.
+`GET /api/audit/export.csv` saves the same, with the same filters, as a spreadsheet file. The
+diagnostics folder carries it as `allowed.json`, scrubbed the same way everything else there is.
+The foot of the Usage screen shows it in plain language, with a count of each kind.
+### Deciding approvals a kind of thing at a time
+Tools are sorted into seven kinds — looking things up, changing files, running commands, using a
+web page, messaging people, spending money and changing settings — from the permission each one
+needs, with a small override list for the handful whose permission does not say enough. A tool
+nobody anticipated counts as changing settings rather than as reading.
+`GET /api/approvals/categories` lists the kinds with the tools in each and what that kind is
+currently set to (null when the tools inside it disagree). `POST /api/approvals/categories`
+`{"commands": "deny"}` saves it, expanding to one rule per tool — never a wildcard — through the
+same `savePolicy` the hand-edited rule list uses. **Only the kinds named in the request change**:
+a kind decided earlier stays decided, and every rule you wrote by hand and every standing yes
+remembered from a question you answered is kept, ahead of the new rules, so a narrower rule you set
+deliberately still wins. Because one kind can be dozens of tools, a policy may now hold up to 300
+rules rather than 100 (`maximumPolicyRules` in `src/policy.ts`). Settings → When to check with me
+shows it under the preset.
+### Ask me questions first
+With the toggle beside the box you type in switched on, Branch Agent comes back with up to five
+short questions, each with what it would assume if you say nothing, before it starts. A short,
+plain request skips this on its own, judged by the same rule that decides whether a task is worth
+planning first, so "what is in this folder" never turns into a form.
+`GET`/`POST /api/ask-first/settings` holds `askFirst` and `maxQuestions`.
+`POST /api/ask-first {"prompt": "..."}` returns `{skipped, reason, questions}` — one model request,
+or none at all when it is skipped. `POST /api/ask-first/answers` returns the request with the
+answers written underneath it, which is what the task then gets.
+### The practice workspace
+`POST /api/practice {"practice": true}` makes a project called "Practice workspace" whose folder is
+`practice-workspace` inside your workspace, writes four made-up files into it (a read-me, meeting
+notes, a shopping list and an invoice spreadsheet) and a short demo conversation into your history,
+then switches to it. `{"practice": false}` goes back to whatever project you were using before.
+`GET /api/practice` says which you are in. The files are left behind either way, and a file you
+changed is never overwritten by switching in again.
+### One way of finding passages, and putting the best first
+Your documents and your saved notes are both asked the same question through one `Retriever`
+interface. What they find is merged and then put in order by a second pass. By default that pass
+counts how much of your question each passage uses — it costs nothing, happens on this computer,
+and gives the same order every time. Set `mode` to `model` and it instead asks the model once to
+read the top twenty and pick the best five.
+`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`.
+`POST /api/retrieval/search {"query": "..."}` returns the passages with `reranked` and
+`rerankCalls`, which is 0 for the word count and 1 for the model. The same ordering is used for the
+passages put in front of an ordinary task.
+### Model connections a plugin brings
+A plugin may export `providers`, alongside the tools and hooks it already exports. Each is named
+`plugin.provider.<id>` and is a factory that, given the address, the key and the model name the
+owner chose, returns something that answers like every built-in connection. It is handed both the
+network check to call and a fetch that makes that check itself, so an adapter that forgets to ask
+is still held to the owner's address rules. (A plugin is still code running as part of the
+assistant: only install files you trust.)
+`GET /api/providers/plugins` lists the adapters plugins have brought. `POST /api/providers/plugins`
+`{"driver": "plugin.provider.echo", "preset": "echo", "name": "Echo", "endpoint": "...", "model": "..."}`
+makes a connection from one and puts it in the model list. Switching the plugin off takes both the
+adapter and every model preset made from it away again. Nothing is registered until the owner
+switches the plugin on, exactly as with a plugin's tools.

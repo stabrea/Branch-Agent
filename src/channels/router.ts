@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import type { Runtime } from "../runtime.js";
 import { Deliveries } from "./deliveries.js";
+import { audit } from "../audit.js";
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -132,6 +133,8 @@ export class ChannelRouter {
     const key = `channel-session:${channel}:${chatId}`;
     const saved = this.store.get("settings", owner, key)?.data as { title?: string } | undefined;
     this.store.save("settings", owner, key, { sessionId, channel, chatId, title: saved?.title ?? chatId, updatedAt: new Date().toISOString(), linked: true });
+    audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${chatId} on ${channel}`,
+      reason: "A chat was pointed at one of your conversations, so both share one history", outcome: "saved" });
     return { channel, chatId, sessionId };
   }
   /** Chats that have talked to the assistant, usable as delivery targets. */
@@ -200,11 +203,16 @@ export class ChannelRouter {
     if (!match) throw new Error("No pending request has that code");
     const approved: Pair = { status: "approved", code: match.code, name: match.name, requestedAt: match.requestedAt, approvedAt: new Date().toISOString() };
     this.store.save("settings", owner, `channel-pair:${match.channel}:${match.senderId}`, approved);
+    audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${match.name} on ${match.channel}`,
+      reason: "You approved this sender, so their messages now reach the assistant", outcome: "allowed" });
     return { ...approved, channel: match.channel, senderId: match.senderId };
   }
   remove(owner: string, input: unknown) {
     const { channel, senderId } = z.object({ channel: z.string().min(1).max(64), senderId: z.string().min(1).max(64) }).strict().parse(input);
-    return { removed: this.store.delete("settings", owner, `channel-pair:${channel}:${senderId}`) };
+    const removed = this.store.delete("settings", owner, `channel-pair:${channel}:${senderId}`);
+    if (removed) audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${senderId} on ${channel}`,
+      reason: "You disconnected this sender, so their messages no longer reach the assistant", outcome: "refused" });
+    return { removed };
   }
   private pair(channel: string, senderId: string): Pair | undefined {
     const parsed = pairSchema.safeParse(this.store.get("settings", this.runtime.owner, `channel-pair:${channel}:${senderId}`)?.data);

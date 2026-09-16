@@ -6,7 +6,25 @@ An open-source personal assistant designed to assemble the capabilities you need
 
 ## Install the Windows app
 
-Download `Branch-Agent-windows-x64.zip` from the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest), unzip it anywhere, and start `Branch Agent.exe`. Open **Settings → ChatGPT account** to sign in with your ChatGPT plan, or **Settings → Model connection** to use an API key. **Settings → Updates** checks GitHub for a newer release and installs it with one click after verifying the published checksum.
+Go to the [latest release](https://github.com/stabrea/Branch-Agent/releases/latest) and download two files into the same folder: `Branch-Agent-windows-x64.zip` and `Install Branch Agent.cmd`. Double-click `Install Branch Agent.cmd`. It unpacks the download, puts Branch Agent in your own programs folder, adds it to the Start menu and to **Add or remove programs**, and keeps the version that was there before in case you want it back. Nothing else has to be installed first.
+
+Windows may show a blue "Windows protected your PC" box, because these downloads are not yet signed. Choose **More info**, then **Run anyway**.
+
+Prefer not to install? Unzip the download anywhere and start `Branch Agent.exe` directly. Put an empty file called `portable.txt` beside it and Branch keeps all of your conversations and files in a `Branch Data` folder next to the program, so the whole assistant travels on a memory stick.
+
+To remove Branch Agent, open **Add or remove programs**, find Branch Agent and choose **Uninstall**. Your conversations and files are left where they are.
+
+Once it is open:
+
+- **Settings → ChatGPT account** signs in with your ChatGPT plan; **Settings → Model connection** uses an API key instead.
+- **Settings → How Branch runs on this computer** turns on *Start Branch when I sign in to Windows*, *Keep Branch working when the window is closed* (so timed jobs and chat replies still happen), and *Reach Branch from my phone*.
+- **Settings → Updates** checks GitHub for a newer release and installs it with one click after checking the published checksum. A safety copy of your work is taken first, and the last three are kept.
+
+### Reaching Branch from your phone
+
+Branch never opens itself to the internet or to the network you happen to be on. Your phone reaches it over [Tailscale](https://tailscale.com), a private network you sign in to on both devices. Install Tailscale on this computer and on the phone, sign both in, then turn on **Reach Branch from my phone**. Press **Show the square code for my phone**, point the phone's camera at it, and type the six numbers shown on the computer. The numbers are good for a few minutes and for one phone.
+
+If something is not working, `branch doctor --fix` checks what Branch needs and repairs what it can.
 
 ## Run locally
 
@@ -18,9 +36,11 @@ npm run demo
 npm start
 ```
 
-Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`logout` removes it). A source checkout updates itself with `node dist/cli.js update`. After `npm link`, the same commands are available as `branch chat`, `branch login` and `branch update`.
+Sign in with a ChatGPT plan from the terminal with `node dist/cli.js login` (`logout` removes it). A source checkout updates itself with `node dist/cli.js update`. `branch doctor --fix` checks that everything Branch needs is in place and repairs what it can. `branch daemon install | uninstall | status` keeps the engine working in the background from the moment you sign in to Windows, with no window. After `npm link`, the same commands are available as `branch chat`, `branch login` and `branch update`.
 
 For an interactive terminal conversation, run `npm run chat`. Text streams as the provider sends it. Press Ctrl+C or type a revised request to interrupt the current task and continue the same conversation. `/new` starts a new conversation; `/exit` closes the terminal assistant.
+
+- **A terminal worth using.** `branch chat` draws a status line (model, tokens, cost, when it checks with you), wraps answers to the window, shows one short row per step, and understands `/model`, `/preset`, `/plan`, `/verify`, `/dry-run`, `/attach`, `/history`, `/export` and more. Enter sends, Alt+Enter adds a line, the up arrow brings a message back, Ctrl+C stops the task and Ctrl+D leaves. When a task pauses for a yes, answer it right there with y, n, a or s. It uses nothing but Node's own readline, and falls back to the plain streaming view when the terminal cannot take it. For scripts, `branch run --json` prints the events as JSON Lines and exits 0, 2, 3 or 4; `branch status`, `branch logs <task id>` and `branch approve <task id> yes|no` round it out, and `branch completion bash|powershell` writes a completion script. See [the command line section](docs/configuration.md#command-line-and-terminal).
 
 For the native desktop application:
 
@@ -28,7 +48,7 @@ For the native desktop application:
 npm run desktop
 ```
 
-It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. To create a portable application folder for your current operating system, run `npm run package:desktop`. Windows packaging has been exercised locally; other platforms require their own verification. The packaged app updates itself from GitHub Releases; installers and code signing are pending.
+It opens an authenticated native window automatically. Closing the window keeps the assistant in the tray; use **Quit** in the tray menu to stop it. When a background engine is already running (see `branch daemon install`), the window joins it rather than starting a second one. To create a portable application folder for your current operating system, run `npm run package:desktop`; on Windows it also writes `release/Install Branch Agent.cmd`, the unsigned installer described above. The packaged app updates itself from GitHub Releases; code signing is still pending.
 
 In **Settings → ChatGPT account**, sign in on OpenAI's website with a short code to use the models that come with your ChatGPT plan; the sign-in is kept under the device's key protection and Branch identifies itself as Branch Agent. In **Settings → Model connection**, select a provider and enter its API base URL, model identifier and key. Quit and reopen to apply an API-key connection. Explicit launch environment configuration takes precedence.
 
@@ -57,6 +77,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - A long conversation keeps a structured note of it — what we are doing, what was decided, what is still open, files touched — and any message you pin stays in front of the assistant.
 - Show the assistant a picture when the model can look at one; a model that cannot says so plainly.
 - A first-run setup that ends with a real test call: ChatGPT plan, API key or offline demonstration.
+- A practice workspace of made-up files to try tools on safely, one click each way from your real folder; an unchangeable record of everything the assistant was allowed to do, saveable as a spreadsheet; approvals decided a kind of thing at a time; "ask me questions first" before a long task; issues from GitHub and Linear pulled into a task from their address, with a pull-request description that closes the issue; and a dependency-free client in `packages/sdk/` for scripts on this computer, with types generated from the app's own input checks.
 - Temporary conversations that never enter search, the library or memory and are discarded when you move on.
 - "Forget what this conversation saved": preview and remove a conversation's own memory facts, keep the ones you edited, and stop that conversation from saving again on its own.
 - Projects with their own instructions, preferred model and secrets; switch the active project to change all three.
@@ -74,6 +95,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Voice input and output: record audio messages to transcribe, read messages aloud with browser voice or OpenAI-compatible text-to-speech.
 - Long conversations keep going: older turns are folded into a handoff summary automatically, recent turns stay, and the full history remains saved.
 - When the assistant needs your answer it stops and asks; a banner and a notification take you straight to that conversation.
+- Installing and running on a Windows PC without any signed installer: an unsigned bootstrapper puts Branch in your own programs folder with Start menu and Add/Remove Programs entries, keeps the previous version, brings older data along, supports a fully portable copy, can start with Windows, can keep working with the window closed, and can be reached from your phone over Tailscale with a scan-and-type invitation.
 - Installable single-file skills (SKILL.md) with retained versions, activation, rollback and disable; the model sees only skill metadata until it opens one.
 - Configurable assistant name and working instructions, applied consistently within each task.
 - Opt-in host commands with executable aliases, captured results and cancellation.
@@ -98,6 +120,7 @@ The tool workspace defaults to `workspace/`. Private state lives in `.branch/`, 
 - Costs in money, traces, and a privacy promise: real dollar estimates from a built-in price table you can correct, shown wherever tokens are shown and never as a made-up $0.00 for a model with no price on file; optional OpenTelemetry-shaped trace files written to a folder you choose; and a Diagnostics section that says Branch sends no usage data to anyone and saves a readable, secret-free folder you can share by hand.
 - Your own documents: add notes, web pages, tables, Word files and spreadsheets from your workspace or by dropping them in, search them and see the exact passages that match, and let the assistant quote them when it answers — with a switch to turn that off. Passages are ranked by the words in them and, when your model connection offers it, also compared by meaning.
 - An app shell you can find your way around: one rail holds new conversation, search, every section as a row, your project folders and your conversations by day (rename, pin or take one off the list by hovering), with your own menu at the foot; the conversation reads as one column of messages where tool work is a quiet row you can open; the pane on the right tells you which model is answering, what is running, what the last tools actually did and what is in memory; Ctrl+K finds any section, conversation or action; and Appearance lets you set the theme (Forest, Daylight, or follow this computer), the highlight colour, text size, spacing, lettering, stillness and whether the acorn shows.
+- Figures, looking things up, and the morning message: open a table from a file, an address or pasted text and see what is in it, ask it questions in plain SQL, draw it as a simple picture and save it back as a spreadsheet; look a question up properly across several pages and get a numbered report with the quotes it rests on and where the sources disagree; watch a page or a search and be told in plain words what changed; and one message first thing that gathers what is planned, what is unfinished, what arrived and what changed.
 - Looking through and changing code: list files by pattern, search inside them with the lines around each match, find a file from part of its name, and see a short map of what each file holds. Changes are exact — a set of changes either fits every file perfectly or nothing is written, an ambiguous text replacement is refused rather than guessed, and every changed file can still be undone one by one. A `.branchignore` (or your `.gitignore`) keeps files out of all of it.
 - Skills people can actually share, and plugins for developers: save a skill as one file and hand it to someone, or open one you were sent and see exactly what it asks for before anything is installed — including the web addresses it may call and which of your saved secrets it would use, with those secret values never shown to the model. Registries can sign what they publish, tell you when a newer version exists, and let you take it in one step and go back if it is worse. Branch can draft a better version of a skill from several tasks that went well, run a skill's own examples and report how they went, and point out skills you already have, switched off, whose words match your recent work. Developers can add tools and event handlers with a single plugin file that stays off until you switch it on.
 - Models that run on this computer: Branch looks at your memory, processor and graphics card and suggests a model size that will actually feel right, downloads it with a progress bar, shows what each one is and removes the ones you are done with, and works with LM Studio too. You can have it choose task by task — a note with personal details in it stays on this computer, a long fiddly job goes to the cloud model, and a simple job uses the free one here rather than paying for it.

@@ -36,7 +36,7 @@ async function initVoiceRecording() {
 
     return true;
   } catch (e) {
-    console.error("Voice recording init failed:", e);
+    console.warn("Voice recording is not available:", e instanceof Error ? e.message : e);
     return false;
   }
 }
@@ -44,8 +44,16 @@ async function initVoiceRecording() {
 /**
  * Start recording audio from the microphone.
  */
-function startVoiceRecording() {
-  if (!mediaRecorder) return false;
+async function startVoiceRecording() {
+  // The microphone is asked for on the first press, never when the app opens.
+  if (!mediaRecorder && !(await initVoiceRecording())) {
+    const toastEl = $("toast");
+    toastEl.textContent = "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.";
+    toastEl.hidden = false;
+    setTimeout(() => { toastEl.hidden = true; }, 4000);
+    return false;
+  }
+  if (isRecording) return true;
   recordingChunks = [];
   mediaRecorder.start();
   isRecording = true;

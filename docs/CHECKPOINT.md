@@ -458,6 +458,93 @@ task prompts against skills the owner has switched off and registry listings the
 this computer, with no model call. CLI: `branch skill pack|install` and
 `branch plugin list|enable|disable`. UI: `public/skills-extra.js` adds the sharing, updates,
 suggestions and plugins cards to the Skills screen. Tests: `tests/skills-plugins.test.mjs`.
+## Batch 23 (wave 5) — figures, looking things up properly, watches and the morning brief
+
+Four things a person actually asks an assistant for, all built on what was already here. **Tables**
+(`src/data-table.ts`, `src/data-chart.ts`, `src/data-tools.ts`): `data.load` opens a comma, tab,
+JSON or spreadsheet file — from the workspace, an address under the network policy, or pasted text —
+into a bounded in-memory table (5000 rows, 64 columns, 500 characters a cell) that lives only for
+that task and is dropped through `registry.onRunFinished`. `data.describe` gives per-column counts
+and spreads, `data.query` runs one read-only `SELECT`/`WITH` against a private `node:sqlite`
+in-memory copy, and both hand back a `markdown` field the message column already renders. `data.chart`
+writes a bar, line or pie as SVG through `RunArtifacts`, and `data.export` writes `.csv` or `.xlsx`
+using Node's own `zlib` — the spreadsheet it writes is read back by the existing `xlsxText`, which is
+what the round-trip test asserts. **Research** (`src/research.ts`, `src/research-claims.ts`):
+`research.run` plans sub-questions, searches, reads up to twelve pages, keeps the sentences that speak
+to the question with their address and title, and from `standard` upwards groups sentences from
+different pages by their shared words — two sources stating the same figures become an agreement, a
+third stating different figures becomes a reported disagreement rather than a silent choice. The
+report goes to `research/<slug>.md` with a numbered Sources list; state is saved after every page, so
+a run that hits its budget stops cleanly, writes the partial report and says why, and asking the same
+question again carries on. **Watches** (`src/monitors.ts`): `monitor.create` snapshots a page or a
+search, later checks diff the lines and describe the change in plain words, and the news goes to a
+channel chat or into the conversation list; they run on a new additive `Scheduler.onTick` hook, and one
+that fails is retried in an hour without stopping the rest. **Morning brief** (`src/brief.ts`):
+schedules due, unfinished tasks, new documents, watches that changed and reminders, assembled through
+the existing recipe `substitute()` into an editable template and sent at a chosen local time.
+**Citations** (`src/citations.ts`) are shared: research reports and the passages the runtime puts in
+front of a task from the document library now carry the same `[1]` numbering and Sources list.
+Three silent-failure paths were closed on the way: a watch sends its news *before* it keeps the new
+copy, so a delivery that fails leaves the change to be noticed again instead of losing it; a brief
+template is checked against the names it can actually fill in when it is saved, because otherwise one
+typo would throw on every scheduler beat where nobody could see it; and reports and exports go through
+the same write observer the ordinary file tools use, so both keep their previous bytes and have an
+Undo. The spreadsheet writer is verified against this app's own reader only — opening one in Excel is
+untested. New routes: `GET /api/research`, `GET|POST /api/monitors`, `POST /api/monitors/{id}/check`,
+`DELETE /api/monitors/{id}`, `GET|POST /api/brief`, `POST /api/brief/send`. Tests:
+`tests/data-research.test.mjs`. One shared change was unavoidable: with fourteen more tools the tool
+catalog is about 9.5k estimated tokens, so the old `compactionThreshold` of 11000 left barely 1.5k for
+the conversation and a compacted context could never get back under it — it is now 14000 and exported,
+and `tests/compaction-attention.test.mjs` asserts against the exported value rather than a literal.
+Not done: no Firecrawl or Scrapling integration (A0742, A0743) — both need dependencies. Covers A0931
+and the research-pipeline and data families listed for those themes.
+
+## Batch 19 (wave 6) — the client library, issue context, and the record of what it was allowed to do
+
+Eight smaller pieces that had no home in the other themes. **A TypeScript client**
+(`packages/sdk/`, no publish step, no dependency): one file of plain JavaScript covering runs
+(start, stream over SSE, watch over a socket, steer, cancel, resume, approve), sessions, memory,
+documents, schedules, policy and the new routes below. Its types are not written by hand —
+`scripts/generate-sdk-types.mjs` reads the app's own zod schemas out of `dist/`, turns each into
+JSON Schema and emits `packages/sdk/types.d.ts`, so what the types promise cannot drift from what
+the app accepts. `packages/sdk/test/sdk.test.mjs` proves every call against a real `startServer`.
+**Issue-tracker context** (`src/integrations/issue-context.ts`, `linear.ts`, `issue-tools.ts`):
+`issues.search/get/comment` over GitHub REST and Linear GraphQL behind one interface, each with its
+own token in the locker and scrubbed out of every reply; pasting an issue address pulls the title,
+body and comments into the task as a document-style passage with a citation and a line saying it is
+other people's words; `github.open_pull_request` gained `issue` and `changes`, which build the
+description from a template that closes the issue. **The record** (`src/audit.ts`): an append-only
+`audit` table — two SQLite triggers refuse any UPDATE or DELETE — written for approvals, secrets
+handed to a command (by name, never by value), policy changes, channel pairing, exports and project
+switches; `GET /api/audit` with filters, `/api/audit/export.csv`, `allowed.json` in the diagnostics
+folder, and a plain-language section at the foot of Usage. **Approval kinds**
+(`src/tool-categories.ts`): tools sorted into seven kinds from their permission with a small
+override map, so one choice covers a kind rather than a tool; saving expands to one rule per tool
+and merges — only the kinds named in the request are rewritten, so a kind decided earlier, a
+hand-edited rule and a standing yes from an answered approval all survive, and the rule cap rose
+from 100 to 300 because one kind can be dozens of tools.
+**Ask me questions first** (`src/ask-first.ts`): up to five short questions with suggested answers
+before a task starts, skipped for short plain requests by the same `looksMultiPart` judgement
+auto-plan uses; the answers are written underneath the request. **The practice workspace**
+(`src/practice-workspace.ts`): a project whose folder holds four made-up files and a demo
+conversation, one click each way, with the files left behind when you leave. **Retrieval and
+reordering** (`src/retrieval.ts`): documents and saved facts behind one `Retriever` interface, with
+a second pass that is a deterministic word count by default and one model request (top 20 → top 5)
+when the owner turns it on; `DocumentLibrary.contextFor` uses it. **Provider plugins**
+(`src/provider-plugins.ts`): `plugin.provider.<id>` adapters a plugin can bring, handed the network
+check to call rather than trusted to make their own requests, and taken back out with their model
+presets when the plugin is switched off. Routes live in `src/misc-api.ts` so `src/server.ts` gained
+one dispatch line. Tests: `tests/sdk-misc.test.mjs`, `packages/sdk/test/sdk.test.mjs`. No new
+dependency. Covers A0308, A0174, A0395, A0591, A0434, A0370, A0326, A0817, A0995, A0575 and A0300.
+Joined up while merging: `BranchPlugin` now carries `providers?: BranchPluginProvider[]`, and
+`Plugins.enable`/`disable` hand them to `ProviderPlugins.register`/`forget`, so switching a plugin
+on in the app brings its model connections and switching it off takes them away. Also while
+merging: an issue's words go through the same check a web page does (`detectInjection` and the
+owner's warn/redact/block setting) before the assistant sees them; the fetch a plugin's provider is
+handed checks the address against the network settings itself, so a plugin that forgets to ask is
+still held to them; and a spreadsheet cell that would start with `=`, `+`, `-` or `@` is kept as
+plain text. `npm test` now also runs `packages/sdk/test`.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
@@ -680,6 +767,38 @@ A2379, and from vector-and-hybrid-memory A0278, A0747, A1119, A1373, A1975. Deli
 retrofitted: the pre-existing removal paths (`POST /api/memory/hygiene` with `purge`, `memory.delete`
 when approval is off, `forget`, and the delete-then-restore inside `restoreCheckpoint`) still remove
 without a suggestion — R1 holds for the paths added here, not for those.
+## Batch 23 (wave 5) — installing, background running, reaching Branch from a phone
+`src/install/*` and `src/remote/*` make Branch something a non-technical owner can install, keep
+running and reach from a phone, all without a code-signing certificate. **Installer:** the release
+ships `Install Branch Agent.cmd` (generated by `bootstrapperScript()` and written by
+`scripts/package-desktop.mjs`) beside the zip. It unpacks with the Windows `tar.exe` and then runs
+`dist/install/install-cli.js` from inside the unpacked app through `ELECTRON_RUN_AS_NODE`, so the
+real work is ordinary tested TypeScript, not script text: copy to `%LOCALAPPDATA%\Programs\Branch
+Agent`, keep `.previous`, `WScript.Shell` shortcuts, an HKCU Uninstall key with a quiet uninstall
+script, and a one-time copy of saved work from older folder layouts. `portable.txt` beside the exe
+moves state and workspace next to the program. **Background:** `branch daemon install|uninstall|
+status` registers a `/SC ONLOGON /RL LIMITED` task that runs the engine through `wscript.exe` with
+window style 0 (reusing `hiddenRunner`, extracted from `hand-over.ts` without changing its
+behaviour); `running.json` plus the session-token file let a later window join the running engine
+instead of starting a second one. A HKCU Run value handles "start with Windows" and
+`--start-minimized` opens straight to the tray. **Phone:** off by default; `RemoteAccess` opens a
+*second* listener bound only to the Tailscale address (`100.64.0.0/10` enforced, never `0.0.0.0`),
+and one shared `hostAllowed()` now backs all three Host/Origin checks in `server.ts`. A pure-JS QR
+encoder (`src/remote/qr.ts`, byte mode, level L, versions 1-10) draws the link; the six-digit code is
+shown separately and typed on the phone, and `POST /api/pair` — the only token-exempt route, and
+only on the remote listener — is one-use, five minutes, five attempts. **Updates:** `Updater` gained
+an optional `backup` hook (signature unchanged) that writes a full archive to `update-backups/` and
+keeps three; a failed copy stops the update. `first-start.json` records whether a new version came
+up healthy, and the settings card offers putting the previous version's work back through
+`store.restore(archive, { replaceExisting: true })` — the plain `POST /api/restore` still refuses to
+overwrite. **Setup:** `branch doctor --fix` (and a button) checks Git, the Playwright browser, a free
+port and a writable workspace, installing the browser itself. Tests: `tests/deployment.test.mjs`,
+17 cases, no Electron — a real dry-run install into a temp folder with real `.lnk` files and a
+throw-away `HKCU\Software\BranchAgentTest\<uuid>` hive, fake-exec argv assertions for the Run key
+and the scheduled task (nothing real is ever registered), a Reed-Solomon check that every codeword
+vanishes at the first 20 generator powers, and a fake-updater proof that the safety copy happens
+before the hand-over script is written.
+
 ## Batch 22 (wave 3) — plans, several specialists at once, steering, reviewers and shared notes
 `src/orchestration.ts` and `src/orchestration-tools.ts` add six things to how a task is run, each
 behind a flag that is off by default, so an unchanged install behaves exactly as before.
@@ -844,6 +963,49 @@ the scrubber rather than skill scanning), A2119, A0836, A1856, A1897, A0875, A08
 A2131/A2160 partly (a resource sandbox, not a container) and A2277. Left alone deliberately:
 external vault backends (A1519, A1841), multi-user accounts (A1652, A1896, A2002, A2216), WebAuthn
 (A2074) and Docker isolation (A2152) — none of them fit a single-owner local desktop app.
+
+## Batch 23 (wave 4) — a terminal worth using, and a command line scripts can rely on
+
+`branch chat` now opens a real terminal view built from Node's own readline and escape sequences
+(`src/terminal-tui.ts`, `src/terminal-input.ts`, `src/terminal-style.ts`, `src/terminal-commands.ts`):
+a status line that stays above the line being typed (model, tokens and money this conversation has
+used, which approval preset is in force), answers wrapped to the window as they stream, one short
+row per step with Ctrl+E to expand them, Enter to send and Alt+Enter to add a line, the up arrow to
+bring a message back, Ctrl+C to stop the task without closing the terminal and Ctrl+D to leave. The
+slash commands are `/help`, `/model`, `/think`, `/preset`, `/memory`, `/skills`, `/plan`, `/verify`,
+`/dry-run`, `/attach`, `/history`, `/export`, `/new` and `/exit`. When a task pauses for a yes the
+question is shown with the tool and the exact target and takes y / n / a / s, answered through
+`Runtime.approve` — the same route the settings screen uses — after which the task carries on in the
+same conversation. `src/terminal.ts` is untouched apart from exporting `progressLine`, and stays the
+fallback: the full view is entered only when stdout is a terminal (or `FORCE_TTY=1`) and `--plain`
+was not passed. One capability switch (`resolveStyle`) governs colour, cursor movement, the window
+title and the Windows Terminal progress indicator, so `NO_COLOR` or `TERM=dumb` produces output with
+no escape sequence in it at all.
+
+The command line grew the parts a script needs (`src/cli-run.ts`, `src/cli-completion.ts`):
+`branch run` takes `--json` (JSON Lines on stdout, human wording on stderr), `--attach`, `--plan`,
+`--verify`, `--dry-run`, `--preset`, `--save-preset`, `--budget` and `--timeout`, and exits 0
+finished / 2 stopped to ask / 3 failed / 4 out of budget; `branch status` shows the running tasks,
+the questions waiting and the health summary; `branch logs <id>` prints the timeline; `branch
+approve <id> yes|no` answers a paused task by writing the answer into the approval policy as a
+standing rule, because the program run that stopped has already ended — the `ApprovalGate` lives in
+memory, so there is no one-time answer to give from another process, and the command says in as many
+words that it saved a rule that applies to future tasks too; `branch completion bash|powershell`
+prints a completion script and needs no database, so it short-circuits before the workspace is
+opened. `--preset` holds only for that one task and puts the owner's saved setting back afterwards
+(`--save-preset` is the one that keeps the change, and says so): a flag in a script should not
+quietly rewrite a setting the owner chose. One list, `cliCommands`, now drives the command check,
+`branch help` and both completion scripts, so a command added anywhere shows up in all three. `tests/cli-tui.test.mjs` drives the whole view
+through a child process with `FORCE_TTY=1` and asserts on ANSI-stripped output.
+
+Deliberately left alone: multi-client attach to a running server, a setup wizard, and per-project
+custom slash commands — all named in this theme but each is its own piece of work. Covers A0007,
+A0136, A0205, A0249, A0620 and A1211 outright, plus two with a named gap: A0012 is the `--json`
+event stream, not its "only the final answer on stdout by default" half (`branch run` without
+`--json` still prints the existing `{run, usage, events}` report, which other branches merge
+alongside), and A0183 is the subcommands and the terminal view without the setup wizard. The rest
+of the theme's 23 entries are other projects' CLIs and are not ours to tick.
+
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

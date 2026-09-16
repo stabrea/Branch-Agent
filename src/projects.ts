@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { audit } from "./audit.js";
 import { projectIdSchema } from "./locker.js";
 
 /**
@@ -39,7 +40,11 @@ export class Projects {
   setActive(owner: string, input: unknown): Project {
     const { active } = activeSchema.parse(input);
     if (!this.list(owner).some((project) => project.id === active)) throw new Error("Project not found");
+    const before = this.active(owner).id;
     this.store.save("settings", owner, "projects", { active });
+    if (before !== active)
+      audit(this.store, owner, { action: "profile.switched", actor: owner, subject: `${before} to ${active}`,
+        reason: "The active project decides which folder and which saved secrets it can reach", outcome: "saved" });
     return this.active(owner);
   }
   save(owner: string, input: unknown): Project {

@@ -72,6 +72,8 @@ export class Scheduler {
   private readonly active = new Set<Promise<Run[]>>();
   /** Runs test suites on a schedule; stays null until `createBranch` connects one. */
   evaluations: SuiteRunner | null = null;
+  /** Extra work that runs on every beat alongside the saved schedules: watches, the morning brief. */
+  readonly onTick = new Set<(now: Date) => Promise<void>>();
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -107,6 +109,9 @@ export class Scheduler {
       const run = await this.execute(claimed, now, "schedule", undefined, true);
       if (run) results.push(run);
     }
+    // Last, so that work the person actually asked for is never left waiting behind a watch
+    // that is slow to answer. A beat that overlaps the one before it is normal here.
+    for (const listener of this.onTick) await listener(now).catch(() => undefined);
     return results;
   }
   /** Runs a saved schedule now (webhook or local script) without moving its next due time. */

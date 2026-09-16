@@ -47,7 +47,16 @@ import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, 
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+// Wave 5 (deployment): installing, background running and reaching Branch from a phone.
+import { RemoteAccess } from "./remote/remote-access.js";
+import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { clearRunning, writeRunning } from "./install/running.js";
+import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
+import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
+import { audit } from "./audit.js";
+import { askFirstSettings } from "./ask-first.js";
+import { decisionsFromRules } from "./tool-categories.js";
 
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 class HttpError extends Error {
@@ -117,11 +126,22 @@ async function sessionToken(dataDir: string): Promise<string> {
   await writeFile(path, token, { mode: 0o600, flag: "wx" });
   return token;
 }
-function authorize(request: IncomingMessage, url: string, token: string): void {
-  const expected = new URL(url);
-  if (request.headers.host !== expected.host)
+/**
+ * Which addresses a request may claim it was sent to. Normally only this computer's own loopback
+ * address; while "reach Branch from my phone" is on, also the private Tailscale address and name.
+ * Everything else is refused, which is what stops a web page elsewhere talking to Branch.
+ */
+export function hostAllowed(
+  host: string | undefined, origin: string | undefined, url: string, extra: readonly string[] = [],
+): boolean {
+  const hosts = [new URL(url).host, ...extra];
+  if (!host || !hosts.includes(host)) return false;
+  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+}
+function authorize(request: IncomingMessage, url: string, token: string, extra: readonly string[] = []): void {
+  if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
-  if (request.headers.origin && request.headers.origin !== url)
+  if (!hostAllowed(request.headers.host, request.headers.origin, url, extra))
     throw new HttpError(403, "Origin rejected");
   if (request.headers["sec-fetch-site"] === "cross-site")
     throw new HttpError(403, "Cross-site request rejected");
@@ -155,8 +175,14 @@ async function staticFile(
     "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
+    "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
+    "/pair": ["pair.html", "text/html; charset=utf-8"],
+    "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
+    "/pair.css": ["pair.css", "text/css; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
+    // Batch 19 (wave 6): the record, approval kinds, the practice workspace.
+    "/misc.js": ["misc.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -359,6 +385,14 @@ function state(app: Branch): unknown {
       .runs(owner)
       .map((run) => ({ ...run, usage: app.store.usage(run.id), cost: runCost(app, run.id), model: modelUsed(app, run.id), changes: fileChanges(app, run.id) })),
     learning: app.store.review.settings(owner),
+    // Batch 19 (wave 6)
+    allowed: { counts: app.store.audit.counts(owner), recent: app.store.audit.list(owner, { limit: 20 }) },
+    approvalCategories: decisionsFromRules(app.registry, readPolicy(app.store, owner).rules),
+    askFirst: askFirstSettings(app.store, owner),
+    practice: app.practice.state(owner),
+    reranking: app.retrieval.view(owner),
+    providerPlugins: app.providerPlugins.list(),
+    issueTrackers: app.issues?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
@@ -390,6 +424,12 @@ async function api(
   path: string,
   dataDir: string,
 ): Promise<unknown> {
+  // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
+  // the practice workspace, how passages are ordered, plugin model connections, issue context.
+  if (handlesMiscPath(path))
+    return miscApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
@@ -412,6 +452,8 @@ async function api(
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
+  if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
+    return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
@@ -496,7 +538,11 @@ async function api(
     return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
-  if (request.method === "GET" && path === "/api/backup") return app.store.backup(app.version);
+  if (request.method === "GET" && path === "/api/backup") {
+    audit(app.store, app.runtime.owner, { action: "data.exported", actor: app.runtime.owner, subject: "a full backup",
+      reason: "Everything except the saved secrets was written out as one file", outcome: "saved" });
+    return app.store.backup(app.version);
+  }
   if (request.method === "POST" && path === "/api/restore") return app.store.restore(await readBody(request, maximumBackupBytes));
   if (request.method === "GET" && path === "/v1/models") return modelsList(app);
   if (request.method === "GET" && path === "/api/hooks") return { hooks: app.hooks.list() };
@@ -687,8 +733,11 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
       return { ...app.runtime.models.session(owner, match[1]!), effective: app.runtime.models.plan(owner, match[1]!).choice };
     }
   }
-  if (match && request.method === "GET" && match[2] === "export")
+  if (match && request.method === "GET" && match[2] === "export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: `conversation ${match[1]!.slice(0, 8)}`,
+      reason: "One conversation was written out as a file", outcome: "saved" });
     return app.store.exportSession(owner, match[1]!);
+  }
   if (match && request.method === "POST" && match[2] === "discard") {
     z.object({}).strict().parse(await readBody(request));
     return app.store.discardSession(owner, match[1]!);
@@ -713,7 +762,11 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
 }
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
-  if (request.method === "GET" && path === "/api/memory/export") return app.store.exportMemory(owner);
+  if (request.method === "GET" && path === "/api/memory/export") {
+    audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
+      reason: "The facts the assistant remembers were written out", outcome: "saved" });
+    return app.store.exportMemory(owner);
+  }
   if (request.method === "POST" && path === "/api/memory/import") {
     const body = await readBody(request, maximumMemoryArchiveBytes);
     // Facts arrive either as the whole-archive file or as JSON Lines; the second kind is deduplicated.
@@ -1130,6 +1183,23 @@ async function documentsApi(app: Branch, request: IncomingMessage, path: string)
   if (one && request.method === "DELETE") return library.remove(owner, one[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * The reports the assistant has written, the watches that are running, and the morning brief.
+ * These are the routes only; no screen in the app calls them yet.
+ */
+async function researchApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (request.method === "GET" && path === "/api/research") return { reports: app.research.list(owner) };
+  if (request.method === "GET" && path === "/api/monitors") return { monitors: app.monitors.list(owner) };
+  if (request.method === "POST" && path === "/api/monitors") return app.monitors.create(owner, await readBody(request));
+  const watch = /^\/api\/monitors\/([a-f0-9-]{36})(?:\/(check))?$/.exec(path);
+  if (watch && request.method === "DELETE" && !watch[2]) return app.monitors.remove(owner, watch[1]!);
+  if (watch && request.method === "POST" && watch[2] === "check") return app.monitors.check(owner, watch[1]!);
+  if (request.method === "GET" && path === "/api/brief") return app.brief.preview(owner);
+  if (request.method === "POST" && path === "/api/brief") return app.brief.configure(owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/brief/send") return app.brief.send(owner);
+  throw new HttpError(404, "Endpoint not found");
+}
 async function mcpApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   if (path === "/api/mcp/settings") {
     const mcp = app.mcpServer;
@@ -1255,19 +1325,37 @@ function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: s
     },
   };
 }
+/** The pairing door, open only on the phone's listener and only for the invitation on offer. */
+export async function pairingRequest(
+  remote: RemoteAccess, request: IncomingMessage, response: ServerResponse, path: string,
+): Promise<boolean> {
+  if (request.method !== "POST" || path !== "/api/pair") return false;
+  const body = z.object({ id: z.string().max(64), code: z.string().max(16) }).strict()
+    .parse(await readBody(request, 1024));
+  send(response, 200, remote.pairing.redeem(body.id, body.code));
+  return true;
+}
 export async function startServer(
   app: Branch,
-  options: { dataDir: string; port?: number },
+  options: {
+    dataDir: string; port?: number;
+    /** The installed program file and folder, when Branch runs from an install rather than source. */
+    executable?: string | null; installRoot?: string | null;
+    /** Announce this engine to other launches, so a second window joins it instead of starting again. */
+    presence?: "app" | "daemon";
+  },
 ) {
   const token = await sessionToken(options.dataDir);
   let url = "";
   let executions = 0;
-  const server = createServer(async (request, response) => {
+  const remote = new RemoteAccess(token);
+  const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
-      if (request.headers.host !== new URL(url).host)
+      if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
+      if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -1280,7 +1368,7 @@ export async function startServer(
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
-      authorize(request, url, token);
+      authorize(request, url, token, remote.allowedHosts());
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
@@ -1291,6 +1379,10 @@ export async function startServer(
       if (executes) executions++;
       try {
         if (await rawApi(app, request, response, path)) return;
+        if (path.startsWith("/api/deployment")) {
+          const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
+          if (result !== undefined) { send(response, 200, result); return; }
+        }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
         if (executes) executions--;
@@ -1303,13 +1395,20 @@ export async function startServer(
         });
       else response.end();
     }
+  };
+  const server = createServer((request, response) => void handle(request, response, false));
+  const remoteHandler = (request: IncomingMessage, response: ServerResponse) =>
+    void handle(request, response, true);
+  const deployment = (): DeploymentContext => ({
+    dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
+    executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
   server.on("upgrade", (request, socket) => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
-      const sameHost = request.headers.host === new URL(url).host && (!request.headers.origin || request.headers.origin === url);
+      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
       if (!match || !run || run.owner !== app.runtime.owner || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
@@ -1330,11 +1429,25 @@ export async function startServer(
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  if (options.presence) {
+    await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
+    await noteFirstStart(app, options.dataDir).catch(() => undefined);
+  }
   return {
     url,
     token,
-    close: () => stopServer(app, server),
+    remote,
+    close: async () => {
+      await remote.disable().catch(() => undefined);
+      if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
+      await stopServer(app, server);
+    },
   };
+}
+/** Records whether a version that has just replaced another one came up healthy the first time. */
+async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
+  if ((await readFirstStart(dataDir))?.version === app.version) return;
+  await recordFirstStart(dataDir, app.version, (await healthReport(app)).ok);
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
@@ -1458,6 +1571,10 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
     response.end(csv);
     return true;
   }
+  if (request.method === "GET" && path === "/api/audit/export.csv") {
+    auditCsvResponse(app, request, response);
+    return true;
+  }
   if (request.method === "POST" && path === "/v1/chat/completions") {
     await chatCompletion(app, request, response, await readBody(request, 1024 * 1024));
     return true;
@@ -1486,7 +1603,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {
