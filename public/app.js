@@ -457,6 +457,7 @@ async function refresh() {
   renderSpecialists();
   renderProcedures();
   renderSchedules();
+  renderAutomations();
   renderIdentity();
   renderSkills();
   renderModels();
@@ -1596,6 +1597,11 @@ if (window.branchDesktop) {
     showModelSettings(saved);
     $("model-settings-note").textContent = "Connection saved. Quit from the tray and reopen Branch Agent to apply it.";
   });
+}
+function renderAutomations() {
+  const container = $("automations-container");
+  if (!container || typeof showAutomations !== "function") return;
+  container.replaceChildren(showAutomations());
 }
 setInterval(() => {
   if (token || desktop) refresh().catch(() => {});

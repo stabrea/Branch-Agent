@@ -55,6 +55,16 @@ export class Webhooks {
   ) {}
 
   /**
+   * Notify all webhooks listening for an event. Delivers asynchronously in background.
+   */
+  notify(owner: string, event: WebhookEvent, payload: Record<string, unknown>): void {
+    // Fire all deliveries asynchronously without blocking
+    for (const webhook of this.list(owner)) {
+      void this.deliver(owner, webhook.id, event, payload).catch(() => undefined);
+    }
+  }
+
+  /**
    * Create a new outbound webhook.
    */
   create(context: ToolContext, input: unknown): WebhookState {
