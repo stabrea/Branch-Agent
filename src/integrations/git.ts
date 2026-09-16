@@ -136,6 +136,63 @@ export class GitTools {
     return { folder: input.folder, name: input.name, path: `${WORKTREE_HOME}/${input.name}`, branch: input.branch ?? null };
   }
 
+  /**
+   * A plan branch: a parallel copy of the repository, on a line of work of its own, where a risky
+   * plan or a saved procedure can be tried without touching what the owner is working on. The copy
+   * lives in the same confined folder as every other parallel copy. Nothing comes back until the
+   * difference has been looked at and the merge asked for.
+   */
+  async planStart(input: { folder: string; name: string; from?: string | undefined }, signal: AbortSignal) {
+    const cwd = await this.folder(input.folder);
+    const branch = planBranch(input.name);
+    const home = join(cwd, WORKTREE_HOME);
+    await mkdir(home, { recursive: true });
+    const from = input.from ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    await this.run(cwd, ["worktree", "add", "-b", branch, join(home, input.name), from], signal, { timeoutMs: 60000 });
+    return { folder: input.folder, name: input.name, branch, from, path: `${WORKTREE_HOME}/${input.name}`,
+      note: "Work in that folder. Ask for the difference when you are done, and merge it back only when it looks right." };
+  }
+  /** What trying the plan changed, compared with where it started. */
+  async planDiff(input: { folder: string; name: string; against?: string | undefined }, signal: AbortSignal) {
+    const cwd = await this.folder(input.folder);
+    const branch = planBranch(input.name);
+    const against = input.against ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    const names = (await this.run(cwd, ["diff", "--name-only", `${against}...${branch}`], signal)).stdout.split("\n");
+    const files = await this.visible(cwd, names.filter(Boolean));
+    if (!files.length) return { folder: input.folder, name: input.name, branch, against, files: [], text: "", truncated: false,
+      note: "The plan changed nothing that is saved on its branch yet." };
+    const outcome = await this.run(cwd, ["diff", "--no-color", `${against}...${branch}`, "--", ...files], signal, { maxOutputBytes: 65536 });
+    const text = outcome.stdout.slice(0, 24000);
+    return { folder: input.folder, name: input.name, branch, against, files, text, truncated: outcome.truncated || outcome.stdout.length > text.length };
+  }
+  /** Brings the plan's work back onto the line of work the owner is on, keeping its own history. */
+  async planMerge(input: { folder: string; name: string; message?: string | undefined; remove: boolean }, signal: AbortSignal) {
+    const cwd = await this.folder(input.folder);
+    const branch = planBranch(input.name);
+    const into = (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    await this.run(cwd, ["merge", "--no-ff", "--no-edit", "-m", input.message ?? `Try "${input.name}"`, branch], signal, { timeoutMs: 60000 });
+    if (input.remove)
+      await this.run(cwd, ["worktree", "remove", "--force", join(cwd, WORKTREE_HOME, input.name)], signal, { timeoutMs: 60000 }).catch(() => undefined);
+    return { folder: input.folder, name: input.name, branch, into, merged: true, copyRemoved: input.remove };
+  }
+
+  /**
+   * Points a folder at a repository on a server and sends its work there for the first time. The
+   * address is set as a plain remote with no sign-in details in it: the push uses whatever Git
+   * sign-in this computer already has, so no token is ever written into the repository's settings.
+   */
+  async publish(input: { folder: string; url: string; remote: string; branch?: string | undefined }, signal: AbortSignal) {
+    const cwd = await this.folder(input.folder);
+    const address = new URL(input.url);
+    if (address.protocol !== "https:" || address.username || address.password)
+      throw new Error("The address of a repository on a server starts with https:// and carries no sign-in details.");
+    const branch = input.branch ?? (await this.run(cwd, ["rev-parse", "--abbrev-ref", "HEAD"], signal)).stdout.trim();
+    await this.run(cwd, ["remote", "remove", input.remote], signal).catch(() => undefined);
+    await this.run(cwd, ["remote", "add", input.remote, address.href], signal);
+    const outcome = await this.run(cwd, ["push", "--set-upstream", input.remote, branch], signal, { timeoutMs: 180000 });
+    return { folder: input.folder, remote: input.remote, address: address.href, branch, sent: true, notes: notes(outcome) };
+  }
+
   /** Sending work to a shared server; pushing the branch everyone shares asks the person first. */
   async push(input: { folder: string; remote: string; branch?: string | undefined; confirmed?: boolean | undefined }, signal: AbortSignal) {
     const cwd = await this.folder(input.folder);
@@ -154,6 +211,9 @@ export class GitTools {
 }
 
 const notes = (outcome: GitOutcome): string => `${outcome.stdout}\n${outcome.stderr}`.trim().slice(0, 2000);
+
+/** Every plan branch is named the same way, so one can never be mistaken for the owner's own. */
+export const planBranch = (name: string): string => `plan/${name}`;
 
 /** Git's two-letter status code in words. */
 export function describeState(code: string): string {

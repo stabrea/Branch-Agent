@@ -17,6 +17,9 @@ import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { PackageInstallSchema } from "./skill-packages.js";
+import { browserSkillList, browserSkillPackage } from "./browser-skills.js";
+import { readAttachSettings, saveAttachSettings } from "./integrations/browser-attach.js";
+import { refusedHosts } from "./integrations/desktop-config.js";
 import { draftFromRuns, testSkill } from "./skill-authoring.js";
 import { suggestSkills } from "./skill-suggest.js";
 import { healthReport } from "./health.js";
@@ -41,6 +44,9 @@ import { knowledgeApi } from "./knowledge-tools.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
 import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
+// Wave 7 (a coder's toolbox): the two Developer switches.
+import { languageServerSettings, saveLanguageServerSettings } from "./language-server.js";
+import { debugSettings, saveDebugSettings } from "./debug-adapter.js";
 // Wave 7 (benchmarks and experiments).
 import { scorerKinds } from "./evaluation-scorers.js";
 import { benchmarkAdapters } from "./benchmark-adapters.js";
@@ -245,6 +251,8 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
+    // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
+    "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -555,6 +563,8 @@ async function api(
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
+  // Wave 7: the two coder switches in Settings → Developer, kept in one small block.
+  if (path.startsWith("/api/developer/")) return developerApi(app, request, path);
   if (path.startsWith("/api/skills/")) return skillsApi(app, request, path);
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
@@ -960,6 +970,25 @@ async function historyApi(app: Branch, request: IncomingMessage, path: string): 
   if (restore && request.method === "POST") return history.restoreSnapshot(restore[1]!);
   throw new HttpError(404, "Endpoint not found");
 }
+/**
+ * Settings → Developer: the language servers and the debuggers the owner has on this computer.
+ * Both are off until they say otherwise, and saving refuses a program that is not there.
+ */
+async function developerApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.runtime.owner;
+  if (path === "/api/developer/language-servers")
+    return request.method === "POST"
+      ? saveLanguageServerSettings(app.store, owner, await readBody(request))
+      : languageServerSettings(app.store, owner);
+  if (path === "/api/developer/debug-adapters")
+    return request.method === "POST"
+      ? saveDebugSettings(app.store, owner, await readBody(request))
+      : debugSettings(app.store, owner);
+  if (path === "/api/developer/running" && request.method === "GET")
+    return { languageServers: app.languageServers.list(), services: app.openApiTools.list() };
+  throw new HttpError(404, "Endpoint not found");
+}
+
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
   const owner = app.store.profiles.scope();
@@ -1357,6 +1386,13 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
     const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
     const bytes = Buffer.from(body.file, "base64");
     return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+  }
+  // Wave 7: the three browser skills that come with Branch. Listing shows what they are; installing
+  // puts one in as an ordinary skill package, switched off until the owner turns it on.
+  if (request.method === "GET" && path === "/api/skills/browser") return { skills: browserSkillList() };
+  if (request.method === "POST" && path === "/api/skills/browser") {
+    const body = (await readBody(request)) as { name?: unknown };
+    return app.skillPackages.install(browserSkillPackage(String(body.name ?? "")), true);
   }
   if (request.method === "POST" && path === "/api/skills/draft-from-runs")
     return draftFromRuns(app.store, owner, app.runtime, await readBody(request));
@@ -1995,6 +2031,12 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
   const owner = app.runtime.owner;
   if (request.method === "GET" && path === "/api/browser/profiles")
     return { profiles: await app.browserProfiles.list(owner), canSignIn: !!app.browser };
+  // Wave 7: "Let Branch use my browser for this task". Off unless the owner turns it on, tied to
+  // one task, and it runs out on its own after a quarter of an hour.
+  if (request.method === "GET" && path === "/api/browser/attach")
+    return { settings: readAttachSettings(app.store, owner), refusedSites: refusedHosts.length };
+  if (request.method === "POST" && path === "/api/browser/attach")
+    return { settings: saveAttachSettings(app.store, owner, await readBody(request)) };
   const body = (await readBody(request)) as { name?: unknown; url?: unknown };
   const name = String(body.name ?? "");
   if (request.method === "POST" && path === "/api/browser/profiles")
@@ -2090,7 +2132,7 @@ function voiceDeps(app: Branch) {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {
