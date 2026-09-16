@@ -373,6 +373,40 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 23 (wave 4) — skills and plugins people can actually share
+
+Skills were single documents that could only be typed in or fetched from a registry. This batch
+makes them shareable objects and opens a documented seam for developers. **Skill packages**
+(`src/skill-package.ts`): a `skill/` folder with `SKILL.md`, optional `tools.json` and optional
+`hooks.json`, packed into one `.branchskill` file — a zip written with `node:zlib` and read back by
+a minimal reader in the same file, so no dependency was added. The manifest carries the name,
+version, author, the permissions the package asks for and a SHA-256 of every file; opening it
+refuses a package whose files no longer match, and refuses a file the manifest does not list.
+`src/skill-packages.ts` installs one only after the owner approves the list, runs the existing skill
+scan, and leaves the skill switched off. **Declarative web calls** (`src/skill-http-tools.ts`):
+`tools.json` entries become `skill.<name>.<tool>` tools under the new `skills.http` permission.
+Addresses go through the existing network policy, `{{secret:NAME}}` header and body values are
+resolved from the project locker at the moment of the call, and the result is run through
+`scrubSecrets` before it is returned or recorded — the test asserts the secret is in no result, no
+event and no message. **Registry v2** (`src/registry-install.ts`): indexes may publish an ed25519
+public key and sign entries over a fixed line-by-line payload, so key order in the file cannot
+change the signature; entries are labelled `checked`, `unsigned` or `invalid`, an invalid one is
+refused, and version 1 indexes still parse unchanged. `GET /api/registry/updates` reports newer
+versions with their changelogs, `POST /api/registry/update` adds the new version and switches to
+it, and `POST /api/registry/rollback` restores the one that was in use. **Authoring help**
+(`src/skill-authoring.ts`): `POST /api/skills/draft-from-runs` proposes one improved version from
+several tasks, and `POST /api/skills/:id/test` runs the examples listed under an `## Examples`
+heading and reports each one. **Plugins** (`src/plugins.ts`): `<name>.mjs` files in
+`<dataDir>/plugins` whose default export declares tools (named `plugin.<id>.<name>`, each needing a
+permission the plugin itself declared) and event handlers. Listing the folder loads nothing;
+inspecting loads one file, enabling registers its tools and handlers, disabling takes them back
+out. There is no sandbox and the docs say so plainly: permission gating and opt-in are the whole
+boundary. **Suggestions** (`src/skill-suggest.ts`): `GET /api/skills/suggest` word-matches recent
+task prompts against skills the owner has switched off and registry listings they have browsed, on
+this computer, with no model call. CLI: `branch skill pack|install` and
+`branch plugin list|enable|disable`. UI: `public/skills-extra.js` adds the sharing, updates,
+suggestions and plugins cards to the Skills screen. Tests: `tests/skills-plugins.test.mjs`.
+
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
