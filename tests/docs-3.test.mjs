@@ -410,6 +410,36 @@ test("D20 what is remembered is mirrored into the workspace and that folder is r
   await assert.rejects(() => readFile(join(workspace, mirrorFolder, "preference.md"), "utf8"));
 });
 
+test("D20b once asked for, the notes keep themselves up to date; unasked, the folder never appears", async (t) => {
+  const { app, workspace, context } = await fixture(t, scripted("Done."));
+  assert.ok(!app.registry.names().includes("memory.mirror"), "there is no tool that writes the folder");
+  await app.registry.execute("memory.put", { text: "Walks the dog at seven", source: "said so", kind: "preference" }, context);
+  // Nobody's workspace grows a folder they did not ask for, so a task alone writes nothing.
+  assert.equal(await app.runtime.run({ prompt: "say something" }).then((run) => run.status), "completed");
+  await assert.rejects(() => readFile(join(workspace, mirrorFolder, "README.md"), "utf8"),
+    "the folder is not created until it is asked for");
+
+  // Asked for once, and from then on every finished task brings the notes up to date by itself.
+  await app.memoryMirror.regenerate("local");
+  assert.match(await readFile(join(workspace, mirrorFolder, "preference.md"), "utf8"), /Walks the dog at seven/);
+  await app.registry.execute("memory.put", { text: "Calls the dog Biscuit", source: "said so", kind: "preference" }, context);
+  assert.equal(await app.runtime.run({ prompt: "say something else" }).then((run) => run.status), "completed");
+  assert.match(await readFile(join(workspace, mirrorFolder, "preference.md"), "utf8"), /Calls the dog Biscuit/);
+
+  // And a knowledge base over the whole workspace never reads those notes back in as a document.
+  await writeFile(join(workspace, "kennel.md"), "# Kennel\n\nBiscuit the dog is walked at seven.\n");
+  const made = app.knowledgeParts.bases.create("local", { name: "Everything", sources: [{ kind: "folder", path: "." }] });
+  const paths = await app.knowledgeParts.bases.filesIn("local", made.id);
+  assert.ok(paths.some((path) => path.endsWith("kennel.md")), "an ordinary workspace file is read");
+  assert.deepEqual(paths.filter((path) => path.includes(`${mirrorFolder}/`)), [],
+    "and not one note of the mirror is among the files to read");
+  await app.knowledgeParts.bases.reindex("local", made.id);
+  const results = (await app.registry.execute("knowledge.search", { query: "Biscuit dog seven" }, context)).results;
+  assert.ok(results.length, "the ordinary file is found");
+  assert.ok(!results.some((row) => String(row.documentId).includes(mirrorFolder)),
+    "the assistant's own notes are not quoted back as the owner's document");
+});
+
 // ---------------------------------------------------------------- retention (item 7)
 
 test("D21 a collection over its limits is proposed, never quietly emptied", async (t) => {

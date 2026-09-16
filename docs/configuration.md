@@ -3347,6 +3347,38 @@ contract you want to ask four questions about and then be done with — which do
 document library, where it would sit for good, nor in the conversation, where it would fill the
 space in front of every later turn with text that stopped mattering an hour ago.
 
+### Worked examples: finding the right passage (A1144)
+
+Three whole runs through, from nothing to a cited answer. Everything here is on this computer unless
+a step says otherwise.
+
+**A folder of your own work.** Put the files in `workspace/house`. `POST /api/knowledge` with
+`{"name":"House","sources":[{"kind":"folder","path":"house"}]}` makes the collection;
+`POST /api/knowledge/reindex` with `{"collection":"<id>"}` reads it once, cutting each file into
+passages that keep their
+headings, sheets, slides and pages. Then `knowledge.search` with `{"query":"who services the boiler"}`
+searches by words and, where comparing by meaning is switched on, by meaning as well, and returns
+passages each naming its file and heading. `knowledge.ask` does the same and writes the answer, with
+`[1]`-style marks and the numbered list of sources underneath. Reading the folder again compares each
+file by its contents, so only the changed ones are read a second time, and files that look like
+secrets are never read in at all.
+
+**Something said in a conversation.** With review switched on, a finished task is read back by the
+model and anything worth keeping becomes a *suggestion*, never a saved fact. Accepting a knowledge
+card (`POST /api/memory/proposals/{id}/accept`) puts it into the collection named on the card through
+`KnowledgeBases.putDocument`, cut and stored exactly like a file. A later question finds it through
+the same search, with the knowledge base named as where it came from — that whole round trip is
+`tests/docs-3.test.mjs` D18.
+
+**Three pages you will not need tomorrow.** `scratch.text.add` with `{"name":"Contract","text":"…"}`
+holds it for this job: `scratch.text.search` finds passages in it, the common retriever offers them
+beside every other source, and when the job ends the store is dropped on `onRunFinished`. Nothing
+reaches the database and nothing is sent away to be compared by meaning.
+
+Which retriever answered is always on the passage, in `from`: `knowledge`, `documents`, `memory`,
+`knowledge-graph` for one hop through the map, or `task-text` for the third example. They all sit
+behind the one `Retriever` interface in `src/retrieval.ts`.
+
 ### Routes
 
 `POST /api/knowledge/summarise`, `/api/knowledge/graph`, `/api/knowledge/map`,

@@ -52,6 +52,16 @@ export class MemoryMirror {
     const clean = path.replace(/^\.\//, "").replace(/\\/g, "/");
     return clean === mirrorFolder || clean.startsWith(`${mirrorFolder}/`);
   }
+  /**
+   * Whether the folder is there at all. Nobody's workspace grows a folder they did not ask for, so
+   * the notes are written the first time the owner asks for them and only keep themselves up to
+   * date after that. Deleting the folder is how you say you have stopped wanting them.
+   */
+  async exists(): Promise<boolean> {
+    if (!this.files) return false;
+    const folder = await this.files.checked(mirrorFolder, true).catch(() => "");
+    return !!folder && (await readdir(folder).catch(() => null)) !== null;
+  }
 
   /** Every long-lasting fact, grouped by kind, newest first within each group. */
   grouped(owner: string): Map<FactKind, MemoryRecord[]> {
@@ -120,13 +130,15 @@ const readme = (facts: number, notes: number): string =>
 /**
  * The mirror is deliberately **not** a tool the assistant can call. The folder is read-only to the
  * assistant's own file tools for the reason given above, and handing it a second way to write the
- * very folder it may not edit would take that back. So it keeps itself up to date instead: after
- * every task that finished, the notes are written again if what is remembered has changed, and the
- * fingerprint above means an unchanged store costs nothing. The owner can also ask for it by hand
- * from the Memory screen (`POST /api/memory/mirror`).
+ * very folder it may not edit would take that back. So it keeps itself up to date instead: once the
+ * owner has asked for the notes at least once (`POST /api/memory/mirror` from the Memory screen),
+ * every task that finishes writes them again if what is remembered has changed — and the
+ * fingerprint above means an unchanged store costs nothing. Until then the folder is not created,
+ * because nobody's workspace should grow a folder they never asked for.
  */
 export function registerMemoryMirror(registry: ToolRegistry, mirror: MemoryMirror): void {
   registry.onRunFinished(async (context) => {
-    await mirror.regenerate(context.owner).catch(() => undefined);
+    if (await mirror.exists().catch(() => false))
+      await mirror.regenerate(context.owner).catch(() => undefined);
   });
 }

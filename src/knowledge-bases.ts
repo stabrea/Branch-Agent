@@ -264,11 +264,19 @@ export class KnowledgeBases {
     }
     return [...new Set(found)].slice(0, maximumFiles);
   }
+  /**
+   * Folders the assistant writes itself, which are never the owner's own material. Set once at
+   * start-up; the mirror of what is remembered is the one that uses it. Reading those back in would
+   * have a knowledge base quote the assistant's own notes as though they were a document of the
+   * owner's, which is a circle worth refusing rather than explaining afterwards.
+   */
+  skip: (path: string) => boolean = () => false;
   private async walk(folder: string, found: string[], depth: number): Promise<void> {
     if (depth > 4 || found.length >= maximumFiles || !this.files) return;
     const listing = await this.files.list(folder || ".").catch(() => ({ entries: [] as { name: string; type: string }[] }));
     for (const entry of listing.entries) {
       const path = folder ? `${folder}/${entry.name}` : entry.name;
+      if (this.skip(path)) continue;
       if (entry.type === "directory") await this.walk(path, found, depth + 1);
       else if (readableFile(path)) found.push(path);
     }

@@ -595,6 +595,8 @@ export async function createBranch(options: {
   const memoryMirror = new MemoryMirror(store, files);
   registerMemoryMirror(registry, memoryMirror);
   files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
+  // And a knowledge base never reads those notes back in: they are the assistant's own writing.
+  knowledgeBases.skip = (path) => memoryMirror.owns(path);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
