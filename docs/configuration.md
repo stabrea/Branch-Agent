@@ -1245,3 +1245,80 @@ assistant: only install files you trust.)
 makes a connection from one and puts it in the model list. Switching the plugin off takes both the
 adapter and every model preset made from it away again. Nothing is registered until the owner
 switches the plugin on, exactly as with a plugin's tools.
+
+## Traces, the counters page and the permission rules (batch 19, wave 7)
+### There is no telemetry, and there never will be
+Branch Agent collects nothing about you and sends nothing to the people who made it. There is no
+"help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
+collected in the first place. Everything on this page is about *you* choosing to send *your own*
+traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
+type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+button, it now carries the last 200 steps with their names, timings and outcomes, and every value
+in it has been through the same scrub as the rest of the folder.
+### Spans: the shape of a task while it runs
+Every task gets a trace of its own, and a step — a *span* — for the task itself, each round with
+the model, each tool call and each sub-task. Each span points at the one above it, so the trace is
+a tree rather than a list. The ids follow the W3C trace context standard, so a viewer you already
+have understands them. They are written to a `spans` table beside the events, and every attribute
+goes through the same scrubber as everything else, so a saved password or key cannot be in one.
+`GET /api/tracing/spans` returns the newest spans; `?run=<id>` returns one task's.
+When Branch hands work to another assistant, or sends a webhook, it puts the standard
+`traceparent` header on the call, and when another assistant sends work here with that header the
+task joins their trace instead of starting a new one. One piece of work across two assistants is
+therefore one trace.
+### Sending traces somewhere you run
+`GET`/`POST /api/tracing/settings` holds `enabled` (false until you change it), `destination`
+(`otlp`, `langfuse` or `langsmith`), `endpoint`, `headers`, `batchSize`, `retries` and
+`serviceName`. `POST /api/tracing/test` sends the last five spans so you can see whether they
+arrive. Turning sending on without an address is refused rather than half-done.
+A header value may be `secret://<project>/<NAME>` instead of the key itself. The real value is
+looked up from the locker at the moment of the call and is never in the settings, never in a log
+and never in an error message. Every send — successful or not — is written into the record of what
+the assistant was allowed to do, with the host it went to and how many steps went with it.
+All three destinations speak plain JSON over HTTP; no library is installed for any of them. OTLP
+posts to `/v1/traces` (and `/v1/metrics` for the counters), Langfuse to `/api/public/ingestion`,
+LangSmith to `/runs/batch`, unless the address you typed already has a path of its own. A failed
+send is tried again a couple of times with a growing pause, and the address rules are checked
+before every single try.
+**A collector on this computer needs one extra step.** Branch refuses private and local addresses
+by default, so sending to `http://localhost:4318` is blocked until you allow private addresses in
+the network settings. That is deliberate: it is the same rule that stops a web page reaching things
+on your own network.
+### The counters page
+`GET /api/metrics` answers in the plain text a monitoring tool scrapes, behind the same local key
+as everything else: how many tasks there are and what state they are in, tokens in and out, the
+estimated cost this month, tool calls and failures, how many conversations have been shortened, how
+many steps have been recorded, and a histogram of how long tool calls take. Usage → **Health**
+shows the same numbers in plain words. Queue depth is not reported: there is no single queue to
+count, so a made-up number is left out rather than invented.
+### Permission rules about one particular thing
+A rule can now name what it is about as well as which tool it covers: a folder or file (`path`), a
+website (`host`), a messaging account (`channel`) or a command (`command`). A rule with one of
+these is looked at before the broader rules, so "never write anything under finance" beats "writing
+files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
+rule written before this behaves — nothing you already had changes.
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
+about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+Browser clicking, typing and uploading go through these same rules with the website as the thing
+they are about; they do not get a second set of their own.
+Settings → When to check with me shows every rule as a sentence — "Ask before writing files under
+finance", "Never allow browsing example.com" — with a button to take one away, a short form to add
+one, and a **Try a decision out** box that says what would happen and which rule decided, without
+saving or running anything.
+`GET /api/rules` lists the rules with their sentences. `POST /api/rules/add` takes one rule,
+`POST /api/rules/remove {"index": 0}` takes one away, and `POST /api/rules/test {"tool": "...",
+"target": "..."}` answers with the decision and the sentence behind it.
+### Yes for this conversation, and what it is tied to
+"Yes, for this conversation" is a grant with an end: it lasts an hour, ends when the conversation
+ends, and ends the moment you lock Branch. `GET /api/rules/allowed?session=<id>` lists what a
+conversation is allowed to do right now and when each one runs out.
+A yes is tied to the exact request it was given for. The approval card shows those exact words,
+with any saved password or key already taken out, and the answer carries a fingerprint of them. If
+the assistant changes the command by one character, the old yes does not cover it and it has to ask
+again. `POST /api/policy/approve` accepts an optional `fingerprint`; an answer whose fingerprint
+does not match what the task is waiting on is refused with a plain message.
+### Wrong keys are counted
+Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
+message saying so and a line in the record of what the assistant was allowed to do. A correct key
+clears the count at once, so mistyping twice never holds you up.

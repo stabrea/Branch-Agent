@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
+import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
 import type { Store } from "./store.js";
+
+export { globMatches } from "./policy-resources.js";
 
 /**
  * The owner's approval policy: an ordered list of rules that says, for each tool and for what that
@@ -24,6 +27,11 @@ export const PolicyRuleSchema = z
     decision: PolicyDecisionSchema,
     /** What a "yes" to this question is remembered as, unless the person picks differently. */
     remember: PolicyRememberSchema.default("session"),
+    /**
+     * What the rule is about: a folder, a website, a messaging account or a command. Left out, the
+     * rule covers whatever the tool would touch, which is how every rule written before this behaves.
+     */
+    resource: ResourceMatcherSchema.optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
@@ -127,12 +135,6 @@ const readOnlyPermissions = new Set([
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 
-const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** Pattern matching for rules: `*` stands for any text (a path separator included); everything else is literal. */
-export function globMatches(pattern: string, value: string): boolean {
-  return new RegExp("^" + pattern.split("*").map(escaped).join(".*") + "$", "i").test(value);
-}
-
 /** What a call would touch, in the form rules match against: a path, a command, or a host. */
 export function policyTarget(tool: string, args: unknown): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
@@ -145,16 +147,28 @@ export function policyTarget(tool: string, args: unknown): string {
   return "";
 }
 
-export interface PolicyRequest { tool: string; target: string; readOnly: boolean }
+export interface PolicyRequest {
+  tool: string; target: string; readOnly: boolean;
+  /** What the call is about, for rules that name a folder, a website, an account or a command. */
+  resource?: PolicyResource | null | undefined;
+}
 export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | null }
-/** The first rule that matches decides; with no match the call goes ahead. */
+/** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
+function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
+  if (rule.applies === "changes" && request.readOnly) return false;
+  if (!globMatches(rule.tool, request.tool)) return false;
+  if (!globMatches(rule.match, request.target)) return false;
+  return rule.resource ? resourceMatches(rule.resource, request.resource) : true;
+}
+/**
+ * The first rule that matches decides, and rules that name a particular folder, website, account or
+ * command are looked at before the broader ones, so "never under finance" beats "files are fine".
+ * Within each of those two groups the owner's own order is kept, so an older rule list is unchanged.
+ */
 export function evaluatePolicy(policy: Policy, request: PolicyRequest): PolicyOutcome {
-  for (const rule of policy.rules) {
-    if (rule.applies === "changes" && request.readOnly) continue;
-    if (!globMatches(rule.tool, request.tool)) continue;
-    if (!globMatches(rule.match, request.target)) continue;
-    return { decision: rule.decision, rule };
-  }
+  const named = policy.rules.filter((rule) => rule.resource);
+  const broad = policy.rules.filter((rule) => !rule.resource);
+  for (const rule of [...named, ...broad]) if (ruleCovers(rule, request)) return { decision: rule.decision, rule };
   return { decision: "allow", rule: null };
 }
 

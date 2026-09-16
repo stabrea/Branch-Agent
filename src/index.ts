@@ -39,6 +39,8 @@ import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
+import { recordUncaughtErrors } from "./tracing.js";
+import { TraceExporter } from "./tracing-export.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -194,6 +196,11 @@ export async function createBranch(options: {
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
   };
+  // Spans are written straight to their own table rather than through the event log, so the same
+  // scrubber is put in front of them explicitly: no attribute can carry a saved password or key.
+  runtime.tracer.scrub = (value) => runtime.hideSecrets(value);
+  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker.
+  sessionLock.onLock = () => runtime.approvals.forgetAll();
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
@@ -214,6 +221,9 @@ export async function createBranch(options: {
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
+  // One trace crosses the boundary: a delivery and a question to another assistant both carry the
+  // traceparent of the task behind them.
+  webhooks.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   runtime.notifyEvent = webhooks.notifier(runtime.owner);
   channels.deliveries.notifyEvent = webhooks.notifier(runtime.owner);
   store.onEvent((runId, kind, data) => hooks.fire(kind, runId, data));
@@ -243,6 +253,7 @@ export async function createBranch(options: {
   // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
   const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
   const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
+  remoteAgents.traceparentFor = (runId) => runtime.tracer.traceparent(runId);
   registerRemoteAgents(registry, remoteAgents);
   // Documents and saved facts are both asked the same way, and the best answer is put first.
   const retrieval = new Retrieval(store, runtime.owner, runtime.models);
@@ -251,6 +262,14 @@ export async function createBranch(options: {
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
   // A safe folder of made-up files to try things in before pointing the app at real work.
   const practice = new PracticeWorkspace(store, files);
+  // Sending traces out. Off until the owner turns it on; the headers an endpoint needs are kept as
+  // secret:// references and filled in only at the moment of the call.
+  const traceExport = new TraceExporter({
+    store, owner: runtime.owner, policy: web.policy, version,
+    fillSecrets: (headers) =>
+      store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
+  });
+  const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -357,7 +376,10 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
+    /** Sending traces and counters to an address the owner chose; off until they turn it on. */
+    traceExport,
     close: () => (closing ??= (async () => {
+      stopWatchingErrors();
       plugins.stop();
       skillPackages.stop();
       try {
@@ -449,7 +471,14 @@ export * from "./recipes.js";
 export * from "./templates.js";
 export * from "./network-policy.js";
 export * from "./policy.js";
+export * from "./policy-resources.js";
 export * from "./approvals.js";
+// Batch 19 (wave 7): spans, sending traces out, the metrics page and the auth rate limit.
+export * from "./tracing.js";
+export * from "./tracing-shapes.js";
+export * from "./tracing-export.js";
+export * from "./metrics.js";
+export * from "./auth-limits.js";
 export * from "./hooks.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";

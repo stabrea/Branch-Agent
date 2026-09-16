@@ -769,6 +769,38 @@
             <label for="policy-round-limit">Most times it goes back to the model in a minute</label>
             <input id="policy-round-limit" type="number" min="0" max="1000" step="1" value="0" />
             <button id="policy-limits-save" type="button">Save these limits</button>
+            <h3>Rules about one particular thing</h3>
+            <p class="subtle">A rule can be about one folder, one website, one messaging account or one command, rather than everything at once. Rules like these are looked at before the broader ones above.</p>
+            <ul id="rules-list" class="check-list"></ul>
+            <p id="rules-empty" class="subtle" hidden>You have not set any rules of your own yet.</p>
+            <label for="rules-tool">Which tool, or * for all of them</label>
+            <input id="rules-tool" maxlength="100" placeholder="e.g. files.write" value="*" />
+            <label for="rules-kind">What is it about?</label>
+            <select id="rules-kind">
+              <option value="any">Anything it touches</option>
+              <option value="path">A folder or file</option>
+              <option value="host">A website</option>
+              <option value="channel">A messaging account</option>
+              <option value="command">A command</option>
+            </select>
+            <label for="rules-pattern">Which one? Leave empty for all</label>
+            <input id="rules-pattern" maxlength="300" placeholder="e.g. finance" />
+            <label for="rules-decision">And then?</label>
+            <select id="rules-decision">
+              <option value="ask">Check with me first</option>
+              <option value="deny">Never allow it</option>
+              <option value="allow">Always allow it</option>
+            </select>
+            <button id="rules-add" type="button">Add this rule</button>
+            <h3>Try a decision out</h3>
+            <p class="subtle">See what would happen before anything really does. Nothing is saved or run.</p>
+            <label for="rules-test-tool">Tool</label>
+            <input id="rules-test-tool" maxlength="100" placeholder="e.g. files.write" />
+            <label for="rules-test-target">What it would touch</label>
+            <input id="rules-test-target" maxlength="500" placeholder="e.g. finance/report.xlsx" />
+            <button id="rules-test-run" type="button">What would happen?</button>
+            <p id="rules-test-answer" class="subtle" role="status"></p>
+            <p id="rules-status" class="subtle" role="status"></p>
             <h3>Or decide a whole kind of thing at once</h3>
             <p class="subtle">One choice here covers every tool of that kind, so you do not have to go through them one by one.</p>
             <div id="approval-categories" class="card-list"></div>
@@ -982,6 +1014,7 @@
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
+    <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>

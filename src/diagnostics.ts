@@ -4,6 +4,7 @@ import type { Event } from "./contracts.js";
 import type { Store } from "./store.js";
 import { pricingTableInUse } from "./pricing.js";
 import { auditLabel } from "./audit.js";
+import type { SpanRow } from "./tracing.js";
 
 /**
  * Branch sends nothing anywhere. When something goes wrong and the owner wants help, they save a
@@ -64,12 +65,15 @@ export function redactEvent(event: Event): Record<string, unknown> {
 
 const explanation = `What is in this folder
 
-Branch Agent sends no usage data to anyone. This folder was written only because you asked for it,
-and nothing leaves this computer unless you send it yourself.
+Branch Agent sends no usage data to anyone. There is no "anonymous statistics" setting to switch
+off, because nothing is ever collected about you in the first place, and there never will be.
+This folder was written only because you asked for it, and nothing leaves this computer unless you
+send it yourself.
 
   health.json   the same checks as the Health check button in Settings
   versions.json which version of Branch, Node.js and Windows this is
   events.json   the last events from your tasks: what ran, how it ended, and how long it took
+  spans.json    the shape of the last tasks: which step led to which, and how long each one took
   pricing.json  the model prices used to estimate costs, including any you corrected yourself
   allowed.json  what the assistant was allowed to do: approvals, secrets handed over, settings changed
 
@@ -97,6 +101,24 @@ function allowedRecord(store: Store, owner: string): unknown {
 }
 
 /**
+ * One span reduced to its shape: what it was, where it sat in the trace, how long it took and how
+ * it ended. Attribute values go through the same scrub as everything else, and anything longer than
+ * a short line is cut, so a folder path or an error message cannot smuggle anything out.
+ */
+export function redactSpan(span: SpanRow): Record<string, unknown> {
+  const attributes: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(span.attributes)) {
+    if (secretName.test(key)) { attributes[key] = removed; continue; }
+    attributes[key] = typeof value === "string" ? scrubText(value).slice(0, 120) : value;
+  }
+  return {
+    traceId: span.traceId, spanId: span.spanId, parentSpanId: span.parentSpanId, kind: span.kind,
+    name: scrubText(span.name).slice(0, 120), startedAt: span.startedAt, endedAt: span.endedAt,
+    status: span.status, message: scrubText(span.message).slice(0, 200), attributes,
+  };
+}
+
+/**
  * Writes the diagnostics folder and returns what went into it. `health` is the report from the
  * health check; it is passed in so this module never has to reach into the running app.
  */
@@ -110,12 +132,14 @@ export async function writeDiagnosticsBundle(
   const folder = join(dataDir, "diagnostics", createdAt.replace(/[:.]/g, "-"));
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const events = store.recentEvents(owner, 200).map(redactEvent);
+  const spans = store.spans.recent(owner, 200).map(redactSpan);
   const files = [
     await writeJson(folder, "health.json", details.health),
     await writeJson(folder, "versions.json", {
       branch: details.version, node: process.version, platform: process.platform, arch: process.arch, createdAt,
     }),
     await writeJson(folder, "events.json", { count: events.length, events }),
+    await writeJson(folder, "spans.json", { count: spans.length, spans }),
     await writeJson(folder, "pricing.json", pricingTableInUse(store, owner)),
     await writeJson(folder, "allowed.json", allowedRecord(store, owner)),
   ];

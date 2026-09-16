@@ -20,6 +20,7 @@ import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
 import { WorkspaceHistory } from "./workspace-history.js";
 import type { WorkspaceFiles } from "./files.js";
 import { UsageStore } from "./usage.js";
+import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks";
@@ -52,6 +53,7 @@ export class Store {
    */
   guardEvent: (data: Record<string, unknown>) => Record<string, unknown> = (data) => data;
   private auditStore: AuditLog | undefined;
+  private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
   constructor(path: string) {
@@ -90,6 +92,8 @@ export class Store {
     this.skills = new InstalledSkills(this.db);
     this.projects = new Projects(this);
     this.migrateUsage();
+    // The spans table is created up front, so the metrics page can count them from the first launch.
+    void this.spans;
     this.history = new SessionHistory(this.db);
     this.branches = new SessionBranches(this.db);
     this.library = new SessionLibrary(this.db);
@@ -465,6 +469,10 @@ export class Store {
     );
   }
   usageStore(): UsageStore { return new UsageStore(this.db); }
+  /** The spans of running and finished tasks, beside the events. Created on first use. */
+  get spans(): SpanStore {
+    return (this.spanStore ??= new SpanStore(this.db));
+  }
   memoryCapacity(owner: string) { return this.memories.capacity(owner); }
   configureMemory(owner: string, input: unknown) { return this.memories.configure(owner, input); }
   updateMemory(owner: string, input: unknown, sourceRunId: string) {
