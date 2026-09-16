@@ -1,5 +1,5 @@
-const $ = (id) => document.getElementById(id);
-const toast = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
+var $ = (id) => document.getElementById(id);
+var toast = (message) => (globalThis.toast ? globalThis.toast(message) : console.warn(message));
 function initializeUsageView() {
   const view = $("usage");
   if (!view) return;
