@@ -1734,6 +1734,51 @@ Tests: `tests/polish-observability.test.mjs`. Screenshots (both themes, 1280 and
 
 Known gap: a task is not filed under a project anywhere in the ledger, so there is no
 cost-per-project breakdown; the month view shows model, conversation and channel instead.
+(Closed in batch 21, wave 8: `tasks` now carries a `project` column and `GET /api/projects/costs`
+adds the figures up a project at a time.)
+
+## Batch 21 (wave 8) — the long tail in "other"
+
+The last untouched rows of the `other` theme of the capability audit (#60). Backend first, with only
+a small addition to the sidebar.
+
+Branch now describes its own web API. `GET /api/openapi.json` is an OpenAPI 3.1 document whose
+request shapes are generated from the same zod schemas the server checks requests with, so the
+description cannot drift from what the app accepts; `node scripts/write-api-docs.mjs` writes the
+readable version to `docs/api.md`. The route table lives in `src/api-openapi.ts`.
+
+Two ways to spend less, both off until the owner turns them on. `src/request-cache.ts` hashes the
+exact request that would go to the model and answers an identical one from what was kept — nothing
+sent, nothing charged, and the round marked `cached` with a zero cost and a reason on the "Look
+inside" screen. An answer that asks for a tool is never kept, because replaying it would replay the
+tool. `src/batch-inference.ts` hands a whole set of questions over where the connection offers it
+(an optional `batch()` on `Provider`), polls, collects, and prices the set from what the service
+reported; anything that goes wrong falls back to one ordinary call per question and says why. The
+machinery and the fallback are done and tested against fakes, but **no real connection implements
+`batch()` yet** — OpenAI's and Anthropic's own batch adapters are still to write, so today every set
+falls back. A1351/A1352 are therefore partial, not done.
+
+`src/lockdown.ts` is one switch. On, every tool waits for a yes and host programs, the screen, the
+borrowed browser, sending messages out and telling other programs what happened are all off. The
+settings it takes over are copied untouched before anything changes and written back verbatim when
+it goes off — a switch that had never been saved stays unsaved. Both moments are audited.
+
+Conversations branched off other conversations are now a shape: `GET /api/sessions/{id}/tree` and
+the tool `sessions.tree`, drawn in the sidebar. `POST /api/sessions/{id}/merge-note` carries a
+branch's last answer back into its parent as one note; it is the owner's own action, so it costs the
+model's catalog nothing. A flow step may now be `kind: "flow"` and work through another saved flow,
+three deep, refusing by name anything that leads back to a flow already running. Flow checkpointing
+was verified as already present (`workflow_state` plus the saved cursor) and documented rather than
+rebuilt.
+
+Projects carry a default working profile and default knowledge bases alongside their instructions and
+model choice, every task records the project it was done under, and `GET /api/projects/costs` groups
+the ledger by project. `branch watch <folder> <procedure-id>` re-runs a saved procedure when a folder
+changes, settling a burst of saves into one run and never running twice at once.
+
+Tests: `tests/other-2.test.mjs` (11). No new dependency. The remaining ids of #60 are decided in
+docs/configuration.md under "The long tail…": covered elsewhere, or deliberately not built with the
+reason written down.
 
 ## Batch 25 (wave 7) — benchmarks and experiments: measuring the assistant the way researchers do, offline
 
@@ -1843,5 +1888,5 @@ waiting. The run WebSocket (`src/ws.ts`) grew binary frames and a client-frame h
 spine for both the microphone going up and a line typed while it is talking (A1193); `public/voice-live.js`
 is the composer's live variant, and it only appears when the connection in use can hold one.
 
-Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 19
+Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 22
 tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.
