@@ -50,6 +50,7 @@ import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { MediaTools, registerMedia } from "./media.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
@@ -160,6 +161,11 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
+  // when the connected model has no such service, and keeps what it makes beside the database.
+  const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
+  media.artifacts = artifacts;
+  registerMedia(registry, media);
   const channels = new ChannelRouter(store, runtime);
   // Personal details and, when the owner switches it on, a content check, either side of the model.
   const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
@@ -211,6 +217,8 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    /** Making and reading pictures, speech and sound files. */
+    media,
     /** Finding, tidying and moving saved facts. */
     memory,
     git,
@@ -407,3 +415,8 @@ export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+export * from "./media.js";
+export * from "./media-audio.js";
+export * from "./media-images.js";
+export * from "./media-settings.js";
+export * from "./media-video.js";

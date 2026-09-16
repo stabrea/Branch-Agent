@@ -1114,6 +1114,8 @@ function setConversationBusy(busy) {
   conversationBusy = busy;
   $("send").disabled = busy;
   $("followup-send").hidden = !(busy && sessionId);
+  // A follow-up message carries words only, so pictures cannot be attached while a task is working.
+  $("composer-media").disabled = busy;
   $("new-session").disabled = busy;
   $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
@@ -1370,11 +1372,15 @@ $("chat-form").addEventListener("submit", async (event) => {
   const stopActivity = watchActivity(prompt);
   try {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
+    // Pictures put on the composer travel with this one message and are then cleared (wave 5).
+    const pictures = globalThis.branchAttachments?.() ?? [];
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
+      ...(pictures.length ? { images: pictures } : {}),
     });
+    globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
     $("temporary-toggle").disabled = true;
