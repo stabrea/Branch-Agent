@@ -29,6 +29,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
 import { probeAll } from "./provider-probe.js";
+// Wave 7 (a coder's toolbox): handing the whole assistant over as one file.
+import { agentSections, exportAgent, importAgent, openAgent } from "./agent-export.js";
+import { applyPiiGuard } from "./pii.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -157,6 +160,10 @@ async function main(): Promise<void> {
       await runEvaluation(app);
       return;
     }
+    if (command === "export-agent" || command === "import-agent") {
+      await agentPortability(app, command);
+      return;
+    }
     if (command === "restore") {
       const source = process.argv[3];
       if (!source) throw new Error("Provide a file: node dist/cli.js restore <file>");
@@ -168,6 +175,36 @@ async function main(): Promise<void> {
     await close();
   }
 }
+/**
+ * Handing the assistant over as one file, and reading one back in. The manifest is always printed
+ * first; nothing is brought in until the person says which parts they want with --sections, so an
+ * import can never quietly replace what they already have.
+ */
+async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["app"], command: string): Promise<void> {
+  const target = process.argv[3];
+  if (!target) throw new Error(`Provide a file: node dist/cli.js ${command} <file>`);
+  if (command === "export-agent") {
+    const withMemory = process.argv.includes("--memory");
+    const redact = process.argv.includes("--redact") ? (text: string) => applyPiiGuard(text, "mask").text : undefined;
+    const { bytes, manifest } = exportAgent(app.store, app.runtime.owner, app.version, { memory: withMemory, ...(redact ? { redact } : {}) });
+    await writeFile(target, bytes, { mode: 0o600 });
+    for (const section of manifest.sections) console.log(`  ${section.name}: ${section.summary}`);
+    console.log(`Written to ${target}. No secret is inside: the locker was never opened.`);
+    return;
+  }
+  const opened = openAgent(await readFile(target));
+  console.log(`Exported ${opened.manifest.exportedAt} by Branch ${opened.manifest.appVersion}. Inside:`);
+  for (const section of opened.manifest.sections) console.log(`  ${section.name}: ${section.summary}`);
+  const chosen = (flag("sections") ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  const wanted = agentSections.filter((name) => chosen.includes(name));
+  if (!wanted.length) {
+    console.log(`Nothing was brought in. Choose parts with --sections ${agentSections.join(",")}`);
+    return;
+  }
+  for (const report of importAgent(app.store, app.runtime.owner, opened, wanted))
+    console.log(`  ${report.section}: ${report.brought} ${report.note}`);
+}
+
 /** The value after a --flag on the command line, or undefined. */
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);

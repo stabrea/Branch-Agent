@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { createBranch, saveLanguageServerSettings, saveDebugSettings, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab } from "../dist/index.js";
+import { createBranch, saveLanguageServerSettings, saveDebugSettings, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab, exportAgent, openAgent, importAgent } from "../dist/index.js";
 import { registerGitHubProject } from "../dist/integrations/git-tools.js";
 import { GitRunner, locateGit } from "../dist/integrations/git-run.js";
 
@@ -383,6 +383,58 @@ test("a GitLab address outside the allowed list is refused before anything is se
   const policy = new NetworkPolicy({ allowedHosts: ["gitlab.com"] });
   registerGitLab(app.registry, new GitLabAccess({ apiBase: "https://elsewhere.invalid/api/v4" }, policy, async () => "glpat_fake_bbb"));
   await assert.rejects(app.runtime.executeTool("gitlab.issues", { project: "group/thing" }), /not on the allowed list/);
+});
+
+// ---------------------------------------------------------------- handing the assistant over
+
+test("an assistant is written to one file and read back with nothing secret inside", async (t) => {
+  const source = await fixture(t);
+  source.app.store.save("specialists", "local", "reviewer", { name: "Reviewer", instructions: "Check the work." });
+  source.app.store.save("procedures", "local", "nightly", { name: "Nightly", steps: ["do the thing"] });
+  source.app.store.save("settings", "local", "routing", { cheap: "small-model" });
+  source.app.store.save("settings", "local", "policy", { preset: "ask-before-changes", rules: [] });
+  source.app.store.skills.install("local", { document: "---\nname: tidy-up\ndescription: Tidy the desk before starting.\n---\n\nPut things away.\n" });
+  await source.app.store.locker.set("local", "default", "DEPLOY_TOKEN", "tok_live_super_secret_42");
+  // The scrubber only knows a value once it has been unlocked, as it would be during real use.
+  await source.app.store.secrets.resolve("local", "default", ["DEPLOY_TOKEN"], { purpose: "test" });
+  source.app.store.save("specialists", "local", "leaky", { name: "Leaky", instructions: "Use tok_live_super_secret_42 to deploy." });
+
+  const { bytes, manifest } = exportAgent(source.app.store, "local", source.app.version);
+  assert.equal(manifest.format, "branch-agent");
+  assert.deepEqual(manifest.sections.map((section) => section.name), ["specialists", "procedures", "skills", "routing", "permissions"]);
+  assert.equal(manifest.sections.some((section) => section.name === "memory"), false, "what it remembers stays behind unless asked for");
+  assert.equal(bytes.includes(Buffer.from("tok_live_super_secret_42")), false, "no saved secret is anywhere in the file");
+  assert.equal(source.app.store.locker.names("local", "default").length, 1, "and the locker itself was never exported");
+
+  const opened = openAgent(bytes);
+  assert.equal(opened.manifest.sections.find((section) => section.name === "specialists").summary, "2 specialists");
+
+  const target = await fixture(t);
+  const reports = importAgent(target.app.store, "local", opened, ["specialists", "routing"]);
+  assert.deepEqual(reports.filter((report) => report.brought > 0).map((report) => report.section), ["specialists", "routing"]);
+  assert.equal(target.app.store.get("specialists", "local", "reviewer").data.name, "Reviewer");
+  assert.deepEqual(target.app.store.get("settings", "local", "routing").data, { cheap: "small-model" });
+  assert.equal(target.app.store.get("procedures", "local", "nightly"), undefined, "a section left out is not brought in");
+  assert.equal(target.app.store.get("settings", "local", "policy"), undefined);
+  assert.equal(target.app.store.skills.catalog("local").length, 0);
+
+  const all = importAgent(target.app.store, "local", opened, ["procedures", "skills", "permissions"]);
+  assert.equal(all.find((report) => report.section === "skills").brought, 1);
+  assert.equal(target.app.store.skills.catalog("local")[0].name, "tidy-up");
+  assert.equal(target.app.store.get("procedures", "local", "nightly").data.name, "Nightly");
+});
+
+test("a file whose parts do not match its manifest is refused", async (t) => {
+  const { app } = await fixture(t);
+  app.store.save("specialists", "local", "one", { name: "One" });
+  const { bytes } = exportAgent(app.store, "local", app.version);
+  const damaged = Buffer.from(bytes);
+  const at = damaged.indexOf(Buffer.from("branch-agent"));
+  assert.ok(at > 0);
+  // Changing one byte of a part's content makes its fingerprint wrong.
+  const contentAt = damaged.indexOf(Buffer.from("specialists.json"), at) + 20;
+  damaged[contentAt] = damaged[contentAt] ^ 0xff;
+  assert.throws(() => openAgent(damaged), /not an exported assistant|fingerprint|unpacked|damaged/);
 });
 
 // ---------------------------------------------------------------- tools from an OpenAPI description
