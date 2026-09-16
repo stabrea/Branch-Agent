@@ -132,7 +132,7 @@
   "activity.compareClose": "Close the comparison",
   "activity.compareSame": "Both answers are word for word the same.",
   "inspector.answer": "The reply",
-  "inspector.trajectory": "Save trajectory",
+  "inspector.trajectory": "Save the step-by-step record",
   "allowed.title": "What is allowed right now",
   "allowed.none": "Nothing extra is allowed in this conversation. It will ask before it does anything your rules cover.",
   "allowed.revoke": "Take this back",

@@ -153,7 +153,7 @@ function renderRuns() {
         ),
         el("p", modelLine(run.model), "meta"),
         el("p", date(run.createdAt), "meta"),
-        button("Inspect trace", () => showRun(run.id)),
+        button("See the raw record", () => showRun(run.id)),
       );
       // Wave 6: the same task, opened as one readable screen instead of raw events.
       if (globalThis.branchInspector) node.append(globalThis.branchInspector.button(run.id));

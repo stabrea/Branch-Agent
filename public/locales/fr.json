@@ -133,7 +133,7 @@
   "activity.compareClose": "Fermer la comparaison",
   "activity.compareSame": "Les deux réponses sont identiques mot pour mot.",
   "inspector.answer": "La réponse",
-  "inspector.trajectory": "Enregistrer le déroulé",
+  "inspector.trajectory": "Enregistrer le pas-à-pas",
   "allowed.title": "Ce qui est autorisé en ce moment",
   "allowed.none": "Rien de plus n'est autorisé dans cette conversation. Elle demandera avant de faire ce que vos règles couvrent.",
   "allowed.revoke": "Reprendre cette autorisation",
