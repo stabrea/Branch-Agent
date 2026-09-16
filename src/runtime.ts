@@ -1370,12 +1370,16 @@ export class Runtime {
    */
   grantApproval(
     key: string,
-    about: { tool: string; target: string; label: string; source: RunSource; runId?: string },
+    about: { tool: string; target: string; label: string; source: RunSource; runId?: string;
+      /** The fingerprint of the exact request the question was put for; the yes is bound to it. */
+      fingerprint?: string },
     remember: PolicyRemember = "session",
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
-    if (remember !== "never") this.approvals.remember(key, about.tool, about.target, "allow");
+    if (remember !== "never")
+      this.approvals.remember(key, about.tool, about.target, "allow",
+        { fingerprint: about.fingerprint, label: about.label });
     if (remember === "always")
       addPolicyRule(this.store, this.owner, { tool: about.tool, match: about.target || "*", decision: "allow", remember: "always" });
     audit(this.store, this.owner, {

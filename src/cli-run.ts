@@ -175,7 +175,11 @@ export function answerFromCommand(runtime: Runtime, id: string, answer: string):
   const asked = runtime.store.events(run.id).filter((event) => event.kind === "policy.ask").at(-1);
   if (!asked) throw new Error("That task did not stop to ask permission for anything.");
   const tool = String(asked.data.name ?? ""), target = String(asked.data.target ?? "");
-  runtime.approvals.remember(run.sessionId, tool, target, decision);
+  // The question carried the fingerprint of the exact bytes it was put for, so the answer given
+  // here is bound to them: a task that asks for something different next time asks again.
+  const fingerprint = String(asked.data.fingerprint ?? "");
+  runtime.approvals.remember(run.sessionId, tool, target, decision,
+    { ...(fingerprint ? { fingerprint } : {}), label: String(asked.data.label ?? "") });
   addPolicyRule(runtime.store, runtime.owner, { tool, match: target || "*", decision, remember: "always" });
   return { runId: run.id, tool, target, decision, rule: `${tool} on ${target || "anything"}` };
 }

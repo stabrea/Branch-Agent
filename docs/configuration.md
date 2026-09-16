@@ -2328,6 +2328,17 @@ with a plain message.
 The same question also travels over the run's socket (`/api/runs/<id>/ws`) as a `policy.ask` event
 carrying the question, those exact bytes and the fingerprint, so a phone or a chat channel watching
 the socket sees what the app sees and can answer under the same binding.
+
+**One rule, everywhere.** Every way of answering binds the answer to that fingerprint, and there is
+no route that does not: the approval card in the app, the buttons and the `reply y / a / n` in a
+chat app, `branch approve <task id> yes` on the command line, the question Branch holds open for
+another AI tool over its own server, the terminal display, an editor over ACP, and the resume of a
+saved workflow or flow — a workflow's step carries the fingerprint of its own arguments, so a step
+edited while the workflow sat waiting is asked about again rather than let past on the old yes. The
+one thing a fingerprint does not bind is a **rule**: "yes, always" and anything in **Ask first**
+are standing decisions about a tool and a target, not answers to one request, and they are meant to
+cover every later call that matches. `branch approve` writes such a rule, because the program run
+that asked the question has already ended by the time you answer.
 ### Wrong keys are counted
 Five wrong local keys from the same place and that place is made to wait five minutes, with a plain
 message saying so and a line in the record of what the assistant was allowed to do, filed under

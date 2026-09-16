@@ -73,6 +73,11 @@ export class ApprovalRequiredError extends Error {
     readonly target: string,
     readonly label: string,
     readonly remember: PolicyRemember = "session",
+    /**
+     * The fingerprint of the exact bytes the step asked for. A yes given later is bound to it, so a
+     * saved step whose arguments changed in between is asked about again rather than let past.
+     */
+    readonly fingerprint?: string,
   ) {
     super(approvalQuestion(label, target));
   }

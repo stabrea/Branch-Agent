@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranch } from "../dist/index.js";
+import { createBranch, savePolicy } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
 
@@ -54,4 +54,49 @@ test("the extra refused websites are saved and read back through the browser set
   const saved = saveAttachSettings(app.store, app.runtime.owner, { extraRefusedHosts: ["payroll.example"] });
   assert.deepEqual(saved.extraRefusedHosts, ["payroll.example"]);
   assert.deepEqual(readAttachSettings(app.store, app.runtime.owner).extraRefusedHosts, ["payroll.example"]);
+});
+
+// ---------------------------------------------------------------------------
+// 9. Every answer to an approval question is bound to the exact bytes it was
+//    put for — the workflow/flow resume and `branch approve` included.
+// ---------------------------------------------------------------------------
+
+/** A workflow whose one step writes a file, which an "ask about this tool" rule stops on. */
+const writingWorkflow = (app, content) => app.workflows.create("local", {
+  name: "Writes one file",
+  steps: [{ name: "Write it", kind: "tool", tool: "files.write", args: { path: "note.txt", content } }],
+});
+
+test("a workflow's yes is bound to the exact arguments the step asked about", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "files.write", decision: "ask", remember: "session" }] });
+  const made = writingWorkflow(app, "first");
+  const held = await app.workflows.run("local", made.id);
+  assert.equal(held.status, "waiting_approval");
+  const asked = app.store.get("workflows", "local", made.id).data.pendingApproval;
+  assert.match(String(asked.fingerprint ?? ""), /^[a-f0-9]{32}$/, "the question must carry the exact-bytes fingerprint");
+  // The owner says yes, and the yes is remembered against that fingerprint and no other.
+  const done = await app.workflows.resume("local", made.id);
+  assert.equal(done.status, "completed", done.error ?? "");
+  const key = `workflow:${made.id}`;
+  assert.equal(app.runtime.approvals.answer(key, "files.write", asked.target, asked.fingerprint), "allow");
+  assert.equal(app.runtime.approvals.answer(key, "files.write", asked.target, "0".repeat(32)), undefined,
+    "a yes given for one request must not cover a different one");
+});
+
+test("`branch approve` binds its answer to the request the task actually stopped on", async (t) => {
+  const tool = { id: "c1", name: "files.write", arguments: JSON.stringify({ path: "note.txt", content: "hello" }) };
+  const { app } = await fixture(t, (request) =>
+    request.messages.some((message) => message.role === "tool") ? say("written") : { content: "", toolCalls: [tool] });
+  savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "files.write", decision: "ask", remember: "session" }] });
+  const { answerFromCommand } = await import("../dist/cli-run.js");
+  const run = await app.runtime.run({ prompt: "write a note" });
+  assert.equal(run.status, "needs_input");
+  const asked = app.store.events(run.id).filter((event) => event.kind === "policy.ask").at(-1);
+  assert.match(String(asked.data.fingerprint ?? ""), /^[a-f0-9]{32}$/);
+  const target = String(asked.data.target ?? "");
+  answerFromCommand(app.runtime, run.id, "yes");
+  assert.equal(app.runtime.approvals.answer(run.sessionId, "files.write", target, asked.data.fingerprint), "allow");
+  assert.equal(app.runtime.approvals.answer(run.sessionId, "files.write", target, "0".repeat(32)), undefined,
+    "the answer must not cover a request the owner never saw");
 });
