@@ -330,6 +330,31 @@ test("a mail server that refuses the password is reported in words the owner can
     { from: "a@example.com", to: "b@example.com", subject: "x", text: "y", messageId: "<1@b>" }), /answered 535/);
 });
 
+test("a channel that is refused says so in words, and never repeats the secret it was refused for", async (t) => {
+  const { app, root } = await fixture(t);
+  const gateway = await socketService(t, (connection) => connection.send({ op: 10, d: { heartbeat_interval: 45000 } }));
+  const rest = await jsonService(t, () => ({ status: 401, body: { message: "401: Unauthorized", code: 0 } }));
+  const adapter = new DiscordAdapter({ id: "discord", token: discordToken, apiBase: rest.base, gatewayUrl: gateway.url, heartbeatMs: 1000 });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["9001"] });
+  const connection = await until(() => gateway.connections[0], "connection");
+  connection.send({ op: 0, s: 1, t: "READY", d: { user: { id: "bot-1", username: "BranchBot" }, session_id: "s", resume_gateway_url: gateway.url } });
+  await until(() => adapter.botName(), "ready");
+  await app.channels.deliver("discord", "c1", "this will be refused", "refused:1").catch(() => undefined);
+  const waiting = await until(() => app.channels.outstanding().find((item) => item.preview === "this will be refused"), "the refused message is kept");
+  assert.match(waiting.lastError, /Discord refused the message \(401\)/);
+  assert.ok(!waiting.lastError.includes(discordToken), "the token is not in the delivery error");
+  assert.ok(!JSON.stringify(adapter.health()).includes(discordToken), "the token is not in the health reason");
+
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const shown = await (await fetch(server.url + "/api/channels", { headers: { authorization: "Bearer " + server.token, origin: server.url } })).text();
+  assert.ok(!shown.includes(discordToken), "the token is not in what the app shows, errors included");
+  // A web address naming a channel that is not connected tells the caller so rather than guessing.
+  const missing = await fetch(`${server.url}/webhooks/whatsapp/nothere`, { headers: { origin: server.url } });
+  assert.equal(missing.status, 404);
+  await adapter.stop();
+});
+
 /** A stand-in IMAP server holding one unread message. */
 async function fakeImap(t, options = {}) {
   const stored = [];
