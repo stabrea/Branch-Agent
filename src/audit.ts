@@ -22,6 +22,10 @@ export const auditActions = [
   "skill.forced",
   // Batch 26 (wave 8): one of the owner's own checks stopped a tool call, or held it for a yes.
   "hook.blocked",
+  // Batch 20 (wave 8): the rest of the moments that widen or narrow what Branch may reach — a
+  // short-lived key made or taken back, a connection added or removed, everything locked down, and
+  // a browser borrowed from the owner's own window.
+  "token.issued", "connection.changed", "lockdown.changed", "browser.borrowed",
   // Wave 8: a connection that stays open — a live voice conversation — reaches outside this
   // computer for as long as it lasts, so every one is written down: which host, and how it ended.
   "network.connected",
@@ -90,6 +94,10 @@ const actionLabels: Record<AuditAction, string> = {
   "auth.refused": "Somewhere kept getting the key wrong and was made to wait",
   "skill.forced": "You switched on a drafted skill without trying it first",
   "hook.blocked": "One of your own checks stopped something, or asked you about it first",
+  "token.issued": "A short-lived key for a script was made or taken back",
+  "connection.changed": "A connection to a model service was added or removed",
+  "lockdown.changed": "Everything was locked down, or let go again",
+  "browser.borrowed": "Branch borrowed your own browser window, or gave it back",
   "network.connected": "A connection that stays open was made to a service outside this computer",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];

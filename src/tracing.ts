@@ -245,6 +245,23 @@ export class Tracer {
     if (!root) return null;
     return this.write({ traceId: root.traceId, spanId: newSpanId(), parentSpanId: root.spanId, runId, kind, name, attributes });
   }
+  /**
+   * Like `start`, but for a step that happens after the task has already settled — sending its
+   * answer out to a chat app is the one that matters. The task has let go of its ids by then, so
+   * the trace is found again from the rows already written; the message therefore belongs to the
+   * same trace as the task that produced it rather than floating on its own.
+   */
+  startAfter(runId: string, kind: SpanKind, name: string, attributes: Record<string, unknown> = {}): OpenSpan | null {
+    const root = this.roots.get(runId) ?? this.rootOf(runId);
+    if (!root) return null;
+    return this.write({ traceId: root.traceId, spanId: newSpanId(), parentSpanId: root.spanId, runId, kind, name, attributes });
+  }
+  /** The task's own span, read back from the rows, for anything that arrives after it finished. */
+  private rootOf(runId: string): { traceId: string; spanId: string } | null {
+    const rows = this.spans.forRun(runId);
+    const top = rows.find((row) => !row.parentSpanId) ?? rows[0];
+    return top ? { traceId: top.traceId, spanId: top.spanId } : null;
+  }
   /** Forgets a finished task, so its ids are not kept in memory for ever. */
   forget(runId: string): void {
     this.roots.delete(runId);

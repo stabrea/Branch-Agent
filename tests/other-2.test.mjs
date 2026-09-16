@@ -457,7 +457,8 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   // It is in the record of what the assistant was allowed to do.
   const written = store.audit.list(owner, { limit: 50 }).filter((entry) => entry.subject.startsWith("Lockdown"));
   assert.equal(written.length, 1);
-  assert.equal(written[0].action, "policy.changed");
+  // Batch 20 (wave 8): Lockdown has its own kind in the record rather than sharing "policy.changed".
+  assert.equal(written[0].action, "lockdown.changed");
   assert.equal(written[0].subject, "Lockdown on");
 
   const off = await call("/api/lockdown", { on: false });

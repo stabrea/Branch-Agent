@@ -4,7 +4,7 @@ import { errorText } from "./contracts.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
 import type { SpanRow } from "./tracing.js";
-import { metricsToOtlp, spansToLangfuse, spansToLangsmith, spansToOtlp, type MetricPoint } from "./tracing-shapes.js";
+import { eventsToOtlpLogs, metricsToOtlp, spansToLangfuse, spansToLangsmith, spansToOtlp, type LogRecordInput, type MetricPoint } from "./tracing-shapes.js";
 
 /**
  * Sending traces somewhere the owner chose. This is off until they turn it on, it only ever goes to
@@ -66,13 +66,13 @@ function bodyFor(destination: TraceDestination, rows: SpanRow[], service: { name
   return spansToOtlp(rows, service);
 }
 /** The path each destination expects on top of the address the owner typed. */
-const paths: Record<TraceDestination, { traces: string; metrics: string }> = {
-  otlp: { traces: "/v1/traces", metrics: "/v1/metrics" },
-  langfuse: { traces: "/api/public/ingestion", metrics: "/api/public/ingestion" },
-  langsmith: { traces: "/runs/batch", metrics: "/runs/batch" },
+const paths: Record<TraceDestination, { traces: string; metrics: string; logs: string }> = {
+  otlp: { traces: "/v1/traces", metrics: "/v1/metrics", logs: "/v1/logs" },
+  langfuse: { traces: "/api/public/ingestion", metrics: "/api/public/ingestion", logs: "/api/public/ingestion" },
+  langsmith: { traces: "/runs/batch", metrics: "/runs/batch", logs: "/runs/batch" },
 };
 /** The address a body is sent to: the owner's address, with the destination's path unless they gave one. */
-export function endpointFor(settings: TraceExportSettings, what: "traces" | "metrics"): URL {
+export function endpointFor(settings: TraceExportSettings, what: "traces" | "metrics" | "logs"): URL {
   const base = new URL(settings.endpoint);
   const wanted = paths[settings.destination][what];
   if (base.pathname && base.pathname !== "/") return base;
@@ -131,6 +131,18 @@ export class TraceExporter {
       results.push(await this.post(settings, endpointFor(settings, "traces"), body, batch.length, reason));
     }
     return results;
+  }
+
+  /**
+   * Batch 20 (wave 8): the task's own story as OpenTelemetry log records, sent to the same address
+   * under the same switch. Only a collector that speaks OpenTelemetry has a place to put them;
+   * Langfuse and LangSmith have no logs signal, so for those this does nothing and says so.
+   */
+  async sendLogs(rows: LogRecordInput[], reason = "A task's steps were sent to the address you chose"): Promise<ExportResult | null> {
+    const settings = this.settings();
+    if (!settings.enabled || settings.destination !== "otlp" || !rows.length) return null;
+    const body = eventsToOtlpLogs(rows.slice(0, settings.batchSize), { name: settings.serviceName, version: this.deps.version });
+    return this.post(settings, endpointFor(settings, "logs"), body, Math.min(rows.length, settings.batchSize), reason);
   }
 
   /** Sends the usage counters, in OTLP metrics shape, to the same place. */
