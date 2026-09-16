@@ -233,9 +233,16 @@ async function readJson(response: Response, what: string): Promise<unknown> {
   return response.json();
 }
 
+/**
+ * How every helper program is started: no console window ever appears on the owner's screen, it
+ * gives up after five minutes, and it never reads back more than eight megabytes. Exported so a
+ * test can check the window really is hidden without starting anything.
+ */
+export const hiddenChildOptions = { windowsHide: true, timeout: 300_000, maxBuffer: 8 * 1_048_576 } as const;
+
 /** Runs a program with an argument list, never a shell line, so nothing in the text can be run. */
 export function runProgram(file: string, args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) =>
-    execFile(file, args, { windowsHide: true, timeout: 300_000, maxBuffer: 8 * 1_048_576, ...(signal ? { signal } : {}) },
+    execFile(file, args, { ...hiddenChildOptions, ...(signal ? { signal } : {}) },
       (error, stdout, stderr) => (error ? reject(new Error((stderr || error.message).trim().slice(0, 300))) : resolve(stdout))));
 }

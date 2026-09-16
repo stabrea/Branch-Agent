@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createBranch, GeminiProvider, OpenAIProvider, ToolRegistry } from "../dist/index.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
-import { Transcription, estimateAudioCost, localSttArgs } from "../dist/voice-stt.js";
+import { Transcription, estimateAudioCost, hiddenChildOptions, localSttArgs } from "../dist/voice-stt.js";
 import { Speech, powershellArgs, sapiScript, estimateSpeechCost } from "../dist/voice-tts.js";
 import { TalkMode, talkNext } from "../dist/voice-talk.js";
 import { VoiceService, registerVoice, sttRouteFor, ttsRouteFor } from "../dist/voice-service.js";
@@ -165,18 +165,56 @@ test("the OpenAI shape hands back sound, and the Windows voice is built as a scr
   assert.equal(spoken.cost.amount, estimateSpeechCost("tts-1", 5, "openai").amount);
 
   // The script itself is what is checked; running it would make a sound on the owner's computer.
-  const script = sapiScript({ text: "it's fine", voice: "Microsoft Zira Desktop", rate: 1.5, wavPath: "C:/tmp/s.wav" });
+  const script = sapiScript({ rate: 1.5, withVoice: true });
   assert.match(script, /Add-Type -AssemblyName System\.Speech/);
   assert.match(script, /\$speech\.Rate = 5/);
-  assert.match(script, /\$speech\.Speak\('it''s fine'\)/, "a quote in the words is doubled, so it cannot end the string");
-  assert.match(script, /SelectVoice\('Microsoft Zira Desktop'\)/);
-  assert.match(script, /SetOutputToWaveFile\('C:\/tmp\/s\.wav'\)/);
+  assert.match(script, /\$speech\.Speak\(\$words\)/, "the words are read from a file, not written into the script");
+  assert.match(script, /ReadAllText\(\(Join-Path \$here 'speech\.txt'\)/);
+  assert.match(script, /SelectVoice\(\[System\.IO\.File\]::ReadAllText/);
+  assert.ok(!sapiScript({ rate: 1, withVoice: false }).includes("SelectVoice"), "no voice chosen means no SelectVoice line");
   const args = powershellArgs("C:/tmp/speak.ps1");
   assert.deepEqual(args, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "C:/tmp/speak.ps1"]);
   assert.ok(!args.some((arg) => arg === "-Command"), "the words are never handed over as a command line");
   assert.equal(estimateSpeechCost("a-voice-nobody-priced", 100, "openai").amount, null);
   assert.equal(estimateSpeechCost("windows", 100, "windows").amount, 0);
   assert.equal(started.length, 0, "nothing was started for the OpenAI route");
+});
+
+test("a reply full of PowerShell never reaches PowerShell as anything but a data file", async (t) => {
+  // Everything an attacker could hide in a reply, all at once.
+  const nasty = "hi $(Start-Process calc) `\"; Start-Process calc; #` 'quoted' \"double\" ${env:PATH}";
+  const script = sapiScript({ rate: 1, withVoice: true });
+  for (const payload of ["Start-Process", "$(", "`", "quoted", "${env:"])
+    assert.ok(!script.includes(payload), `the script must not carry ${payload}`);
+  // The script is the same no matter what is being said: only the rate ever varies.
+  assert.equal(sapiScript({ rate: 1, withVoice: true }), script);
+
+  if (process.platform === "win32") {
+    const started = [];
+    const speech = new Speech(openPolicy(), fetch, async (file, args) => {
+      started.push({ file, args });
+      // Stand in for PowerShell: read the words the way the real script does, and write the wav.
+      const folder = dirname(args[args.length - 1]);
+      const words = await readFile(join(folder, "speech.txt"), "utf8");
+      assert.equal(words, nasty, "the words arrive as a file, unchanged, including the non-ASCII ones");
+      assert.equal(await readFile(join(folder, "voice.txt"), "utf8"), nasty);
+      await writeFile(join(folder, "speech.wav"), Buffer.from("RIFF"));
+      return "";
+    });
+    const spoken = await speech.speak({ text: nasty, voice: nasty, speed: 1 }, { kind: "windows" });
+    assert.equal(spoken.route, "windows");
+    assert.equal(spoken.cost.amount, 0);
+    assert.equal(started.length, 1);
+    assert.equal(started[0].file, "powershell.exe");
+    assert.deepEqual(started[0].args.slice(0, 5), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]);
+    assert.match(started[0].args[5], /\.ps1$/, "the only thing handed over is the path of a script file");
+    for (const argument of started[0].args)
+      assert.ok(!argument.includes("Start-Process"), "no part of the reply is ever an argument");
+    const written = await readFile(started[0].args[5], "utf8").catch(() => "");
+    assert.equal(written, "", "the temporary folder is removed once the sound has been read back");
+  }
+  // The child is started with no console window, asserted on the options the runner is built from.
+  assert.equal(hiddenChildOptions.windowsHide, true);
 });
 
 test("Gemini reads text aloud through its own route and hands back the sound inline", async (t) => {
@@ -209,7 +247,7 @@ test("\"keep audio on this computer\" refuses every route that would send it awa
   // The tool path, proved without starting a program or letting a single request leave: the fake
   // network counts every call, and the stand-in for PowerShell refuses to pretend it ran.
   const spoken = await fakeService(t, { "/audio/speech": () => Buffer.from([0xff, 0xfb]) });
-  const { app } = await fixture(t, [{
+  const { app, root } = await fixture(t, [{
     id: "cloud", name: "Cloud",
     provider: new OpenAIProvider({ endpoint: spoken.endpoint, model: "gpt-4o", apiKey: "sk-test" }), model: "gpt-4o",
   }]);
@@ -238,6 +276,23 @@ test("\"keep audio on this computer\" refuses every route that would send it awa
     "the refusal lives in the service, so the tool cannot go round it",
   );
   assert.equal(reached, 1, "with the setting on, nothing at all left this computer");
+
+  // The sound tools in the media toolbox are a second way out, so they are held to the same
+  // promise: with the setting on, neither of them reaches a service, wired to voice or not.
+  await writeFile(join(root, "workspace", "clip.wav"), Buffer.from("RIFF0000WAVE"));
+  for (const wired of [undefined, voice]) {
+    app.media.voice = wired;
+    await assert.rejects(
+      app.registry.execute("media.speak", { text: "read this out", voice: "" }, context),
+      /stay on this computer|no program was started in this test|part of Windows/,
+    );
+    await assert.rejects(
+      app.registry.execute("media.transcribe", { path: "clip.wav", timestamps: false }, context),
+      /stay on this computer|No speech program is set up/,
+    );
+  }
+  app.media.voice = undefined;
+  assert.equal(reached, 1, "the media tools sent nothing away either");
 
   // The chosen route itself says "this computer" whenever the setting is on.
   const settings = voiceSettings(app.store, "local");

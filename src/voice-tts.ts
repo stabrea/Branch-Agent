@@ -55,21 +55,27 @@ export type SpeakRequest = z.infer<typeof SpeakRequestSchema>;
 /**
  * The PowerShell that asks Windows to read a sentence into a WAV file with a voice already on the
  * computer. Pure and exported so it can be read and checked without a single sound being played.
- * Every value the model could influence — the words, the voice name, the file — is put in as a
- * single-quoted PowerShell string with its own quotes doubled, so none of it can end the string.
+ *
+ * Nothing a reply or a tool call can influence appears in this script at all. The words and the
+ * voice name are read from files written beside it, and the sound file it writes is found from the
+ * script's own folder, so a reply carrying a quote, a backtick or a $(...) is data that is read,
+ * never text that is run. The only thing that varies is a whole number for the speaking rate.
  */
-export function sapiScript(input: { text: string; voice: string; rate: number; wavPath: string }): string {
-  const quote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+export function sapiScript(input: { rate: number; withVoice: boolean }): string {
   // Windows takes a speaking rate from -10 to 10; 0 is the usual pace.
   const rate = Math.max(-10, Math.min(10, Math.round((input.rate - 1) * 10)));
   return [
     "$ErrorActionPreference = 'Stop'",
     "Add-Type -AssemblyName System.Speech",
+    "$here = $PSScriptRoot",
+    "$words = [System.IO.File]::ReadAllText((Join-Path $here 'speech.txt'), [System.Text.Encoding]::UTF8)",
     "$speech = New-Object System.Speech.Synthesis.SpeechSynthesizer",
     `$speech.Rate = ${rate}`,
-    input.voice ? `$speech.SelectVoice(${quote(input.voice)})` : "",
-    `$speech.SetOutputToWaveFile(${quote(input.wavPath)})`,
-    `$speech.Speak(${quote(input.text)})`,
+    input.withVoice
+      ? "$speech.SelectVoice([System.IO.File]::ReadAllText((Join-Path $here 'voice.txt'), [System.Text.Encoding]::UTF8).Trim())"
+      : "",
+    "$speech.SetOutputToWaveFile((Join-Path $here 'speech.wav'))",
+    "$speech.Speak($words)",
     "$speech.Dispose()",
   ].filter(Boolean).join("\n");
 }
@@ -160,7 +166,10 @@ export class Speech {
     const folder = await mkdtemp(join(tmpdir(), "branch-voice-"));
     const wav = join(folder, "speech.wav"), script = join(folder, "speak.ps1");
     try {
-      await writeFile(script, sapiScript({ text: request.text, voice: request.voice, rate: request.speed, wavPath: wav }), { mode: 0o600 });
+      // The words and the voice name go in beside the script as data files, never inside it.
+      await writeFile(join(folder, "speech.txt"), request.text, { encoding: "utf8", mode: 0o600 });
+      if (request.voice) await writeFile(join(folder, "voice.txt"), request.voice, { encoding: "utf8", mode: 0o600 });
+      await writeFile(script, sapiScript({ rate: request.speed, withVoice: !!request.voice }), { mode: 0o600 });
       await this.runShell("powershell.exe", powershellArgs(script), signal);
       const bytes = await readFile(wav);
       if (!bytes.length) throw new Error("Windows produced no sound; check that a voice is installed under Windows speech settings.");
