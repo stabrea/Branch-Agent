@@ -120,6 +120,8 @@ SDK callers can pass `retryPolicy` to `createBranch`: `maxRetries` accepts 0–2
 
 `keySecret` names a secret in the locker — the key itself never goes into the settings file. A paid service chosen without its key refuses with a sentence saying which secret to save.
 
+The free fallback reads a public results page rather than an interface meant for programs, which is something DuckDuckGo's terms of service do not invite. Branch asks for one page per search, identifies itself honestly in its user agent, and follows no link from the results by itself — but scraping is still their call, not ours, and they may stop answering at any time. If search matters to your work, pay for one of the services above or run a SearXNG of your own. Nothing here overrides a site's `robots.txt`: `web.fetch` and the browser only ever open an address a person or a task has asked for by name.
+
 ```json
 { "web": { "search": { "backend": "tavily", "keySecret": "TAVILY_API_KEY" } } }
 ```
@@ -214,8 +216,8 @@ Branch normally uses a fresh browser that no website knows you in. **Settings �
 
 **The plain risk:** while this is on, anything that browser is signed in to — your email, your files, your accounts — is something Branch could open. Three things hold it back, and you should read all three before turning it on:
 
-- It is on for **one task**, named by its task number, and it **turns itself off after fifteen minutes**. A different task has to ask again.
-- Banks, brokers and password managers are **always refused** — not only when Branch is asked to open one, but on **every single request its tab makes**, so a link followed inside the page is refused too. The list sits beside the one the screen-and-keyboard control uses for windows; that one matches window titles, which a website name would never trip, so a list of website names was added next to it. Anything whose name contains "bank", "vault" or "password" is refused as well.
+- It is on for **one task**, named by its task number, and it **turns itself off after fifteen minutes**. A different task has to ask again. Leaving the task number empty does not open it to everything: the first task that borrows takes the switch for itself, and the next one has to ask again. Locking Branch gives the browser back straight away.
+- Banks, brokers, password managers and webmail are **always refused** — email is on the list because a mailbox is how every other account is taken back. The refusal applies not only when Branch is asked to open one, but on **every single request its tab makes**, so a link followed inside the page is refused too. The list sits beside the one the screen-and-keyboard control uses for windows; that one matches window titles, which a website name would never trip, so a list of website names was added next to it. Anything whose name contains "bank", "vault" or "password" is refused as well.
 - Branch opens **a new tab of its own** and closes only that tab. Your own tabs are never watched, never redirected and never closed; when the task ends Branch stops listening rather than shutting anything down. Your cookies are never copied into a saved sign-in.
 
 To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.

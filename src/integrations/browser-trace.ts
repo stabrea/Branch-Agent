@@ -99,7 +99,11 @@ export function recordingText(bytes: Buffer): string {
   return text;
 }
 
-/** Whether any of these words got into a recording. Used before a recording is kept. */
+/**
+ * Whether any of these words got into a recording. This is the check that proves the emptying of
+ * password boxes really works; it is run by the tests, not on the way out, because at the moment a
+ * recording is kept there is no list of the owner's secrets to compare it against.
+ */
 export function leaksIn(bytes: Buffer, secrets: readonly string[]): string[] {
   const text = recordingText(bytes);
   return secrets.filter(secret => secret.length >= 6 && text.includes(secret));

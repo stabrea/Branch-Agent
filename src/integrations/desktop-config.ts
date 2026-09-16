@@ -86,6 +86,9 @@ export const refusedHosts = [
   'fidelity.com', 'vanguard.com', 'paypal.com', 'wise.com', 'revolut.com', 'monzo.com',
   'barclays.co.uk', 'hsbc.com', 'lloydsbank.com', 'natwest.com', 'santander.co.uk',
   'coinbase.com', 'binance.com', 'kraken.com', 'irs.gov', 'ssa.gov',
+  // Email is how every other account is taken back, so a mailbox is treated like a bank.
+  'mail.google.com', 'gmail.com', 'outlook.com', 'outlook.live.com', 'outlook.office.com',
+  'office.com', 'mail.yahoo.com', 'icloud.com', 'mail.com', 'zoho.com', 'fastmail.com',
 ] as const;
 /** Words in a website's name that mean it handles money or sign-ins, whoever runs it. */
 const refusedHostWords = [/\bbank\b/i, /\bbanking\b/i, /\bcredit-?union\b/i, /\bvault\b/i, /password/i];

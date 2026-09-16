@@ -12,7 +12,7 @@ import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName,
 import { AnnotateSchema, MarkRegistry, annotate, clearMarks } from './browser-marks.js';
 import { ExtractSchemaSchema, extractSchema } from './browser-schema.js';
 import { resolve as healResolve, type HealTarget } from './browser-heal.js';
-import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, type AttachedBrowser } from './browser-attach.js';
+import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 
@@ -281,6 +281,9 @@ export class BranchBrowser {
     if (entry.session.started())
       throw new Error('Ask for your own browser before opening a page: this task already has a browser window of its own');
     const attached = await this.connect(settings.port);
+    // A switch turned on without a task named is tied to the first task that uses it, so the next
+    // one has to ask again rather than inheriting a permission it was never given.
+    if (!settings.runId) saveAttachSettings(this.store, context.owner, { runId: context.runId });
     entry.borrowed = attached;
     entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
     // Every request Branch's own tab makes is checked, not only the addresses it is asked to open.
@@ -424,6 +427,20 @@ export class BranchBrowser {
   /** The website the run's page is on, so the approval policy can match on it. */
   hostFor(context: Pick<ToolContext, 'owner' | 'runId'>): string {
     try { return this.sessions.get(this.key(context))?.host ?? ''; } catch { return ''; }
+  }
+  /**
+   * Gives every borrowed browser back at once, without stopping anything else. Used when Branch
+   * locks itself: a locked Branch must not still be holding the door to a signed-in browser open.
+   * Only the owner's own windows are let go of; a task using a browser of Branch's own carries on.
+   */
+  async releaseBorrowed(): Promise<number> {
+    const borrowed = [...this.sessions].filter(([, entry]) => !!entry.borrowed);
+    for (const [key, entry] of borrowed) {
+      entry.detach();
+      await entry.session.close().catch(() => undefined);
+      if (this.sessions.get(key) === entry) this.sessions.delete(key);
+    }
+    return borrowed.length;
   }
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);

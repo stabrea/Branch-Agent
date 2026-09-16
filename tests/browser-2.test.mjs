@@ -53,6 +53,13 @@ const routes = {
     <tr class="r"><td class="n">Power</td><td class="v">85</td><td class="d">2026-03-04</td></tr></tbody></table>`),
   '/upload': page('<input id="pick" type="file"><p id="got">nothing</p><script>document.getElementById("pick").addEventListener("change",e=>{document.getElementById("got").textContent="received "+e.target.files[0].name})</script>'),
   '/cookie': page('<p id="who">?</p><script>document.getElementById("who").textContent="cookie is "+document.cookie</script>'),
+  // A page that tries to claim the numbering for itself: a decoy wearing number 1 and a decoy
+  // wearing the scratch attribute the numbering uses, both placed before the real button.
+  '/spoof': page(`<button id="decoy" data-branch-mark="1" onclick="document.getElementById('hit').textContent='decoy'">Decoy</button>
+    <button data-branch-mark-pass="0" onclick="document.getElementById('hit').textContent='pass decoy'">Pass decoy</button>
+    <button id="real" onclick="document.getElementById('hit').textContent='real'">Real button</button>
+    <p id="hit">nothing</p>
+    <button id="clone" onclick="document.getElementById('decoy').setAttribute('data-branch-mark',document.getElementById('real').getAttribute('data-branch-mark'))">Clone the number</button>`),
 };
 
 async function fixture() {
@@ -149,6 +156,32 @@ test('things on the page are numbered and keep their numbers when the page redra
     const snapshot = ok(await h.registry.execute('browser.snapshot', {}, context));
     assert.equal(snapshot.accessibility.includes('branch-mark-layer'), false);
     ok(await h.registry.execute('browser.unmark', {}, context));
+    await h.registry.finishRun(context);
+  } finally { await h.close(); }
+});
+
+test('a page cannot claim a number and steer a press onto the wrong thing', async () => {
+  const h = await harness('browser2-spoof');
+  try {
+    const context = runContext('run-spoof');
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/spoof`}, context);
+    const marked = ok(await h.registry.execute('browser.annotate', {}, context));
+    const real = marked.marks.find(mark => mark.name === 'Real button');
+    assert.ok(real, 'the real button was numbered');
+
+    // The page put "1" on a decoy before Branch arrived; that number now belongs to whatever Branch
+    // gave it to, and pressing it lands on the real button rather than the decoy.
+    ok(await h.registry.execute('browser.act', {action: 'click', mark: real.id}, context));
+    const hit = ok(await h.registry.execute('browser.shape', {fields: {what: {selector: '#hit', required: true}}}, context));
+    assert.equal(hit.rows[0].what, 'real', 'the press landed on the real button, not the decoy');
+
+    // Now the page copies the real button's number onto the decoy behind Branch's back. Two things
+    // wearing one number is refused outright, not settled by taking whichever comes first.
+    ok(await h.registry.execute('browser.act', {action: 'click', name: 'Clone the number'}, context));
+    await refusal(h.registry.execute('browser.act', {action: 'click', mark: real.id}, context),
+      /Nothing on this page matched/);
+    const after = ok(await h.registry.execute('browser.shape', {fields: {what: {selector: '#hit', required: true}}}, context));
+    assert.equal(after.rows[0].what, 'real', 'the refused press changed nothing');
     await h.registry.finishRun(context);
   } finally { await h.close(); }
 });

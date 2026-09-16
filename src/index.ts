@@ -221,6 +221,15 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // A paid search service's key comes out of the locker for the one request and is written down
+  // nowhere else: the settings file only ever holds the name of the secret, never its value.
+  web.searchKey = async (name: string) => {
+    const project = store.projects.active(runtime.owner).id;
+    const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "web search" }))[name]!;
+    audit(store, runtime.owner, { action: "secret.used", actor: "the search service you chose", subject: `${name} (project ${project})`,
+      reason: "Searching the web needed it", outcome: "handed over" });
+    return value;
+  };
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
   const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
@@ -258,8 +267,14 @@ export async function createBranch(options: {
   // Spans are written straight to their own table rather than through the event log, so the same
   // scrubber is put in front of them explicitly: no attribute can carry a saved password or key.
   runtime.tracer.scrub = (value) => runtime.hideSecrets(value);
-  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker.
-  sessionLock.onLock = () => runtime.approvals.forgetAll();
+  // Locking Branch ends every "yes, for this conversation" as well as closing the secrets locker,
+  // and lets go of anything an integration was holding on the owner's behalf — above all a browser
+  // of theirs a task had borrowed.
+  const releaseOnLock: (() => Promise<unknown>)[] = [];
+  sessionLock.onLock = () => {
+    runtime.approvals.forgetAll();
+    for (const release of releaseOnLock) void release().catch(() => undefined);
+  };
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
@@ -531,6 +546,7 @@ export async function createBranch(options: {
       computer,
       store,
       tracer: runtime.tracer,
+      onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */

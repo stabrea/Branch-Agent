@@ -123,6 +123,13 @@ function collectMarks(options: { limit: number; layerId: string; attribute: stri
     const box = element.getBoundingClientRect();
     return box.width > 0 && box.height > 0;
   };
+  // A number must never be something the page can claim for itself. Anything already wearing one of
+  // these attributes — left over from a previous round, or written by the page to lure a press onto
+  // the wrong thing — has it taken off before any number is handed out.
+  for (const node of document.querySelectorAll('[data-branch-mark], [data-branch-mark-pass]')) {
+    node.removeAttribute('data-branch-mark');
+    node.removeAttribute('data-branch-mark-pass');
+  }
   const candidates: Candidate[] = [];
   const all = [...document.querySelectorAll(selector)]
     .filter(element => !element.closest(`#${options.layerId}`) && visible(element));
@@ -140,8 +147,12 @@ function collectMarks(options: { limit: number; layerId: string; attribute: stri
  */
 function drawMarks(options: { layerId: string; attribute: string; pass: string; draw: boolean; numbers: number[] }): void {
   document.getElementById(options.layerId)?.remove();
-  const found = options.numbers.map((number, index) =>
-    ({ number, element: document.querySelector(`[${options.pass}="${index}"]`) }));
+  // Exactly one thing may wear each place in the round. Two would mean the page put one there
+  // itself between the counting and the numbering, so neither is given the number.
+  const found = options.numbers.map((number, index) => {
+    const claimants = document.querySelectorAll(`[${options.pass}="${index}"]`);
+    return { number, element: claimants.length === 1 ? claimants[0]! : null };
+  });
   for (const { number, element } of found) {
     element?.setAttribute(options.attribute, String(number));
     element?.removeAttribute(options.pass);

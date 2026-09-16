@@ -104,7 +104,9 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
    */
   computer?: { page?: unknown };
   /** Settings and spans, so the browser can read the "use my browser" switch and record healing. */
-  store?: unknown; tracer?: unknown }
+  store?: unknown; tracer?: unknown;
+  /** Things to let go of when Branch locks itself, such as a browser of the owner's it had borrowed. */
+  onLock?: (release: () => Promise<unknown>) => void }
 
 /** Sending work to a server is off until the owner turns it on; GitHub needs a saved token too. */
 export const GitConfigSchema = z.object({
@@ -159,6 +161,9 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.tracer = channels?.tracer as never;
       // The page half of the shared "look at this, press that" tools is this browser.
       if (channels?.computer) channels.computer.page = browser;
+      // Locking Branch gives back any browser of the owner's a task had borrowed, so a locked
+      // Branch is never still holding the door to their signed-in windows open.
+      channels?.onLock?.(() => browser.releaseBorrowed());
       hosted.browser = browser;
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }

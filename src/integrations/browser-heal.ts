@@ -26,16 +26,21 @@ export interface HealTarget {
 }
 export interface HealResult { locator: Locator; way: HealingWay; attempts: number; tried: HealingWay[] }
 
-/** The ways worth trying for this target, in the order they are tried. */
-function ways(target: HealTarget): { way: HealingWay; find: (page: Page) => Locator }[] {
-  const plan: { way: HealingWay; find: (page: Page) => Locator }[] = [];
+/**
+ * The ways worth trying for this target, in the order they are tried. A number is the one way whose
+ * answer comes off an attribute the page itself could write, so it is the one way that insists on a
+ * single match: two things wearing the same number means the page is trying to steer the press, and
+ * the number is treated as not found rather than settled by taking whichever comes first.
+ */
+function ways(target: HealTarget): { way: HealingWay; find: (page: Page) => Locator; only?: true }[] {
+  const plan: { way: HealingWay; find: (page: Page) => Locator; only?: true }[] = [];
   if (target.selector) plan.push({ way: 'selector', find: page => page.locator(target.selector!).first() });
   if (target.name) {
     plan.push({ way: 'role', find: page => page.getByRole('button', { name: target.name!, exact: false }).first() });
     plan.push({ way: 'text', find: page => page.getByText(target.name!, { exact: false }).first() });
   }
   if (target.mark !== undefined)
-    plan.push({ way: 'mark', find: page => page.locator(`[${markAttribute}="${target.mark}"]`).first() });
+    plan.push({ way: 'mark', only: true, find: page => page.locator(`[${markAttribute}="${target.mark}"]`) });
   return plan.slice(0, maxHealingAttempts);
 }
 
@@ -50,8 +55,8 @@ export async function resolve(page: Page, target: HealTarget, timeoutMs = 2000):
   for (const step of plan) {
     tried.push(step.way);
     const locator = step.find(page);
-    const found = await locator.count().then(count => count > 0).catch(() => false);
-    if (!found) continue;
+    const count = await locator.count().catch(() => 0);
+    if (step.only ? count !== 1 : count === 0) continue;
     const ready = await locator.waitFor({ state: 'attached', timeout: timeoutMs }).then(() => true).catch(() => false);
     if (ready) return { locator, way: step.way, attempts: tried.length, tried };
   }
