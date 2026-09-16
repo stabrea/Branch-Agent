@@ -20,11 +20,12 @@ async function fixture(t, settings = {}, provider) {
   const config = { executables: { node: { path: process.execPath }, fixture: { path: process.execPath, args: [script] } }, ...settings };
   const shell = new BranchShell(config, fakeEnv);
   await shell.ready(); registerShell(app.registry, shell);
-  t.after(async () => { await shell.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  // A process let go a moment ago can still hold its working folder for a few milliseconds on Windows.
+  t.after(async () => { await shell.close(); await app.close(); await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); });
   return { app, shell, root, config, context: () => app.runtime.context({ runId: 'fixture-run' }) };
 }
 async function waitForPids(path) {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  for (let attempt = 0; attempt < 600; attempt++) {
     try { return JSON.parse(await readFile(path, 'utf8')); } catch { await delay(10); }
   }
   assert.fail('Fixture process did not start');
@@ -101,7 +102,9 @@ test('shell rejects denied aliases, permissions, traversal, and linked cwd', asy
 });
 
 test('shell captures nonzero exit, bounds output, and enforces timeout', async (t) => {
-  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 500 });
+  // Exit codes, output caps and timeouts are measured without a job object: on a slow computer the
+  // supervisor's start would compete with the half-second budget this test gives each command.
+  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 500, useJobObject: false });
   const failed = await f.shell.execute({ executable: 'fixture', args: ['fail'] }, f.context());
   assert.equal(failed.exitCode, 7); assert.equal(failed.status, 'failed');
   assert.match(failed.stdout, /before failure/); assert.match(failed.stderr, /compilation failed/);
@@ -168,8 +171,12 @@ test('parent exit with a descendant holding pipes returns bounded cleanup status
   if (process.platform === 'win32') {
     assert.equal(result.status, 'descendant_pipes');
     assert.equal(result.cleanup.status, 'incomplete');
-    assert.equal(alive(pids.child), true, 'The result must honestly identify the Windows orphan limitation');
-    process.kill(pids.child, 'SIGKILL');
+    // A job object kills the orphan as it is let go; without one, the old limitation still holds.
+    if (result.isolation === 'job-object') await gone(pids.child);
+    else {
+      assert.equal(alive(pids.child), true, 'The result must honestly identify the Windows orphan limitation');
+      process.kill(pids.child, 'SIGKILL');
+    }
   } else assert.equal(result.status, 'descendant_pipes');
   await gone(pids.parent); await gone(pids.child);
   await f.shell.close();

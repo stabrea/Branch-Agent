@@ -19,12 +19,18 @@ import { registerHistory } from "./history.js";
 import { registerSessions } from "./sessions.js";
 import { registerSkills } from "./skill-tools.js";
 import { startMcpServer } from "./mcp-server.js";
+import { A2aServer } from "./a2a.js";
+import { RemoteAgents, registerRemoteAgents } from "./a2a-client.js";
 import { createRequire } from "node:module";
 import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
+import { SessionLock } from "./session-lock.js";
+import { Moderation } from "./moderation.js";
+import { PrivacyGuard } from "./privacy-guard.js";
+import { OAuthConnections } from "./oauth.js";
 import { RunArtifacts } from "./artifacts.js";
 import { BrowserProfiles } from "./integrations/browser-profiles.js";
 import { ChannelRouter } from "./channels/router.js";
@@ -34,13 +40,17 @@ import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { SkillRegistry } from "./registry-install.js";
+import { SkillPackages } from "./skill-packages.js";
+import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
+import { SuiteRunner } from "./evaluation-runner.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
+import { MediaTools, registerMedia } from "./media.js";
 import { GitTools } from "./integrations/git.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
@@ -81,6 +91,8 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
+  // One scrubber in front of the whole event log: no saved password or key can be written down.
+  store.guardEvent = (data) => store.secrets.scrubber.deep(data);
   // Screenshots and saved pages, and the saved sign-ins for the browser: both live beside the
   // private database, never in the person's workspace.
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
@@ -119,6 +131,9 @@ export async function createBranch(options: {
     options.reliability,
   );
   runtime.artifacts = artifacts;
+  // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
+  const sessionLock = new SessionLock(store, runtime.owner);
+  store.secrets.gate = () => sessionLock.require();
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -146,10 +161,35 @@ export async function createBranch(options: {
   registerOrchestration(registry, runtime, knowledge);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
+  // when the connected model has no such service, and keeps what it makes beside the database.
+  const media = new MediaTools(store, files, runtime.models, web.policy, globalThis.fetch);
+  media.artifacts = artifacts;
+  registerMedia(registry, media);
   const channels = new ChannelRouter(store, runtime);
+  // Personal details and, when the owner switches it on, a content check, either side of the model.
+  const moderation = new Moderation({}, web.policy, web.policy.guard(globalThis.fetch),
+    (reference) => store.secrets.fill(runtime.owner, "default", reference, { purpose: "content check" }));
+  const privacy = new PrivacyGuard(store, runtime.owner, moderation);
+  moderation.configure(privacy.settings().moderation);
+  channels.outboundGuard = (text) => privacy.outbound(text);
+  runtime.hideSecrets = (value) => {
+    const scrubbed = store.secrets.scrubber.deep(value);
+    // The privacy settings live in the database; a failure reported while the app is closing
+    // must still go out scrubbed rather than throw a second time from inside the error path.
+    try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
+  };
+  // Signing in to outside services the ordinary way, with the answer coming back to this computer.
+  const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
   const teams = new Teams(store, runtime.owner);
   const skillRegistry = new SkillRegistry(store, runtime.owner, web.policy);
+  // Skill packages people can hand to each other, and single-file plugins the owner switches on.
+  const skillPackages = new SkillPackages(store, runtime.owner, registry, { store, policy: web.policy });
+  skillPackages.replayRecipe = (recipe, _event, runId) => replayNamedRecipe(knowledge, store, runtime, recipe, runId);
+  const packageProblems = skillPackages.restore();
+  const plugins = new Plugins(store, runtime.owner, registry, join(dataDir, "plugins"));
+  const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   const webhooks = new Webhooks(store, web.policy);
@@ -160,6 +200,9 @@ export async function createBranch(options: {
   registerSchedules(registry, scheduler);
   const version = String(createRequire(import.meta.url)("../package.json").version);
   const userAgent = `BranchAgent/${version}`;
+  // Test suites kept as data, their history, and comparing one suite across model choices.
+  const evaluationSuites = new SuiteRunner(store, runtime, version);
+  scheduler.evaluations = evaluationSuites;
   const chatgpt = options.chatgpt;
   if (chatgpt) {
     await chatgpt.load();
@@ -167,6 +210,10 @@ export async function createBranch(options: {
   }
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
+  // Talking to assistants elsewhere: answering them (A2A server) and handing them work (A2A client).
+  const a2a = new A2aServer(store, runtime, registry, mcpServer, version);
+  const remoteAgents = new RemoteAgents(store, runtime.owner, web.policy, globalThis.fetch);
+  registerRemoteAgents(registry, remoteAgents);
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -175,6 +222,8 @@ export async function createBranch(options: {
     files,
     knowledge,
     documents,
+    /** Making and reading pictures, speech and sound files. */
+    media,
     /** Finding, tidying and moving saved facts. */
     memory,
     git,
@@ -183,6 +232,10 @@ export async function createBranch(options: {
     version,
     userAgent,
     mcpServer,
+    /** Answering assistants elsewhere over the agent-to-agent protocol. */
+    a2a,
+    /** Assistants elsewhere this one may hand work to. */
+    remoteAgents,
     artifacts,
     browserProfiles,
     /**
@@ -192,13 +245,33 @@ export async function createBranch(options: {
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: (context: ToolContext, names: string[]) =>
-      store.locker.resolve(context.owner, store.projects.active(context.owner).id, names),
+      store.secrets.resolve(context.owner, store.projects.active(context.owner).id, names,
+        { runId: context.runId, purpose: "host command" }),
+    /** References, replacement dates, the use audit and the shared scrubber. */
+    secrets: store.secrets,
+    /** Locking the app, by hand or after a quiet spell. */
+    sessionLock,
+    /** Signing in to outside services with the standard authorization-code flow and PKCE. */
+    oauth,
+    /** Personal details and the optional content check, either side of the assistant. */
+    privacy,
+    moderation,
     channels,
     web,
     hooks,
     teams,
     skillRegistry,
+    /** Skill packages: opening, installing and rebuilding the single file people share. */
+    skillPackages,
+    /** Installed packages whose tools could not be put back this time. */
+    packageProblems,
+    /** Single-file plugins from the data folder, off until the owner switches one on. */
+    plugins,
+    /** Plugins that were on but could not be loaded this time. */
+    pluginProblems,
     evaluation,
+    /** Suites kept as data: running them, their history, and comparing two model choices. */
+    evaluationSuites,
     triggers,
     webhooks,
     /** What integrations need to host messaging channels: the router and default-project secrets. */
@@ -207,8 +280,9 @@ export async function createBranch(options: {
       git,
       /** A secret from whichever project is active right now, for GitHub's personal access token. */
       activeSecret: async (name: string) =>
-        (await store.locker.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name]))[name]!,
-      secret: async (name: string) => (await store.locker.resolve(runtime.owner, "default", [name]))[name]!,
+        (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose: "integration" }))[name]!,
+      secret: async (name: string) =>
+        (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "channel" }))[name]!,
       web,
       hooks,
       files,
@@ -216,8 +290,25 @@ export async function createBranch(options: {
       browserProfiles,
       context: (runId: string) => runtime.context({ runId }),
     },
-    close: () => (closing ??= closeBranch(scheduler, runtime, store, channels)),
+    close: () => (closing ??= (async () => {
+      plugins.stop();
+      skillPackages.stop();
+      try {
+        await closeBranch(scheduler, runtime, store, channels);
+      } finally {
+        oauth.closeAll();
+      }
+    })()),
   };
+}
+/** Runs one of the owner's own verified recipes by name, for a skill package's event hook. */
+async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Runtime, recipe: string, runId: string): Promise<void> {
+  const match = store.list("procedures", runtime.owner).find((record) => {
+    const state = record.data as unknown as { status?: string; definition?: { name?: string } };
+    return state.definition?.name === recipe && state.status === "verified";
+  });
+  if (!match) throw new Error(`No verified recipe called "${recipe}"`);
+  await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
 async function closeBranch(
   scheduler: Scheduler,
@@ -247,6 +338,13 @@ export * from "./chatgpt-provider.js";
 export * from "./chatgpt-presets.js";
 export * from "./projects.js";
 export * from "./locker.js";
+export * from "./vault.js";
+export * from "./pii.js";
+export * from "./moderation.js";
+export * from "./privacy-guard.js";
+export * from "./session-lock.js";
+export * from "./oauth.js";
+export * from "./integrations/job-object.js";
 export * from "./artifacts.js";
 export * from "./channels/router.js";
 export * from "./channels/telegram.js";
@@ -274,6 +372,9 @@ export * from "./code-edit.js";
 export * from "./backup.js";
 export * from "./health.js";
 export * from "./openai-compat.js";
+export * from "./a2a.js";
+export * from "./a2a-client.js";
+export * from "./acp.js";
 export * from "./streams.js";
 export * from "./recipes.js";
 export * from "./templates.js";
@@ -286,7 +387,16 @@ export * from "./integrations/process-usage.js";
 export * from "./skill-governance.js";
 export * from "./teams.js";
 export * from "./registry-install.js";
+export * from "./skill-package.js";
+export * from "./skill-packages.js";
+export * from "./skill-http-tools.js";
+export * from "./skill-suggest.js";
+export * from "./skill-authoring.js";
+export * from "./plugins.js";
 export * from "./evaluation.js";
+export * from "./evaluation-suites.js";
+export * from "./evaluation-grading.js";
+export * from "./evaluation-runner.js";
 export * from "./channels/deliveries.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
@@ -299,6 +409,10 @@ export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
 export * from "./pricing.js";
+export * from "./local-models.js";
+export * from "./local-hardware.js";
+export * from "./local-routing.js";
+export * from "./local-runtimes.js";
 export * from "./trace.js";
 export * from "./diagnostics.js";
 export * from "./memory-retrieval.js";
@@ -306,3 +420,8 @@ export * from "./memory-hygiene.js";
 export * from "./memory-export.js";
 export * from "./session-summary.js";
 export * from "./working-session.js";
+export * from "./media.js";
+export * from "./media-audio.js";
+export * from "./media-images.js";
+export * from "./media-settings.js";
+export * from "./media-video.js";

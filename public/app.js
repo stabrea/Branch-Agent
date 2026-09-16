@@ -454,7 +454,12 @@ async function refresh() {
     savedAppearance = look;
     applyAppearance(state.preferences);
   }
-  $("context-provider").textContent = demo ? "Not connected" : active.presetName;
+  /* A model running here is said plainly, so it is obvious when nothing leaves this computer. */
+  $("context-provider").textContent = demo
+    ? "Not connected"
+    : active.local
+      ? `${active.presetName} · on this computer`
+      : active.presetName;
   /* The context pane offers "Connect a model" while nothing real is connected. */
   $("context-panel").dataset.connected = String(!demo);
   $("context-runs").textContent = state.runs.filter(
@@ -1109,6 +1114,8 @@ function setConversationBusy(busy) {
   conversationBusy = busy;
   $("send").disabled = busy;
   $("followup-send").hidden = !(busy && sessionId);
+  // A follow-up message carries words only, so pictures cannot be attached while a task is working.
+  $("composer-media").disabled = busy;
   $("new-session").disabled = busy;
   $("conversation-import").disabled = busy;
   document.querySelectorAll(".conversation-switch").forEach(node => { node.disabled = busy; });
@@ -1328,6 +1335,8 @@ $("login-form").addEventListener("submit", async (event) => {
   token = $("token").value.trim();
   try {
     await refresh();
+    // Signing back in is what unlocks the secrets locker again.
+    await api("lock/unlock", {}).catch(() => undefined);
     sessionStorage.setItem("branch-token", token);
     $("token").value = "";
   } catch (e) {
@@ -1335,6 +1344,8 @@ $("login-form").addEventListener("submit", async (event) => {
   }
 });
 $("lock").addEventListener("click", () => {
+  // Also tell the assistant itself: while it is locked it will not open the secrets locker.
+  api("lock", {}).catch(() => undefined);
   token = "";
   sessionStorage.removeItem("branch-token");
   $("workspace").hidden = true;
@@ -1361,11 +1372,15 @@ $("chat-form").addEventListener("submit", async (event) => {
   const stopActivity = watchActivity(prompt);
   try {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
+    // Pictures put on the composer travel with this one message and are then cleared (wave 5).
+    const pictures = globalThis.branchAttachments?.() ?? [];
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
+      ...(pictures.length ? { images: pictures } : {}),
     });
+    globalThis.branchAttachmentsClear?.();
     if (!sessionId) currentTemporary = startingTemporary;
     sessionId = run.sessionId;
     $("temporary-toggle").disabled = true;
@@ -1674,13 +1689,8 @@ if (window.branchDesktop) {
 }
 // Voice input and output handlers
 if (typeof initVoiceRecording !== "undefined") {
-  initVoiceRecording().then((supported) => {
-    if (supported) {
-      $("voice-record").hidden = false;
-    }
-  }).catch(() => {
-    $("voice-record").hidden = true;
-  });
+  // Show the button when this browser can record; permission is asked for on the first press.
+  $("voice-record").hidden = !navigator.mediaDevices?.getUserMedia;
   $("voice-record").addEventListener("mousedown", startVoiceRecording);
   $("voice-record").addEventListener("mouseup", stopVoiceRecording);
   $("voice-record").addEventListener("touchstart", startVoiceRecording);

@@ -53,6 +53,34 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `GET /api/providers/local` probes for Ollama at `127.0.0.1:11434` and LM Studio at `127.0.0.1:1234`, lists available models for any local runtime that responds, and returns an empty list if neither is running. The probe uses a short timeout and does not go through the network policy (local detection must succeed even when private addresses are otherwise blocked).
 
+### Models on this computer
+
+**Settings → Models on this computer** manages Ollama and LM Studio directly, so a model can answer without anything leaving this machine and without any charge.
+
+Routes, all under `/api/local-models`:
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/local-models` | Everything the card shows: whether Ollama is installed and its version, the models it holds (size, family, parameter size, whether each can be shown a picture), LM Studio's models and which is loaded, this computer's memory/cores/graphics card, the three recommended model sizes, downloads in progress, the routing rules, and the last thing that went wrong. |
+| `GET /api/local-models/downloads` | Just the download list, for the progress bar. |
+| `POST /api/local-models/pull` | `{ "model": "llama3.2:3b" }` starts a download and returns at once. |
+| `POST /api/local-models/stop` | Stops a download that is still going. |
+| `POST /api/local-models/remove` | Removes a downloaded model from this computer. |
+| `POST /api/local-models/details` | What one model is, including how much text it can hold at once. |
+| `POST /api/local-models/load` | Asks LM Studio to bring a model into memory. |
+| `GET` / `POST /api/local-models/routing` | Reads and saves the per-task routing rules (`settings/routing`). |
+| `POST /api/local-models/routing/preview` | Says which model would take a given task, and why, without running it. |
+
+A download takes minutes, far longer than one web request may last, so `pull` starts it and the screen asks `downloads` how it is going. Each progress report is named `model.download.progress` and carries the runtime's own status, bytes so far, total bytes and a percentage.
+
+**Recommendations by hardware.** Memory and processor cores come from Node; on Windows the graphics card is read once with `powershell Get-CimInstance Win32_VideoController` and remembered until restart. Three sizes are offered — small (about 2 GB, fast, good for notes), medium (about 5 GB, a steady all-rounder) and large (about 9 GB, slower but better at reasoning) — each marked as fitting this computer or not, with a plain reason.
+
+**Routing rules** (`settings/routing`, off by default): `enabled`, `localForPrivate` (a task mentioning personal details stays here), `cloudForHard` (long or tool-heavy tasks go to the cloud model), `costCeilingDollars` (a simple task that would cost more than this in the cloud uses the free local model instead), and optional `localPreset` / `cloudPreset`. What you explicitly choose for a run or a conversation always wins; when routing does pick, the run records a `model.routed` event with the reason. The rule itself also has a "local server is not answering, use the cloud one" branch, but nothing probes the local server before a run yet: a task sent to a local model that does not answer falls back the ordinary way, through the connection's configured fallbacks and the provider cooldown. `POST /api/local-models/routing/preview` is the one caller that can set `localUp` today.
+
+**Reading passages by meaning.** When the connected model is Ollama on this computer, document and memory search use Ollama's own `/api/embeddings` instead of the OpenAI-shaped route, one passage per request, and `text-embedding-3-small` is swapped for `nomic-embed-text`, which is what exists here.
+
+**Addresses.** Like `GET /api/providers/local`, these requests do not go through the outbound network policy, because that policy refuses loopback addresses by design and a local runtime is nothing but a loopback address. Instead every address is checked to be `localhost`, `127.0.0.1` or `[::1]` with no credentials, query or fragment, and anything else is refused before a request is sent. Model names are checked against the shape Ollama accepts, so a name can never become a path.
+
 ### Updates
 
 The packaged Windows app checks `https://api.github.com/repos/stabrea/Branch-Agent/releases/latest`, downloads `Branch-Agent-windows-x64.zip`, verifies it against the published `.sha256`, unpacks it next to the install, then restarts through a small script that mirrors the new files into place. A checkout installed from Git updates with `node dist/cli.js update` (`git pull --ff-only`, `npm ci`, `npm run build`).
@@ -211,6 +239,42 @@ Speech-to-text transcription requires an OpenAI-compatible provider with an API 
 
 **Settings → Secrets** stores keys and tokens per project. Values are encrypted with AES-256-GCM using a random key in `locker.key` inside the data directory (never in the database), are never returned by the API or shown again, and are never placed in a model request. A host command names the secrets it needs (`shell.execute` with `secrets: ["DEPLOY_TOKEN"]`) and receives them as environment variables; only the active project's secrets resolve, anything else is refused, and the command's output is scrubbed of the values before it is recorded. API: `GET /api/secrets/:project`, `POST /api/secrets`, `POST /api/secrets/:project/:NAME/remove`.
 
+### Saying which secret without saying the secret
+
+Anywhere a setting or a tool wants a key, you can write a **reference** instead of the key itself: `secret://<project>/<NAME>`, for example `secret://default/DEPLOY_TOKEN`. Branch Agent only looks the real value up at the last possible moment — as it puts it in a request header, in a command's environment or in a model provider's key — and only from the project that is active. A reference pointing at another project is refused rather than quietly filled in from this one.
+
+Every value that has ever been looked up is remembered by **one scrubber** for as long as the app is running, and that scrubber runs over everything on the way out: a tool's answer, the receipt that proves the answer was not edited afterwards, every line written to the activity log, the summary of a task, and the text of any failure — including the failure message sent back over the API. Where a value would have appeared you see `[secret DEPLOY_TOKEN]` instead. The order matters and is deliberate: the answer is cleaned **before** its receipt is signed, so a cleaned answer still passes its own check.
+
+**Replacing a secret and being reminded.** `POST /api/secrets/:project/:NAME/rotate` with `{ "value": "the new one" }` writes the new value and records the day it happened; the reminder rhythm is kept, so a secret you set to be replaced every 90 days is due again 90 days later. Set `expiresInDays` when you save or replace a secret (0 means never remind). Anything due within a week, or overdue, appears as `secretReminders` in the app's state and under `reminders` in the audit.
+
+**Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
+
+## Locking the app
+
+The lock in the header now has a matching setting: after a number of quiet minutes Branch Agent locks itself, and while it is locked it will not take a saved password or key out of the locker for a new task. It keeps answering from what it already knows; only the locker is shut. Anything you do in your own app counts as activity and starts the quiet period again.
+
+- `GET /api/lock` — whether it is locked, how long it has been quiet, and since when.
+- `POST /api/lock` — lock it now. `POST /api/lock/unlock` — unlock it (your app's own session token is what proves it is you).
+- `POST /api/lock/settings` — `{ "idleMinutes": 15, "secretsWhileLocked": false }`. `idleMinutes: 0` means it never locks itself, which is the default.
+
+Two things worth knowing before you turn it on. **Reading is not activity**: the app refreshes its own screen every three seconds, so if merely looking counted, it would never lock itself; only doing something restarts the quiet period. And a locked app cannot fetch a saved bot token, so a chat channel that has to reconnect while it is locked will say it needs attention until you unlock. At the default of never locking itself, neither applies.
+
+## Signing in to other services
+
+Branch Agent can sign in to a service the ordinary way, without ever seeing your password: it opens the service's own sign-in page in your default browser, the service sends its answer back to a small page running on this computer only (`http://127.0.0.1:<port>/oauth/callback`), and the key that comes back goes straight into the locker. This is the standard OAuth 2.0 authorization-code flow with PKCE, so the same setting works for Google, Microsoft, GitHub, Slack and anything else that follows the standard.
+
+`POST /api/connections/oauth/start` takes `{ id, label, authorizeUrl, tokenUrl, clientId, clientSecret?, scopes?, extra? }` and returns the address to open. `GET /api/connections/oauth/:id` says whether that connection is signed in and when its key runs out; `POST /api/connections/oauth/:id/cancel` abandons a sign-in that is still waiting. An answer that does not match the sign-in that was started is refused, which is what stops someone else finishing it for you. A key that has run out is renewed automatically before it is used. Nothing is provider-specific yet: there are no Google or Slack buttons in the app, only this flow underneath them.
+
+## Personal details and the content check
+
+**Going out.** Every message Branch Agent sends to a chat or a mailbox is looked at first. Email addresses, phone numbers, payment card numbers (checked with the same arithmetic a shop uses, so a lookalike number is left alone), bank account numbers (IBAN, likewise checked) and national id numbers are replaced with a plain note such as `[card number hidden]`. You can choose to be warned instead, to have the message held back altogether, or to switch the check off.
+
+**Coming in.** What Branch Agent reads — your own files above all — is **not** rewritten unless you ask for it. That is the default and the reason for it is simple: reading your own address book should give you your own address book. Turning it on applies it to everything the assistant reads.
+
+**The optional content check** shows an outgoing message to your model provider's moderation address first, when it has one that follows the OpenAI shape (`/moderations`). It is off until you switch it on, it never blocks a message when the check itself cannot run, and the key it needs is given as a reference such as `secret://default/OPENAI_API_KEY`.
+
+`GET /api/privacy` and `POST /api/privacy` with `{ "pii": { "outbound": "mask" | "warn" | "block" | "off", "inbound": "off" | "mask" | "warn" | "block", "kinds": [...] }, "moderation": { "enabled": false, "endpoint": "...", "model": "...", "keyReference": "secret://default/OPENAI_API_KEY", "action": "block" } }`.
+
 ## Host command execution
 
 Enable `shell.execute` by adding a `shell` section to the trusted integration JSON:
@@ -237,6 +301,16 @@ Use actual absolute executable paths on your device. Windows `.cmd` and `.bat` l
 This runs trusted programs on your computer. The checked working directory is not an OS sandbox: programs can access other files, use the network, and launch more programs. Only selected environment keys are passed; model and vault variables are excluded. `PATH` is empty unless explicitly selected as above. Runtime code supplied to an interpreter still has that interpreter's host access.
 
 Only one foreground command runs at a time. Results include stdout, stderr, exit status, elapsed time, target and cleanup status. The default timeout is 30 seconds; configuration can allow up to 120 seconds, and individual calls can lower it. Captured output is capped at 8 KiB or the lower configured limit. Cancellation requests process-tree termination on Windows or process-group termination on POSIX. Escaped descendants can survive; the result records incomplete cleanup when observed. Interactive terminals, persistent background jobs and remote execution are separate pending capabilities.
+
+### Keeping a command in its lane
+
+On Windows, a command is placed inside a **job object** before it does anything: Windows itself then holds the memory ceiling (`maxMemoryMb`) and the processor-time ceiling (`maxCpuSeconds`), and when Branch Agent lets the job go everything still inside it is killed, including programs the command started. That is a real cap rather than the once-a-second look Branch Agent otherwise takes, and it is the one thing that reliably clears up a runaway that has orphaned itself. No extra software is installed for this; where a job cannot be created, the older sampling is used instead and nothing else changes. Every result says which was used, in `isolation`: `job-object` or `sampling`.
+
+Setting this up costs about a third of a second per command (measured: roughly 400 ms with a job against roughly 80 ms without, for a command that does nothing), because Windows has no way to make a job from the command line and a small helper has to be started for it. That is worth paying for a limit the system actually enforces, but if you run many very short commands and would rather have the milliseconds, `"useJobObject": false` in the `shell` settings goes back to sampling.
+
+**No internet, best effort.** `"netless": true` in the `shell` settings, or `netless` on a single call, points the command at a dead address on this computer (`http://127.0.0.1:9`) through the usual proxy variables, so curl, git, npm, pip and anything else that respects them fail at once instead of reaching a website. Be clear about what this is: it is **not** a firewall. Blocking a single program properly on Windows needs administrator rights, which a desktop app should not ask for, so a program that ignores proxy settings and opens its own connection is not stopped. Use it to stop an ordinary tool phoning home by accident, not to contain something you do not trust.
+
+The command's environment is built from nothing: only the variables named in `inheritEnv`, then the `env` you set, then the dead-address variables if the command is offline, then the secrets the call asked for. Nothing else from the host — no model keys, no vault variables, no `NODE_OPTIONS` — reaches the program, and the values of those secrets are taken back out of the output before it is recorded.
 
 ## MCP tools
 
@@ -345,6 +419,47 @@ A task marked interrupted (the app stopped while it was working) shows **Continu
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.
 
+## Test suites, their history, and comparing two models
+
+Suites are plain JSON files in `data/evaluation/`, so you can read one and copy it. Five ship:
+**everyday** (remember something, write a file and prove it, sum up a note, follow a procedure),
+**tool-use** (search inside files, change a file with a patch, read a page in the browser),
+**safety** (text copied from a page must not be able to give orders; a secret you hand over must not
+come back out), **reliability** (a task is stopped after its first step on purpose and continued —
+the stop is staged by the program, not a real crash) and **cost** (two questions that change
+nothing, meant for comparing models). A task holds a `prompt`, `checks` that anyone can repeat,
+`deny` (phrases the answer must not contain and files it must not create), an optional
+`judge: { rubric, pass }`, `expected` (a reference answer shown to the judge), `requires` (tools that
+must be installed, or the task is skipped rather than failed), `tags`, `timeoutMs` and `mode`.
+Checks that can be settled without a model always decide the result; a judge is asked only when a
+task has none, and what a task forbids is fatal either way.
+
+`GET /api/evaluation/suites` lists them; `POST /api/evaluation/suites` saves one of your own and
+`POST /api/evaluation/suites/remove { id }` deletes it. `POST /api/evaluation/suites/from-run
+{ runId, suite, taskId?, checks? }` turns a task you already ran into a test — without checks of your
+own, the answer it gave becomes the reference and its first line must show up again.
+`POST /api/evaluation/run { suite, preset?, readOnly?, maxSteps?, maxTokens? }` runs one and records
+per-task right/wrong, time, tokens, money from the price table, the model choice and the app version.
+`GET /api/evaluation/history?suite=` returns every stored run newest first plus a trend series. A
+task that passed in each of the three runs before this one and has just failed is listed under
+`regressions`; fewer than three earlier runs never flags anything.
+`POST /api/evaluation/compare { suite, presets: [a, b], allowChanges? }` runs the same suite against
+each model choice and returns one table of accuracy, mean time and cost. A comparison only offers
+the tools that change nothing unless you pass `allowChanges`, and every run stays inside the step
+and token budget you give it. Money is never invented: a model with no price on file reports no
+amount, and energy is always reported unavailable. One thing the figures leave out: a task graded by
+a judge asks the model a second question, and those tokens are not added to the task's own, so a
+judged suite costs roughly twice what its summary shows.
+
+A suite can run on a schedule: `schedules.create` accepts `kind: "evaluation"` with `suite` and an
+optional `preset`, alongside the usual `dailyAt`/`timezone`. The result is recorded as an ordinary
+finished task, and a regression is announced to any webhook listening for `evaluation.regression`.
+
+On the command line: `branch eval --suite <id> [--preset <id>] [--json]` prints a table of tasks and
+exits non-zero when one fails; `branch eval --suite <id> --compare a,b` prints the comparison table.
+`branch eval` with no suite still runs the original three-task standard suite.
+The Usage screen has a card for picking a suite and running it.
+
 ## Skill governance and consolidation
 
 `GET|POST /api/governance` holds `excludeAfterFailures`, `windowMinutes`, `recoveryAfterMinutes` and `demoteAfterFailures`. A skill with a repeating failure pattern is set aside (`skill.set_aside`, `skill.excluded` on later runs), gets one recovery trial after the cool-off (`skill.recovery_trial`, `skill.recovered`), and is demoted when failures pile up (`skill.demoted`); `POST /api/governance/set-aside/:skillId/restore` lets it back in. `POST /api/skills/:id/benchmark { baselineVersion, candidateVersion, tasks, seed }` records per-task outcomes and costs; `POST /api/skills/:id/draft { runId }` saves an inactive draft version from a task. `consolidateDaily` in the learning settings (or `POST /api/memory/consolidate`) digests completed tasks since a cursor into memory suggestions.
@@ -427,7 +542,56 @@ Use HTTP when Branch is already open — that is what the Claude Code and Cursor
 
 **What is recorded.** Every `tools/call` becomes a task of its own, named "Another AI tool used …", with `run.started`, `tool.started` and `tool.completed`/`tool.failed` events carrying `source: "mcp"` and the same signed receipt as local work. They appear in Activity and under `GET /api/runs/:id/receipts`. At most four shared calls run at once and one connection may make 100 in total.
 
-**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets.
+**Routes.** `GET /api/mcp/settings` returns `{ enabled, exposedTools, a2a, tools }`, where each tool carries `name`, `description`, `permission` and `changesThings`; `POST` the same `{ enabled, exposedTools, a2a }` to save it (unknown tool names are dropped). `GET /api/mcp/connection` returns this server's own address and key, the stdio command for this install, and the three configuration snippets.
+
+## Talking to assistants other people built
+
+Two protocols, both off until you switch them on: **A2A**, how assistants ask each other for work, and **ACP**, how a code editor talks to an assistant it starts itself.
+
+### Answering another assistant (A2A)
+
+The switch lives beside the one for other AI tools, in `settings/mcp-sharing` as `a2a`. While it is off, `/.well-known/agent.json` and `/a2a` answer `404` — not a refusal, but nothing at all, so this install does not advertise itself by accident.
+
+**The card.** `GET /.well-known/agent.json` describes this assistant: its name, what it is, the address to send work to (`/a2a`), `authentication.schemes: ["bearer"]`, `capabilities.streaming: true`, and its skills. The skills are `branch.ask` — asking Branch for something in plain words, always offered — plus every tool you ticked in the shared list, so A2A never offers more than MCP does.
+
+**Tasks.** JSON-RPC 2.0 by `POST` to `/a2a`, with your session key as `Authorization: Bearer …` (the same key as every other route; the server listens on this computer only). `tasks/send` runs one task and answers with it. `tasks/get` finds one started earlier — in memory only, so a restart forgets tasks that were still running. `tasks/cancel` stops one. `tasks/sendSubscribe` answers with a stream instead: a `submitted` state, then one state update for every step Branch records, then the answer as an artifact and a last update marked `final`.
+
+A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and so does its one gap: while you have chosen **No approvals** — which is how Branch behaves until you pick something else — there is nothing to hold a caller to, and it can use any of Branch's tools without stopping to ask. Pick an approval setting before you switch this on. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
+
+**What does not cross.** Only written instructions. A message part that is a file, an image or anything other than text is refused with "Branch takes written instructions only". One calling assistant may start 20 tasks a minute (a `-32003` error and HTTP 429 past that), and a task is stopped after two minutes, like every other task. Name yourself with an `X-Branch-Agent` header so the allowance and the record are per caller — it is a name for the record, not a credential, so the allowance only holds honest callers apart.
+
+### Handing work to an assistant elsewhere
+
+`agents.remote { action: "add" | "list" | "remove" }` keeps the list. Adding one reads its card (give either the card address or the site it lives on) through the same address rules as web reading, so **an assistant on this computer or your own network is unreachable until you allow private addresses under Web reading**. A key that install gave you is stored beside the settings and never handed back out by any route.
+
+`agents.ask { agent, task, timeoutMs }` sends one piece of work and waits. The request body contains the words of the task and nothing else — no files, no secrets, nothing the assistant has read. The wait is 60 seconds by default and 120 at most, one assistant can be asked 10 times a minute, and the answer is charged against the task's own token allowance. The call is an ordinary tool call, so it carries a receipt and shows in Activity as "Asking *name*, an assistant elsewhere".
+
+**Routes.** `GET /api/agents/remote` lists them and `POST` the same path adds one (`{ cardUrl, key? }`); `POST /api/agents/remote/remove` takes `{ agent }` (an id or a name). `GET /api/agents/discover?targets=127.0.0.1:3211,example.local:3210` asks each address you type in — and only those; nothing is scanned or broadcast — for its card, and answers `{ found, refused }` with a plain reason for each one it could not reach. `GET /api/agents/pairing` returns `{ code, cardUrl, shareUrl }`; the share link is `branch://add-agent?card=…&key=…&code=…` and **carries this install's session key — the one key to everything Branch serves, not a pairing code of its own. Whoever holds it can do anything you can do here, so share it only with an install you would trust with your own account, and only over something private.** The other install adds you with `POST /api/agents/pair { link }`.
+
+### Working inside a code editor (ACP)
+
+`branch acp-serve` speaks the editor protocol as newline-delimited JSON-RPC on standard input and output; everything meant for a person goes to standard error, so the protocol stream stays clean, and it stops when the editor closes the connection. It answers `initialize` (protocol version 1), `session/new` (a real Branch conversation, so it is searchable afterwards), `session/prompt` — the answer streams back as `session/update` notifications with `agent_message_chunk` — and `session/cancel`.
+
+When a step needs your yes, Branch asks the **editor**, with `session/request_permission` naming the step in plain words and offering `allow` and `reject`. Your answer goes straight to the approval rules and the turn carries on or stops, and the turn ends with `end_turn`, `refusal` or `cancelled`. Tasks from an editor carry `source: "acp"` and are capped the same way A2A tasks are. Attachments are refused here too.
+
+For **Zed**, add this to `settings.json` (Zed: Open Settings), replacing the two paths with your own:
+
+```json
+{
+  "agent_servers": {
+    "Branch": {
+      "command": "branch",
+      "args": ["acp-serve"],
+      "env": {
+        "BRANCH_DATA_DIR": "C:/Users/you/AppData/Roaming/BranchAgent",
+        "BRANCH_WORKSPACE": "C:/Users/you/Documents/Branch"
+      }
+    }
+  }
+}
+```
+
+From a source checkout use `"command": "node"` and `"args": ["C:/path/to/branch/dist/cli.js", "acp-serve"]`. Set the two paths explicitly, because the editor starts Branch in the editor's own folder, not Branch's. The editor starts a second copy of Branch against the same records, so close the app first — two copies cannot share one database. Any editor that speaks the same protocol works the same way.
 
 ## Delegation
 
@@ -569,6 +733,27 @@ Each conversation also keeps a one-line note of what is going on in it: the last
 
 The picture is handed to the model with that message only. The stored conversation keeps a short note — `[attached picture: square.png]` — and never the bytes, so a picture is not replayed on every later turn and does not count against the conversation's size. A model that cannot look at pictures says so plainly and the task stops with that message rather than quietly dropping the picture; the OpenAI-shaped and Anthropic adapters can both be shown one.
 
+In the conversation, the picture button next to the message box attaches pictures and sound files, and files can also be dragged onto the message box. A picture becomes a chip you can remove and travels with the next message. A sound file is written out to words first (through `POST /api/voice/transcribe`) and the words are put into the message box, so you can read and edit them before sending.
+
+## Pictures, sound and video
+
+**Settings → Pictures and sound** holds three things: which model makes pictures (leave it empty to use whatever the connected provider usually uses), which folder in your workspace finished files are saved into (`media` by default), and your own corrections to the per-picture prices. API: `GET|POST /api/media/settings`.
+
+The assistant has these tools, each of which asks first whether the connected provider can do the job and says so plainly when it cannot:
+
+- `media.image` — make a picture from a description, or change one already in your workspace. OpenAI-shaped providers are asked at `/images/generations` and `/images/edits`; Gemini is asked for a picture through its own `generateContent` route. The finished picture is kept privately beside the assistant's own database, and also saved into your workspace when you give it a file name. The result carries a rough cost from the per-picture price table (about $0.04 for one 1024×1024 picture with the common models, checked 2026-09-16). The table covers that one size only, so a picture asked for at any other size reports no price rather than the wrong one, and a model that is not in the table is reported as unknown, never as free. A price you type in yourself is used for every size, because it is yours to mean what you like.
+- `media.describe` — look at a picture in your workspace and say what it shows, read the words in it, or write out a table it holds. `media.compare` does the same for two pictures side by side. Both go through the same picture plumbing as an attached picture, so a model that cannot see says so before anything is read.
+- `media.transcribe` — write out what is said in a sound file in your workspace, with the time each phrase was said when the provider offers times.
+- `media.speak` — read text aloud into a sound file, in a voice you name.
+- `media.trim` — cut a stretch of sound, between two times in seconds, out of a **WAV** file. This is done here in plain JavaScript; MP3, M4A, OGG and other squeezed formats need a converter, which is not part of this app, and are turned down in plain words.
+- `media.info` — how long an MP4 video or a WAV sound file runs, what kind it is and how many tracks it carries, read from the file's own headers.
+
+**What is deliberately not here.** The assistant does not make videos, and it cannot pull still frames out of one: that needs a video decoder this app does not ship, and no tool pretends otherwise. `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
+
+Reading a file is `media.read` and counts as looking, not changing; making a picture, speaking and trimming are `media.write` and are held to your approval rules like any other change. Each of those tools tells the approval rules the workspace path it would write (`media/poster.png`), so a rule about that folder fires on the path the file really gets rather than the bare name that was asked for. Every result is signed by the ordinary tool receipt, so what was made and where it was saved can be checked afterwards. A practice run reports what it would have made without calling the provider.
+
+**Documents → Made by the assistant** lists the pictures the assistant has made or captured, newest first, with how big each is and where it is on this computer. API: `GET /api/artifacts?type=image` for the list and `GET /api/artifacts/file?path=…` for one file's bytes; both refuse anything outside the assistant's own artifacts folder.
+
 ## Schedules, delivery and triggers
 
 A schedule is a reminder, a task, or a **check** (a task that receives its previous result and reports what changed). It repeats on an interval or **every day at** an `HH:MM` wall-clock time in an IANA `timezone`, computed correctly across daylight-saving changes. **Send the result to** a channel chat that has already talked to the assistant; the destination and message id are recorded on the schedule and in the run's events. Each schedule keeps its last 50 executions with status and what triggered them.
@@ -706,3 +891,69 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+## Skill packages, registry versions, plugins and suggestions
+
+A **skill package** is one file (`.branchskill`) holding a `skill/` folder: `SKILL.md`, an optional
+`tools.json` and an optional `hooks.json`. It is a zip built with Node's own compression, so no
+extra software is needed. Inside it sits `branch-package.json`, the manifest: the skill's name, the
+package version, who made it, what the package asks to be allowed to do, and a fingerprint
+(SHA-256) of every file. Opening a package checks every fingerprint; if any file was changed after
+it was made, or a file is present that the manifest does not list, nothing is installed.
+
+`tools.json` describes web calls the skill may make: `{ "tools": [{ name, description, method,
+url, headers, body, input, pick }] }`. `{{name}}` in the address or a header takes one of the
+tool's declared inputs. `{{secret:NAME}}` in a header or the body takes a secret from your locker
+in the active project: the value is fetched at the moment of the call, is never written into the
+task's record, and is replaced with `[secret NAME]` in anything the assistant reads back. Every
+address goes through the same network rules as the rest of Branch, and only the fields listed in
+`pick` are kept from the answer. These tools are registered as `skill.<skill name>.<tool name>` and
+need the `skills.http` permission. `hooks.json` is `{ "hooks": [{ event, recipe }] }`: when that
+event happens, Branch runs one of **your own** verified recipes by that name. A package can never
+bring a recipe of its own.
+
+Routes: `POST /api/skills/package/inspect { file }` (base64; shows the manifest, the addresses, the
+secrets it wants and the plain-language list of what it asks for, and installs nothing),
+`POST /api/skills/package/install { file, approve }` (nothing happens unless `approve` is true; the
+skill arrives switched off and is scanned like any other), `GET /api/skills/packages`, and
+`POST /api/skills/:id/pack { author, packageVersion }` which builds a package from a skill you
+have. On the command line: `branch skill pack <folder> [out.branchskill] --author "Your name"
+[--package-version 1.0.0]` and `branch skill install <file.branchskill> [--approve]`.
+
+**Registries, version 2.** A registry index may now say `"version": 2` and publish a `publicKey`
+(base64 ed25519). Each listed skill may carry a `version`, a `changelog` and a `signature`, made
+over the exact lines `branch-skill-registry`, the registry name, the skill id, the version and the
+fingerprint. Branch labels every entry `checked`, `unsigned` or `invalid`; an `invalid` signature
+stops the install, an unsigned entry is installed but plainly labelled as unsigned. Version 1
+indexes still work exactly as before. `GET /api/registry/updates` asks the registries you installed
+from whether a newer version exists and returns the changelog; `POST /api/registry/update
+{ skillId }` saves the new version and switches to it, keeping the one you had;
+`POST /api/registry/rollback { skillId }` puts that earlier version back.
+
+**Help writing a skill.** `POST /api/skills/draft-from-runs { skillId, runIds }` reads two to six
+tasks that went well and proposes one improved version, saved but not switched on.
+`POST /api/skills/:id/test { version, examples }` runs the examples the skill lists under an
+`## Examples` heading (one task per bullet) with that version in place and reports what each one
+did; sending `examples` overrides the ones in the document. At most six examples are run, so a
+longer list is cut short rather than refused.
+
+**Plugins.** A developer can drop `<name>.mjs` into the `plugins` folder beside your private data.
+The file's default export is a `BranchPlugin`: `{ id, name, description, permissions, tools, hooks }`.
+A tool is `{ name: "plugin.<id>.<name>", description, permission, input, run(args, context) }`,
+where `input` is the same `{ name: { type, required, description } }` shape a recipe uses, and the
+permission must be one the plugin declared. A hook is `{ event, run(payload) }`. Plugins may add
+tools and react to events; they may not add screens to the app. `GET /api/plugins` lists the files
+without loading any of them; `POST /api/plugins/:id/inspect` loads one file to show what it would
+add (which runs the code at the top of that file); `POST /api/plugins/:id/enable` and
+`POST /api/plugins/:id/disable` switch it on and off, and the choice is remembered. On the command
+line: `branch plugin list | enable <id> | disable <id>`. **Be plain about the limits:** a plugin is
+not sandboxed. It runs inside Branch with the same reach over this computer that Branch has. The
+only thing holding it in bounds is the permission check every tool goes through, and the fact that
+nothing is loaded until you switch it on. Only use plugin files you trust.
+
+**Suggestions without a marketplace.** `GET /api/skills/suggest` reads the wording of your tasks
+from the last fourteen days and names skills you already have but have switched off, or skills
+advertised by a registry you have browsed, whose words appear in that work. It is a plain word
+match on this computer: no model is asked, nothing is sent anywhere, and a suggestion never
+installs or switches anything on. The Skills screen shows all of the above, and the interface file
+`/skills-extra.js` is served from the same local allowlist as the rest of the interface.

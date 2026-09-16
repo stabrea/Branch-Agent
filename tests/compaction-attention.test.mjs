@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranch, compactionSplit } from "../dist/index.js";
+import { createBranch, compactionSplit, compactionThreshold } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 function scripted(steps) {
@@ -44,8 +44,8 @@ test("an oversized conversation is compacted into a handoff summary; recent turn
   assert.ok(!answer.some((m) => /Turn 1:/.test(m.content)), "old turns left the working context");
   const event = app.store.events(run.id).find((e) => e.kind === "context.compacted");
   assert.ok(event);
-  assert.ok(event.data.estimatedBefore > 11000, `before ${event.data.estimatedBefore}`);
-  assert.ok(event.data.estimatedAfter < event.data.estimatedBefore - 5000 && event.data.estimatedAfter < 11000, `after ${event.data.estimatedAfter}`);
+  assert.ok(event.data.estimatedBefore > compactionThreshold, `before ${event.data.estimatedBefore}`);
+  assert.ok(event.data.estimatedAfter < event.data.estimatedBefore - 5000 && event.data.estimatedAfter < compactionThreshold, `after ${event.data.estimatedAfter}`);
   assert.ok(event.data.droppedMessages >= 30);
   assert.equal(app.store.messages(sessionId).length, stored + 2, "the full transcript is still stored");
   const before = provider.requests.length;

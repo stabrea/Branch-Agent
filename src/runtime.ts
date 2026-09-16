@@ -33,6 +33,7 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall } from "./activity.js";
+import { routeForTask, routingSettings } from "./local-routing.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
@@ -62,7 +63,9 @@ export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
-const compactionThreshold = 11000;
+/** Estimated tokens of working context above which older turns are folded into a summary.
+ *  Raised from 11000 as the tool catalog grew (wave 4/5); the catalog-diet work makes it derived. */
+export const compactionThreshold = 13000;
 const compactionKeep = 6;
 const contextLimit = 16000;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
@@ -135,6 +138,11 @@ export class Runtime {
   artifacts: RunArtifacts | null = null;
   /** Announces events to outbound webhooks; a no-op until `createBranch` connects them. */
   notifyEvent: WebhookNotifier = () => undefined;
+  /**
+   * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
+   * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
+   */
+  hideSecrets: <T>(value: T) => T = (value) => value;
   /** Questions the approval policy is waiting on, and the answers kept for each conversation. */
   readonly approvals = new ApprovalGate();
   private readonly rates: RateLimiter;
@@ -324,18 +332,18 @@ export class Runtime {
     let failure: unknown;
     let status: Run["status"] = "completed";
     try {
-      result = await this.registry.execute(name, args, context);
+      result = this.hideSecrets(await this.registry.execute(name, args, context));
       this.store.event(run.id, "tool.completed", { name, result });
     } catch (e) {
       failure = e;
       status = this.failureStatus(context, e);
-      this.store.event(run.id, "tool.failed", { name, error: errorText(e) });
+      this.store.event(run.id, "tool.failed", { name, error: this.hideSecrets(errorText(e)) });
     }
     const settled = await this.settleRun(
       run,
       context,
       status,
-      status !== "completed" ? errorText(failure) : JSON.stringify(result),
+      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result)),
     );
     if (status !== "completed") throw failure;
     if (settled.status !== "completed") throw new Error(settled.output);
@@ -613,6 +621,21 @@ export class Runtime {
     this.notifyEvent(status === "completed" ? "run.completed" : "run.failed", { runId: run.id, sessionId: run.sessionId, status });
     return finished;
   }
+  /**
+   * Per-task routing, when the owner has switched it on: a task that mentions personal details can
+   * stay on this computer, a long or tool-heavy one can go to the cloud model. An explicit choice
+   * for this run or this conversation always wins, so nothing is taken out of the owner's hands.
+   */
+  private routed(run: Run, owner: string, override: RunModelOverride): RunModelOverride {
+    // Off by default, so this costs nothing until the owner asks for it.
+    if (!routingSettings(this.store, owner).enabled) return override;
+    if (override.preset || this.models.session(owner, run.sessionId).preset) return override;
+    const toolCount = this.store.messages(run.sessionId).filter((message) => message.role === "tool").length;
+    const choice = routeForTask(this.store, this.models, owner, { prompt: run.prompt, toolCount });
+    if (!choice.preset) return override;
+    this.store.event(run.id, "model.routed", { preset: choice.preset, kind: choice.kind, reason: choice.reason });
+    return { ...override, preset: choice.preset };
+  }
   private async loop(
     run: Run,
     context: ToolContext,
@@ -625,7 +648,7 @@ export class Runtime {
   ): Promise<string> {
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
-    const plan = this.models.plan(context.owner, run.sessionId, override);
+    const plan = this.models.plan(context.owner, run.sessionId, this.routed(run, context.owner, override));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
     const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
@@ -1146,14 +1169,15 @@ export class Runtime {
     const scoped = { ...context, signal: AbortSignal.any([context.signal, timeout]) };
     try {
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
-      const result = await this.registry.execute(call.name, args, scoped);
+      // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
+      const result = this.hideSecrets(await this.registry.execute(call.name, args, scoped));
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       return { ok: true, result };
     } catch (e) {
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) throw e;
       const stalled = timeout.aborted;
-      const error = stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e);
+      const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
       return { ok: false, error };
     }

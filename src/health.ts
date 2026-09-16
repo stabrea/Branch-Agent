@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { createBranch } from "./index.js";
+import { localRuntimes } from "./local-runtimes.js";
 
 /**
  * A health check a person can act on: each item says what was tried, whether it works, and what to
@@ -62,9 +63,20 @@ function checkAttention(app: Branch): HealthItem {
   return item("Tasks waiting for you", waiting === 0, waiting ? `${waiting} task(s) stopped to ask you something` : "Nothing is waiting on you", "Open the conversation shown in the banner and answer the question.");
 }
 
+/** Ollama and LM Studio on this computer: whether they run, what they hold, what last went wrong. */
+async function checkLocalRuntimes(): Promise<HealthItem> {
+  try {
+    const report = await localRuntimes().health();
+    return item("Models on this computer", report.ok, report.summary, report.fix);
+  } catch (error) {
+    return item("Models on this computer", true, `Could not ask: ${failure(error)}`);
+  }
+}
+
 export async function healthReport(app: Branch, options: { probeProvider?: boolean } = {}): Promise<HealthReport> {
   const items = (await Promise.all([
     checkDatabase(app), checkWorkspace(app), checkDeviceKey(app), checkModels(app, options.probeProvider ?? false), checkChatGPT(app),
+    checkLocalRuntimes(),
   ])).filter((i): i is HealthItem => i !== null);
   items.push(checkChannels(app), checkSchedules(app), checkAttention(app));
   return { ok: items.every((i) => i.ok), checkedAt: new Date().toISOString(), items };

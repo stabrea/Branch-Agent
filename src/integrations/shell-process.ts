@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { watchUsage } from './process-usage.js';
+import type { Job } from './job-object.js';
 
 export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes' | 'memory_limit' | 'cpu_limit';
 export interface ProcessResult {
@@ -16,11 +17,15 @@ export interface ProcessResult {
   cleanup: { status: 'parent_exited' | 'tree_termination_requested' | 'incomplete'; strategy: string; limitation: string };
   /** Highest memory and processor time seen while sampling (about once a second). */
   usage: { peakMemoryMb: number; cpuSeconds: number };
+  /** Whether Windows itself held the limits for this command, or Branch Agent sampled them. */
+  isolation: 'job-object' | 'sampling';
 }
 export interface ProcessOptions {
   executable: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv;
   signal: AbortSignal; timeoutMs: number; maxOutputBytes: number;
   maxMemoryMb?: number; maxCpuSeconds?: number; usageIntervalMs?: number;
+  /** A Windows job, already created and waiting, that this command is put into as it starts. */
+  job?: Job | undefined;
 }
 
 export class ShellProcess {
@@ -41,9 +46,13 @@ export class ShellProcess {
   private readonly donePromise: Promise<void>;
   private finish!: () => void;
   private watcher: ReturnType<typeof watchUsage> | undefined;
+  private readonly held: Promise<boolean>;
+  private inJob = false;
   constructor(private readonly options: ProcessOptions) {
     this.child = spawn(options.executable, options.args, { cwd: options.cwd, env: options.env,
       shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    // The job is created before the command starts, so it takes it over within a moment of spawning.
+    this.held = options.job && this.child.pid ? options.job.assign(this.child.pid).catch(() => false) : Promise.resolve(false);
     this.child.stdout!.on('data', (chunk: Buffer) => this.capture(chunk, this.stdout));
     this.child.stderr!.on('data', (chunk: Buffer) => this.capture(chunk, this.stderr));
     this.child.on('error', () => { this.failed = true; });
@@ -60,6 +69,7 @@ export class ShellProcess {
         reason => { void this.stop(reason); }, { ...(this.options.usageIntervalMs ? { intervalMs: this.options.usageIntervalMs } : {}) });
     if (this.options.signal.aborted) abort();
     try {
+      this.inJob = await this.held;
       await this.donePromise;
       await this.stopping;
       return this.result();
@@ -68,6 +78,8 @@ export class ShellProcess {
       clearTimeout(this.pipeTimer);
       this.watcher?.stop();
       this.options.signal.removeEventListener('abort', abort);
+      // Letting the job go is what kills anything the command left behind.
+      await this.options.job?.close().catch(() => undefined);
     }
   }
   private capture(chunk: Buffer, destination: Buffer[]): void {
@@ -114,9 +126,12 @@ export class ShellProcess {
       exitCode: this.child.exitCode, signal: this.child.signalCode, durationMs: Math.round(performance.now() - this.started),
       truncated: rawTruncated || stdout.truncated || stderr.truncated, observedOutputBytes: this.observed,
       usage: (() => { const peak = this.watcher?.peak() ?? { memoryMb: 0, cpuSeconds: 0 }; return { peakMemoryMb: Math.round(peak.memoryMb), cpuSeconds: Math.round(peak.cpuSeconds * 10) / 10 }; })(),
+      isolation: this.inJob ? 'job-object' : 'sampling',
       cleanup: { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
-        strategy: process.platform === 'win32' ? 'taskkill /T /F' : 'POSIX process group',
-        limitation: 'Trusted host execution, not OS isolation. Escaped descendants or children whose parent already exited may survive; process-tree cleanup is not guaranteed.' },
+        strategy: this.inJob ? 'Windows job object, killed on close' : process.platform === 'win32' ? 'taskkill /T /F' : 'POSIX process group',
+        limitation: this.inJob
+          ? 'Windows holds the memory and processor limits and kills the whole job when it is let go. This is a resource cap, not OS isolation: the command still reaches the host filesystem and the network, and anything it started outside the job may survive.'
+          : 'Trusted host execution, not OS isolation. Escaped descendants or children whose parent already exited may survive; process-tree cleanup is not guaranteed.' },
     };
   }
 }

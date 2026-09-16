@@ -1,0 +1,26 @@
+{
+  "id": "tool-use",
+  "name": "Using the tools",
+  "description": "Whether the assistant reaches for the right tool: searching inside workspace files, changing a file with a patch, and reading a page in the browser.",
+  "tasks": [
+    {
+      "id": "grep-workspace",
+      "prompt": "Create a workspace file named eval-haystack.txt whose only line is \"the needle is in here\". Then search the workspace for the word needle and tell me which file contains it.",
+      "checks": { "files": ["eval-haystack.txt"], "mustMention": ["eval-haystack.txt"] },
+      "tags": ["search"]
+    },
+    {
+      "id": "patch-file",
+      "prompt": "Create a workspace file named eval-patch.txt whose only line is \"one\". Then apply a patch that changes that line to \"two\". Then say patched.",
+      "checks": { "files": ["eval-patch.txt"], "mustMention": ["patched", "two"] },
+      "tags": ["editing"]
+    },
+    {
+      "id": "browser-extract",
+      "prompt": "Open the local page at http://127.0.0.1:8099/eval.html in the browser and tell me the text of its main heading.",
+      "requires": ["browser.extract"],
+      "checks": { "mustMention": ["Branch Agent evaluation page"] },
+      "tags": ["browser"]
+    }
+  ]
+}

@@ -13,7 +13,9 @@ import { startServer } from "./server.js";
 import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
+import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
+import { summaryLine } from "./evaluation-runner.js";
 import { readFile, writeFile } from "node:fs/promises";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
@@ -73,9 +75,10 @@ async function serve(
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   if (command === "update") return updateCheckout();
-  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve"].includes(command))
+  if (!["start", "run", "chat", "demo", "doctor", "login", "logout", "trigger", "backup", "restore", "eval", "mcp-serve", "acp-serve", "skill", "plugin"].includes(command))
     throw new Error(
-      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | update",
+      "Usage: node dist/cli.js start | chat | run <prompt> [--dry-run] | demo | doctor [--probe] | login | logout | trigger <schedule-id> | backup <file> | restore <file> | mcp-serve | acp-serve | update" +
+        ' | skill pack <folder> [out.branchskill] --author "Name" | skill install <file.branchskill> [--approve] | plugin list | plugin enable <id> | plugin disable <id>',
     );
   const workspace = resolve(process.env.BRANCH_WORKSPACE ?? "workspace"),
     dataDir = resolve(process.env.BRANCH_DATA_DIR ?? ".branch");
@@ -109,7 +112,12 @@ async function main(): Promise<void> {
     } else if (command === "mcp-serve") {
       await serveMcpStdio(app.mcpServer);
       return;
+    } else if (command === "acp-serve") {
+      await serveAcpStdio(app.runtime, app.store);
+      return;
     }
+    if (command === "skill") { await skillCommand(app); return; }
+    if (command === "plugin") { await pluginCommand(app); return; }
     if (command === "doctor") {
       await printDoctor(app, dataDir);
       return;
@@ -122,7 +130,7 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "eval") {
-      console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
+      await runEvaluation(app);
       return;
     }
     if (command === "restore") {
@@ -135,6 +143,64 @@ async function main(): Promise<void> {
   } finally {
     await close();
   }
+}
+/** The value after a --flag on the command line, or undefined. */
+function flag(name: string): string | undefined {
+  const index = process.argv.indexOf(`--${name}`);
+  return index > 0 ? process.argv[index + 1] : undefined;
+}
+/** Reads the files of a `skill/` folder that belong in a package. */
+async function packageFiles(folder: string): Promise<Record<string, string>> {
+  const { readdir } = await import("node:fs/promises");
+  const files: Record<string, string> = {};
+  for (const name of await readdir(folder))
+    if (["SKILL.md", "tools.json", "hooks.json"].includes(name) || name.endsWith(".md"))
+      files[name] = await readFile(join(folder, name), "utf8");
+  return files;
+}
+/** `branch skill pack <folder> [out]` and `branch skill install <file> [--approve]`. */
+async function skillCommand(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const action = process.argv[3], target = process.argv[4];
+  if (action === "pack") {
+    if (!target) throw new Error('Provide a folder: node dist/cli.js skill pack <folder> --author "Your name"');
+    const author = flag("author");
+    if (!author) throw new Error('Say who made it: --author "Your name"');
+    const { packSkill } = await import("./skill-package.js");
+    const bytes = packSkill({ files: await packageFiles(resolve(target)), author, packageVersion: flag("package-version") ?? "1.0.0" });
+    const out = process.argv[5] && !process.argv[5].startsWith("--") ? process.argv[5] : `${resolve(target)}.branchskill`;
+    await writeFile(out, bytes, { mode: 0o600 });
+    console.log(`Wrote ${out} (${bytes.length} bytes).`);
+    return;
+  }
+  if (action === "install") {
+    if (!target) throw new Error("Provide a package file: node dist/cli.js skill install <file.branchskill>");
+    const bytes = await readFile(resolve(target));
+    const approve = process.argv.includes("--approve");
+    const result = app.skillPackages.install(bytes, approve);
+    console.log(`${result.manifest.name} ${result.manifest.packageVersion} by ${result.manifest.author}`);
+    for (const asked of result.permissions) console.log(`  asks to: ${asked.why}`);
+    console.log(approve ? "Installed. The skill is switched off until you turn it on in Skills." : "Nothing was installed. Run again with --approve to accept the list above.");
+    return;
+  }
+  throw new Error("Usage: node dist/cli.js skill pack <folder> [out] --author \"Name\" | skill install <file.branchskill> [--approve]");
+}
+/** `branch plugin list | enable <id> | disable <id>`. */
+async function pluginCommand(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const action = process.argv[3], id = process.argv[4];
+  if (action === "list") {
+    const entries = await app.plugins.list();
+    if (!entries.length) console.log("No plugin files found. Put <name>.mjs in the plugins folder beside your data.");
+    for (const entry of entries) console.log(`${entry.enabled ? "on " : "off"} ${entry.id}${entry.summary ? ` — ${entry.summary.name}` : ""}`);
+    return;
+  }
+  if (!id) throw new Error("Provide a plugin id: node dist/cli.js plugin enable <id>");
+  if (action === "enable") {
+    const summary = await app.plugins.enable(id);
+    console.log(`${summary.name} is on. It adds: ${summary.tools.map((tool) => tool.name).join(", ") || "no tools"}; it needs: ${summary.permissions.join(", ") || "nothing"}.`);
+    return;
+  }
+  if (action === "disable") { app.plugins.disable(id); console.log(`${id} is off. Its tools are out of the catalog.`); return; }
+  throw new Error("Usage: node dist/cli.js plugin list | plugin enable <id> | plugin disable <id>");
 }
 async function runOnce(
   app: Awaited<ReturnType<typeof createBranch>>,
@@ -153,6 +219,29 @@ async function runOnce(
     events: app.store.events(run.id),
   }, null, 2));
   if (run.status !== "completed") process.exitCode = 1;
+}
+/**
+ * `branch eval [--suite <id>] [--preset <id>] [--compare a,b] [--json]`. Without a suite it runs
+ * the standard three-task suite, as it always has.
+ */
+async function runEvaluation(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const asJson = process.argv.includes("--json"), suite = flag("suite"), compare = flag("compare");
+  if (compare) {
+    const result = await app.evaluationSuites.compare({ suite: suite ?? "cost", presets: compare.split(",").map((part) => part.trim()).filter(Boolean) });
+    if (asJson) return void console.log(JSON.stringify(result, null, 2));
+    console.log(["model choice", "right", "accuracy", "mean ms", "tokens", "cost"].join("\t"));
+    for (const row of result.rows)
+      console.log([row.preset, `${row.passed}/${row.total}`, row.accuracy, row.meanMs, row.tokens, row.dollars === null ? "no price on file" : `$${row.dollars.toFixed(4)}`].join("\t"));
+    return void console.log(`\nBest on this suite: ${result.best ?? "none"}`);
+  }
+  if (!suite) return void console.log(JSON.stringify(await app.evaluation.run(app.runtime), null, 2));
+  const result = await app.evaluationSuites.run({ suite, ...(flag("preset") ? { preset: flag("preset")! } : {}) });
+  if (asJson) return void console.log(JSON.stringify(result, null, 2));
+  console.log(["task", "result", "score", "ms", "tokens", "why"].join("\t"));
+  for (const task of result.tasks)
+    console.log([task.id, task.skipped ? "skipped" : task.passed ? "passed" : "failed", task.score, task.ms, task.tokens, task.problem ?? ""].join("\t"));
+  console.log(`\n${summaryLine(result)}`);
+  if (!result.summary.total || result.summary.passed < result.summary.total) process.exitCode = 1;
 }
 async function loginChatGPT(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const auth = app.chatgpt!;

@@ -46,6 +46,8 @@ export function describeToolCall(name: string, args: unknown): string {
     case "git.push": return "Sending work to the server";
     case "git.pull": return "Bringing down work from the server";
     case "user.ask": return "Asking you a question";
+    case "agents.ask": return `Asking ${short(a.agent)}, an assistant elsewhere`;
+    case "agents.remote": return a.action === "list" ? "Listing assistants elsewhere" : "Changing the list of assistants elsewhere";
     case "specialists.delegate": return `Asking the ${short(a.id)} specialist`;
     case "specialists.fanout": return "Running several specialists";
     case "sessions.search": case "history.search": return "Looking back through earlier conversations";

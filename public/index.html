@@ -191,8 +191,12 @@
               placeholder="Describe what you want to do… (Enter sends, Shift+Enter for a new line)"
               rows="3"
             ></textarea>
+            <div id="composer-attachments" class="attachments" hidden></div>
+            <input id="composer-media-file" type="file" class="sr-only" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*" />
             <div>
-              <button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
+              <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
+                ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
+              ><button id="composer-attach" type="button" class="composer-icon" title="Work with a document" aria-label="Attach a document"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7l-6.5 6.5a3 3 0 004.2 4.2L19 11a5 5 0 00-7-7l-6.5 6.5" /></svg></button
               ><button id="voice-record" type="button" class="composer-icon" title="Hold to record audio, release to transcribe" aria-label="Speak your message"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" /></svg></button
@@ -441,6 +445,39 @@
             <p class="subtle">Opening, reloading, importing, or loading a version replaces unsaved editor changes. Removing a skill deletes all its retained versions.</p>
             <p id="skill-status" role="status"></p>
           </form>
+          <!-- Wave 4: sharing skills as one file, newer versions, suggestions and plugins. -->
+          <div class="card" id="skill-share-card">
+            <h3>Share a skill, or open one someone sent you</h3>
+            <p class="subtle">A skill package is one file holding the instructions and, if the author added them, the web addresses it may call and the events it reacts to. You see everything it asks for before anything is installed.</p>
+            <label for="skill-package-which">Skill to save</label>
+            <select id="skill-package-which"></select>
+            <label for="skill-package-author">Your name, for a package you make</label>
+            <input id="skill-package-author" type="text" maxlength="120" placeholder="Your name" />
+            <div class="skill-actions">
+              <button id="skill-package-save" type="button">Save the open skill as a package</button>
+              <button id="skill-package-open" type="button">Open a package file</button>
+            </div>
+            <input id="skill-package-file" type="file" accept=".branchskill" hidden />
+            <div id="skill-package-preview" class="card-list"></div>
+            <button id="skill-package-install" type="button" hidden>Install it with what it asks for</button>
+            <p id="skill-package-status" role="status"></p>
+          </div>
+          <div class="card" id="skill-updates-card">
+            <h3>Newer versions</h3>
+            <p class="subtle" id="skill-updates-summary">Checking the registries you follow…</p>
+            <div id="skill-updates-list" class="card-list"></div>
+          </div>
+          <div class="card" id="skill-suggest-card">
+            <h3>Might have helped lately</h3>
+            <p class="subtle">Worked out on this computer from the words in your recent tasks. Nothing is installed or switched on for you.</p>
+            <div id="skill-suggest-list" class="card-list"></div>
+          </div>
+          <div class="card" id="plugins-card">
+            <h3>Plugins</h3>
+            <p class="subtle">Files a developer put in your plugins folder. A plugin runs as part of the assistant with the same reach over this computer, so only switch on files you trust. Nothing is loaded until you do.</p>
+            <div id="plugins-list" class="card-list"></div>
+            <p id="plugins-status" role="status"></p>
+          </div>
         </section>
         <section id="documents" class="view" hidden>
           <p class="section-intro">Your own documents, kept on this computer so the assistant can quote them. Word files, spreadsheets, web pages, notes, tables and plain text can be read. PDFs are listed but need a helper first.</p>
@@ -472,6 +509,12 @@
           </form>
           <p id="documents-status" role="status"></p>
           <div id="documents-list" class="card-list"></div>
+          <div class="card">
+            <h3>Made by the assistant</h3>
+            <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
+            <button id="gallery-refresh" type="button">Look again</button>
+            <div id="gallery-list" class="card-list"></div>
+          </div>
         </section>
         <section id="settings" class="view" hidden>
           <p class="section-intro">Make this workspace feel like yours.</p>
@@ -554,6 +597,18 @@
             </label>
             <p class="subtle">Higher-quality voice requires an OpenAI-compatible API key. Browser voice works offline and is always available.</p>
             <button type="button" id="voice-settings-save">Save voice settings</button>
+          </form>
+          <form id="media-form" class="card">
+            <h2>Pictures and sound</h2>
+            <p>What the assistant should use when it makes a picture or reads something aloud, and where finished files go when you ask for one to be saved.</p>
+            <label for="media-image-model">Picture model</label>
+            <input id="media-image-model" maxlength="200" placeholder="Leave empty to use your provider's usual one" />
+            <label for="media-folder">Folder in your workspace for saved pictures and sound</label>
+            <input id="media-folder" maxlength="100" placeholder="media" />
+            <p class="subtle" id="media-prices"></p>
+            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
+            <button type="submit">Save picture and sound settings</button>
+            <p id="media-status" role="status"></p>
           </form>
           <section id="chatgpt-card" class="card">
             <h2>ChatGPT account</h2>
@@ -760,6 +815,27 @@
             <p id="models-note" class="subtle"></p>
             <button>Save model settings</button>
           </form>
+          <section id="local-models-card" class="card">
+            <h2>Models on this computer</h2>
+            <p>Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
+            <p id="local-models-hardware" class="subtle"></p>
+            <p id="local-models-state" class="subtle">Checking…</p>
+            <div id="local-models-suggestions" class="card-list"></div>
+            <div class="input-row">
+              <input id="local-model-name" maxlength="160" placeholder="Or type a model name, for example llama3.2:3b" />
+              <button id="local-model-get" type="button">Get this model</button>
+            </div>
+            <div id="local-models-downloads" class="card-list"></div>
+            <div id="local-models-installed" class="card-list"></div>
+            <h3>Which model answers which task</h3>
+            <p class="subtle">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
+            <label><input id="local-routing-enabled" type="checkbox" /> Choose the model for me, task by task</label>
+            <label><input id="local-routing-private" type="checkbox" /> Keep tasks that mention personal details on this computer</label>
+            <label><input id="local-routing-hard" type="checkbox" /> Send long or fiddly tasks to the cloud model</label>
+            <label for="local-routing-ceiling">Use the free model here when a simple task would cost more than (US dollars)</label>
+            <input id="local-routing-ceiling" type="number" min="0" max="100" step="0.01" />
+            <button id="local-routing-save" type="button">Save these rules</button>
+          </section>
           <form id="model-settings-form" class="card" hidden>
             <h2>Model connection</h2>
             <p id="model-settings-note" class="subtle"></p>
@@ -844,14 +920,18 @@
     <script src="/voice.js"></script>
     <script src="/app.js" type="module"></script>
     <script src="/shell.js" type="module"></script>
+    <script src="/evaluation.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
+    <script src="/media.js" type="module"></script>
     <script src="/mcp.js" type="module"></script>
     <script src="/browser.js" type="module"></script>
     <script src="/approvals.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
+    <script src="/skills-extra.js" type="module"></script>
+    <script src="/local-models.js" type="module"></script>
   </body>
 </html>

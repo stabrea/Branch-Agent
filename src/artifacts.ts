@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 /**
  * Files a task produced that are too big to travel inside a tool result: a screenshot, a saved
@@ -14,6 +14,24 @@ export interface Artifact {
   sha256: string;
   mediaType: string;
 }
+/**
+ * One kept file as the gallery lists it. There is no checksum here on purpose: listing never opens
+ * a file, so a folder full of pictures costs a folder listing and nothing more.
+ */
+export interface Kept {
+  runId: string;
+  name: string;
+  path: string;
+  bytes: number;
+  mediaType: string;
+  createdAt: string;
+}
+const artifactKinds: Record<string, string> = {
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+  ".gif": "image/gif", ".pdf": "application/pdf", ".wav": "audio/wav", ".mp3": "audio/mpeg",
+  ".txt": "text/plain", ".json": "application/json", ".html": "text/html",
+};
+const mediaTypeOf = (name: string): string => artifactKinds[extname(name).toLowerCase()] ?? "application/octet-stream";
 const safeName = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 /** Eight megabytes: room for a full-page screenshot, small enough to keep the folder tidy. */
 export const maxArtifactBytes = 8 * 1024 * 1024;
@@ -41,6 +59,34 @@ export class RunArtifacts {
     if (typeof result.mediaType !== "string" || !result.mediaType.startsWith("image/")) return null;
     if (typeof result.bytes !== "number") return null;
     return { path: result.path, sha256: result.sha256, mediaType: result.mediaType, bytes: result.bytes };
+  }
+  /**
+   * Everything kept so far, newest first, for the "made by the assistant" list. Only the facts a
+   * folder listing already gives: no file is opened, so a long list stays cheap.
+   */
+  async list(limit = 60): Promise<Kept[]> {
+    const found: Kept[] = [];
+    let runs: string[];
+    try {
+      runs = await readdir(this.root);
+    } catch {
+      return [];
+    }
+    for (const runId of runs.slice(0, 400)) {
+      let names: string[];
+      try {
+        names = await readdir(join(this.root, runId));
+      } catch {
+        continue;
+      }
+      for (const name of names) {
+        const path = join(this.root, runId, name);
+        const info = await stat(path).catch(() => null);
+        if (!info?.isFile()) continue;
+        found.push({ runId, name, path, bytes: info.size, mediaType: mediaTypeOf(name), createdAt: info.mtime.toISOString() });
+      }
+    }
+    return found.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
   /** Reads one back for the model layer; any path outside the artifacts folder is refused. */
   async read(path: string): Promise<Buffer> {

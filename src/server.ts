@@ -16,18 +16,25 @@ import { liveActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
+import { PackageInstallSchema } from "./skill-packages.js";
+import { draftFromRuns, testSkill } from "./skill-authoring.js";
+import { suggestSkills } from "./skill-suggest.js";
 import { healthReport } from "./health.js";
 import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { localModelsApi } from "./local-models-api.js";
+import { localRuntimes } from "./local-runtimes.js";
 import { streamRunEvents } from "./streams.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { standardSuite } from "./evaluation.js";
+import { allSuites, saveSuite, removeSuite, suiteFromRun } from "./evaluation-suites.js";
 import { McpSharingSchema, shareableTools } from "./mcp-server.js";
+import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
@@ -37,6 +44,7 @@ import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { voiceSettings, saveVoiceSettings, transcribeAudio, generateSpeech } from "./voice.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
+import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 
@@ -135,7 +143,10 @@ async function staticFile(
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
+    "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
+    "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
+    "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -143,6 +154,7 @@ async function staticFile(
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
+    "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -365,6 +377,9 @@ function state(app: Branch): unknown {
     triggers: app.triggers.list(owner),
     webhooks: app.webhooks.list(owner),
     tools: app.registry.descriptions(new Set(app.registry.permissions())),
+    lock: app.sessionLock.state(),
+    privacy: app.privacy.settings(),
+    secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
   };
 }
 async function api(
@@ -377,6 +392,12 @@ async function api(
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
+  // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
+  if (path.startsWith("/api/agents/"))
+    return remoteAgentsApi(app.remoteAgents, request, path, () => readBody(request), {
+      base: `http://${request.headers.host ?? "127.0.0.1:3210"}`,
+      token: /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "YOUR_SESSION_KEY",
+    });
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -384,6 +405,8 @@ async function api(
   if (path.startsWith("/api/chatgpt/")) return chatgptApi(app, request, path);
   if (path.startsWith("/api/projects")) return projectsApi(app, request, path);
   if (path.startsWith("/api/secrets")) return secretsApi(app, request, path);
+  if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
+  if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
   if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
@@ -398,6 +421,12 @@ async function api(
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
   if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
+  // Models on this computer: what is installed, downloads, hardware advice and task routing.
+  if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
+    return localModelsApi(
+      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner },
+      request.method ?? "GET", path, () => readBody(request),
+    );
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
@@ -412,6 +441,16 @@ async function api(
     return voiceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/voice/settings")
     return saveVoiceSettings(app.store, app.runtime.owner, await readBody(request));
+  // Pictures and sounds (wave 5): what the media tools should use, and everything they have made.
+  if (request.method === "GET" && path === "/api/media/settings")
+    return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
+  if (request.method === "POST" && path === "/api/media/settings")
+    return { settings: saveMediaSettings(app.store, app.runtime.owner, await readBody(request)) };
+  if (request.method === "GET" && path === "/api/artifacts") {
+    const type = new URL(request.url ?? "/", "http://local").searchParams.get("type") ?? "";
+    const kept = await app.artifacts.list();
+    return { artifacts: type ? kept.filter((entry) => entry.mediaType.startsWith(`${type}/`)) : kept };
+  }
   const match = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(cancel|resume|receipts|steer|plan))?$/.exec(path);
   if (match) {
     const run = app.store.run(match[1]!);
@@ -472,8 +511,38 @@ async function api(
     const { url, skillId } = z.object({ url: z.string().url().max(2000), skillId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.skillRegistry.install(url, skillId);
   }
+  // Wave 4: newer versions of skills installed from a registry, and a way back to the old one.
+  if (request.method === "GET" && path === "/api/registry/updates") return app.skillRegistry.updates();
+  if (request.method === "POST" && (path === "/api/registry/update" || path === "/api/registry/rollback")) {
+    const { skillId } = z.object({ skillId: z.string().uuid() }).strict().parse(await readBody(request));
+    return path.endsWith("update") ? app.skillRegistry.update(skillId) : app.skillRegistry.rollback(skillId);
+  }
+  if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
+  const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
+  if (plugin && request.method === "POST")
+    return plugin[2] === "inspect" ? app.plugins.inspect(plugin[1]!)
+      : plugin[2] === "enable" ? app.plugins.enable(plugin[1]!) : app.plugins.disable(plugin[1]!);
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
+  // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
+  if (request.method === "GET" && path === "/api/evaluation/suites")
+    return { suites: allSuites(app.store, app.runtime.owner) };
+  if (request.method === "POST" && path === "/api/evaluation/suites")
+    return saveSuite(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/suites/from-run")
+    return suiteFromRun(app.store, app.runtime.owner, await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/suites/remove") {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).strict().parse(await readBody(request));
+    return removeSuite(app.store, app.runtime.owner, id);
+  }
+  if (request.method === "POST" && path === "/api/evaluation/run")
+    return app.evaluationSuites.run(await readBody(request));
+  if (request.method === "POST" && path === "/api/evaluation/compare")
+    return app.evaluationSuites.compare(await readBody(request));
+  if (request.method === "GET" && path === "/api/evaluation/history") {
+    const suite = new URL(request.url ?? "/", "http://local").searchParams.get("suite") ?? undefined;
+    return { runs: app.evaluationSuites.history(suite), trend: app.evaluationSuites.trend(suite) };
+  }
   if (request.method === "GET" && path === "/api/policy")
     return { policy: readPolicy(app.store, app.runtime.owner), presets: policyPresets(), waiting: app.runtime.approvals.waiting() };
   if (request.method === "POST" && path === "/api/policy")
@@ -715,21 +784,60 @@ async function projectsApi(app: Branch, request: IncomingMessage, path: string):
   }
   throw new HttpError(404, "Endpoint not found");
 }
-/** Secret values go in and never come out; only names are listed. */
+/** Secret values go in and never come out; only names, dates and who used them are listed. */
 async function secretsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
-  const owner = app.runtime.owner, locker = app.store.locker;
+  const owner = app.runtime.owner, secrets = app.store.secrets;
   const known = (project: string) => { if (!app.store.projects.list(owner).some((p) => p.id === project)) throw new HttpError(404, "Project not found"); };
+  if (request.method === "GET" && path === "/api/secrets/audit")
+    return { uses: secrets.audit(owner), reminders: secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)) };
   const listMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})$/.exec(path);
-  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: locker.names(owner, listMatch[1]!) }; }
+  if (listMatch && request.method === "GET") { known(listMatch[1]!); return { project: listMatch[1], secrets: secrets.list(owner, listMatch[1]!) }; }
   if (request.method === "POST" && path === "/api/secrets") {
-    const { project, name, value } = z.object({ project: z.string(), name: z.string(), value: z.string() }).strict().parse(await readBody(request, 64 * 1024));
-    known(project);
-    return locker.set(owner, project, name, value);
+    const body = z.object({ project: z.string(), name: z.string(), value: z.string(), expiresInDays: z.number().optional() })
+      .strict().parse(await readBody(request, 64 * 1024));
+    known(body.project);
+    return secrets.put(owner, body.project, body.name, body.value, { expiresInDays: body.expiresInDays ?? 0 });
   }
-  const removeMatch = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/remove$/.exec(path);
-  if (removeMatch && request.method === "POST") {
+  const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
+  if (action && request.method === "POST") {
+    if (action[3] === "remove") {
+      z.object({}).strict().parse(await readBody(request));
+      return { removed: secrets.remove(owner, action[1]!, action[2]!) };
+    }
+    const body = z.object({ value: z.string(), expiresInDays: z.number().optional() }).strict().parse(await readBody(request, 64 * 1024));
+    known(action[1]!);
+    return secrets.rotate(owner, action[1]!, action[2]!, body.value, { expiresInDays: body.expiresInDays ?? 0 });
+  }
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Locking the app, and the privacy checks on messages that leave this computer. */
+async function guardApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (request.method === "GET" && path === "/api/lock") return app.sessionLock.state();
+  if (request.method === "POST" && path === "/api/lock") return app.sessionLock.lock();
+  if (request.method === "POST" && path === "/api/lock/unlock") { z.object({}).strict().parse(await readBody(request)); return app.sessionLock.unlock(); }
+  if (request.method === "POST" && path === "/api/lock/settings") return app.sessionLock.configure(await readBody(request));
+  if (request.method === "GET" && path === "/api/privacy") return app.privacy.settings();
+  if (request.method === "POST" && path === "/api/privacy") return app.privacy.configure(await readBody(request));
+  throw new HttpError(404, "Endpoint not found");
+}
+/** Signing in to an outside service: the app opens the address this returns in the browser. */
+async function connectionsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  if (request.method === "POST" && path === "/api/connections/oauth/start") {
+    const started = await app.oauth.start(await readBody(request, 16 * 1024));
+    // The flow finishes on its own when the service calls back; nothing here waits for it.
+    app.oauth.waitFor(started.id).catch(() => undefined);
+    return started;
+  }
+  const cancel = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})\/cancel$/.exec(path);
+  if (cancel && request.method === "POST") {
     z.object({}).strict().parse(await readBody(request));
-    return { removed: locker.remove(owner, removeMatch[1]!, removeMatch[2]!) };
+    await app.oauth.cancel(cancel[1]!);
+    return { cancelled: cancel[1] };
+  }
+  const status = /^\/api\/connections\/oauth\/([a-z][a-z0-9-]{0,39})$/.exec(path);
+  if (status && request.method === "GET") {
+    const tokens = await app.oauth.saved(status[1]!);
+    return { id: status[1], signedIn: tokens !== null, expiresAt: tokens?.expiresAt ?? null, scope: tokens?.scope ?? null };
   }
   throw new HttpError(404, "Endpoint not found");
 }
@@ -963,7 +1071,19 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   }
   if (request.method === "POST" && path === "/api/skills/install")
     return skills.install(owner, await readBody(request, 128 * 1024));
-  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft))?$/.exec(path);
+  // Wave 4: packages people share, help with writing a skill, and suggestions from recent tasks.
+  if (request.method === "GET" && path === "/api/skills/packages") return { packages: app.skillPackages.list(), problems: app.packageProblems };
+  if (request.method === "GET" && path === "/api/skills/suggest") return suggestSkills(app.store, owner);
+  if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
+    const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
+    const bytes = Buffer.from(body.file, "base64");
+    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+  }
+  if (request.method === "POST" && path === "/api/skills/draft-from-runs")
+    return draftFromRuns(app.store, owner, app.runtime, await readBody(request));
+  const match = /^\/api\/skills\/([a-f0-9-]{36})(?:\/(update|activate|disable|remove|read|benchmark|draft|pack|test))?$/.exec(path);
+  if (match && request.method === "POST" && match[2] === "pack") return app.skillPackages.pack(match[1]!, await readBody(request));
+  if (match && request.method === "POST" && match[2] === "test") return testSkill(app.store, owner, app.runtime, match[1]!, await readBody(request));
   if (match && request.method === "POST" && match[2] === "benchmark") return app.store.governance.benchmark(app.runtime, { ...(await readBody(request) as Record<string, unknown>), skillId: match[1]! });
   if (match && request.method === "POST" && match[2] === "draft") {
     const { runId } = z.object({ runId: z.string().uuid() }).strict().parse(await readBody(request));
@@ -976,7 +1096,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
       case "update": return skills.update(owner, id, input);
       case "activate": return skills.activate(owner, id, input);
       case "disable": return skills.disable(owner, id, input);
-      case "remove": return skills.remove(owner, id, input);
+      case "remove": { const removed = skills.remove(owner, id, input); app.skillPackages.forget(id); return removed; }
       case "read": return skills.read(owner, id, input);
     }
   }
@@ -1010,10 +1130,14 @@ async function mcpApi(app: Branch, request: IncomingMessage, path: string): Prom
     if (request.method === "GET")
       return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     if (request.method === "POST") {
-      const sharing = McpSharingSchema.parse(await readBody(request));
+      const body = await readBody(request);
+      const sharing = McpSharingSchema.parse(body);
       const known = new Set(app.registry.names());
       const exposedTools = sharing.exposedTools.filter((name) => known.has(name));
-      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools });
+      // A screen that does not know about answering other assistants must not switch it off by saving.
+      const said = (body as Record<string, unknown> | null)?.a2a;
+      const a2a = typeof said === "boolean" ? said : mcp.sharing().a2a;
+      app.store.save("settings", app.runtime.owner, "mcp-sharing", { enabled: sharing.enabled, exposedTools, a2a });
       return { ...mcp.sharing(), tools: shareableTools(app.registry) };
     }
   }
@@ -1150,6 +1274,9 @@ export async function startServer(
         return;
       }
       authorize(request, url, token);
+      // Doing something counts as activity; merely looking does not, or the app's own three-second
+      // refresh of the screen would keep it awake for ever and it would never lock itself.
+      if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       const executes = isExecution(request, path);
       if (executes && executions >= 8)
@@ -1164,7 +1291,8 @@ export async function startServer(
     } catch (e) {
       if (!response.headersSent)
         send(response, e instanceof HttpError ? e.status : 400, {
-          error: errorText(e),
+          // A saved password or key can never travel back out in a failure message.
+          error: app.runtime.hideSecrets(errorText(e)),
         });
       else response.end();
     }
@@ -1203,12 +1331,31 @@ export async function startServer(
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // Talking to other assistants: the card and the task endpoint, which streams when asked to.
+  if (path === "/a2a" || path === "/.well-known/agent.json")
+    if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
   const stream = /^\/api\/runs\/([a-f0-9-]{36})\/stream$/.exec(path);
   if (stream && request.method === "GET") {
     const run = app.store.run(stream[1]!);
     if (!run || run.owner !== app.runtime.owner) throw new HttpError(404, "Run not found");
     const after = Number(new URL(request.url ?? "/", "http://local").searchParams.get("after") ?? 0) || 0;
     await streamRunEvents(app.store, run.id, response, after);
+    return true;
+  }
+  // One kept picture or sound, so the gallery can show it. Anything outside the artifacts folder
+  // is refused by RunArtifacts itself, and only kinds the browser can safely display are served.
+  if (request.method === "GET" && path === "/api/artifacts/file") {
+    const wanted = new URL(request.url ?? "/", "http://local").searchParams.get("path") ?? "";
+    const entry = (await app.artifacts.list(500)).find((kept) => kept.path === wanted);
+    if (!entry) throw new HttpError(404, "That file was not made by the assistant");
+    if (!/^(image|audio)\//.test(entry.mediaType)) throw new HttpError(415, "Only pictures and sounds are shown here");
+    const bytes = await app.artifacts.read(entry.path);
+    response.writeHead(200, {
+      "content-type": entry.mediaType, "cache-control": "no-store",
+      "x-content-type-options": "nosniff", "content-disposition": `inline; filename="${entry.name}"`,
+      "content-security-policy": "default-src 'none'; sandbox",
+    });
+    response.end(bytes);
     return true;
   }
   if (request.method === "POST" && path === "/api/voice/transcribe") {
@@ -1332,7 +1479,7 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/a2a"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/webhooks\/whatsapp\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

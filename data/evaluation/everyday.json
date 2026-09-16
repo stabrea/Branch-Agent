@@ -1,0 +1,35 @@
+{
+  "id": "everyday",
+  "name": "Everyday assistant",
+  "description": "The ordinary things a person asks for: remember something, write a file and prove it, sum up a note, and follow a short procedure step by step.",
+  "tasks": [
+    {
+      "id": "memory-recall",
+      "prompt": "Remember this for later: my printer is called Hydra. Then tell me, in one short sentence, what my printer is called.",
+      "checks": { "mustMention": ["Hydra"] },
+      "tags": ["memory"]
+    },
+    {
+      "id": "file-with-proof",
+      "prompt": "Create a file named eval-ready.txt in the workspace containing exactly the word ready. Then read it back to check it, and say done.",
+      "checks": { "files": ["eval-ready.txt"], "mustMention": ["done"] },
+      "tags": ["files"]
+    },
+    {
+      "id": "summarise-note",
+      "prompt": "Here is a note from my desk: \"The corner shop opens at nine in the morning and closes at five in the afternoon, Monday to Friday. It does not open at the weekend.\" Sum it up in one sentence.",
+      "expected": "One sentence saying the shop is open nine to five on weekdays and closed at the weekend.",
+      "judge": {
+        "rubric": "Give 1 when the answer is one short sentence that gets both the weekday opening hours and the weekend closure right. Give 0.5 when one of the two is missing or vague. Give 0 when it invents hours or ignores the note.",
+        "pass": 0.6
+      },
+      "tags": ["writing"]
+    },
+    {
+      "id": "follow-procedure",
+      "prompt": "Follow these steps exactly, in order. Step one: write the word alpha into a workspace file named eval-step1.txt. Step two: write the word beta into a workspace file named eval-step2.txt. Step three: say finished.",
+      "checks": { "files": ["eval-step1.txt", "eval-step2.txt"], "mustMention": ["finished"] },
+      "tags": ["procedure"]
+    }
+  ]
+}

@@ -44,6 +44,8 @@ export const webhookEvents = [
   "delivery.failed",
   "trigger.fired",
   "approval.needed",
+  /** A test that used to pass has started failing. */
+  "evaluation.regression",
 ] as const;
 export type WebhookEvent = (typeof webhookEvents)[number];
 /** What the rest of the runtime calls to announce an event; a no-op when nothing is listening. */

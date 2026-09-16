@@ -1,5 +1,21 @@
 # Branch Agent checkpoint — 2026-09-15 (late evening)
 
+## Batch 23 (wave 5) — pictures, sound and what a video says about itself
+
+`src/media-images.ts` holds the picture clients and the one refusal that matters: `providerImages(provider)` asks a connection whether it has a picture-making route, and a connection that does not gets a plain sentence (`noImageEndpoint`) instead of a stack trace. `OpenAIProvider.images()` and `GeminiProvider.images()` return `{kind, endpoint, apiKey, defaultModel}`; `AnthropicProvider.images()` returns null. The OpenAI shape is asked at `/images/generations` (JSON, `response_format: "b64_json"`) and `/images/edits` (multipart, the source picture and an optional mask as files); Gemini is asked at `/v1beta/models/<model>:generateContent` with `responseModalities: ["IMAGE"]` and the source picture riding along as `inlineData`. Addresses are joined the way `src/providers.ts` joins them (`endpoint.replace(/\/$/,"") + path`), so a provider address that carries a path still works, and every one goes through the shared `NetworkPolicy` first. A provider that answers with a link rather than the picture is refused rather than followed.
+
+`src/media.ts` (`MediaTools`) registers seven tools. `media.image` makes or changes a picture, writes it through `RunArtifacts` beside the private database, and — only when the call names a file — also saves it into the workspace media folder; the result is the artifact descriptor at the top level (`path`, `bytes`, `sha256`, `mediaType`), which is exactly the shape `RunArtifacts.imageIn` recognises, so a made picture can be shown back to the model, plus the model, size, prompt and a cost estimate. `media.describe` (describe, read the words, write out a table) and `media.compare` build real `ImagePart`s through `parseImages`, so the 5 MB and four-picture caps and the allowed kinds are the same ones an attached picture obeys, and both refuse before reading anything when the connected model cannot see. `media.transcribe` posts a workspace sound file to the provider's `/audio/transcriptions` with `verbose_json` and `timestamp_granularities[]` when times are asked for, and says plainly when a provider sends none. `media.speak` reuses `generateSpeech` from `src/voice.ts`, which gained an optional `{voice, model}` argument (default behaviour unchanged). `media.trim` cuts WAV in plain JavaScript — `src/media-audio.ts` walks the RIFF chunks, snaps both ends to `blockAlign` and writes a fresh 44-byte header — and turns down MP3, M4A and OGG in words rather than half-handling them. `media.info` (`src/media-video.ts`) walks MP4 boxes, reads `mvhd` in both of its versions for the length, counts `trak` boxes and reports the `ftyp` brand; it answers for WAV too.
+
+**Deliberately absent: `media.frames`.** Pulling a still out of an MP4 needs a video decoder this app does not ship, so no tool pretends to. `videoLimits` is one sentence stated in the tool description, in the result of every `media.info` call, in the Settings card and in the docs: no video generation, no frame extraction, but the length and shape of a file can be read. A test asserts `media.frames` is not registered.
+
+Permissions: `media.read` (describe, compare, transcribe, info) is added to `readOnlyPermissions` in `src/policy.ts` so looking at a picture is not treated as a change; `media.write` (image, speak, trim) is held to the owner's approval rules like any other change, and honours `dryRun`. `policyTarget()` only reads a top-level `url` or `path`, which `media.image`, `media.speak` and `media.compare` do not have, so each of them carries its own `target()` returning the workspace path it would write (`MediaTools.savePath()` folds in the owner's media folder) or the picture it would read — without those a rule like `{tool: "media.*", match: "media/*"}` would silently never fire. Every workspace read goes through `WorkspaceFiles.checked()` and then `O_NOFOLLOW`, with a 32 MB cap; workspace writes re-check the path after creating the folder. Results carry only descriptors, never bytes, so nothing approaches the registry's 64 KiB tool-result cap.
+
+Settings and routes: `src/media-settings.ts` stores the picture model, the workspace folder and per-picture price corrections in `settings/media` (`GET|POST /api/media/settings`); the built-in per-picture table is separate from `src/pricing.ts`, whose strict token-denominated schema is untouched. It was read for one 1024×1024 picture, so `estimateImageCost` takes the size and reports no amount at all for any other one, and an unlisted model reports `unknown` rather than a made-up zero; an owner's own price is used at every size. `RunArtifacts.list()` was added (a folder listing, no file opened, no checksum) behind `GET /api/artifacts?type=image`, and `GET /api/artifacts/file?path=…` serves one picture's bytes — only paths the listing itself produced, only `image/*` and `audio/*`, under `default-src 'none'; sandbox`.
+
+UI: a new `public/media.js` adds a picture button and drag-and-drop to the message box. Pictures become removable chips and ride on the next `POST /api/run` as `images` (the existing field; `RunInputSchema` is unchanged); a dropped sound file is written out through `POST /api/voice/transcribe` and the words are put in the message box so the person can read them before sending. `public/app.js` gained five lines: four to pass the chips along and clear them, and one to switch the picture button off while a task is working, because a message sent then becomes a follow-up and a follow-up carries words only — a chip that could never travel would be worse than no chip. The Documents panel gained a "Made by the assistant" card and Settings a "Pictures and sound" card. `public/shell.css` and `public/shell.js` were not touched; the small amount of new CSS is appended to `public/style.css`. There is no open-in-folder, because no such bridge exists and desktop code is out of scope for this branch — the full path is shown with a copy button instead.
+
+Tests: `tests/media.test.mjs` (11) run `node:http` fakes and assert the generate request's route, body, size and `b64_json`; the edit request's multipart content-type and field names; Gemini's route and `responseModalities`; the refusal when the connection has no picture service; that describing sends a real image part and that a text-only model refuses before any file is read; that a WAV trim produces a valid RIFF file of exactly the right byte length and that an MP3 is turned down; that a synthetic MP4 built box by box reports six seconds, two tracks and the `isom` brand; that a picture posted to `/api/run` reaches the provider as an image part and that the gallery routes list and serve it while refusing anything outside the artifacts folder; that each media tool hands the approval rules a real target; that a headless page turns an attached picture into a removable chip the next message would carry; and that the settings route saves and validates. Items done: A1996, A2025, A2083, A2106, A2184, A2294, A2321, A2368, A0888, A1995, A1893, A1894, A2173.
+
 ## Batch 19 (wave 2) — version control and GitHub
 
 `src/integrations/git-run.ts` locates the installed Git once with `where git` (`which git` elsewhere), verifies the path is a real file and caches it, then runs every command through the existing `ShellProcess` runner — never a shell. Each call is prefixed with `-c safe.directory=<cwd> -c core.hooksPath=<nonexistent> -c core.quotepath=false -c credential.interactive=never --no-pager`, and the child gets a narrow environment plus `GIT_TERMINAL_PROMPT=0`, so a repository's own hooks never run and Git can never block on a password prompt. `explainGit()` maps Git's wording to plain sentences (not installed, not a repository, unmerged changes, unknown identity, dubious ownership, rejected push, unreachable server, timeout). `src/integrations/git.ts` (`GitTools`) resolves every folder through `WorkspaceFiles.checked()` so commands stay inside the workspace or the active project's folder, and implements status/diff/log/branch/commit/worktree/push/pull. `git.commit` stages only the paths it listed, refuses when nothing is staged and never amends; `git.diff` lists names first, drops hidden ones and caps the returned text at 24 000 characters; `git.worktree` confines parallel copies to `.branch-worktrees` inside the repository. `src/integrations/git-tools.ts` registers them under three permissions: `git.read` (status, diff, log), `git.write` (branch, commit, worktree) — both registered in `createBranch` — and `git.remote` (push, pull), registered only when the integrations file carries `"git": { "remote": true }`, so pushing is off by default. Pushing to main/master throws `NeedsInputError`, reusing the `user.ask` pause. `src/integrations/github.ts` (`GitHubAccess`) talks to the REST API through the shared `NetworkPolicy`; the personal access token comes from the active project's locker (`GITHUB_TOKEN`, since locker names are environment-style), travels only in the `Authorization` header, never in a web address, and every reply is put through `scrubSecrets` before it is parsed or reported. `github.create_repo` (private by default), `github.open_pull_request`, `github.list_issues` and `github.create_issue` sit behind `github.manage`. `src/ignore.ts` (`ignoreMatcher()`, dependency-free) reads gitignore syntax; `WorkspaceFiles` loads `.branchignore` from the workspace root, re-reads it when it changes, refuses hidden paths in `checked()` and filters them out of `list()`, and the git tools reuse the same matcher. The fixed secret patterns still run first, so a `!` line cannot re-expose an `.env`. Chat-channel and skill-benchmark runs have `git.remote` and `github.manage` stripped alongside `shell.execute`. Tests: `tests/git.test.mjs` (12) init a real repository and exercise every tool, prove a `pre-commit` hook does not fire, prove commit refuses an unchanged tree, prove push is absent and then permission-denied and then asks about main, run a `node:http` GitHub fake asserting the bearer header and that no token reaches the event log, receipt or result, and check the network policy blocks a non-GitHub host. Items done: A0388, A0393, A0435, A2333.
@@ -373,6 +389,71 @@ still, show the acorn) that apply instantly and persist through `POST /api/prefe
 static routes: `/tokens.css`, `/shell.css`, `/shell.js`, `/appearance.js`. Tests:
 `tests/shell-ui.test.mjs`.
 
+## Batch 23 (wave 4) — talking to assistants other people built
+
+Branch could be used by other AI tools over MCP; now it can also be one agent among several.
+**A2A server** (`src/a2a.ts`, `src/a2a-routes.ts`): `/.well-known/agent.json` publishes a card —
+name, address, `bearer` auth, streaming, and skills taken from the list the owner already ticked
+for sharing, plus `branch.ask`. `/a2a` takes JSON-RPC `tasks/send`, `tasks/sendSubscribe` (SSE
+frames carrying one state update per recorded step, then the artifact, then a `final` update),
+`tasks/get` and `tasks/cancel`. Every task is an ordinary run with `source: "a2a"`, an `a2a.task`
+event naming the caller, and the usual signed receipts. The switch is `a2a` inside the existing
+`settings/mcp-sharing`; while it is off both routes are 404, not 403. Only text parts are accepted,
+one caller gets 20 tasks a minute (`-32003` / HTTP 429), and `RunSource` gained `"a2a"` and
+`"acp"` so `cappedPolicy` holds both to "Ask before changes". **A2A client**
+(`src/a2a-client.ts`): `agents.remote { add | list | remove }` reads another install's card through
+the network policy and saves it; `agents.ask { agent, task }` sends the words of the task and
+nothing else, with a 60 s (max 120 s) wait, ten asks a minute per agent, and the answer charged to
+the run's budget. `GET /api/agents/discover?targets=…` probes only the addresses the owner types
+in — no mDNS, no dependency — and `GET /api/agents/pairing` returns a `branch://add-agent?…` link
+the other install redeems with `POST /api/agents/pair`. **ACP** (`src/acp.ts`, `branch acp-serve`):
+bidirectional newline-delimited JSON-RPC on stdio — `initialize`, `session/new`, `session/prompt`
+with `session/update` chunks, `session/cancel` — and a step that needs a yes becomes an outbound
+`session/request_permission` whose answer goes straight to `runtime.approve`. Documented with a Zed
+`agent_servers` example. A streamed task that cannot even be created (a busy conversation, a spent
+monthly budget) answers with a `failed` final frame instead of leaving a rejection nobody is
+watching, a line the editor sends that Branch cannot use is reported and skipped rather than ending
+the connection, and saving the sharing screen — which posts only `enabled` and `exposedTools` —
+leaves `a2a` as it was. Tests: `tests/interop-agents.test.mjs` (19, including a spawned
+`acp-serve`). No new dependency.
+
+Known gap, shared with MCP: `cappedPolicy` returns the policy untouched while the preset is
+**No approvals**, which is the default, so a caller is only held to "Ask before changes" once the
+owner has chosen an approval setting. `exposedTools` shapes the card's skills, not what a task may
+do — `branch.ask` reaches the whole registry. Both are written down in `docs/configuration.md`.
+
+## Batch 23 (wave 4) — skills and plugins people can actually share
+Skills were single documents that could only be typed in or fetched from a registry. This batch
+makes them shareable objects and opens a documented seam for developers. **Skill packages**
+(`src/skill-package.ts`): a `skill/` folder with `SKILL.md`, optional `tools.json` and optional
+`hooks.json`, packed into one `.branchskill` file — a zip written with `node:zlib` and read back by
+a minimal reader in the same file, so no dependency was added. The manifest carries the name,
+version, author, the permissions the package asks for and a SHA-256 of every file; opening it
+refuses a package whose files no longer match, and refuses a file the manifest does not list.
+`src/skill-packages.ts` installs one only after the owner approves the list, runs the existing skill
+scan, and leaves the skill switched off. **Declarative web calls** (`src/skill-http-tools.ts`):
+`tools.json` entries become `skill.<name>.<tool>` tools under the new `skills.http` permission.
+Addresses go through the existing network policy, `{{secret:NAME}}` header and body values are
+resolved from the project locker at the moment of the call, and the result is run through
+`scrubSecrets` before it is returned or recorded — the test asserts the secret is in no result, no
+event and no message. **Registry v2** (`src/registry-install.ts`): indexes may publish an ed25519
+public key and sign entries over a fixed line-by-line payload, so key order in the file cannot
+change the signature; entries are labelled `checked`, `unsigned` or `invalid`, an invalid one is
+refused, and version 1 indexes still parse unchanged. `GET /api/registry/updates` reports newer
+versions with their changelogs, `POST /api/registry/update` adds the new version and switches to
+it, and `POST /api/registry/rollback` restores the one that was in use. **Authoring help**
+(`src/skill-authoring.ts`): `POST /api/skills/draft-from-runs` proposes one improved version from
+several tasks, and `POST /api/skills/:id/test` runs the examples listed under an `## Examples`
+heading and reports each one. **Plugins** (`src/plugins.ts`): `<name>.mjs` files in
+`<dataDir>/plugins` whose default export declares tools (named `plugin.<id>.<name>`, each needing a
+permission the plugin itself declared) and event handlers. Listing the folder loads nothing;
+inspecting loads one file, enabling registers its tools and handlers, disabling takes them back
+out. There is no sandbox and the docs say so plainly: permission gating and opt-in are the whole
+boundary. **Suggestions** (`src/skill-suggest.ts`): `GET /api/skills/suggest` word-matches recent
+task prompts against skills the owner has switched off and registry listings they have browsed, on
+this computer, with no model call. CLI: `branch skill pack|install` and
+`branch plugin list|enable|disable`. UI: `public/skills-extra.js` adds the sharing, updates,
+suggestions and plugins cards to the Skills screen. Tests: `tests/skills-plugins.test.mjs`.
 ## Batch 22 (wave 3) — browser automation a non-technical owner can trust
 
 The browser could navigate, read an accessibility snapshot, click and fill, always in a fresh
@@ -631,6 +712,134 @@ left alone here. Not fixed here either: `specialists.fanout` accepts eight tasks
 `delegate()` refuses a fifth concurrent child of the same parent, so a wide independent wave fails
 today. Covers A0186, A0405, A0372, A0959, A1093, A1092, A0317, A0809, A0935, A0195, A1116, A1218
 and A1278; the graph/DSL families in this theme (A0889, A0892, A1215, A1238, A1257) are untouched.
+
+## Batch 23 (wave 4) — evaluation suites the owner can run, and their history
+The old `src/evaluation.ts` (one hard-coded three-task suite) is untouched and still answers
+`POST /api/evaluation` and a bare `branch eval`. Around it, suites are now **data**:
+`data/evaluation/*.json`, validated on load by `src/evaluation-suites.ts`, copied into `dist/` by
+`scripts/copy-suites.mjs` so the packaged app (which ships only `dist`, `public` and
+`node_modules`) has them. Five ship — everyday, tool-use, safety, reliability, cost — and all five
+pass end to end on a scripted provider. A task carries `checks` (the existing reliability checks),
+`deny` (phrases the answer must not contain, files it must not create), an optional
+`judge: { rubric, pass }`, `expected`, `requires` (a task naming a tool this launch does not have is
+**skipped**, not failed — that is how the browser task behaves without the browser integration),
+`tags`, `timeoutMs` and `mode`. Grading order is deliberate and is the honest part: `deny` is fatal
+first, then checks that anyone can repeat, and only a task with no checks is sent to the judge, so a
+model can never grade its way past a deterministic result. `POST /api/evaluation/suites/from-run`
+turns a finished task into a test.
+`src/evaluation-runner.ts` (`app.evaluationSuites`) records every run under `governance` as
+`evaluation-run:<id>` with per-task right/wrong, time, tokens, money through `src/pricing.ts`, the
+model choice and the app version; `GET /api/evaluation/history?suite=` returns the runs and a trend
+series. **Regression** means exactly one thing: the task passed in each of the three runs before
+this one and has just failed — with fewer than three earlier runs nothing is ever flagged.
+`POST /api/evaluation/compare { suite, presets }` runs the same suite against each model choice and
+returns one table; it offers only tools that change nothing unless `allowChanges` is passed, which
+is why the cost suite is written to need no writes. Money follows the existing rule — a model with
+no price on file reports no amount rather than zero — and energy stays `"unavailable"`.
+Scheduling reuses the existing scheduler: `kind: "evaluation"` with `suite`, a `SuiteRunner` hung
+off `scheduler.evaluations` the way `runtime.documents` is hung off the runtime, a synthetic
+finished run so the result shows up in Activity, and a new `evaluation.regression` webhook event.
+CLI: `branch eval --suite <id> [--preset ..] [--compare a,b] [--json]`. UI: one card on Usage
+(`public/evaluation.js`).
+Two things worth knowing. The interrupt-and-resume task **stages** its interruption — one model
+round and the one tool call it asks for are allowed (the budget charges a step for each, so the
+allowance is two, not one), the saved task is then marked `interrupted` exactly as startup recovery
+would leave it, and the ordinary `runtime.resume` path takes over; it is a real exercise of the
+resume code, not a real crash, and the docs say so. And `tests/evaluation-more.test.mjs` uses a
+provider that dispatches on the **last user message** rather than on call order, because the shared
+ordered-step provider in the other test files silently repeats its last step and would let one stray
+model call shift every later task.
+Covers A0570, A0926, A0078, A0884, A0927, A1009, A1010, A1128, A1691 and A1764. The rows naming
+outside benchmark datasets or leaderboards (SWE-bench, terminal-bench, OSWorld, GAIA,
+WindowsAgentArena, AndroidWorld, WebVoyager, BrowserGym, BEIR, AGBench, APPS/MBPP) are untouched,
+however well the suite mechanism would carry them; so are the URL and HTML-state evaluators
+(A1765, A1766), which need a browser page the harness does not yet drive.
+
+
+## Batch 23 (wave 4) — models that run on this computer
+Branch could already be pointed at Ollama or LM Studio as a provider; it could not *manage* one.
+`src/local-models.ts` speaks both runtimes' own APIs with no new dependency: `OllamaClient` does
+version, list (`/api/tags`), details (`/api/show`, including the largest `*.context_length` the
+server reports and whether the model can be shown a picture), delete, embeddings
+(`/api/embeddings`, one passage per request) and `pull`, which reads Ollama's newline-delimited
+progress stream and turns each line into a `model.download.progress` report with bytes so far,
+total and a percentage. `LmStudioClient` lists models (`/api/v0/models`, falling back to
+`/v1/models`) and loads one by asking it for a single token, which is the only public way to make
+LM Studio bring a model into memory. Every base address goes through `assertOnThisComputer`, which
+refuses anything that is not `localhost`/`127.0.0.1`/`[::1]` or that carries credentials, a query
+or a fragment; model names are checked against the shape Ollama accepts so a name can never become
+a path. These requests deliberately do not go through `NetworkPolicy` — it refuses loopback by
+design, and a local runtime is nothing but loopback — which is the same carve-out
+`GET /api/providers/local` already documents.
+`src/local-hardware.ts` reads memory and cores from Node and, on Windows only, the graphics card
+from one cached `powershell Get-CimInstance Win32_VideoController` that returns null on any
+surprise. `recommendModels()` is pure: three sizes (llama3.2:3b, llama3.1:8b, qwen2.5:14b) each
+marked as fitting this computer or not, with plain-language expectations ("fast, good for notes";
+"slower, better at reasoning") and a note saying whether the graphics card will take the work or
+replies will come a word at a time.
+`src/local-runtimes.ts` holds it together for the app: one shared `LocalRuntimes` with an in-memory
+download registry, because a multi-gigabyte pull lasts far longer than the server's 150 s request
+timeout — `POST /api/local-models/pull` starts it and returns at once, `GET
+/api/local-models/downloads` says how it is going — plus the last error and the health section.
+`src/local-models-api.ts` is the whole `/api/local-models/*` family, so `src/server.ts` gains only a
+four-line dispatch block, the family name in `isExecution`, and `/local-models.js` in the static
+list. `src/local-routing.ts` adds per-task routing (`settings/routing`, off by default): a pure
+`classifyTask` (length, tool-need phrases, and a personal-details heuristic written here because
+Branch still has no PII guard — A0875) and a pure `chooseRoute` that keeps a private task on this
+computer, sends a long or tool-heavy one to the cloud model, prefers the free local model when a
+simple task would cost more than the owner's ceiling by the existing pricing table, and would fall
+back to the cloud when the local server is not answering. `Runtime.loop` consults it in ten lines
+and records a `model.routed` event; an explicit run or conversation choice always wins. One honest
+gap: `Runtime.routed` passes no `localUp`, so that last branch is unreachable from a real run — a
+dead local model falls back the ordinary way, through the connection's fallbacks and the provider
+cooldown. Only `POST /api/local-models/routing/preview` sets `localUp` today.
+`document-embeddings.ts` gains an `Embedder` interface so `documents.ts` and `memory-retrieval.ts`
+can take Ollama's reader in two lines each when the connected model is on Ollama's port, swapping
+`text-embedding-3-small` for `nomic-embed-text`. `models.ts` gains `presetRunsLocally`, a `local`
+flag on every `ModelChoice` and `ModelRouter.runsLocally`, so the context pane says "· on this
+computer" plainly. UI: a "Models on this computer" card in Settings (`public/local-models.js`) with
+the hardware summary, the three suggestions, a native progress bar per download, what is installed
+with its size and whether it can see pictures, and the routing switches. Tests:
+`tests/local-models.test.mjs` (20) drive a real loopback fake Ollama, including a pull whose NDJSON
+is split across chunks. Covers A1788 and A2365, and the provider-adapter family under
+`models.routing-and-cost`; A2103 (under `cli-and-tui`) is adjacent but not claimed.
+
+## Batch 23 (wave 4) — secrets that cannot leak, ordinary sign-ins, commands kept in their lane
+`src/vault.ts` puts one `Secrets` service in front of the locker. Tools and settings pass a
+reference (`secret://project/NAME`); `Secrets.fill` walks a value, refuses a reference belonging to
+another project, and substitutes the real thing only at the call boundary. Every value ever unlocked
+is remembered by one `SecretScrubber` built on the existing `scrubSecrets`, and that scrubber is
+attached in exactly three places: `store.guardEvent` (every stored event), `runtime.hideSecrets`
+(tool results, tool errors, run summaries) and the server's error reply. **Order matters**: the
+result is scrubbed *before* `receipts.sign`, so a scrubbed result still verifies — signing first
+would have made every secret-touching run read as "modified" in the receipts view. Two new tables,
+`secret_meta` (replacement day, reminder day) and `secret_use` (which run used which secret, what
+for), back `POST /api/secrets/:project/:NAME/rotate` and `GET /api/secrets/audit`.
+`src/oauth.ts` is a generic authorization-code + PKCE flow: a loopback listener on 127.0.0.1 port 0,
+`state` compared in constant time, the exchange and the refresh through the existing network policy,
+and the tokens kept in the locker as one JSON secret (`OAUTH_<ID>`). No provider-specific UI; a fake
+authorization server proves the round trip and the renewal. Note the trap found here: what the
+service answers with is snake_case and what the locker keeps is camelCase, so there are two schemas.
+`src/integrations/job-object.ts` gets real OS enforcement on Windows without a dependency: a small
+PowerShell supervisor declares the kernel32 calls with `Add-Type`, creates a job object with
+`PROCESS_TIME | PROCESS_MEMORY | KILL_ON_JOB_CLOSE`, and holds the handle for exactly as long as the
+command runs. The job is created *before* the command is spawned, so assignment happens within
+microseconds of the start; `null` at any point falls back to the sampler that was already there, and
+every result reports `isolation: "job-object" | "sampling"`. This genuinely changes behaviour: the
+Windows orphan case in `tests/shell.test.mjs` now cleans itself up, and that test was updated to
+assert the better outcome when a job is in force and the old limitation otherwise. `netless` sets
+the proxy variables to `http://127.0.0.1:9`; it is documented as best effort, not a firewall,
+because a per-command firewall rule needs administrator rights.
+`src/pii.ts` detects emails, phones, cards (Luhn), IBANs (mod-97) and national ids, and never
+repeats the detail it found in its own finding. `src/privacy-guard.ts` applies it outbound (default
+mask, through the new `ChannelRouter.outboundGuard` hook) and inbound (default off, so reading your
+own files is never rewritten), and chains the optional `src/moderation.ts` check. `src/session-lock.ts`
+locks after N quiet minutes and is what `Secrets.gate` calls, so a locked app will not open the
+locker for a new task. No new dependency. Covers A1343, A1687, A1414, A1563, A0590 (partly, through
+the scrubber rather than skill scanning), A2119, A0836, A1856, A1897, A0875, A0877, A0962 (further),
+A2131/A2160 partly (a resource sandbox, not a container) and A2277. Left alone deliberately:
+external vault backends (A1519, A1841), multi-user accounts (A1652, A1896, A2002, A2216), WebAuthn
+(A2074) and Docker isolation (A2152) — none of them fit a single-owner local desktop app.
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.

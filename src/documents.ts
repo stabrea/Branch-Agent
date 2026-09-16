@@ -8,7 +8,8 @@ import type { ToolRegistry } from "./registry.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { ModelRouter } from "./models.js";
 import { documentType, extractText } from "./document-text.js";
-import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector } from "./document-embeddings.js";
+import { EmbeddingClient, cosine, defaultEmbeddingModel, fuseRanks, packVector, unpackVector, type Embedder } from "./document-embeddings.js";
+import { localEmbedder } from "./local-models.js";
 import { providerEmbeddings } from "./providers.js";
 import { errorText } from "./contracts.js";
 
@@ -134,11 +135,15 @@ export class DocumentLibrary {
     return Number(this.db.prepare("SELECT COUNT(*) AS n FROM documents WHERE owner=? AND status='indexed'").get(owner)?.n ?? 0);
   }
   /** The address and key of the provider's embeddings route, when the active model has one. */
-  private client(owner: string): EmbeddingClient | null {
+  private client(owner: string): Embedder | null {
     const preset = this.models?.plan(owner, "").candidates[0];
     const route = preset ? providerEmbeddings(preset.provider) : null;
     if (!route) return null;
-    try { return new EmbeddingClient(route.endpoint, route.apiKey, this.settings(owner).embeddingModel); } catch { return null; }
+    const model = this.settings(owner).embeddingModel;
+    // A model on this computer reads passages through Ollama's own route, not the OpenAI one.
+    const here = localEmbedder(route, model);
+    if (here) return here;
+    try { return new EmbeddingClient(route.endpoint, route.apiKey, model); } catch { return null; }
   }
   meaningSearchReady(owner: string): boolean { return this.client(owner) !== null; }
 

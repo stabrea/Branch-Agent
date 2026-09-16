@@ -1,0 +1,276 @@
+import { randomUUID } from "node:crypto";
+import type { ServerResponse } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
+import { z } from "zod";
+import { errorText, type Run, type RunStatus } from "./contracts.js";
+import { RateLimiter } from "./approvals.js";
+import type { McpServer, McpSharing } from "./mcp-server.js";
+import type { ToolRegistry } from "./registry.js";
+import type { Runtime } from "./runtime.js";
+import type { Store } from "./store.js";
+
+/**
+ * A2A, the agent-to-agent protocol: how an assistant made by someone else asks this one to do a
+ * piece of work. Branch publishes a card saying who it is and what it can be asked for, then takes
+ * tasks over JSON-RPC. Every task becomes an ordinary Branch task, so it appears in Activity with
+ * the same signed receipts, and it never gets more freedom than the "Ask before changes" rules,
+ * because the owner did not start it. Nothing is answered until the owner switches A2A on.
+ */
+export type A2aState = "submitted" | "working" | "completed" | "failed" | "canceled" | "input-required";
+
+export const stateOf = (status: RunStatus): A2aState =>
+  status === "running" ? "working"
+    : status === "completed" ? "completed"
+    : status === "cancelled" ? "canceled"
+    : status === "needs_input" ? "input-required"
+    : "failed";
+
+const TextPartSchema = z.object({ type: z.literal("text"), text: z.string().max(16000) }).passthrough();
+const MessageSchema = z.object({
+  role: z.enum(["user", "agent"]).default("user"),
+  parts: z.array(z.record(z.string(), z.unknown())).min(1).max(20),
+}).passthrough();
+export const SendParamsSchema = z.object({
+  id: z.string().min(1).max(200).optional(),
+  sessionId: z.string().min(1).max(200).optional(),
+  message: MessageSchema,
+}).passthrough();
+export const TaskIdParamsSchema = z.object({ id: z.string().min(1).max(200) }).passthrough();
+export type SendParams = z.infer<typeof SendParamsSchema>;
+
+/** Only written words cross the boundary: a file or a blob from outside is refused, not unpacked. */
+export function taskText(message: z.infer<typeof MessageSchema>): string {
+  const texts: string[] = [];
+  for (const part of message.parts) {
+    if (part.type !== "text")
+      throw new A2aError(-32602, "Branch takes written instructions only; attached files are not read");
+    texts.push(TextPartSchema.parse(part).text);
+  }
+  const text = texts.join("\n").trim();
+  if (!text) throw new A2aError(-32602, "The task message was empty");
+  return text;
+}
+
+export class A2aError extends Error {
+  override name = "A2aError";
+  constructor(readonly code: number, message: string) { super(message); }
+}
+export interface A2aOptions {
+  /** How many tasks one calling agent may start in a minute. */
+  tasksPerMinute: number;
+  /** How long a task may run before it is stopped. */
+  taskTimeoutMs: number;
+}
+export interface A2aTaskRecord { id: string; runId: string; sessionId: string; agent: string; createdAt: string }
+
+/** How many tasks stay findable by `tasks/get` before the oldest are forgotten. */
+const maxRememberedTasks = 500;
+const nowIso = () => new Date().toISOString();
+const textMessage = (text: string) => ({ role: "agent", parts: [{ type: "text", text }] });
+
+/** The public description of this assistant: who it is, where to send work, and what it does. */
+export function agentCard(base: string, version: string, sharing: McpSharing, registry: ToolRegistry): unknown {
+  const shared = new Set(sharing.enabled ? sharing.exposedTools : []);
+  const skills = [{
+    id: "branch.ask",
+    name: "Ask Branch to do something",
+    description: "Describe a piece of work in plain words. Branch uses its own tools, memory and skills, within the limits its owner has set.",
+    tags: ["general"],
+    examples: ["Summarise the notes in my workspace"],
+  }];
+  for (const tool of registry.inventory())
+    if (shared.has(tool.name))
+      skills.push({ id: tool.name, name: tool.name, description: tool.description, tags: [tool.permission], examples: [] });
+  return {
+    name: "Branch Agent",
+    description: "A personal assistant that works on one person's computer, with their files, memory and saved ways of working.",
+    url: `${base}/a2a`,
+    version,
+    provider: { organization: "Branch Agent" },
+    capabilities: { streaming: true, pushNotifications: false, stateTransitionHistory: false },
+    authentication: { schemes: ["bearer"] },
+    defaultInputModes: ["text"],
+    defaultOutputModes: ["text"],
+    skills,
+  };
+}
+
+export class A2aServer {
+  /** Task id to the Branch task behind it. A restart forgets tasks that were still in flight. */
+  private readonly tasks = new Map<string, A2aTaskRecord>();
+  private readonly rates = new RateLimiter();
+  constructor(
+    readonly store: Store,
+    readonly runtime: Runtime,
+    readonly registry: ToolRegistry,
+    readonly mcp: McpServer,
+    readonly version: string,
+    readonly options: A2aOptions = { tasksPerMinute: 20, taskTimeoutMs: 120000 },
+  ) {}
+
+  /** Whether the owner has switched on answering other agents. Read fresh, so a change is immediate. */
+  enabled(): boolean { return this.mcp.sharing().a2a; }
+  card(base: string): unknown { return agentCard(base, this.version, this.mcp.sharing(), this.registry); }
+
+  /** Keeps one calling agent inside its per-minute allowance; over it, the task is refused outright. */
+  private checkRate(agent: string): void {
+    if (this.rates.waitMs(agent, this.options.tasksPerMinute) > 0)
+      throw new A2aError(-32003, `Too many tasks: ${agent} may start ${this.options.tasksPerMinute} a minute.`);
+    this.rates.record(agent);
+  }
+
+  /** Continues the caller's conversation when it is really ours; otherwise a fresh one is started. */
+  private sessionFor(sessionId: string | undefined): string | undefined {
+    return sessionId && this.store.ownsSession(this.runtime.owner, sessionId) ? sessionId : undefined;
+  }
+
+  /** Starts the Branch task behind an A2A task and remembers the pairing, without waiting for it. */
+  begin(params: SendParams, agent: string): { record: A2aTaskRecord; prompt: string } {
+    if (!this.enabled()) throw new A2aError(-32001, "This assistant is not answering other agents. Its owner can switch that on in Settings.");
+    this.checkRate(agent);
+    const prompt = taskText(params.message);
+    const id = params.id ?? randomUUID();
+    const record: A2aTaskRecord = { id, runId: "", sessionId: "", agent, createdAt: nowIso() };
+    this.tasks.set(id, record);
+    // Only the most recent tasks stay findable, so a long-running install does not grow without end.
+    for (const oldest of [...this.tasks.keys()].slice(0, this.tasks.size - maxRememberedTasks))
+      this.tasks.delete(oldest);
+    return { record, prompt };
+  }
+
+  /** Runs one task to the end and answers with it. The caller waits; `sendSubscribe` streams instead. */
+  async send(params: SendParams, agent: string): Promise<unknown> {
+    const { record, prompt } = this.begin(params, agent);
+    const run = await this.execute(record, prompt, this.sessionFor(params.sessionId));
+    return this.taskView(record, run);
+  }
+
+  /** The shared way of running a task: held to the rules for work the owner did not start. */
+  private async execute(record: A2aTaskRecord, prompt: string, sessionId: string | undefined): Promise<Run> {
+    const run = await this.runtime.run({
+      prompt, source: "a2a", ...(sessionId ? { sessionId } : {}),
+      signal: AbortSignal.timeout(this.options.taskTimeoutMs),
+      onStarted: (started) => { record.runId = started.id; record.sessionId = started.sessionId; this.announce(record, prompt); },
+    });
+    record.runId = run.id;
+    record.sessionId = run.sessionId;
+    return run;
+  }
+
+  /** Notes in the task's own timeline which outside agent asked for it, so Activity can show it. */
+  private announce(record: A2aTaskRecord, prompt: string): void {
+    this.store.event(record.runId, "a2a.task", {
+      taskId: record.id, agent: record.agent, source: "a2a",
+      label: `${record.agent} asked: ${prompt.slice(0, 80)}`,
+    });
+  }
+
+  /** What a caller sees: the state of the work and, once there is one, the answer as an artifact. */
+  taskView(record: A2aTaskRecord, run: Run): unknown {
+    const state = stateOf(run.status);
+    const done = state === "completed";
+    return {
+      id: record.id,
+      sessionId: record.sessionId,
+      status: { state, timestamp: nowIso(), ...(run.output ? { message: textMessage(run.output) } : {}) },
+      artifacts: done ? [{ name: "answer", index: 0, parts: [{ type: "text", text: run.output }] }] : [],
+      metadata: { runId: run.id, agent: record.agent },
+    };
+  }
+
+  /** A task started earlier in this session of the app; a restart forgets the ones still running. */
+  get(params: unknown): unknown {
+    const { id } = TaskIdParamsSchema.parse(params);
+    const record = this.tasks.get(id);
+    const run = record && this.store.run(record.runId);
+    if (!record || !run) throw new A2aError(-32001, `Task ${id} is not known to this assistant`);
+    return this.taskView(record, run);
+  }
+
+  /** Stops a task that is still running; one that already finished comes back as it ended. */
+  cancel(params: unknown): unknown {
+    const { id } = TaskIdParamsSchema.parse(params);
+    const record = this.tasks.get(id);
+    if (!record) throw new A2aError(-32001, `Task ${id} is not known to this assistant`);
+    if (record.runId) this.runtime.cancel(record.runId);
+    const run = this.store.run(record.runId);
+    // A task cancelled before its run had even begun still answers as cancelled, with no answer.
+    if (!run) return this.taskView(record, blankRun(record, this.runtime.owner));
+    return this.taskView(record, { ...run, status: run.status === "running" ? "cancelled" : run.status });
+  }
+
+  /**
+   * Streams one task as it happens: a state update for every step Branch records, then the answer
+   * as an artifact and a last update marked final. The run's own event log is the source.
+   */
+  async sendSubscribe(params: SendParams, agent: string, id: string | number, response: ServerResponse): Promise<void> {
+    const { record, prompt } = this.begin(params, agent);
+    const write = (result: unknown) => response.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`);
+    sseHead(response);
+    write({ id: record.id, status: { state: "submitted", timestamp: nowIso() }, final: false });
+    // A task that never starts is told to the caller below. The stream is already open, so there is
+    // no error reply left to send, and a failure nobody is watching would take the whole app down.
+    let settled = false, failure: unknown;
+    const finished = this.execute(record, prompt, this.sessionFor(params.sessionId)).then(
+      (run) => { settled = true; return run; },
+      (error: unknown) => { settled = true; failure = error; return undefined; },
+    );
+    await this.pump(record, write, response, () => settled);
+    const run = await finished;
+    if (!run) {
+      write({ id: record.id, status: { state: "failed", timestamp: nowIso(), message: textMessage(errorText(failure)) }, final: true });
+      response.end();
+      return;
+    }
+    const view = this.taskView(record, run) as { status: unknown; artifacts: unknown[] };
+    for (const artifact of view.artifacts) write({ id: record.id, artifact });
+    write({ id: record.id, status: view.status, final: true });
+    response.end();
+  }
+
+  /** Every stored step of the task, in order, turned into a state update, until the task settles. */
+  private async pump(record: A2aTaskRecord, write: (result: unknown) => void, response: ServerResponse, settled: () => boolean): Promise<void> {
+    const deadline = Date.now() + this.options.taskTimeoutMs;
+    let last = 0, closed = false;
+    response.on("close", () => { closed = true; });
+    while (!closed && !settled() && Date.now() < deadline) {
+      if (record.runId)
+        for (const event of this.store.events(record.runId).filter((e) => e.id > last)) {
+          last = event.id;
+          write({ id: record.id, status: { state: "working", timestamp: event.createdAt, message: textMessage(stepText(event.kind, event.data)) }, final: false });
+        }
+      const run = record.runId ? this.store.run(record.runId) : undefined;
+      if (run && run.status !== "running") return;
+      await delay(100);
+    }
+  }
+}
+
+/** A task stopped before any work began: there is nothing recorded, and nothing to hand back. */
+const blankRun = (record: A2aTaskRecord, owner: string): Run => ({
+  id: record.runId, sessionId: record.sessionId, owner, prompt: "", status: "cancelled",
+  output: "", createdAt: record.createdAt, updatedAt: record.createdAt,
+});
+
+/** One recorded step, in words a person or another agent can read. */
+export function stepText(kind: string, data: Record<string, unknown>): string {
+  const label = typeof data.label === "string" ? data.label : "";
+  if (kind === "tool.failed" || kind === "tool.stalled") return `Step failed: ${String(data.error ?? "unknown problem")}`;
+  if (kind === "policy.ask") return `Waiting for the owner to allow: ${label || String(data.name ?? "a step")}`;
+  if (kind === "policy.denied") return `The owner's settings do not allow: ${label || String(data.name ?? "a step")}`;
+  return label || kind;
+}
+
+function sseHead(response: ServerResponse): void {
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store",
+    connection: "keep-alive", "x-content-type-options": "nosniff",
+  });
+  response.flushHeaders();
+}
+
+/** Turns anything thrown while answering a caller into a JSON-RPC error body. */
+export const a2aError = (id: string | number | null, error: unknown) => ({
+  jsonrpc: "2.0" as const, id,
+  error: { code: error instanceof A2aError ? error.code : -32603, message: errorText(error) },
+});

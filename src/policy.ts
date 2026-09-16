@@ -56,7 +56,7 @@ export const PolicyInputSchema = z
   .strict();
 
 /** Where a task came from. Anything but the owner's own app or command line is held to the "Ask before changes" preset. */
-export type RunSource = "owner" | "trigger" | "schedule" | "mcp";
+export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
 
 interface PresetDefinition { label: string; description: string; rules: z.input<typeof PolicyRuleSchema>[] }
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
@@ -112,6 +112,8 @@ export function policyPresets(): { id: PolicyPresetName; label: string; descript
 const readOnlyPermissions = new Set([
   "files.read", "memory.read", "history.read", "skills.read",
   "documents.read", "web.read", "browser.read", "schedules.read", "user.ask",
+  // Looking at a picture or a sound file the person already has changes nothing.
+  "media.read",
   // The shared scratch area is the task's own notepad: reading it touches nothing outside the task.
   "scratch.read",
 ]);

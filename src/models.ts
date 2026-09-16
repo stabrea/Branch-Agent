@@ -19,6 +19,22 @@ export interface ModelChoice {
   model: string;
   reasoning: ReasoningEffort | null;
   source: "session" | "project" | "owner" | "default" | "cooldown";
+  /** True when this model runs on this computer, so nothing leaves it and nothing is charged. */
+  local: boolean;
+}
+const onThisComputer = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+/**
+ * Whether a connection's address is on this computer. Providers already hand out their own address
+ * for the routes they share (embeddings, audio), so no new provider method is needed.
+ */
+export function presetRunsLocally(preset: ModelPreset): boolean {
+  // A connection Branch did not write may throw from either accessor; that only means "not local".
+  try {
+    const sharing = preset.provider as { embeddings?: () => { endpoint: string } | null; audio?: () => { endpoint: string } | null };
+    const route = sharing.embeddings?.() ?? sharing.audio?.() ?? null;
+    if (!route) return false;
+    return onThisComputer.has(new URL(route.endpoint).hostname.toLowerCase());
+  } catch { return false; }
 }
 const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
 const reasoning = z.enum(reasoningEfforts).nullable();
@@ -116,7 +132,12 @@ export class ModelRouter {
   }
   describe(preset: ModelPreset, effort: ReasoningEffort | null, source: ModelChoice["source"]): ModelChoice {
     return { presetId: preset.id, presetName: preset.name, provider: preset.provider.name,
-      model: preset.model, reasoning: effort, source };
+      model: preset.model, reasoning: effort, source, local: presetRunsLocally(preset) };
+  }
+  /** Whether the named connection runs on this computer. Unknown names are not local. */
+  runsLocally(id: string): boolean {
+    const preset = this.registry.get(id);
+    return preset ? presetRunsLocally(preset) : false;
   }
   /** Records a cooldown for an eligible provider failure; returns the cooldown end or null when not eligible. */
   markFailure(owner: string, id: string, error: unknown): string | null {
@@ -140,6 +161,7 @@ export class ModelRouter {
       presets: [...this.presets.values()].map(preset => ({
         id: preset.id, name: preset.name, provider: preset.provider.name, model: preset.model,
         reasoning: preset.reasoning ?? null,
+        local: presetRunsLocally(preset),
         coolingDownUntil: this.coolingDown(preset.id) ? new Date(this.cooldowns.get(preset.id)!).toISOString() : null,
       })),
     };
