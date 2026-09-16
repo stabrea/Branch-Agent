@@ -11,6 +11,8 @@ export interface ModelPreset {
   provider: Provider;
   model: string;
   reasoning?: ReasoningEffort;
+  /** Which line of the provider catalog this connection came from, when it came from one. */
+  catalogId?: string;
 }
 export interface ModelChoice {
   presetId: string;

@@ -98,6 +98,11 @@ export interface Provider {
   audio?(): { endpoint: string; apiKey: string } | null;
   /** Whether this connection can be shown a picture; absent means it cannot. */
   supportsImages?(): boolean;
+  /**
+   * Where this connection lists its models, when it offers a list. Adapters whose address does not
+   * follow the OpenAI pattern say so here rather than having it guessed from their other routes.
+   */
+  modelsList?(): { url: string; headers: Record<string, string> } | null;
 }
 export const CompletionSchema = z.object({
   content: z.string().max(65536),
