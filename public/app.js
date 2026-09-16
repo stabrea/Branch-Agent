@@ -494,6 +494,7 @@ async function refresh() {
   renderSnapshots();
   renderAttention();
   void window.branchMcp?.render();
+  void window.branchMcpWorkbench?.render();
   void window.branchApprovals?.render();
   void window.branchScreenControl?.render();
   void window.branchMisc?.render();

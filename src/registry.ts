@@ -19,6 +19,19 @@ export class ToolRegistry {
     const failures = results.filter(result => result.status === "rejected");
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), "Run cleanup failed");
   }
+  private readonly toolsChanged = new Set<() => void>();
+  /**
+   * Told whenever the set of tools changes — a skill, a plugin or an MCP server's tools arriving or
+   * going away. Another AI tool connected over MCP is told so its own list stays right.
+   */
+  onToolsChanged(listener: () => void): () => void {
+    this.toolsChanged.add(listener);
+    return () => void this.toolsChanged.delete(listener);
+  }
+  private announceChange(): void {
+    for (const listener of this.toolsChanged)
+      try { listener(); } catch { /* telling someone must never break registration */ }
+  }
   register<T>(tool: ToolDefinition<T>): void {
     if (
       !/^[a-z][a-z0-9_.-]{0,99}$/.test(tool.name) ||
@@ -26,6 +39,7 @@ export class ToolRegistry {
     )
       throw new Error("Invalid or duplicate tool name");
     this.tools.set(tool.name, tool as ToolDefinition);
+    this.announceChange();
   }
   /**
    * The catalog as the model sees it: only the tools this run may use, each put on the schema diet
@@ -48,7 +62,9 @@ export class ToolRegistry {
     return this.tools.get(name)?.group ?? inferToolGroup(name);
   }
   unregister(name: string): boolean {
-    return this.tools.delete(name);
+    const removed = this.tools.delete(name);
+    if (removed) this.announceChange();
+    return removed;
   }
   names(): string[] {
     return [...this.tools.keys()];

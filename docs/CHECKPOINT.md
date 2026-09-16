@@ -1166,6 +1166,49 @@ nothing in `tests/compaction-attention.test.mjs` needed touching — it imports 
 which now means the 11,000 floor, and the conversation share alone is well past that when it
 compacts. Covers the
 context-management theme (#82) and the reliability inventory item (#16).
+
+## Batch 25 (wave 7) — Branch as a first-class MCP citizen, both ways round
+Branch already spoke MCP at both ends; this batch makes it a citizen rather than a tourist.
+**Transport.** `/mcp` keeps `POST` and stdio and adds the streaming half: a `GET` that asks for
+`text/event-stream` opens a stream (`openEventStream` in `src/server.ts`) that carries
+`notifications/tools/list_changed` and `notifications/resources/updated`. A plain `GET` is still
+405, so nothing that relied on that changed. A client that brings no session id is given one in an
+`Mcp-Session-Id` header on the reply to `initialize`. `initialize` now advertises `listChanged`,
+`subscribe` and `logging`, accepts `logging/setLevel`, and answers an unknown protocol version with
+`-32602` naming the three it speaks instead of quietly pretending. `ToolRegistry` grew
+`onToolsChanged`, fired from `register`/`unregister` — so a skill, a plugin or another server's
+tools arriving tells every connected client at once, with no coupling to the loaders.
+**Policy, which is the substance.** `src/mcp-policy.ts` runs the shared tool list through the
+owner's approval settings before anything is offered (`preflight`). Only a flat `deny` hides a
+tool; an `ask` stays listed and is stopped at the call with "this needs your yes in Branch",
+because under `cappedPolicy(…, "mcp")` every change-tool becomes `ask` and hiding all of them would
+look broken. `policy://hidden-tools` is the plain-language note. `McpServer.gate()` is the real fix
+behind A1342 and A2082: `callRegistryTool` never consulted the policy at all, so browser tools —
+already in the registry — now hit the same gate the owner's own runs do. `_meta.dryRun: true` and
+the `mcp.dry_run` tool answer "what would this do?" from `registry.targetOf` and the arguments,
+running nothing.
+**Records and resources.** `src/mcp-snapshots.ts` writes the exact tool list and every schema a
+client was shown, with a sha-256 over canonical JSON, into `governance` as `mcp-snapshot:<id>`, so
+a later dispute can be checked; `mcp.snapshot` records, compares and lists. Resources gained
+`documents://library`, `runs://recent`, `run://<id>` and `resources/subscribe`, and every resource
+is now scoped: it is listed and readable only when the settings would allow the tool that reads the
+same thing, and a refused one answers "unknown resource" rather than admitting it exists. Prompts
+read the real saved-procedure shape (`definition.parameters`) and carry their blanks; a missing
+required one is refused by name.
+**As a client.** `src/mcp-lifecycle.ts` opens somebody else's server the first time a task needs it
+and closes it on `onRunFinished`, with keep-warm, a concurrency cap that evicts an idle connection
+before refusing a busy one, retry with growing backoff, and per-profile settings. `src/integrations/
+mcp-oauth.ts` does RFC 8414 discovery and RFC 7591 dynamic client registration, then hands a
+synthesised provider to the existing `OAuthConnections` so PKCE and the locker are unchanged; the
+identity is remembered so a second sign-in does not register twice. `src/mcp-workbench.ts` is
+Settings → Try a server: list, call one by hand, see the raw answer, every try written to the audit
+under the new `mcp.tried` action. `src/mcp-apps.ts` serves a page an MCP app sent under
+`sandbox; default-src 'none'; …; frame-ancestors 'self'`, with the tags the frame would refuse
+stripped anyway, at a one-time address that expires in five minutes — a frame cannot carry the
+session key, so the address is the secret. Two new look-only tools, `mcp.dry_run` and
+`mcp.servers`, and one new read-only permission, `mcp.read`. `tests/mcp-mode.test.mjs` (12 tests)
+covers every one of these; the existing MCP, integrations and catalog-diet suites are untouched and
+green. Covers the mcp-server-mode theme (#68).
 ## Next work (local until a checkpoint worth publishing)
 
 1. Next release (0.3.0) is the first real end-to-end test of the in-app update path; watch it.
