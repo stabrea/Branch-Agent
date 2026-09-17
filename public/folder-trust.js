@@ -49,7 +49,7 @@ function findings(found) {
 
 const trustWords = {
   trusted: "Trusted: its notes are read.",
-  untrusted: "Not trusted: nothing in it is read, and every change waits for your yes.",
+  untrusted: "Not trusted: nothing in it is read, and a task working in it asks before every change.",
   unknown: "Not decided yet: nothing in it is read until you say.",
 };
 
@@ -81,7 +81,7 @@ function askCard(folders) {
   const folder = waiting[0];
   card.append(
     element("h2", "Do you trust this folder?"),
-    element("p", `${folder.label} (${folder.path}) holds things meant to steer an AI assistant. Until you decide, Branch reads none of them. If you did not make this folder or do not know where it came from, choose "Don't trust it": Branch will then read nothing from it and ask before every change.`),
+    element("p", `${folder.label} (${folder.path}) holds things meant to steer an AI assistant. Until you decide, Branch reads none of them. If you did not make this folder or do not know where it came from, choose "Don't trust it": Branch will then read nothing from it, and a task working in it will ask before every change.`),
     findings(folder.found),
     ...buttons(folder, refresh),
   );
@@ -100,7 +100,7 @@ function settingsCard(folders) {
   }
   card.replaceChildren(
     element("h2", "Trusted folders"),
-    element("p", "A folder can carry notes and settings meant for AI assistants. Branch uses them only from folders you trust. A folder you do not trust is read from nothing, and every change in it waits for your yes."),
+    element("p", "A folder can carry notes and settings meant for AI assistants. Branch uses them only from folders you trust. Nothing is read from a folder you do not trust, and a task working in it asks before every change."),
   );
   for (const folder of folders) {
     const row = element("div", "", "card-row");
@@ -119,6 +119,17 @@ async function refresh() {
   } catch { /* signed out or offline: the next refresh tries again */ }
 }
 
+// Looked at once when the page opens, after every answer, and when the owner comes back to the
+// window. Never on a timer: each look lists what every folder carries.
 void refresh();
-setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 20000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void refresh(); });
+// Signing in shows the workspace a moment before the key is kept, so wait a little for the key:
+// a few short tries, then give up until the next time the window is shown.
+async function afterSignIn(tries = 20) {
+  for (let left = tries; left > 0 && !sessionStorage.getItem("branch-token"); left--)
+    await new Promise((done) => setTimeout(done, 250));
+  await refresh();
+}
+const signedIn = $("workspace");
+if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) void afterSignIn(); }).observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
 window.branchFolderTrust = { refresh };

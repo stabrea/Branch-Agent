@@ -145,3 +145,28 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   assert.match(html, /<script src="\/folder-trust\.js" type="module"><\/script>/);
 });
+
+test("the chat screen asks once, the answer sticks, and Settings shows it", async (t) => {
+  const { chromium } = await import("playwright");
+  const { app, root, workspace, owner } = await fixture(t, { "AGENTS.md": "a", ".mcp.json": JSON.stringify({ mcpServers: { planted: {} } }) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  const ask = page.locator("#folder-trust-ask");
+  await ask.waitFor({ state: "attached" });
+  assert.match(await ask.textContent(), /Do you trust this folder\?[\s\S]*AGENTS\.md[\s\S]*planted/);
+  const settings = page.locator("#folder-trust-card");
+  assert.match(await settings.textContent(), /Trusted folders[\s\S]*Not decided yet/);
+  await ask.getByRole("button", { name: "Don't trust it", exact: true }).click();
+  await ask.waitFor({ state: "detached" });
+  assert.equal(folderTrust(app.store, owner, workspace), "untrusted");
+  await page.waitForFunction(() => document.getElementById("folder-trust-card")?.textContent.includes("Not trusted"));
+  assert.deepEqual(errors, []);
+});
