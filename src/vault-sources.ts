@@ -45,6 +45,7 @@ export function secretProviderContract(): { scheme: string; label: string; descr
     { scheme: "cmd", label: "A command of yours", description: "A program you named in Settings that prints the password. Branch may run only the ones you listed." },
     { scheme: "bitwarden", label: "Bitwarden", description: "Read straight out of your Bitwarden vault through its own command line, when you have turned that on." },
     { scheme: "1password", label: "1Password", description: "Read straight out of your 1Password vault through its own command line, when you have turned that on." },
+    { scheme: "keychain", label: "Your Mac's Keychain", description: "A password read out of the Keychain on this Mac, only for the entries you listed in Settings." },
     { scheme: "env", label: "The program's own environment", description: "A value already in the environment a program is started with; Branch stores nothing." },
     { scheme: "file", label: "A file on this computer", description: "A value read out of a file you pointed at, for setups that already work that way." },
   ];
@@ -201,6 +202,135 @@ export class CommandSecrets implements SecretProvider, ReferenceFiller {
   private record(name: string, use: SecretUseNote, outcome: string): void {
     audit(this.store, this.owner, {
       action: "secret.used", actor: "a command of yours", subject: commandReference(name),
+      reason: use.purpose.slice(0, 120), runId: use.runId ?? null, outcome,
+    });
+  }
+}
+
+/* ----------------------------------------------- the Keychain on this Mac */
+
+const keychainText = z.string().trim().min(1).max(200).regex(/^[^-\n]/, "A Keychain name cannot start with a dash");
+export const KeychainEntrySchema = z.object({
+  /** The name used in a reference: `secret://keychain/<name>`. */
+  name: commandName,
+  /** The Keychain item's "Where" (its service). Only what the owner typed. */
+  service: keychainText,
+  /** The item's account, when more than one item has the same service. */
+  account: keychainText.optional(),
+  note: z.string().trim().max(200).default(""),
+}).strict();
+export type KeychainEntry = z.infer<typeof KeychainEntrySchema>;
+
+export const KeychainSettingsSchema = z.object({
+  /** "Let Branch read passwords I listed from my Mac's Keychain". Off until the owner turns it on. */
+  enabled: z.boolean().default(false),
+  entries: z.array(KeychainEntrySchema).max(20).default([]),
+  timeoutMs: z.number().int().min(500).max(30000).default(10000),
+}).strict();
+export type KeychainSettings = z.infer<typeof KeychainSettingsSchema>;
+const keychainKey = "keychain-entries";
+
+export function readKeychainSettings(store: Store, owner: string): KeychainSettings {
+  const saved = KeychainSettingsSchema.safeParse(store.get("settings", owner, keychainKey)?.data ?? {});
+  return saved.success ? saved.data : KeychainSettingsSchema.parse({});
+}
+export function saveKeychainSettings(store: Store, owner: string, input: unknown): KeychainSettings {
+  const next = KeychainSettingsSchema.parse({ ...readKeychainSettings(store, owner), ...(input as object ?? {}) });
+  if (new Set(next.entries.map((one) => one.name)).size !== next.entries.length)
+    throw new Error("Two of those Keychain entries have the same name");
+  store.save("settings", owner, keychainKey, next);
+  audit(store, owner, {
+    action: "policy.changed", actor: owner, subject: "the Keychain entries Branch may read",
+    reason: next.enabled ? `${next.entries.length} entr(ies) may be read` : "Turned off", outcome: "saved",
+  });
+  return next;
+}
+
+const keychainReferenceText = "secret://keychain/([a-z][a-z0-9-]{0,39})";
+const anyKeychainReference = new RegExp(keychainReferenceText, "g");
+const wholeKeychainReference = new RegExp(`^${keychainReferenceText}$`);
+export const keychainReference = (name: string): string => `secret://keychain/${name}`;
+export function collectKeychainReferences(value: unknown): string[] {
+  const found = new Set<string>();
+  mapStrings(value, (text) => {
+    for (const match of text.matchAll(anyKeychainReference)) found.add(match[1]!);
+    return text;
+  });
+  return [...found];
+}
+
+/** Where macOS keeps its Keychain command. A full path, so nothing on the search path can stand in. */
+export const securityCommand = "/usr/bin/security";
+/** The read-only question for one entry: print the password of the matching item, and nothing else. */
+export function keychainCommand(entry: KeychainEntry, executable = securityCommand): { executable: string; args: string[] } {
+  return {
+    executable,
+    args: ["find-generic-password", "-s", entry.service, ...(entry.account ? ["-a", entry.account] : []), "-w"],
+  };
+}
+
+/** Why the Keychain handed nothing back, in one plain sentence. */
+export function keychainRefusal(entry: KeychainEntry, outcome: CliOutcome): string | null {
+  if (outcome.missing) return "This computer has no Keychain command, so Branch cannot read from a Keychain here.";
+  const said = `${outcome.stderr} ${outcome.stdout}`;
+  if (outcome.code === 44 || /could not be found/i.test(said))
+    return `There is no Keychain item for "${entry.service}"${entry.account ? ` and ${entry.account}` : ""} on this Mac.`;
+  if (outcome.code === 51 || outcome.code === 36 || /user interaction is not allowed|interaction not allowed|canceled|cancelled|authorization/i.test(said))
+    return "The Keychain did not allow that read: it is locked, or the request to use the item was turned down. Unlock it or allow Branch when your Mac asks, then try again.";
+  if (outcome.code !== 0) return "The Keychain would not hand that over, and gave no reason Branch can pass on.";
+  if (!outcome.stdout.trim()) return `The Keychain item for "${entry.service}" has no password saved on it.`;
+  return null;
+}
+
+/**
+ * Reading a password out of this Mac's Keychain through `security find-generic-password -w`.
+ * Like a command of the owner's, a reference names one of the entries they listed in Settings, so a
+ * tool call cannot go looking through the rest of the Keychain. It only ever reads.
+ */
+export class KeychainSecrets implements SecretProvider, ReferenceFiller {
+  readonly scheme = "keychain";
+  readonly label = "Your Mac's Keychain";
+  readonly description = "A password read out of the Keychain on this Mac, for the entries you listed.";
+  gate: () => void = () => undefined;
+  constructor(
+    private readonly store: Store, private readonly owner: string, private readonly scrubber: SecretScrubber,
+    private readonly run: CliRunner = spawnSecretCommand, private readonly platform: string = process.platform,
+    /** Replaced in tests by a stand-in, so the real Keychain is never asked. */
+    private readonly command: string = securityCommand,
+  ) {}
+  settings(): KeychainSettings { return readKeychainSettings(this.store, this.owner); }
+  available(): boolean { return this.platform === "darwin" && this.settings().enabled; }
+
+  async fill<T>(value: T, use: SecretUseNote): Promise<T> {
+    const names = collectKeychainReferences(value);
+    if (!names.length) return value;
+    const values = new Map<string, string>();
+    for (const name of names) values.set(name, await this.read(keychainReference(name), use));
+    return mapStrings(value, (text) =>
+      text.replace(anyKeychainReference, (whole, name: string) => values.get(name) ?? whole));
+  }
+
+  async read(reference: string, use: SecretUseNote): Promise<string> {
+    this.gate();
+    const name = wholeKeychainReference.exec(reference)?.[1] ?? reference;
+    if (this.platform !== "darwin") throw new Error("The Keychain is part of macOS, and this is not a Mac, so Branch cannot read from it here.");
+    const settings = this.settings();
+    if (!settings.enabled) throw new Error("Branch is not set up to read from your Keychain. Turn that on in Settings first.");
+    const entry = settings.entries.find((one) => one.name === name);
+    if (!entry) throw new Error(`There is no Keychain entry called "${name}" in your list. Add it under Settings before using ${keychainReference(name)}.`);
+    const { executable, args } = keychainCommand(entry, this.command);
+    const outcome = await this.run(executable, args, settings.timeoutMs);
+    const refusal = keychainRefusal(entry, outcome);
+    if (refusal) { this.record(name, use, "refused"); throw new Error(refusal); }
+    const value = outcome.stdout.replace(/\r?\n$/, "");
+    this.scrubber.remember(`keychain:${name}`, value);
+    this.record(name, use, "handed over");
+    return value;
+  }
+
+  private record(name: string, use: SecretUseNote, outcome: string): void {
+    audit(this.store, this.owner, {
+      action: "secret.used", actor: "your Mac's Keychain", subject: keychainReference(name),
       reason: use.purpose.slice(0, 120), runId: use.runId ?? null, outcome,
     });
   }
