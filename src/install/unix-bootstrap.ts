@@ -82,7 +82,24 @@ function unpackPart(): string[] {
     '    tar -xzf "$ARCHIVE" -C "$UNPACKED"; APP="$UNPACKED/${ASSET%.tar.gz}"',
     '    EXE="$APP/branch-agent"; SETUP="$APP/resources/app/dist/install/install-cli.js" ;;',
     "esac",
+    ...linkCheck(),
     '[ -x "$EXE" ] && [ -f "$SETUP" ] || fail "The download did not contain the app."',
+  ];
+}
+
+/**
+ * A Mac app carries links of its own (`Versions/Current`), so links are allowed, but each must point
+ * at something inside the unpacked folder; one that leads out (or nowhere) stops the install.
+ */
+function linkCheck(): string[] {
+  return [
+    'ROOT="$(cd -P "$UNPACKED" && pwd)"',
+    "find \"$UNPACKED\" -type l -exec /bin/sh -c 'ROOT=\"$1\"; shift; for LINK do",
+    '  TARGET="$(readlink "$LINK")"',
+    '  case "$TARGET" in /*) exit 1 ;; esac',
+    '  PARENT="$(cd -P "$(dirname "$LINK")" && cd -P "$(dirname "$TARGET")" 2>/dev/null && pwd)" || exit 1',
+    '  case "$PARENT/" in "$ROOT"/*) ;; *) exit 1 ;; esac',
+    "done' sh \"$ROOT\" {} + || fail \"The download holds a link that leads outside its own folder, so it was not installed.\"",
   ];
 }
 

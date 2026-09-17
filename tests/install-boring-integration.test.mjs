@@ -126,17 +126,30 @@ test("removing Branch removes links as links and never follows them out of its f
 
 // ------------------------------------------------------------------------------------ the script
 
-async function macDownload(root, { entries } = {}) {
+const zipMaker = [
+  "import sys, zipfile",
+  "z = zipfile.ZipFile(sys.argv[1], 'w')",
+  "for spec in sys.argv[2:]:",
+  "    name, _, link = spec.partition('=>')",
+  "    info = zipfile.ZipInfo(name)",
+  "    if link: info.external_attr = 0xA1FF << 16",
+  "    z.writestr(info, link or 'x')",
+  "z.close()",
+].join("\n");
+
+async function macDownload(root, { entries, links = false } = {}) {
   const folder = join(root, "download");
   await mkdir(folder, { recursive: true });
   const arch = spawnSync("sysctl", ["-n", "hw.optional.arm64"]).stdout.toString().trim() === "1" ? "arm64" : "x64";
   const zip = join(folder, `Branch-Agent-macos-${arch}.zip`);
   if (entries) {
-    const made = spawnSync("python3", ["-c", "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1], 'w')\nfor n in sys.argv[2:]: z.writestr(n, 'x')\nz.close()", zip, ...entries]);
+    const made = spawnSync("python3", ["-c", zipMaker, zip, ...entries]);
     assert.equal(made.status, 0, String(made.stderr));
   } else {
     const built = join(root, "built");
     await fakeApp(built, "darwin", "3.0.0");
+    // A link of the app's own, like Versions/Current in a framework, is allowed.
+    if (links) await symlink("../MacOS", join(built, "Branch Agent.app", "Contents", "Current"));
     await run("/usr/bin/ditto", ["-c", "-k", "--keepParent", join(built, "Branch Agent.app"), zip]);
   }
   const digest = createHash("sha256").update(await readFile(zip)).digest("hex");
@@ -190,6 +203,20 @@ test("the script ignores a planted shasum, a checksum file that is not one, and 
   await assert.rejects(run("/bin/sh", [evil.script], { env: { ...env, PATH: process.env.PATH } }), failsWith(/names files outside its own folder/));
   const absolute = await macDownload(join(root, "absolute"), { entries: ["/tmp/branch-escaped.txt"] });
   await assert.rejects(run("/bin/sh", [absolute.script], { env: { ...env, PATH: process.env.PATH } }), failsWith(/names files outside its own folder/));
+
+  const outside = join(root, "outside");
+  await mkdir(outside);
+  const through = await macDownload(join(root, "through"), { entries: [`Branch Agent.app/Contents/Resources=>${outside}`, "Branch Agent.app/Contents/Resources/planted.txt"] });
+  await assert.rejects(run("/bin/sh", [through.script], { env: { ...env, PATH: process.env.PATH } }), (error) => error.code !== 0);
+  assert.equal(await exists(join(outside, "planted.txt")), false, "nothing is written through a link in the download");
+  const linked = await macDownload(join(root, "linked"), { entries: [`Branch Agent.app/Contents/Resources=>${outside}`] });
+  await assert.rejects(run("/bin/sh", [linked.script], { env: { ...env, PATH: process.env.PATH } }), failsWith(/link that leads outside its own folder/));
+  const climbing = await macDownload(join(root, "climbing"), { entries: ["Branch Agent.app/Contents/up=>../../../../../../.."] });
+  await assert.rejects(run("/bin/sh", [climbing.script], { env: { ...env, PATH: process.env.PATH } }), failsWith(/link that leads outside its own folder/));
+  assert.equal(await exists(env.BRANCH_TEST_RECORD), false, "nothing was handed over");
+  const good = await macDownload(join(root, "good"), { links: true });
+  await run("/bin/sh", [good.script, "--quiet"], { env: { ...env, PATH: process.env.PATH } });
+  assert.match(await readFile(env.BRANCH_TEST_RECORD, "utf8"), /^install$/m, "a link inside the app is fine");
 
   const text = unixBootstrapperScript();
   assert.ok(text.indexOf('ARCHIVE="$STAGE/$ASSET"') < text.indexOf("shasum -a 256 \"$ARCHIVE\""), "the private copy is the one checked");
