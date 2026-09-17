@@ -245,6 +245,7 @@
   "channels-more.service.imessage": "Answers iMessages through the Messages app on this Mac. Branch needs Full Disk Access to read new messages and your permission to control Messages; nothing leaves Apple's own service.",
   "channels-more.service.irc": "Joins IRC channels under a nick of its own and answers when someone starts a line with that nick, or writes to it privately.",
   "channels-more.service.keybase": "Chat with the assistant on Keybase, one to one or in team channels; you need the Keybase app installed on this computer and signed in with the assistant's account.",
+  "channels-more.service.kook": "Answers direct messages and channel mentions sent to your KOOK bot, and after a short break picks up what was missed; you need the bot's token from the KOOK developer site.",
   "channels-more.service.mastodon": "Answers mentions of the assistant's Mastodon account, privately when they wrote privately; needs the server address and an access token.",
   "channels-more.service.mqtt": "Lets devices and scripts on an MQTT broker send the assistant messages and receive its replies; you need the broker's address, the topics to use and, if asked, an account password.",
   "channels-more.service.msteams-bot": "Talks in Microsoft Teams as a proper bot, in one-to-one chats, group chats and channels; you need an Azure Bot registration with its app id and a client secret.",

@@ -1089,10 +1089,17 @@ Create a bot in Revolt's settings (My Bots), invite it to your server and save i
 ```
 Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
 
+### KOOK (`kook`)
+
+```json
+{ "type": "kook", "id": "kook", "tokenSecret": "KOOK_BOT_TOKEN" }
+```
+Make a bot application at developer.kookapp.cn, choose the WebSocket connection, invite the bot to your KOOK server, and save its token as `KOOK_BOT_TOKEN`. This is KOOK's official bot API (v3): the token travels as `Authorization: Bot …`, and the socket address KOOK hands back is followed only when it is on `kookapp.cn` or `kaiheila.cn` and is never written into an error, because it carries a key. Direct messages are always answered; in a channel the bot must be @mentioned. Replies are sent as plain text, never KMarkdown, so nothing a model writes can mention everybody. Branch pings every thirty seconds and reconnects when KOOK stops answering; after a drop, or a restart soon after one, it asks KOOK to resume the session and answers what was missed once. People are paired and listed as `kook:<user id>`. Replies are cut at 4000 characters.
+
 <!-- channels-parity:services-end -->
 
 **Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
-Guilded remember where they had read up to, in the saved-work database, and after a restart fetch
+Guilded (and KOOK, for as long as KOOK keeps the session) remember where they had read up to, in the saved-work database, and after a restart fetch
 what arrived in the meantime and answer it once. The place is saved only after every message before
 it has been answered, so a message cut off by a crash is fetched again. A place older than a day is
 not trusted: the service takes stock from now instead, so a computer that was off for a month does
@@ -1172,6 +1179,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Guilded | OpenFang | built now (`guilded`) |
 | Revolt (Stoat) | OpenFang | built now (`revolt`) |
 | Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
+| KOOK (Kaiheila) | audit row A2156 | built now (`kook`), official bot API v3 over its WebSocket gateway |
 | AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
 | LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
 | Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
