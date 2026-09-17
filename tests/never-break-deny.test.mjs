@@ -107,3 +107,77 @@ test("no rule, standing yes, hook or Lockdown-off can lift the refusal", async (
   assert.equal(branch.runtime.checkPolicy("files.write", { path: "ok.txt", content: "y" }, context).decision, "allow",
     "the same permissive rules still let ordinary work through");
 });
+
+/* ---------- integration review (17 September): disguised paths ---------- */
+
+import { mkdirSync, symlinkSync, linkSync, writeFileSync } from "node:fs";
+
+function spacedInstall(t) {
+  const root = join(tmpdir(), `branch-never-spaced-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  const data = join(root, "Application Support", "Branch Agent");
+  const work = join(root, "work");
+  mkdirSync(data, { recursive: true }); mkdirSync(work);
+  writeFileSync(join(data, "branch.sqlite"), "x");
+  symlinkSync(data, join(work, "link"));
+  linkSync(join(data, "branch.sqlite"), join(work, "second-name.db"));
+  t.after(() => discardTemp(root));
+  const areas = protectedAreas({ workspace: work, dataDir: data, platform: process.platform,
+    installRoot: "/Applications/Branch Agent.app/Contents/Resources/app", selfPids: [4242] });
+  const call = (tool, args) => protectedTarget({ tool, readOnly: false, args, target: "" }, areas);
+  const sh = (line) => call("shell.execute", { executable: "sh", args: ["-c", line] });
+  return { root, data, work, call, sh };
+}
+
+test("a folder with spaces in its name is found however the command spells it", { skip: process.platform === "win32" }, (t) => {
+  const { root, data, sh, call } = spacedInstall(t);
+  for (const line of [
+    `rm -rf "${data}"`,
+    `rm -rf ${data.replace(/ /g, "\\ ")}/branch.sqlite`,
+    `rm -rf '${join(root, "Application Support")}'`,
+    `rm -rf ${join(root, "Appl*")}`,
+    `rm -f "${data}"/*.sqlite`,
+    `cd "${join(root, "Application Support")}" && rm -rf "Branch Agent"`,
+    `python3 -c "open('${data}/branch.sqlite','w')"`,
+  ]) assert.match(sh(line) ?? "", /never lets a task/, line);
+  assert.match(call("archive.extract", { archive: "x.zip", outputDir: data }) ?? "", /never lets a task/, "any argument name counts for a change");
+  assert.match(call("files.delete", { path: "/Applications/Branch Agent.app/Contents/MacOS/Branch Agent" }) ?? "", /never lets a task/,
+    "the launcher beside the packaged program is protected too");
+});
+
+test("a link in the workspace does not lead around the refusal", { skip: process.platform === "win32" }, (t) => {
+  const { call } = spacedInstall(t);
+  assert.match(call("files.write", { path: "link/branch.sqlite", content: "x" }) ?? "", /never lets a task/, "a folder link");
+  assert.match(call("files.write", { path: "second-name.db", content: "x" }) ?? "", /saved-work database/, "a second name for the file");
+  assert.equal(call("files.write", { path: "notes/a.md", content: "rm -rf $x" }), null, "writing about commands is fine");
+});
+
+test("stopping Branch under another spelling is refused, ordinary process work is not", { skip: process.platform === "win32" }, (t) => {
+  const { sh, work } = spacedInstall(t);
+  for (const line of ["pkill node", "killall Electron", "kill -9 -1", "kill 0", "L=com.keepoak; launchctl bootout gui/501/$L.branch-agent",
+    "launchctl bootout gui/501", "launchctl unload ~/Library/LaunchAgents/com.keepoak.branch-agent.plist",
+    "systemctl --user stop 'branch_agent'", "lsof -ti :3210 | xargs kill", "kill $(pgrep -f node)", "sc.exe stop \"Branch Agent\""])
+    assert.match(sh(line) ?? "", /stop, reinstall or update Branch itself/, line);
+  assert.match(sh("rm -rf \"$SOMEWHERE_UNSET\"") ?? "", /only through a variable/, "a removal it cannot read is refused");
+  for (const line of ["kill 777", "kill -1 777", "lsof -ti :3000 | xargs kill", "npm test", `cd ${work} && rm -rf node_modules`, `rm -rf ${work}/build`])
+    assert.equal(sh(line), null, line);
+});
+
+test("Windows spellings: long-path prefix, other slashes, other case", () => {
+  const win = protectedAreas({ workspace: "C:\\Users\\o\\work", dataDir: "C:\\Users\\o\\AppData\\Local\\Branch Agent\\state",
+    installRoot: "C:\\Users\\o\\AppData\\Local\\Programs\\Branch Agent\\resources\\app.asar", platform: "win32", selfPids: [4242] });
+  const call = (tool, args) => protectedTarget({ tool, readOnly: false, args, target: "" }, win);
+  for (const path of ["\\\\?\\C:\\Users\\o\\AppData\\Local\\Branch Agent\\state\\gateway.json",
+    "c:/users/o/appdata/local/branch agent/state/branch.sqlite", "..\\AppData\\Local\\Branch Agent\\state",
+    "C:\\Users\\o\\AppData\\Local\\Programs\\Branch Agent\\Branch Agent.exe"])
+    assert.match(call("files.write", { path }) ?? "", /never lets a task/, path);
+  assert.match(call("shell.execute", { executable: "cmd.exe", args: ["/c", "rd /s /q \"%LOCALAPPDATA%\\..\\Local\\Branch Agent\""] }) ?? "",
+    /never lets a task|only through a variable/);
+  assert.match(call("shell.execute", { executable: "powershell.exe", args: ["-Command", "Stop-Process -Name node -Force"] }) ?? "", /Branch itself/);
+  assert.equal(call("files.write", { path: "C:\\Users\\o\\work\\notes.md" }), null);
+});
+
+test("the per-task workspace is where relative paths start", async (t) => {
+  const { branch, root } = await app(t, [{ content: "done", toolCalls: [] }]);
+  const context = { ...branch.runtime.context({ runId: branch.store.createRun("local", "probe").id }), workspace: join(root, "workspace", "deeper", "still") };
+  assert.equal(branch.runtime.checkPolicy("files.write", { path: "../../../data/gateway.json", content: "{}" }, context).decision, "deny");
+});

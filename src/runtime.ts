@@ -1662,7 +1662,7 @@ ${run.output.slice(0, 6000)}`;
     // A role can only refuse; it never lets anything through that the rules would have stopped.
     // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be
     // touched by a task; checked before every rule, standing yes, hook, Lockdown or switch.
-    const untouchable = protectedTarget({ tool, readOnly, args, target, ...cwdOf(args) }, this.protectedAreas);
+    const untouchable = protectedTarget({ tool, readOnly, args, target, workspace: context.workspace, ...cwdOf(args) }, this.protectedAreas);
     if (untouchable) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: untouchable };
     // --- end mac3/never-break ---
     const refusal = this.roleRefusal(tool, permission);
