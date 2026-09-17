@@ -145,6 +145,12 @@ test("C1 the curated list has several sizes per model, real hashes, and says whi
   assert.throws(() => findVariant("qwen3-8b", "Q2_K"), /not on Branch's list/);
 });
 
+test("C1 the list travels with the built program, which ships without the data folder", async () => {
+  const built = JSON.parse(await readFile(new URL("../dist/local-models.json", import.meta.url), "utf8"));
+  const source = JSON.parse(await readFile(new URL("../data/local-models.json", import.meta.url), "utf8"));
+  assert.deepEqual(built, source);
+});
+
 test("C1 each size is judged for this computer and this program", () => {
   const small = offers(room({ totalMemoryBytes: 8 * GB, freeMemoryBytes: 5 * GB }), "ollama");
   const big = offers(room({ totalMemoryBytes: 64 * GB, freeMemoryBytes: 50 * GB }), "ollama");
