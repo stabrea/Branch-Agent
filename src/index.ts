@@ -187,6 +187,7 @@ import { migrate, storeMigrations } from "./never-break/migrations.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
+import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -892,6 +893,9 @@ export async function createBranch(options: {
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
   const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
     tokens: sessionTokens, files, policy: web.policy, version });
+  // ── mac6/bucket-23: the smaller asks (src/asks/). Every part ships off. ──
+  const asks = new Asks({ runtime, registry, web, files, flows, fetch: web.policy.guard(globalThis.fetch) });
+  // ── end mac6/bucket-23 ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
@@ -933,6 +937,8 @@ export async function createBranch(options: {
     registry,
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
     interop,
+    /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
+    asks,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

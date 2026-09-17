@@ -1,0 +1,98 @@
+import { z, ZodError } from "zod";
+import { errorText } from "../contracts.js";
+import type { Runtime } from "../runtime.js";
+import type { Asks } from "./index.js";
+import { AskOffError, AskPartSchema, askLabels, askParts, requireAsk, type AskPart } from "./settings.js";
+
+/**
+ * The web side of bucket 23: the owner's routes under /api/asks/. They sit behind the same key and
+ * host rules as everything else, and every change here is the owner's (a short-lived key is refused
+ * by the fail-closed rule in src/short-lived-keys.ts). A route that runs one of these parts' tools
+ * runs it through `Runtime.executeTool`, so the one tool gate (src/tool-gate.ts) decides it.
+ */
+export const handlesAsksPath = (path: string): boolean => path === "/api/asks" || path.startsWith("/api/asks/");
+
+export class AsksHttpError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+
+export interface AsksHttpDeps {
+  asks: Asks;
+  runtime: Runtime;
+  method: string;
+  query: URLSearchParams;
+  readBody: () => Promise<unknown>;
+  /** Hook for the parts added in later groups; answers undefined when it does not own the path. */
+  more?: (path: string) => Promise<unknown>;
+}
+
+const SwitchSchema = z.object({ part: AskPartSchema, mode: z.enum(["off", "when-needed", "on"]) }).strict();
+const pageId = /^\/api\/asks\/pages\/([a-f0-9-]{36})(\/export|\/remove)?$/;
+
+/** A tool of one of these parts, pressed by the owner: the part must be on, and the gate decides. */
+async function runPartTool(deps: AsksHttpDeps, part: AskPart, tool: string): Promise<unknown> {
+  requireAsk(deps.runtime.store, deps.runtime.owner, part);
+  return deps.runtime.executeTool(tool, await deps.readBody(), { mode: "owner" });
+}
+
+async function pagesRoute(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  const { asks, method } = deps;
+  if (path === "/api/asks/pages") {
+    if (method === "POST") return { page: asks.pages.save(await deps.readBody()) };
+    return { pages: asks.pages.list() };
+  }
+  const match = pageId.exec(path);
+  if (!match) return undefined;
+  if (match[2] === "/export") return asks.pages.exportPage(match[1]!);
+  if (match[2] === "/remove" && method === "POST") return asks.pages.remove(match[1]!);
+  return { page: asks.pages.get(match[1]!) };
+}
+
+async function analyticsRoute(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  const { analytics } = deps.asks, post = deps.method === "POST";
+  if (path === "/api/asks/analytics") {
+    if (post) return { analytics: analytics.save(await deps.readBody()) };
+    return { analytics: analytics.settings(), counting: analytics.counting(), counts: analytics.counts() };
+  }
+  if (!post) return undefined;
+  if (path === "/api/asks/analytics/event") return { counted: analytics.track((await deps.readBody() as { event?: unknown } | null)?.event) };
+  if (path === "/api/asks/analytics/send") return analytics.send();
+  if (path === "/api/asks/analytics/erase") return { erased: analytics.erase() };
+  return undefined;
+}
+
+async function route(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  const { asks, method } = deps, post = method === "POST";
+  if (path === "/api/asks") return { modes: asks.modes(), labels: askLabels, parts: askParts };
+  if (path === "/api/asks/switch" && post) {
+    const { part, mode } = SwitchSchema.parse(await deps.readBody());
+    return { part, mode: asks.setMode(part, { mode }) };
+  }
+  if (path === "/api/asks/projects/board") return asks.boards.board(deps.query.get("project") ?? undefined);
+  if (path === "/api/asks/projects/assign" && post) return asks.boards.assign(await deps.readBody());
+  if (path === "/api/asks/intents") return post ? { pipeline: asks.intents.save(await deps.readBody()) } : { pipeline: asks.intents.settings() };
+  if (path === "/api/asks/intents/decide" && post) {
+    const { request } = z.object({ request: z.string().trim().min(1).max(4000) }).strict().parse(await deps.readBody());
+    return asks.intents.decide(request);
+  }
+  if (path === "/api/asks/answer" && post) return runPartTool(deps, "answer-engine", "answer.ask");
+  if (path === "/api/asks/article" && post) return runPartTool(deps, "article-writer", "research.article");
+  if (path.startsWith("/api/asks/pages")) return pagesRoute(deps, path);
+  if (path.startsWith("/api/asks/analytics")) return analyticsRoute(deps, path);
+  return deps.more?.(path);
+}
+
+/** Answers one request under /api/asks/, or throws an AsksHttpError with a status and a sentence. */
+export async function asksApi(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  try {
+    const answer = await route(deps, path);
+    if (answer === undefined) throw new AsksHttpError(404, "Endpoint not found");
+    return answer;
+  } catch (error) {
+    if (error instanceof AsksHttpError) throw error;
+    const status = error instanceof AskOffError ? 409 : error instanceof ZodError ? 400
+      : /not found|no .* with that id/i.test(errorText(error)) ? 404 : 400;
+    const message = error instanceof ZodError ? (error.issues[0]?.message ?? "The request was not in the expected shape") : errorText(error);
+    throw new AsksHttpError(status, deps.runtime.hideSecrets(message));
+  }
+}
