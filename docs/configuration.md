@@ -6735,7 +6735,7 @@ catalog. Switching an add-on off and removing one always work, whatever the swit
 | Part | What it does |
 | --- | --- |
 | Installing add-on packages | Reads a package in Branch's own layout (`branch-addon.json`), as a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin (`.codex-plugin/plugin.json` or an Agent Plugins `plugin.json`) or a Gemini CLI extension (`gemini-extension.json`). |
-| Add-on lists you name | A signed web list (`branch-addon-list`) or a folder holding a Claude Code / Codex marketplace. |
+| Add-on lists you name | A signed web list (`branch-addon-list`, whose entries are flat Branch packages in one zip file) or a folder holding a Claude Code / Codex marketplace. |
 | Your own filters | Rules on what goes in to the model and what comes out. |
 | Reading a Pipelines server | Whether an address is a Pipelines server, its pipelines, their settings. Read only. |
 | Letting the assistant draft an add-on | The `addon.draft` tool saves a plugin as a draft for you to review. |
@@ -6743,7 +6743,8 @@ catalog. Switching an add-on off and removing one always work, whatever the swit
 | Branch as a plugin for Claude Code and Codex | Writes Branch's own plugin into a folder you name. |
 
 **Looking, installing and switching on are three separate presses.** Looking (`POST /api/plugin-catalog/add-ons/look`)
-reads the files — nothing is run — and lists in plain words everything the package would add and need, what
+reads the files — nothing is run; Claude Code, Codex and Gemini CLI packages are read from a folder, and one zip file
+holds only a flat Branch package — and lists in plain words everything the package would add and need, what
 was left out and why, and its fingerprint. Each outside server it names is looked up in the malware list
 first (the security check's "Check add-ons for malware"); a listed one stops the package. Installing copies the
 files with a fingerprint for each, and switches nothing on. Switching on adds its skills (scanned like any
@@ -6786,8 +6787,10 @@ the folder there yourself. The same plugin is in the repository at `integrations
 while packages are switched on and installed only on a press: a word counter, a "Branch words" search source, a
 skill, and a filter that takes out card numbers.
 
-**Writing an add-on.** A plugin's default export is `{ id, name, apiVersion: 1, permissions, tools, hooks }`;
-`definePlugin` (exported by the package) checks it. A tool with `search: { label }` is a search source and takes
+**Writing an add-on.** A plugin's default export is a plain object, `{ id, name, apiVersion: 1, permissions, tools, hooks }`
+(see `data/add-ons/branch-starter/branch-starter.mjs`). A walled plugin runs alone in its folder and cannot import
+Branch, so it must not import anything but Node's own modules; `definePlugin`, exported by the package, is for
+authors who test their plugin against Branch before shipping it. A tool with `search: { label }` is a search source and takes
 `{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
 
 ### macOS and Linux

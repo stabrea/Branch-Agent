@@ -88,7 +88,12 @@ export async function readPackageSource(source: string): Promise<Map<string, str
   if (!info) throw new Error("There is nothing at that address.");
   if (info.isDirectory()) return readPackageFolder(source);
   if (!info.isFile() || info.size > maxTotalBytes) throw new Error("That is not an add-on package this copy can read.");
-  return zipRead(await readFile(source));
+  try { return zipRead(await readFile(source)); }
+  catch (error) {
+    // One file holds only a flat Branch package; anything with folders inside is read from a folder.
+    if (error instanceof z.ZodError) throw new Error("That file has folders inside it. Unpack it and point at the folder instead.");
+    throw error;
+  }
 }
 
 /** Which layout the files are in, or null. */

@@ -113,8 +113,13 @@ export class FilterBook {
   }
   /** Takes out what an add-on brought, when it is removed. */
   forget(from: string): void { this.write(this.list().filter((rule) => rule.from !== from)); }
+  /** Fails closed: if the filters cannot be run, the message is stopped rather than let through unfiltered. */
   run(stage: FilterStage, text: string, models: readonly string[]): FilterResult {
-    const rules = this.list();
-    return rules.length ? applyFilters(rules, stage, text, models) : { text, blocked: null, applied: [] };
+    try {
+      const rules = this.list();
+      return rules.length ? applyFilters(rules, stage, text, models) : { text, blocked: null, applied: [] };
+    } catch {
+      return { text: "", blocked: "Your filters could not be run, so this was stopped. Check them in Customize, Plugins.", applied: ["unreadable"] };
+    }
   }
 }

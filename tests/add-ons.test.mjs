@@ -506,3 +506,23 @@ test("a folder whose record names files Branch never writes is not Branch's, so 
   assert.equal(await readFile(victim, "utf8"), "precious\n");
   assert.equal((await exports.status(folder)).written, false);
 });
+
+test("one zip file holds only a flat Branch package; a zip with folders inside is refused in a sentence", async (t) => {
+  const { app, call, root } = await fixture(t);
+  await call("plugin-catalog/add-ons/settings", { modes: { packages: "on" } });
+  const nested = join(root, "nested.zip");
+  // A real zip with a folder name inside, written by hand because zipWrite refuses one too.
+  const { crc32 } = await import("node:zlib");
+  const name = Buffer.from("skills/x/SKILL.md"), data = Buffer.from("---\nname: x\ndescription: y\n---\nz\n");
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc32(data), 14);
+  local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(name.length, 26);
+  const dir = Buffer.alloc(46); dir.writeUInt32LE(0x02014b50, 0); dir.writeUInt32LE(crc32(data), 16); dir.writeUInt32LE(data.length, 20);
+  dir.writeUInt32LE(data.length, 24); dir.writeUInt16LE(name.length, 28); dir.writeUInt32LE(0, 42);
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(46 + name.length, 12); end.writeUInt32LE(30 + name.length + data.length, 16);
+  await writeFile(nested, Buffer.concat([local, name, data, dir, name, end]));
+  await assert.rejects(call("plugin-catalog/add-ons/look", { source: nested }), /folders inside it\. Unpack it and point at the folder/);
+  // A filter that cannot be run stops the message rather than letting it through.
+  app.addOns.filters.list = () => { throw new Error("damaged"); };
+  await assert.rejects(app.runtime.run({ prompt: "hello" }), /Your filters could not be run, so this was stopped/);
+});
