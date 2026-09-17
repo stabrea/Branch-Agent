@@ -68,6 +68,7 @@ jobs:
             release/Branch-Agent-*.tar.gz
             release/Branch-Agent-*.sha256
             release/Install Branch Agent.cmd
+            release/install-branch-agent.sh
           if-no-files-found: error
           retention-days: 7
   publish:
@@ -87,7 +88,10 @@ jobs:
             test -f "$name" && test -f "$name.sha256"
             sha256sum --check "$name.sha256"
           done
-      - name: Attach to the release
+          test -f "Install Branch Agent.cmd" && test -f install-branch-agent.sh
+      # A download already on the release is never replaced: an owner may have attached a hand-built
+      # one (the Windows zip once was), and it stays together with its own checksum.
+      - name: Attach to the release, keeping anything already there
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -95,9 +99,16 @@ jobs:
         working-directory: downloads
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --verify-tag --title "Branch Agent ${TAG#v}" --notes "Downloads for ${TAG}."
-          gh release upload "$TAG" --clobber \
-            Branch-Agent-windows-x64.zip Branch-Agent-windows-x64.zip.sha256 \
-            Branch-Agent-macos-arm64.zip Branch-Agent-macos-arm64.zip.sha256 \
-            Branch-Agent-macos-x64.zip Branch-Agent-macos-x64.zip.sha256 \
-            Branch-Agent-linux-x64.tar.gz Branch-Agent-linux-x64.tar.gz.sha256 \
-            "Install Branch Agent.cmd"
+          attached="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          on_release() { printf '%s\n' "$attached" | grep -Fxq -- "$1"; }
+          for name in Branch-Agent-windows-x64.zip Branch-Agent-macos-arm64.zip Branch-Agent-macos-x64.zip Branch-Agent-linux-x64.tar.gz; do
+            if on_release "$name"; then
+              echo "$name is already on the release; it and its checksum are kept as they are."
+              on_release "$name.sha256" || echo "::warning::$name is on the release without $name.sha256; attach its checksum by hand."
+            else
+              gh release upload "$TAG" "$name" "$name.sha256"
+            fi
+          done
+          for script in "Install Branch Agent.cmd" install-branch-agent.sh; do
+            if on_release "$script"; then echo "$script is already on the release; it is kept."; else gh release upload "$TAG" "$script"; fi
+          done
