@@ -612,7 +612,7 @@ test("the switches are read and changed over the app's own address, and bad valu
   assert.equal((await (await call("channels")).json()).live.steering, "when-needed");
 });
 
-/** The one place these tests look for the card; it moves to tests/places.mjs when the redesign lands. */
+/** The card as written in the page; tests/chat-live-ui.test.mjs opens it through tests/places.mjs. */
 async function chatLiveCard() {
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const start = html.indexOf('<form id="chat-live-form"');
