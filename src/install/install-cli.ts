@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defaultInstallRoot, defaultUninstallHive, performInstall, removeUninstallEntry } from "./installer.js";
 import { legacyDataDirs } from "./layout.js";
+// bucket 22: the same installer on macOS and Linux (src/install/unix-install-cli.ts).
+import { unixInstallMain } from "./unix-install-cli.js";
 
 /**
  * The installer's own small program. It runs from inside the unpacked download, using the runtime
@@ -21,6 +23,7 @@ async function version(source: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  if (process.platform !== "win32") return unixInstallMain(process.argv.slice(2), process.env); // bucket 22
   const command = process.argv[2] ?? "install";
   const env = process.env;
   const installRoot = flag("install-root") ?? defaultInstallRoot(env);

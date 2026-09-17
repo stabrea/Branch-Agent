@@ -93,7 +93,7 @@ export const TERMINAL_CLI_COMMANDS: { name: string; summary: string; options: st
   { name: "usage", summary: "What this month has used and cost", options: ["--json"] },
   { name: "snapshots", summary: "Kept points the workspace can be put back to", options: ["--json"] },
   { name: "setup", summary: "Open Settings › Models to connect a model, or print the checks", options: [] },
-  { name: "version", summary: "Print the version", options: [] },
+  { name: "version", summary: "Print the version", options: ["--json"] }, // --json: bucket 22 (src/install/manage-cli.ts)
 ];
 
 /** Other names people bring from Hermes and OpenClaw, and the Branch command each one means. */

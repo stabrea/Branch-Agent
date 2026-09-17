@@ -114,6 +114,7 @@ export const ROUTES = {
   "/api/deployment/autostart": "owner POST",
   "/api/deployment/backup": "owner POST",
   "/api/deployment/close": "owner POST",
+  "/api/deployment/quit": "owner POST", // bucket 22: `branch quit`
   "/api/deployment/daemon": "owner POST",
   "/api/deployment/doctor": "look",
   "/api/deployment/remote": "owner POST",
