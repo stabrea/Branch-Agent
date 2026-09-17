@@ -47,7 +47,9 @@ export async function openHelp(id) {
 /** Help for the section that is open right now. */
 export async function openHelpForCurrentView() {
   await loadChapters();
-  const open = [...document.querySelectorAll(".view")].find((node) => !node.hidden);
+  /* Inside a place (public/layout.js) the open tab is the old section, so its chapter still matches. */
+  const shown = (node) => !node.hidden && node.offsetParent !== null;
+  const open = [...document.querySelectorAll(".lx-panel")].find(shown) ?? [...document.querySelectorAll(".view")].find(shown);
   await openHelp(chapterFor(open?.id ?? "chat").id);
 }
 

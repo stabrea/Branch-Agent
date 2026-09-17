@@ -5,6 +5,7 @@
  * would do before anything uses it.
  */
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -40,7 +41,7 @@ async function fixture(t) {
     await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
     await page.locator("#first-run").waitFor({ state: "hidden" });
   }
-  await page.locator('.nav[data-view="procedures"]').first().click();
+  await openPlace(page, "procedures");
   await page.locator("#flow-editor").waitFor({ state: "visible" });
   return { app, page, server, errors };
 }
@@ -104,7 +105,7 @@ test("F2 the timeline under the picture says where each step has got to", async 
   /* The page keeps its key for this browser session, so a reload comes back connected. */
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible" });
-  await page.locator('.nav[data-view="procedures"]').first().click();
+  await openPlace(page, "procedures");
   await page.locator("#editor-flow").selectOption({ label: "Two things" });
   await page.locator("#editor-timeline .card-row").first().waitFor();
   const before = await page.locator("#editor-timeline .card-row").allInnerTexts();

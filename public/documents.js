@@ -165,7 +165,8 @@ function wire() {
       await loadDocuments();
     } catch (error) { say(error.message); }
   });
-  document.querySelector('.nav[data-view="documents"]')
-    ?.addEventListener("click", () => { loadDocuments().catch((error) => say(error.message)); });
+  document.addEventListener("branch-place", (event) => {
+    if (["documents", "library:documents"].includes(event.detail.view)) loadDocuments().catch((error) => say(error.message));
+  });
 }
 wire();

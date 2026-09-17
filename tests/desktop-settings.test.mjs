@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -66,7 +67,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     const page = await electron.firstWindow();
     page.setDefaultTimeout(10000);
     await page.getByText("Connected", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettingFor(page, "#model-provider");
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     await page.getByLabel("Web address of the service", { exact: true }).fill(provider.endpoint);
     await page.getByLabel("Model identifier", { exact: true }).fill("fixture-model");
@@ -141,7 +142,7 @@ test("native settings remain usable after a corrupt file or undecryptable key", 
     try {
       const page = await electron.firstWindow();
       await page.getByText("Connected", { exact: true }).waitFor();
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await openSettingFor(page, "#model-provider");
       await page.locator("#model-settings-note").filter({ hasText: /could not/ }).waitFor();
       await page.getByLabel("Provider", { exact: true }).selectOption("demo");
       assert.equal(await page.locator("#model-settings-form").evaluate((form) => form.checkValidity()), true);

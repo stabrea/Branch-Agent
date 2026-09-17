@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,7 +21,7 @@ async function fixture(t, provider = { name: 'skill-fixture', complete: async ()
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible' }); await page.locator('[data-view="skills"]').click();
+  await page.locator('#workspace').waitFor({ state: 'visible' }); await openPlace(page, 'skills');
   const api = async (path, body) => {
     const response = await fetch(new URL('/api/' + path, server.url), { method: body === undefined ? 'GET' : 'POST',
       headers: { authorization: 'Bearer ' + server.token, 'content-type': 'application/json' },
@@ -136,7 +137,7 @@ test('a task discovers skill metadata and reads the selected active document thr
   await f.page.locator('#skill-document').fill(selected);
   await f.page.locator('#skill-save').click(); await settled(f.page);
   await f.page.locator('#skill-version').selectOption('2'); await f.page.locator('#skill-activate').click(); await settled(f.page);
-  await f.page.locator('[data-view="chat"]').click();
+  await openPlace(f.page, 'chat');
   await f.page.getByLabel('Your message', { exact: true }).fill('Use the installed Juniper skill.');
   await f.page.locator('#send').click(); await f.page.waitForFunction(() => !document.getElementById('send').disabled);
   assert.equal(readDocument, selected);

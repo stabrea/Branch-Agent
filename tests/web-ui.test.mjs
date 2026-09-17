@@ -4,6 +4,7 @@
  * installable-app files, and switching the language.
  */
 import test from "node:test";
+import { openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -118,7 +119,7 @@ test("U1 a reply written in markdown is rendered in the conversation, not shown 
 test("U1 a saved note keeps its inline formatting and still cannot carry markup", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await openPlace(page, "memory");
   await page.getByLabel("Remember something").fill("Prefer **short** answers and `npm start`, never <script>alert(1)</script>.");
   await page.getByRole("button", { name: "Save memory", exact: true }).click();
   const card = page.locator("#memory-list article h3").first();
@@ -147,7 +148,7 @@ test("U2 Look inside shows a scripted task's tool rows and saves as JSON", async
   await page.locator(".message.assistant").waitFor();
   /* The route answers whatever the panel will draw, so check it directly as well as on screen. */
   const runId = app.store.runs(app.runtime.owner).at(0).id;
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await openPlace(page, "runs");
   await page.locator("#runs-list").getByRole("button", { name: "Look inside" }).first().click();
   await page.locator("#inspect-panel").waitFor({ state: "visible" });
   await page.locator(".inspect-call").first().waitFor();
@@ -281,7 +282,7 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
 test("U5 the playground runs a read-only tool and shows what came back", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#playground");
   await page.locator("#playground summary").click();
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
@@ -304,7 +305,7 @@ test("U5 a tool the settings say to ask about stops and asks before it runs", as
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await settle(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#playground");
   await page.locator("#playground summary").click();
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
@@ -400,11 +401,12 @@ test("U7 switching the language changes a visible label and English stays the fa
   assert.deepEqual(missing, [], "the second language answers every key English does");
   await settle(page);
   assert.equal(await page.locator('[data-view="memory"]').innerText(), "Memory");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#appearance-language");
   await page.locator("#appearance-language").selectOption("fr");
   await page.waitForFunction(() => document.getElementById("appearance-language").value === "fr" && document.documentElement.lang === "fr");
   assert.equal(await page.locator('[data-view="memory"]').innerText(), "Mémoire");
-  assert.equal(await page.locator('[data-view="usage"]').innerText(), "Consommation");
+  assert.equal(await page.locator('.lx-place-link[data-place="library"]').innerText(), "Bibliothèque");
+  assert.equal(await page.locator('.lx-settings-link[data-page="data"]').innerText(), "Données et consommation");
   /* A key with no French on file falls back to English rather than showing a blank. */
   const fallback = await page.evaluate(async () => {
     const { t } = await import("/i18n.js");

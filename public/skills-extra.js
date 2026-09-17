@@ -161,5 +161,8 @@ $("skill-package-open")?.addEventListener("click", () => $("skill-package-file")
 $("skill-package-file")?.addEventListener("change", (event) => { const file = event.target.files?.[0]; if (file) void openPackage(file); event.target.value = ""; });
 $("skill-package-install")?.addEventListener("click", installPackage);
 const refreshSkillsScreen = () => { void loadSkillChoices(); void loadUpdates(); void loadSuggestions(); void loadPlugins(); };
-document.querySelector('[data-view="skills"]')?.addEventListener("click", refreshSkillsScreen);
+/* Skills and Plugins both live under Customize now (public/layout.js says when either opens). */
+document.addEventListener("branch-place", (event) => {
+  if (["skills", "customize:skills", "customize:plugins"].includes(event.detail.view)) refreshSkillsScreen();
+});
 if (!document.getElementById("skills")?.hidden) refreshSkillsScreen();
