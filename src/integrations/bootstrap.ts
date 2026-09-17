@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
@@ -394,7 +395,9 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
     // Same guard as Discord and WhatsApp: every call Telegram makes — sending a reply and
     // fetching a voice note — is checked against the network settings first, so a made-up
     // apiBase cannot be used to reach somewhere the owner never allowed.
-    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base });
+    // mac3/never-break: the read position is kept, so messages sent during a restart are answered.
+    const position = channelPosition(host.store, channel.id);
+    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base, ...(position ? { position } : {}) });
   }
   if (channel.type === 'discord')
     return new DiscordAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
