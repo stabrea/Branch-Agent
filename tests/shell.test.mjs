@@ -188,7 +188,7 @@ test('parent exit with a descendant holding pipes returns bounded cleanup status
 
 test('runtime shutdown cancels command execution and waits for its child processes', async (t) => {
   const f = await fixture(t), path = join(f.app.runtime.workspace, 'pids.json');
-  const pending = f.app.runtime.executeTool('shell.execute', { executable: 'fixture', args: ['tree', path] });
+  const pending = f.app.runtime.executeTool('shell.execute', { executable: 'fixture', args: ['tree', path] }, { mode: 'owner' });
   const rejected = assert.rejects(pending, /shutting down/);
   const pids = await waitForPids(path); cleanupPids(t, pids);
   await f.app.close(); await rejected;
