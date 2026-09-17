@@ -233,6 +233,8 @@ async function videoCard(state) {
     const service = choice([["openai", "", "OpenAI"], ["google", "", "Google"]], state.video.service);
     const secret = field(state.video.secret), model = field(state.video.model), perDay = field(String(state.video.perDay ?? 3), "number");
     perDay.min = "1"; perDay.max = "50";
+    // A key name belongs to one service: choosing the other one empties it, so its usual key is used.
+    service.addEventListener("change", () => { secret.value = ""; model.value = ""; });
     const [save, saveHint] = button("reach-video-save", "reach.saveButton", "Save", "reach.video.saveHint", "Keeps which service and key to use.",
       attempt(status, async () => {
         await api("reach/video/settings", { service: service.value, secret: secret.value.trim(), model: model.value.trim(), perDay: Number(perDay.value) || 1 });

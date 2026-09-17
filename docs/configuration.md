@@ -6986,7 +6986,9 @@ Using apps in the background keeps the ordinary screen rules: it only works whil
 assistant to use my screen and keyboard" is on (so Lockdown stops it), it has the same allowance of
 actions per task, password and sign-in windows are marked off limits and never looked into, pressed or
 typed into, and a saved-password placeholder is never typed. A practice run of `video.generate` spends
-nothing. Changing a USB rule's device or task switches it off again. The twelve switches are in the
+nothing. Changing a USB rule's device or task switches it off again. While Lockdown is on, every change
+under `/api/reach/` is refused except switching a part off, the relay is neither asked nor sent to,
+`branch send` sends nothing, and no USB task starts. The twelve switches are in the
 settings catalogue as settings that reach further when raised.
 
 The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were

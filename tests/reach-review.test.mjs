@@ -171,3 +171,40 @@ test("review: the reach switches are classified settings, and a settings file sa
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(app.registry.names().includes("machines.look"), "the tools came with the switch");
 });
+
+test("review: switching service in the window drops a key name that was saved for the other service", async (t) => {
+  const { store } = await scratchApp(t);
+  saveVideoSettings(store, owner, { service: "openai", secret: "MY_OPENAI_KEY" });
+  // The window posts every field it shows, the old key name included.
+  const saved = saveVideoSettings(store, owner, { service: "google", secret: "MY_OPENAI_KEY", model: "", perDay: 3 });
+  assert.equal(saved.secret, "", "Google is not handed the OpenAI key's name");
+  assert.equal(saveVideoSettings(store, owner, { service: "openai", secret: "OTHER_KEY" }).secret, "OTHER_KEY", "a name typed with the change is kept");
+});
+
+test("review: Lockdown stops every reach change, the relay and branch send; switching a part off still works", async (t) => {
+  const { app, store } = await scratchApp(t);
+  const { reachApi } = await import("../dist/reach/api.js");
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const { sendToChat } = await import("../dist/reach/platform.js");
+  const call = (path, body) => reachApi({ reach: app.reachParts, method: "POST", query: new URLSearchParams(), readBody: async () => body }, path);
+  on(store, "send", "relay", "machines", "remote-trunks", "notes");
+  setLockdown(store, owner, { on: true });
+  for (const [path, body] of [["/api/reach/send", { channel: "t", chat: "1", text: "hi" }], ["/api/reach/machines/start", { machine: "m", prompt: "x" }],
+    ["/api/reach/trunks/inbox", { to: "writer", from: "a-b", machine: "zz", text: "hi" }], ["/api/reach/notes", { title: "x" }],
+    ["/api/reach/switch", { part: "video", mode: "on" }]])
+    await assert.rejects(call(path, body), (e) => e.status === 423 && /Lockdown/.test(e.message), path);
+  assert.deepEqual(await call("/api/reach/switch", { part: "notes", mode: "off" }), { part: "notes", mode: "off" });
+  const router = { chats: () => [{ channel: "t", chatId: "1" }], deliver: async () => { throw new Error("delivered under Lockdown"); } };
+  await assert.rejects(sendToChat(store, owner, router, { channel: "t", chat: "1", text: "hi" }), /Lockdown/);
+  saveRelaySettingsForTest(store);
+  let fetched = 0;
+  app.reachParts.relay.deps.fetcher = async () => { fetched++; return json({ envelopes: [] }); };
+  assert.equal(await app.reachParts.relay.poll(async () => undefined), 0);
+  await assert.rejects(app.reachParts.relay.send("telegram:1", "hi"), /Lockdown/);
+  assert.equal(fetched, 0, "the relay is not asked while Lockdown is on");
+});
+
+function saveRelaySettingsForTest(store) {
+  store.save("settings", owner, "reach-relay-settings", { address: "https://relay.example", machineId: "0123456789abcdef", relayId: "r1",
+    secret: "BRANCH_RELAY_SECRET", platforms: ["telegram"] });
+}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { audit } from "../audit.js";
+import { lockedDown } from "../lockdown.js";
 import type { InboundMessage } from "../channels/router.js";
 import type { Store } from "../store.js";
 import { reachMode, reachRecord, requireReach } from "./settings.js";
@@ -92,6 +93,7 @@ export interface ChatSender {
 /** A script's words into a chat that already talks to Branch. */
 export async function sendToChat(store: Store, owner: string, router: ChatSender, input: unknown): Promise<{ channel: string; chat: string; queued: number }> {
   requireReach(store, owner, "send");
+  if (lockedDown(store, owner)) throw new Error("Lockdown is on, so nothing is sent out.");
   const { channel, chat, text } = SendSchema.parse(input);
   if (!router.chats(owner).some((c) => c.channel === channel && c.chatId === chat))
     throw new Error("Branch only sends to a chat that has already talked to it. Send it a message from that chat first.");

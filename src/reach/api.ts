@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lockedDown } from "../lockdown.js";
 import { GitSourceInput } from "./agent-git.js";
 import type { Reach } from "./index.js";
 import { machineViews } from "./machines.js";
@@ -98,9 +99,23 @@ const changes: Record<string, Handler> = {
   "/api/reach/arena/vote": async (d) => d.reach.arena.vote(await d.readBody()),
 };
 
+export const reachLockdownRefusal = "Lockdown is on, so nothing here changes or reaches out. Switching a part off still works.";
+
+/** Integration review: under Lockdown every change is refused, except switching a part off. */
+async function lockdownGate(deps: ReachHttpDeps, path: string): Promise<void> {
+  if (deps.method !== "POST" || !lockedDown(deps.reach.store, deps.reach.owner)) return;
+  if (path === "/api/reach/switch") {
+    const body = await deps.readBody();
+    deps.readBody = async () => body;
+    if ((body as { mode?: unknown } | null)?.mode === "off") return;
+  }
+  throw new ReachHttpError(423, reachLockdownRefusal);
+}
+
 export async function reachApi(deps: ReachHttpDeps, path: string): Promise<unknown> {
   const handler = deps.method === "GET" ? reads[path] : deps.method === "POST" ? changes[path] : undefined;
   if (!handler) throw new ReachHttpError(404, "Not found");
+  await lockdownGate(deps, path);
   try {
     return await handler(deps);
   } catch (error) {

@@ -64,9 +64,14 @@ export function videoSettings(store: Store, owner: string): VideoSettings { retu
  */
 export function saveVideoSettings(store: Store, owner: string, input: unknown): VideoSettings {
   const current = videoSettings(store, owner);
-  const asked = (input ?? {}) as Partial<VideoSettings>;
-  const reset = asked.service !== undefined && asked.service !== current.service && asked.secret === undefined ? { secret: "", model: "" } : {};
-  const value = VideoSettingsSchema.parse({ ...current, ...reset, ...(input as object ?? {}) });
+  const asked = { ...((input ?? {}) as Partial<VideoSettings>) };
+  // The window posts every field it shows, so a key name left over from the other service counts as not given.
+  const switched = asked.service !== undefined && asked.service !== current.service;
+  if (switched && (asked.secret === undefined || asked.secret === current.secret)) {
+    asked.secret = "";
+    if (asked.model === undefined || asked.model === current.model) asked.model = "";
+  }
+  const value = VideoSettingsSchema.parse({ ...current, ...asked });
   store.save("settings", owner, settingsKey, value);
   return value;
 }

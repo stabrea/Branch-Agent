@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, timingSafeEqua
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "../channels/router.js";
 import { readCapped } from "../interop/agent-market.js";
+import { lockedDown } from "../lockdown.js";
 import type { Store } from "../store.js";
 import { reachMode, reachRecord, requireReach } from "./settings.js";
 
@@ -119,7 +120,8 @@ export class RelayAdapter implements ChannelAdapter {
 
   botName(): string | null { return "Relay"; }
   health(): ChannelHealth { return this.state; }
-  private on(): boolean { return reachMode(this.deps.store, this.deps.owner, "relay") !== "off"; }
+  /** Off, or Lockdown on (integration review): the relay is neither asked nor sent to. */
+  private on(): boolean { return reachMode(this.deps.store, this.deps.owner, "relay") !== "off" && !lockedDown(this.deps.store, this.deps.owner); }
   private settings(): RelaySettings { return relaySettings(this.deps.store, this.deps.owner); }
   private now(): number { return this.deps.now?.() ?? Date.now(); }
 
@@ -178,6 +180,7 @@ export class RelayAdapter implements ChannelAdapter {
   /** Sends only to a chat that wrote first through the relay, on an allowed chat app. */
   async send(chatId: string, text: string, replyTo?: string): Promise<string | undefined> {
     requireReach(this.deps.store, this.deps.owner, "relay");
+    if (lockedDown(this.deps.store, this.deps.owner)) throw new Error("Lockdown is on, so nothing is sent through the relay.");
     const s = this.settings();
     const platform = chatId.split(":")[0] ?? "";
     if (!s.platforms.includes(platform) || !this.knownChats().includes(chatId))
