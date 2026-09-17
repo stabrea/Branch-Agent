@@ -25,6 +25,12 @@ import { ntfyService } from "./ntfy.js";
 import { pushoverService } from "./pushover.js";
 import { threemaService } from "./threema.js";
 import { homeassistantService } from "./homeassistant.js";
+import { xmppService } from "./xmpp.js";
+import { mqttService } from "./mqtt.js";
+import { keybaseService } from "./keybase.js";
+import { simplexService } from "./simplex.js";
+import { deltachatService } from "./deltachat.js";
+import { nostrService } from "./nostr.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -203,4 +209,5 @@ export const parityServices: ParityService[] = [
   teamsBotService, webexService, synologyChatService, zaloService, flockService, pumbleService,
   mastodonService, blueskyService, redditService, discourseService, xService, twistService,
   nextcloudTalkService, smsService, ntfyService, pushoverService, threemaService, homeassistantService,
+  xmppService, mqttService, keybaseService, simplexService, deltachatService, nostrService,
 ];
