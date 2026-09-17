@@ -121,7 +121,7 @@ export const COMMANDS: readonly CatalogCommand[] = [
   // mac7/r17-d: the project's instruction file, written by the model (src/coding/init.ts); follows that part's switch
   entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
   // ---- r17-h: the waiting line, typing while it works, focus view, asking for packages (src/flows-boards/commands.ts) ----
-  entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "run", { bareLooks: true, whileWorking: true }),
+  entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "owner", { bareLooks: true, whileWorking: true }), // integration review: rewording is the owner's
   entry("busy", [], "[queue|steer|interrupt]", "what happens when you type while a task works: wait, pass it on, or stop and go next", [...W, "terminal"], "owner", { bareLooks: true }),
   entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
   entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),

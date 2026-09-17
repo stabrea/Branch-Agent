@@ -35,7 +35,7 @@ const recipeChecks: Registrar = (registry, boards) => {
     description: "Replay a verified saved procedure with the checks, clean-up, time limit and number of tries the owner set for it. Stops at once if the approval rules want to ask.",
     parameters: z.object({ id, inputs: InputsSchema.optional() }).strict(),
     execute: async (args, context) => boards.recipes.run(args.id, args.inputs ?? {},
-      { mode: "policy", source: context.source ?? "owner", runId: context.runId, permissions: context.permissions }) });
+      { mode: "policy", source: context.source ?? "owner", runId: context.runId, permissions: context.permissions, parent: context }) });
 };
 
 const kanban: Registrar = (registry, boards) => {
@@ -61,7 +61,8 @@ const widgets: Registrar = (registry, boards) => {
   registry.register({ name: "widgets.list", permission: "widgets.read",
     description: "The live widgets on the owner's dashboard, and the widget ideas waiting for an answer.",
     parameters: z.object({}).strict(),
-    execute: async () => ({ widgets: boards.widgets.list(), waiting: boards.widgets.waiting() }) });
+    // Integration review: a frame's address opens without a key, so the model is never handed it.
+    execute: async () => ({ widgets: boards.widgets.list().map(({ frame: _frame, ...widget }) => widget), waiting: boards.widgets.waiting() }) });
   registry.register({ name: "widgets.propose", permission: "widgets.propose",
     description: "Suggest a live widget: a title, a tool that only looks something up, its arguments, how often to ask again, and why. The owner says yes or no; nothing shows until then.",
     parameters: WidgetSchema,

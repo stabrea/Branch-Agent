@@ -9,6 +9,7 @@ import { saveKeychainSettings } from "../vault-sources.js";
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
+import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -79,6 +80,10 @@ const yesNo = (field: string, label: string, t: string, guard: Guard, initial = 
   ({ field, label, t, kind: { type: "yes-no" }, initial, guard });
 const one = (key: string, name: string, t: string, home: string, guard: Guard, extra: Partial<SettingSpec> = {}): SettingSpec =>
   ({ key, name, t, home, fields: [sw("mode", "Switch", "settings-kit.field.switch", guard)], ...extra });
+/** r17-h integration review: a flows-and-boards switch, written through the running copy so its tools follow. */
+const board = (part: BoardPart, name: string, home: string, guard: Guard): SettingSpec =>
+  one(`flowboards-${part}`, name, `settings-kit.name.flowboards-${part}`, home, guard,
+    { write: (store, owner, patch) => { writeBoardSwitch(store, owner, part, patch); } });
 const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): void => {
   const next = saveWallSettings(store, owner, { ...wallSettings(store, owner), ...patch });
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `The wall around programs: ${next.mode}, reach ${next.network}`,
@@ -144,6 +149,10 @@ const reach: SettingSpec[] = [
   one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
   one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
+  // r17-h: checks run tools and scripts, widgets ask tools on a timer, and requests reach the package lists.
+  board("recipe-checks", "Checks for saved procedures", "automations:procedures", "reach"),
+  board("widgets", "Widgets the assistant builds", "library:made", "reach"),
+  board("install-requests", "Requests for packages and tool servers", "inbox:needs", "reach"),
 ];
 
 const comfort: SettingSpec[] = [
@@ -156,6 +165,11 @@ const comfort: SettingSpec[] = [
   one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain"),
   one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain"),
   one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
+  // r17-h: going back in a flow, the shared board, the waiting line and focus view only rearrange the owner's own work.
+  board("time-travel", "Going back in a flow", "automations:procedures", "plain"),
+  board("kanban", "The shared board", "automations:scheduled", "plain"),
+  board("waiting-line", "Changing the waiting line", "automations:scheduled", "plain"),
+  board("focus", "Focus view", "settings:appearance", "plain"),
   {
     key: "goal-undo", name: "Goals and going back", t: "settings-kit.name.goal-undo", home: "settings:data",
     // Working on until a goal is met is the assistant acting on its own; the snapshots are what lets you go back.

@@ -62,6 +62,21 @@ export function saveBoardMode(store: Store, owner: string, part: BoardPart, inpu
   return mode;
 }
 
+/**
+ * Integration review: a switch changed from a settings file (src/settings-kit/catalogue.ts) goes through
+ * the running copy's `setMode`, so the part's tools come and go with it. Without a running copy (a
+ * store opened on its own) the record is written as it is.
+ */
+const switchers = new WeakMap<object, (part: BoardPart, input: unknown) => BoardMode>();
+export function followBoardSwitches(store: object, setMode: (part: BoardPart, input: unknown) => BoardMode): void {
+  switchers.set(store, setMode);
+}
+export function writeBoardSwitch(store: Store, owner: string, part: BoardPart, patch: Record<string, unknown>): void {
+  const next = { mode: boardMode(store, owner, part), ...patch };
+  const setMode = switchers.get(store);
+  if (setMode) setMode(part, next); else saveBoardMode(store, owner, part, next);
+}
+
 export class BoardOffError extends Error {
   override name = "BoardOffError";
 }

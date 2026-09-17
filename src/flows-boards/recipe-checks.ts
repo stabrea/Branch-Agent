@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApprovalRequiredError, PolicyRefusedError } from "../approvals.js";
-import { errorText, type ToolContext } from "../contracts.js";
+import { BudgetError, errorText, type ToolContext } from "../contracts.js";
 import type { Knowledge } from "../knowledge.js";
 import type { RunSource } from "../policy.js";
 import type { InputValue } from "../recipes.js";
@@ -65,6 +66,8 @@ export interface RunOptions {
   mode: ToolGateMode; source: RunSource; runId?: string;
   /** What the task that asked may do; the owner pressing Run holds every permission. */
   permissions?: ReadonlySet<string>;
+  /** The task that asked, when one did: each try is charged to its budget, and its Stop stops the checks. */
+  parent?: Pick<ToolContext, "budget" | "signal" | "depth">;
 }
 
 export interface RecipeCheckDeps { runtime: Runtime; knowledge: Pick<Knowledge, "replayProcedure"> }
@@ -82,10 +85,8 @@ export class RecipeChecker {
     requirePart(this.store, this.owner, "recipe-checks");
     if (!this.store.get("procedures", this.owner, procedureId)) throw new Error("That procedure is not on file");
     const value = RecipeChecksSchema.parse(input);
-    const own = new Set<string>(Object.values(boardTools).flat());
     for (const call of [...value.checks, ...value.cleanup])
-      if ("tool" in call && (orchestration.test(call.tool) || own.has(call.tool)))
-        throw new Error(`A check or clean-up cannot use ${call.tool}; it may not start more work of its own.`);
+      if ("tool" in call && startsWork(call.tool)) throw new Error(startsWorkRefusal(call.tool));
     this.store.save("settings", this.owner, key(procedureId), value);
     return value;
   }
@@ -99,6 +100,8 @@ export class RecipeChecker {
     const plan = this.get(procedureId);
     const outcome: CheckedRun = { status: "failed", attempts: 0, reasons: [], cleanupProblems: [], results: [] };
     while (outcome.attempts <= plan.retries) {
+      // Integration review: every try is a step of the task that asked, and a stopped task tries no more.
+      options.parent?.budget.step(options.parent.signal);
       outcome.attempts++;
       const reason = await this.attempt(procedureId, inputs, plan, options, outcome);
       if (reason === null) { outcome.status = "passed"; break; }
@@ -114,7 +117,7 @@ export class RecipeChecker {
     options: RunOptions, outcome: CheckedRun): Promise<string | null> {
     try {
       const context = this.context(options, plan.timeoutSeconds);
-      const replayed = await within(this.deps.knowledge.replayProcedure(context, procedureId, inputs), plan.timeoutSeconds, "The procedure");
+      const replayed = await within(() => this.deps.knowledge.replayProcedure(context, procedureId, inputs), plan.timeoutSeconds, "The procedure");
       outcome.results = replayed.results;
     } catch (error) {
       if (stopsEverything(error)) throw error;
@@ -133,7 +136,7 @@ export class RecipeChecker {
       : { tool: check.tool, args: check.args };
     let answer: unknown;
     try {
-      answer = await within(this.use(call, options, procedureId), plan.stepTimeoutSeconds, "The check");
+      answer = await within((signal) => this.use(call, options, procedureId, signal), plan.stepTimeoutSeconds, "The check", options.parent?.signal);
     } catch (error) {
       if (stopsEverything(error)) throw error;
       return errorText(error);
@@ -152,7 +155,7 @@ export class RecipeChecker {
     const problems: string[] = [];
     for (const call of plan.cleanup) {
       try {
-        await within(this.use(call, options, procedureId), plan.stepTimeoutSeconds, "Clean-up");
+        await within((signal) => this.use(call, options, procedureId, signal), plan.stepTimeoutSeconds, "Clean-up", options.parent?.signal);
       } catch (error) {
         if (stopsEverything(error)) throw error;
         problems.push(`${call.tool}: ${errorText(error)}`);
@@ -161,30 +164,61 @@ export class RecipeChecker {
     return problems;
   }
 
-  private use(call: { tool: string; args: Record<string, unknown> }, options: RunOptions, procedureId: string): Promise<unknown> {
+  private async use(call: { tool: string; args: Record<string, unknown> }, options: RunOptions, procedureId: string, signal: AbortSignal): Promise<unknown> {
+    const { runtime } = this.deps;
+    // Integration review: a saved record is checked again here, whatever wrote it.
+    if (startsWork(call.tool)) throw refusal(call.tool, startsWorkRefusal(call.tool));
     // A task never reaches past what it may do itself, whatever the check asks for.
-    if (options.permissions && !options.permissions.has(this.deps.runtime.registry.permissionOf(call.tool)))
-      return Promise.reject(new PolicyRefusedError(call.tool, `${call.tool} needs a permission this task does not have`));
-    return this.deps.runtime.executeTool(call.tool, call.args, { mode: options.mode, source: options.source, approvalKey: `recipe-checks:${procedureId}` });
+    if (options.permissions && !options.permissions.has(runtime.registry.permissionOf(call.tool)))
+      throw refusal(call.tool, `${call.tool} needs a permission this task does not have`);
+    const run = () => runtime.executeTool(call.tool, call.args, { mode: options.mode, source: options.source, approvalKey: `recipe-checks:${procedureId}`, signal });
+    if (!options.runId) return run();
+    // Integration review: the repeated-call guard of the task sees every check; one it refuses ends the run.
+    let ran = false;
+    const answer = await runtime.guards.call(options.runId, { id: randomUUID(), name: call.tool, arguments: JSON.stringify(call.args) }, () => { ran = true; return run(); });
+    if (!ran) throw refusal(call.tool, `The same check kept being asked: ${String((answer as { error?: unknown }).error ?? call.tool)}`);
+    return answer;
   }
 
   private context(options: RunOptions, seconds: number): ToolContext {
-    return this.deps.runtime.context({ signal: AbortSignal.timeout(seconds * 1000), source: options.source,
+    const { parent } = options;
+    const signal = AbortSignal.any([AbortSignal.timeout(seconds * 1000), ...(parent ? [parent.signal] : [])]);
+    return this.deps.runtime.context({ signal, source: options.source,
+      ...(parent ? { budget: parent.budget, depth: parent.depth } : {}),
       approvalKey: "recipe-checks", ...(options.runId ? { runId: options.runId } : {}),
       ...(options.permissions ? { permissions: [...options.permissions] } : {}) });
   }
 }
 
-/** A refusal or a question from the approval rules ends the run at once; it is never tried again. */
+/** A refusal, a question from the approval rules or a spent budget ends the run at once; it is never tried again. */
 function stopsEverything(error: unknown): boolean {
-  return error instanceof ApprovalRequiredError || error instanceof PolicyRefusedError;
+  return error instanceof ApprovalRequiredError || error instanceof PolicyRefusedError || error instanceof BudgetError;
 }
 
-async function within<T>(work: Promise<T>, seconds: number, what: string): Promise<T> {
+const own = new Set<string>(Object.values(boardTools).flat());
+const startsWork = (tool: string): boolean => orchestration.test(tool) || own.has(tool);
+const startsWorkRefusal = (tool: string): string => `A check or clean-up cannot use ${tool}; it may not start more work of its own.`;
+function refusal(tool: string, message: string): PolicyRefusedError {
+  const error = new PolicyRefusedError(tool, message);
+  error.message = message;
+  return error;
+}
+
+/**
+ * The work, given a signal that is stopped when the time is up (or the caller's own stop comes), so
+ * the tool itself is stopped rather than only no longer waited for (integration review).
+ */
+async function within<T>(work: (signal: AbortSignal) => Promise<T>, seconds: number, what: string, outer?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const signal = outer ? AbortSignal.any([controller.signal, outer]) : controller.signal;
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} took longer than ${seconds} seconds`)), seconds * 1000);
+    timer = setTimeout(() => {
+      const error = new Error(`${what} took longer than ${seconds} seconds`);
+      controller.abort(error);
+      reject(error);
+    }, seconds * 1000);
     timer.unref();
   });
-  try { return await Promise.race([work, late]); } finally { clearTimeout(timer); }
+  try { return await Promise.race([work(signal), late]); } finally { clearTimeout(timer); }
 }

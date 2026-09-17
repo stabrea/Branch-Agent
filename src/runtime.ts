@@ -544,7 +544,7 @@ export class Runtime {
     this.controllers.set(run.id, controller);
     const context = this.context({
       runId: run.id,
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000), ...(options.signal ? [options.signal] : [])]),
       ...(options.source ? { source: options.source } : {}),
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
     });

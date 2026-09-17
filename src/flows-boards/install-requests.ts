@@ -108,7 +108,8 @@ export class InstallRequests {
     const found = this.list().find((entry) => entry.id === id);
     if (!found || found.status !== "waiting") throw new Error("That request is not waiting for an answer.");
     let item = found;
-    if (yes && item.check.state === "unchecked") item = { ...item, check: await this.look(item.ask) };
+    // Integration review: a yes asks the list again, so a package named as malware since it was asked about is refused.
+    if (yes) item = { ...item, check: await this.look(item.ask) };
     if (yes && item.check.state === "harmful") return this.settle({ ...item, status: "refused" });
     if (yes && item.check.state === "unchecked" && !options.despiteUnchecked)
       throw new Error(`The list of harmful packages could not be asked (${item.check.note}). Try again, or approve it anyway on purpose.`);

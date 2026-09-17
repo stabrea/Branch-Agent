@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { startedWithShortLivedKey } from "../key-context.js";
+import { currentPerson } from "../people/context.js";
 import type { RunQueue } from "../run-queue.js";
 import type { FollowUp, Runtime } from "../runtime.js";
 import { partRecord, requirePart } from "./settings.js";
@@ -27,16 +29,27 @@ export const MoveSchema = z.object({ direction: z.enum(["up", "down", "first", "
 export type Direction = z.infer<typeof MoveSchema>["direction"];
 const PromptSchema = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict();
 
+/**
+ * Integration review: changing either line, and what typing does while a task works, is the owner's
+ * alone. A queued message runs with the marks of whoever queued it, so a short-lived key or a household
+ * person rewording (or jumping ahead of) the owner's message would run their words as the owner's.
+ */
+export const waitingOwnerRefusal = "Only the owner can change the waiting line, in the Branch app or the owner's own terminal.";
+
 export interface BusySend { mode: BusyMode; working: boolean; message: string; position?: number }
 
 export class WaitingLine {
   constructor(private readonly runtime: Runtime, private readonly queue: RunQueue) {}
   private get store() { return this.runtime.store; }
   private get owner() { return this.runtime.owner; }
+  private change(): void {
+    requirePart(this.store, this.owner, "waiting-line");
+    if (startedWithShortLivedKey() || currentPerson() || !this.store.profiles.isOwner()) throw new Error(waitingOwnerRefusal);
+  }
 
   busyMode(): BusyMode { return partRecord(this.store, this.owner, busyKey, BusySchema).mode; }
   saveBusyMode(input: unknown): BusyMode {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const { mode } = BusySchema.parse(input);
     this.store.save("settings", this.owner, busyKey, { mode });
     return mode;
@@ -75,7 +88,7 @@ export class WaitingLine {
   }
 
   editFollowUp(sessionId: string, id: string, input: unknown): FollowUp[] {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const { prompt } = PromptSchema.parse(input);
     const items = [...this.mine(sessionId)];
     const index = this.find(items, id);
@@ -84,14 +97,14 @@ export class WaitingLine {
   }
 
   moveFollowUp(sessionId: string, id: string, input: unknown): FollowUp[] {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const { direction } = MoveSchema.parse(input);
     const items = [...this.mine(sessionId)];
     return this.keep(sessionId, moved(items, this.find(items, id), direction));
   }
 
   removeFollowUp(sessionId: string, id: string): FollowUp[] {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const items = [...this.mine(sessionId)];
     items.splice(this.find(items, id), 1);
     return this.keep(sessionId, items);
@@ -106,7 +119,7 @@ export class WaitingLine {
   }
 
   editQueued(id: string, input: unknown): void {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const { prompt } = PromptSchema.parse(input);
     this.waitingRow(id);
     this.store.sqlite.prepare("UPDATE run_queue SET prompt=?, updated_at=? WHERE owner=? AND id=? AND status='waiting'")
@@ -118,7 +131,7 @@ export class WaitingLine {
    * before anything automatic, so a move never jumps that order: it changes the order within it.
    */
   moveQueued(id: string, input: unknown): void {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const { direction } = MoveSchema.parse(input);
     const { priority } = this.waitingRow(id);
     const peers = this.store.sqlite.prepare("SELECT id, created_at FROM run_queue WHERE owner=? AND status='waiting' AND priority=? ORDER BY created_at, id")
@@ -132,7 +145,7 @@ export class WaitingLine {
   }
 
   removeQueued(id: string): { cancelled: boolean } {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     this.waitingRow(id);
     return { cancelled: this.queue.cancel(this.owner, id).cancelled };
   }
@@ -141,7 +154,7 @@ export class WaitingLine {
 
   /** What the owner typed into a conversation that may be working, handled as the busy mode says. */
   send(sessionId: string, prompt: string, mode = this.busyMode()): BusySend {
-    requirePart(this.store, this.owner, "waiting-line");
+    this.change();
     const text = PromptSchema.parse({ prompt }).prompt;
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Conversation not found");
     const row = this.store.sqlite.prepare("SELECT id FROM tasks WHERE owner=? AND session_id=? AND status='running' ORDER BY created_at DESC LIMIT 1")

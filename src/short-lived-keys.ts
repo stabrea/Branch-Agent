@@ -103,6 +103,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/coding\/shell$/,
   // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
   /^\/api\/personal(\/|$)/,
+  // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
+  /^\/api\/flows-boards\/widgets$/,
 ];
 
 /**

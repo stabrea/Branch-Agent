@@ -7,7 +7,7 @@ import type { Runtime } from "../runtime.js";
 import { InstallRequests } from "./install-requests.js";
 import { KanbanBoard } from "./kanban.js";
 import { RecipeChecker } from "./recipe-checks.js";
-import { boardMode, boardParts, boardTools, saveBoardMode, type BoardMode, type BoardPart } from "./settings.js";
+import { boardMode, boardParts, boardTools, followBoardSwitches, saveBoardMode, type BoardMode, type BoardPart } from "./settings.js";
 import { FlowTimeTravel } from "./time-travel.js";
 import { registrars } from "./tools.js";
 import { WaitingLine } from "./waiting-line.js";
@@ -54,6 +54,7 @@ export class FlowsBoards {
     this.installs = new InstallRequests({ store, owner, fetch: deps.fetch, ...(deps.osvEndpoint ? { endpoint: deps.osvEndpoint } : {}) });
     for (const part of boardParts) this.sync(part);
     byRuntime.set(runtime, this);
+    followBoardSwitches(store, (part, input) => this.setMode(part, input));
   }
 
   get store() { return this.deps.runtime.store; }

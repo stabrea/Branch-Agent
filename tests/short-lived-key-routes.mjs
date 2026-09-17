@@ -400,7 +400,7 @@ export const ROUTES = {
   "/api/flows-boards/waiting/queue/:id/edit": "owner POST",
   "/api/flows-boards/waiting/queue/:id/move": "owner POST",
   "/api/flows-boards/waiting/queue/:id/remove": "owner POST",
-  "/api/flows-boards/widgets": "look",
+  "/api/flows-boards/widgets": "secret-read",
   "/api/flows-boards/widgets/:id/accept": "owner POST",
   "/api/flows-boards/widgets/:id/dismiss": "owner POST",
   "/api/flows-boards/widgets/:id/remove": "owner POST",

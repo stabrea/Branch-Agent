@@ -39,11 +39,39 @@ const ListSchema = z.object({ items: z.array(ProposalSchema).max(80).default([])
 const listKey = "flowboards-widget-ideas";
 const maxWaiting = 10;
 
+/**
+ * Integration review: the look-only permissions a widget may use. A widget asks again on a timer and
+ * its page opens without a key, so nothing personal or remembered is allowed — no mail or calendar
+ * (personal.read), memory, history, files, documents, pictures, the browser's signed-in pages,
+ * devices, a task's scratch area — and nothing that asks the owner a question (user.ask).
+ */
+export const widgetPermissions: ReadonlySet<string> = new Set([
+  "web.read", "schedules.read", "monitors.read", "gitlab.read", "mcp.read", "process.read", "projects.read", "nodes.read",
+]);
+
+const own = new Set<string>(Object.values(boardTools).flat());
+
 export interface WidgetView { id: string; title: string; tool: string; everySeconds: number; frame: string; updatedAt: string | null; error: string | null }
 
 export class Widgets {
   constructor(private readonly store: Store, private readonly owner: string,
-    private readonly registry: Pick<ToolRegistry, "names" | "permissionOf">, private readonly surfaces: LiveSurfaces) {}
+    private readonly registry: Pick<ToolRegistry, "names" | "permissionOf">, private readonly surfaces: LiveSurfaces) {
+    // Integration review: "look only" is checked every time a widget's page is asked again, not only when proposed.
+    surfaces.setGuard((surfaceId, tool) => {
+      const item = this.items().find((entry) => entry.surfaceId === surfaceId);
+      if (!item) return null;
+      return item.tool === tool ? this.refusal(tool) : "This widget's tool was changed, so it is no longer asked.";
+    });
+  }
+
+  /** Why a tool cannot be a widget's, or null when it can. A tool that is not there cannot. */
+  private refusal(tool: string): string | null {
+    if (!this.registry.names().includes(tool)) return `There is no tool called ${tool}.`;
+    const permission = this.registry.permissionOf(tool);
+    if (own.has(tool) || !isReadOnlyPermission(permission) || !widgetPermissions.has(permission))
+      return `A widget can only use a tool that looks something up and holds nothing personal; ${tool} cannot be one.`;
+    return null;
+  }
 
   private items(): WidgetProposal[] { return partRecord(this.store, this.owner, listKey, ListSchema).items; }
   private saveItems(items: WidgetProposal[]): void {
@@ -61,10 +89,8 @@ export class Widgets {
   propose(input: unknown): { id: string; status: "waiting" | "already asked" } {
     requirePart(this.store, this.owner, "widgets");
     const value = WidgetSchema.parse(input);
-    if (!this.registry.names().includes(value.tool)) throw new Error(`There is no tool called ${value.tool}.`);
-    const own = new Set<string>(Object.values(boardTools).flat());
-    if (own.has(value.tool) || !isReadOnlyPermission(this.registry.permissionOf(value.tool)))
-      throw new Error(`A widget can only use a tool that looks something up; ${value.tool} can change things.`);
+    const refused = this.refusal(value.tool);
+    if (refused) throw new Error(refused);
     const fingerprint = createHash("sha256").update(JSON.stringify([value.tool, value.args])).digest("hex").slice(0, 24);
     const items = this.items();
     const same = items.find((item) => item.fingerprint === fingerprint && item.status !== "accepted");
@@ -97,6 +123,8 @@ export class Widgets {
     if (yes && askMode(this.store, this.owner, "live-surfaces") === "off")
       throw new Error(`Switch on "${askLabels["live-surfaces"]}" first; a widget is shown as one of those pages.`);
     if (yes) {
+      const refused = this.refusal(item.tool);
+      if (refused) throw new Error(refused);
       const surface = await this.surfaces.add({ title: item.title, tool: item.tool, args: item.args, everySeconds: item.everySeconds });
       item.surfaceId = surface.id;
     }
