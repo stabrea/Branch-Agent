@@ -5238,8 +5238,9 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
   well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
   `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
-- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
-  carry one between installs (`src/templates.ts`).
+- **A2001 prompt library** — built in bucket 12: saved prompts in groups, with blanks, earlier
+  wordings and a command each (`src/prompt-library.ts`; see *Your saved prompts, your own commands
+  and installing skills* below).
 - **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
   naming which programs may be left running at all.
 - **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
@@ -5942,9 +5943,10 @@ because it writes outside this folder.
   answer for this tree.
 - **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
   separately; `secret://cmd/<name>` above is the general form of the same idea.
-- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
-  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
-  become a task. Still open.
+- **FAMILY custom-commands (#72)** — built in bucket 12: a saved prompt can have a command of its
+  own, laid over the shipped table on every surface with a message box (see *Your saved prompts, your
+  own commands and installing skills* below). A mistyped name still never becomes a task: only a
+  saved command the owner wrote is read, and a shipped name can never be taken.
 
 ## Sandboxes: where a script actually runs (batch 26, wave 8)
 
@@ -6751,6 +6753,7 @@ the switch is off.
 | `/whoami` | `/id` | any key | new | new | new | new | new |
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
+| `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
 
 ### Parity with other agents
 
@@ -6804,7 +6807,80 @@ The same table is in `src/commands/parity.ts`.
 | Mascots and pets | /pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini) | — | not applicable | Branch draws its own oak instead. |
 | Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
 | Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
+| Your own commands | custom commands (Claude Code, Gemini CLI, OpenCode, Kilo Code), prompt groups with a command (LibreChat) | `/prompts` | built | Saved prompts with a command of their own, on every surface with a message box; /prompts lists them and the saved procedures. |
 | Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |
+
+## Your saved prompts, your own commands and installing skills (public list, bucket 12)
+
+**Saved prompts** (Automations › Procedures, *Your saved prompts*; `src/prompt-library.ts`). The
+things you ask for often, kept in groups. Each has a name, an optional group, an optional command
+(`weekly` becomes `/weekly`), a line saying what it is for, and the text. Write `{{name}}` where a word
+should be filled in when it is used; `{{input}}` takes whatever follows the command and `{{today}}` is
+the date. Saving a new wording keeps the last ten, and *Put this wording back* restores one. A prompt
+carrying something that looks like a key is refused, and so is one starting with `/`. At most 200.
+
+*Try it* (the prompt editor, A1882) asks one model, or two side by side, with the blanks filled in —
+with no tools at all and in a conversation that is not kept (`POST /api/prompts/try`). *Add the
+examples* adds four starter prompts in the group *Examples*; nothing is added by itself. *Save all as
+a file* and *Add prompts from a file* carry the library to another computer
+(`branch-prompt-library` version 1); a prompt whose name is already there is skipped, and a command
+already taken arrives without it.
+
+**Your own commands** (family custom-commands; `src/commands/saved.ts`). A saved prompt with a command
+answers to it wherever the shipped commands are read: the window and the phone (`/` menu and
+`POST /api/commands/run`), both terminal views and the chat apps. Using one only ever turns it into
+the text of an ordinary message, sent the way typing it would send it, so it asks of the key exactly
+what starting a task asks and a key that may only look is refused. `/weekly day=monday more words`
+fills `{{day}}` and hands the rest to `{{input}}` (or to the prompt's only other blank); a blank left
+empty stops it with the list of what is missing, and nothing is sent. A shipped name or any of its
+other names can never be given to a saved prompt, so `/stop` or `/lockdown` always mean what they
+say. The dashboard has no message box and does not offer them. In a chat app they are read only
+while that chat reads commands at all. `/prompts` (also `/procedures`, `/workflows`, A0147) is a
+shipped command; it answers while either the *Typed commands* switch or this one is not off: on its own it lists the saved prompts by group
+and the saved procedures with their status, steps and inputs; with a name it shows that one and puts
+it in the message box without sending it — for a procedure, the sentence that asks for it with its
+inputs to fill in. A procedure still runs only once it is verified, through the usual approval rules.
+
+**The switch** is on the card and ships **off** (`GET /api/prompts`, `POST /api/prompts/settings
+{ mode }`). Off: nothing is saved, tried or offered, and a typed `/weekly` is what it always was.
+When needed: your commands work when typed, but no `/` menu lists them (`/prompts` does). On: they
+work and the menus list them. It is separate from the *Typed commands* switch, so turning the shipped
+commands on never turns yours on.
+
+**The example tool server** (family examples, A1282; `src/examples/mcp-notes-server.ts`). A small MCP
+server that ships with Branch: it keeps a few notes in memory while it runs (`add_note`,
+`list_notes`), reads no files, opens no network connection and needs no key. The card shows the exact
+lines to add under `"mcp"` in the integrations file (this Node, this copy's file, both tools, version
+1.0.0); after a restart, the example prompt `/notes-example buy milk` asks a task to use it.
+
+**Installing skills, with a written account** (Customize › Skills, *Install a skill, and what
+happened*; `src/skill-installs.ts`, A2374). Installing from an Agent Skills folder, a Branch package,
+a registry or pasted instructions, and removing a skill, while Branch runs. Each time the steps are
+written down — what was opened, what was checked, what was left out, what it asks to do, how it
+arrived — or the exact reason it stopped; the last thirty are kept. The install is the same code as
+everywhere else, so a skill still arrives switched off and passes the same scan. The card has its own
+three-way switch, shipped off. Routes: `GET /api/skill-installs` (switch, accounts, installed skills),
+`GET /api/skill-installs/export?skill=<id>`, `POST /api/skill-installs/settings | inspect | install |
+remove`.
+
+**Agent Skills folders** (A0776; `src/agent-skills.ts`). The open layout other agents share
+(agentskills.io): `<name>/SKILL.md` with `name` and `description` front matter, and optional
+`references/`, `scripts/` and `assets/`. The front matter must meet that layout's rules (a lowercase
+name with single dashes, at most 64 long, matching its folder; a description up to 1024). Text
+references (`.md`, `.txt`) are kept with the package and added to the instructions under
+*Reference:* headings while they fit, because Branch gives the assistant one document per skill.
+Programs in `scripts/` are never run and files in `assets/` are never unpacked; both are named in the
+account. A version in `metadata.version` becomes the package version. *Save as an Agent Skills
+folder* writes any installed skill back out in the same layout, with its references in their own
+files again, so reading it back gives the same skill.
+
+**Who may do what.** Every change above is the owner's: a short-lived key is refused before it gets
+there (none of these routes is in `src/short-lived-keys.ts`), and the owner's own profile is asked for
+as well. Reading the list and the accounts, and exporting a skill, needs any key.
+
+**macOS and Linux.** Nothing here depends on the operating system. The example tool server is started
+with the same Node that runs Branch, so the snippet the card shows is right for the computer it is
+shown on.
 
 ## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
 

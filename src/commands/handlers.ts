@@ -11,6 +11,7 @@ import { answerFromHandbook } from "./docs-answer.js";
 import { tokenLines, tokenReport } from "./tokens.js";
 import { runningLines, statusLines, whoamiLines } from "./status.js";
 import { helpText } from "./help-text.js";
+import { promptsCommand } from "./saved.js";
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -25,7 +26,9 @@ export type ClientAction =
   | { do: "new" } | { do: "attach" } | { do: "refresh-model" } | { do: "help" }
   | { do: "download"; name: string; text: string }
   | { do: "open-session"; id: string }
-  | { do: "theme"; name: string };
+  | { do: "theme"; name: string }
+  // bucket 12: send the finished text as the next message, or only put it in the message box
+  | { do: "send"; text: string } | { do: "fill"; text: string };
 export interface Reply { text: string; client?: ClientAction }
 
 interface GoalView { status: string; round: number; maxRounds: number; objective: string; reason?: string; sessionId: string }
@@ -240,4 +243,5 @@ export const HANDLERS: Record<string, Handler> = {
   whoami: (call) => say(whoamiLines(call).join("\n")),
   version: (call) => say(`Branch Agent ${call.host.version ?? "(version unknown)"}`),
   health,
+  prompts: promptsCommand, // bucket 12
 };
