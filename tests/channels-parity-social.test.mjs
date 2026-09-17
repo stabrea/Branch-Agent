@@ -148,6 +148,8 @@ test("Mastodon: a stranger is refused when pairing is off, and a refused token i
 test("Mastodon: the connections file takes the server and a secret name, and the network check sees the server", async (t) => {
   const context = await fixture(t);
   const server = await mastodonServer(t);
+  server.mention("dave@other.example", "an old public question", { visibility: "public" });
+  const status = server.notes.at(-1).status.id;
   assert.deepEqual(await settingsAreChecked(context, { type: "mastodon", id: "masto", instance: "https://social.example.org" }, "social.example.org", MASTODON_TOKEN),
     ["MASTODON_ACCESS_TOKEN"]);
   const built = await buildParityChannel({ type: "mastodon", id: "masto", instance: server.base, pollSeconds: 10, ...policy },
@@ -157,6 +159,18 @@ test("Mastodon: the connections file takes the server and a secret name, and the
   t.after(() => built.stop());
   await until(() => built.health().state === "connected", "connected with the saved token");
   assert.ok(server.calls.every((c) => c.headers.authorization === `Bearer ${MASTODON_TOKEN}` && !c.path.includes(MASTODON_TOKEN)));
+
+  // A long answer, sent through the switch and the waiting line, is split to fit 500 characters and
+  // every piece stays in the thread, with the visibility read back from the status after a restart.
+  await delay(80);
+  assert.equal(server.posts.length, 0, "the question from before the start is not answered");
+  await context.app.channels.deliver("masto", status, `${"word ".repeat(180)}end`, "long-answer", status);
+  await until(() => server.posts.length >= 2 && server.posts.at(-1).json.status.endsWith("end"), "every piece sent");
+  for (const post of server.posts) {
+    assert.equal(post.json.in_reply_to_id, status);
+    assert.equal(post.json.visibility, "public");
+    assert.ok(post.json.status.startsWith("@dave@other.example ") && post.json.status.length <= 500);
+  }
   await assertNoSecret(context, [MASTODON_TOKEN]);
 });
 

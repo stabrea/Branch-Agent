@@ -123,11 +123,9 @@ export class RedditChannel extends PollingChannel {
     const fullname = /^t[14]_[a-z0-9]+$/i;
     const thing = replyToMessageId && fullname.test(replyToMessageId) ? replyToMessageId
       : this.targets.get(chatId) ?? (fullname.test(chatId) ? chatId : null);
-    const words = text.slice(0, this.maxTextLength);
-    // A private chat with nothing to answer (after a restart) gets a new message instead.
-    const answer = thing
-      ? await this.api("/api/comment", { method: "POST", form: { api_type: "json", thing_id: thing, text: words } })
-      : await this.api("/api/compose", { method: "POST", form: { api_type: "json", to: this.ids.long(chatId), subject: "A reply from the assistant", text: words } });
+    // Every answer is a reply; a private chat with nothing remembered to answer (after a restart) waits for its next message.
+    if (!thing) throw new Error("There is no Reddit message to answer in that chat yet");
+    const answer = await this.api("/api/comment", { method: "POST", form: { api_type: "json", thing_id: thing, text: text.slice(0, this.maxTextLength) } });
     const posted = Posted.parse(answer);
     if (posted.json.errors.length)
       throw new Error(`Reddit would not post it (${posted.json.errors.map((e) => String(e[0]).slice(0, 40)).join(", ")})`);
