@@ -148,6 +148,12 @@ async function openFlow(id) {
     $("editor-description").value = flow.description ?? "";
     steps = (flow.steps ?? []).map((step) => ({ ...step }));
     drawSteps();
+    /* A flow drawn as a graph is not a list of steps, so this form cannot change it. The picture
+       and the timeline still show it, and Run and Carry on still work on it. */
+    if (flow.kind === "graph") {
+      $("editor-picture")?.replaceChildren(drawGraph(flow.graph));
+      say(t("editor.graphOnly"));
+    }
     await drawTimeline();
   } catch (error) { say(error.message); }
 }

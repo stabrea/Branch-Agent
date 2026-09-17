@@ -192,6 +192,7 @@
   "editor.remove": "Take it out",
   "editor.running": "Working through it…",
   "editor.saved": "Saved.",
+  "editor.graphOnly": "This flow is drawn as boxes and arrows, so it is not changed here. You can still run it and carry it on.",
   "editor.timeline": "While it runs",
   "editor.title": "Change a flow",
   "editor.up": "Move up",

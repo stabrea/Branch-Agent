@@ -551,6 +551,9 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
+  // the schedules toolbox does not grow a second tool that says the same thing.
+  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
   // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
   // that finished, with the state exactly as that box left it. Nothing is started again from the
   // top, and a launch with no interrupted flow does nothing at all.

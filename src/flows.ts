@@ -95,7 +95,7 @@ const graphView = (definition: FlowGraphDefinition, id: string): GraphFlowView =
 /** What starting a graph flow hands back at once: the task to watch, before any box has run. */
 export interface GraphRunStart { runId: string; flowId: string; status: "running"; name: string }
 /** The flow tools that are always there; every other "flows." tool is one saved flow. */
-export const builtInFlowTools = new Set(["flows.list", "flows.resume", "flows.check"]);
+export const builtInFlowTools = new Set(["flows.list"]);
 
 /** A name a tool can be called by, worked out from what the owner called the flow. */
 export const flowToolName = (name: string): string =>
@@ -181,7 +181,7 @@ export class Flows {
   async run(id: string, options: { resume?: boolean; input?: Record<string, unknown> } = {}): Promise<FlowView | GraphRunStart> {
     const owner = this.mine;
     if (this.store.get("flow_graphs", owner, id))
-      return options.resume ? this.resumeGraph(id) : this.startGraph(id, options.input ?? {});
+      return options.resume ? this.resumeGraph(id, { approve: true }) : this.startGraph(id, options.input ?? {});
     const before = this.workflows.stepStates(owner, id);
     const finished = await (options.resume ? this.workflows.resume(owner, id) : this.workflows.run(owner, id));
     this.announce(id, before, this.workflows.stepStates(owner, id));
@@ -197,12 +197,21 @@ export class Flows {
     this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source: "owner" }));
     return { runId: started.runId, flowId: id, status: "running", name: definition.name };
   }
-  /** Carries a checkpointed graph run on from the box after the last one that finished. */
-  resumeGraph(id: string, runId?: string): GraphRunStart {
+  /** Whether a saved flow is drawn as a graph rather than kept as a list of steps. */
+  isGraph(id: string): boolean { return !!this.store.get("flow_graphs", this.mine, id); }
+  /**
+   * Carries a checkpointed graph run on from the box after the last one that finished. `approve`
+   * is the owner saying yes on their own screen to whatever a box stopped to ask about; the
+   * assistant never sets it, so a flow waiting on the owner stays waiting until they answer.
+   */
+  resumeGraph(id: string, options: { runId?: string; approve?: boolean } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
-    const pick = runId ?? this.graphs.resumable(id)?.runId;
+    const pick = options.runId ?? this.graphs.resumable(id)?.runId;
     if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
-    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: true }));
+    const waiting = this.graphs.view(pick);
+    if (!options.approve && waiting.question)
+      throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
+    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true }));
     return { runId: pick, flowId: id, status: "running", name: definition.name };
   }
   /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */
@@ -279,18 +288,6 @@ export function registerFlows(registry: ToolRegistry, flows: Flows): void {
     description: "Saved flows as boxes and arrows: every step, what it does, where it has got to, and which step follows which.",
     parameters: z.object({}).strict(),
     execute: async () => ({ flows: flows.list() }),
-  });
-  registry.register({
-    name: "flows.resume", permission: "workflows.manage",
-    description: "Carry a flow that stopped part way through on from the box after the last one that finished.",
-    parameters: z.object({ id: z.string().uuid(), runId: z.string().uuid().optional() }).strict(),
-    execute: async (value) => flows.resumeGraph(value.id, value.runId),
-  });
-  registry.register({
-    name: "flows.check", permission: "workflows.read",
-    description: "Check a flow drawn as boxes and arrows before saving it, and say in plain words what is wrong.",
-    parameters: z.object({}).passthrough(),
-    execute: async (value) => flows.check(value),
   });
   // Each saved graph flow becomes a tool of its own, with its declared input as the arguments.
   flows.useRegistry(registry);

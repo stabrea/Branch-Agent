@@ -181,15 +181,33 @@ const echoFlow = (name, inner) => ({
 });
 
 test("G5 a box whose body is another flow runs with a state of its own", async (t) => {
-  const { app } = await fixture(t, ["deep answer"]);
+  const { app } = await fixture(t, ["a parent note", "deep answer"]);
   const leaf = app.flows.saveGraph(echoFlow("Leaf", null));
-  const outer = app.flows.saveGraph(echoFlow("Outer", leaf.id));
-  const finished = await settle(app, app.flows.startGraph(outer.id, { word: "hello" }).runId);
+  const outer = app.flows.saveGraph({
+    name: "Outer", input: { word: "text" }, state: { parentNote: "text", said: "text" }, entry: "note",
+    nodes: [
+      { id: "note", name: "Note to self", kind: "prompt", prompt: "note it", output: { parentNote: "text" } },
+      { id: "one", name: "Into Leaf", kind: "subflow", flowId: leaf.id, input: { word: "text" }, output: { said: "text" } },
+    ],
+    edges: [{ from: "note", to: "one" }],
+  });
+  const started = app.flows.startGraph(outer.id, { word: "hello" });
+  const finished = await settle(app, started.runId);
   assert.equal(finished.status, "completed", finished.error ?? "");
   assert.equal(finished.state.said, "deep answer", "the inner flow's answer never came back out");
-  /* The inner flow kept its own state: it ran as its own task, with its own boxes written down. */
-  const inner = app.flows.graphs.unfinished();
-  assert.deepEqual(inner, [], "the inner flow was left unfinished");
+  assert.equal(finished.state.parentNote, "a parent note");
+
+  /* The inner flow ran as its own task, with a state of its own: only the values its box declared
+     went in, and nothing the outer flow was keeping leaked into it. */
+  const rows = app.store.sqlite.prepare("SELECT run_id, flow_id, state FROM flow_graph_runs ORDER BY updated_at").all();
+  assert.equal(rows.length, 2, "the flow inside it did not get a run of its own");
+  const innerRow = rows.find((row) => String(row.run_id) !== started.runId);
+  assert.equal(String(innerRow.flow_id), leaf.id);
+  const innerState = JSON.parse(String(innerRow.state));
+  assert.equal(innerState.parentNote, undefined, "the outer flow's state leaked into the one inside it");
+  assert.equal(innerState.word, "hello", "the inner flow was not given the value its box declared");
+  assert.equal(innerState.said, "deep answer");
+  assert.deepEqual(app.flows.graphs.unfinished(), [], "the inner flow was left unfinished");
 });
 
 test("G5 flows may not go deeper than the cap, nor lead back round to one already running", async (t) => {
@@ -242,8 +260,11 @@ test("G6 a flow stopped in the middle carries on from the box after the last one
     "the checkpoint does not point at the box that failed");
 
   broken.failing = false;
-  const carried = app.flows.resumeGraph(saved.id);
+  /* Carrying on is reached through the tool that already carries any saved thing on, so the
+     schedules toolbox does not grow a second tool that says the same thing. */
+  const carried = await app.runtime.executeTool("workflows.resume", { id: saved.id });
   assert.equal(carried.runId, stopped.runId, "carrying on started a different run");
+  assert.equal(carried.flowId, saved.id);
   const finished = await settle(app, carried.runId);
   assert.equal(finished.status, "completed", finished.error ?? "");
   assert.equal(finished.state.first, "first answer", "the state changed while it was stopped");
@@ -362,6 +383,8 @@ test("G8 a saved flow is a tool, and it holds its arguments to the shape it decl
   const finished = await app.runtime.executeTool("flows.daily-tidy", { topic: "the kitchen" });
   assert.equal(finished.status, "completed", finished.error ?? "");
   assert.equal(finished.flowId, saved.id);
+  assert.equal(finished.state.topic, "the kitchen", "the argument never reached the flow's state");
+  assert.equal(finished.state.first, "a fine answer", "the flow did not actually run its boxes");
 
   app.flows.remove(saved.id);
   assert.ok(!app.registry.names().includes("flows.daily-tidy"), "the tool stayed after the flow was removed");

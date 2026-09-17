@@ -193,6 +193,7 @@
   "editor.remove": "Le retirer",
   "editor.running": "En cours d'exécution…",
   "editor.saved": "Enregistré.",
+  "editor.graphOnly": "Cet enchaînement est dessiné en cases et flèches ; il ne se modifie pas ici. Vous pouvez toujours l'exécuter et le reprendre.",
   "editor.timeline": "Pendant son exécution",
   "editor.title": "Modifier un enchaînement",
   "editor.up": "Monter",
