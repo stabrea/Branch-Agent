@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
+import { isPosixPlatform, PosixProcessGroups } from './posix-limits.js';
 
 /**
  * Windows can put a program and everything it starts into a "job", and the operating system itself
@@ -10,7 +11,13 @@ import { join } from 'node:path';
  */
 export interface JobLimits { maxMemoryMb: number; maxCpuSeconds: number }
 export interface Job {
-  readonly kind: 'job-object';
+  /** `process-group` is the macOS and Linux counterpart, in `posix-limits.ts`. */
+  readonly kind: 'job-object' | 'process-group';
+  /**
+   * macOS and Linux only: the command as it must really be started for the limits to hold. A job
+   * that has this must be handed the program through it, before it starts, and started detached.
+   */
+  wrap?(command: { executable: string; args: string[] }): { executable: string; args: string[] };
   /** Puts a running program into the job. False means the job could not take it. */
   assign(pid: number): Promise<boolean>;
   /** Letting the job go kills anything still inside it. */
@@ -114,9 +121,19 @@ function nextWord(child: ChildProcess, timeoutMs: number): Promise<string> {
   });
 }
 
-/** What this computer can offer: real jobs on 64-bit Windows, the sampler everywhere else. */
-export const defaultJobObjects = (): JobObjects =>
-  process.platform === 'win32' ? new WindowsJobObjects() : noJobObjects;
+/**
+ * What this computer can offer: real jobs on 64-bit Windows, limited process groups on macOS and
+ * Linux, the sampler everywhere else.
+ */
+export const defaultJobObjects = (platform: NodeJS.Platform = process.platform): JobObjects =>
+  platform === 'win32' ? new WindowsJobObjects() : posixJobObjects(platform);
+const posixJobObjects = (platform: NodeJS.Platform): JobObjects =>
+  isPosixPlatform(platform) ? new PosixProcessGroups(platform) : noJobObjects;
+
+/** The command a job needs started, or the command itself when the job does not change it. */
+export function startedThrough(job: Job | null | undefined, command: { executable: string; args: string[] }): { executable: string; args: string[] } {
+  return job?.wrap ? job.wrap(command) : command;
+}
 
 /**
  * A job for a command that cannot afford to wait for one. Building a job compiles a little C# the

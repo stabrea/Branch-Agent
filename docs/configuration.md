@@ -643,6 +643,25 @@ On Windows, a command is placed inside a **job object** before it does anything:
 
 Setting this up costs about a third of a second per command (measured: roughly 400 ms with a job against roughly 80 ms without, for a command that does nothing), because Windows has no way to make a job from the command line and a small helper has to be started for it. That is worth paying for a limit the system actually enforces, but if you run many very short commands and would rather have the milliseconds, `"useJobObject": false` in the `shell` settings goes back to sampling.
 
+**macOS and Linux.** There is no job object there, so the same setting does the nearest thing
+those systems allow. Each command starts as the head of its own group of programs, through a fixed
+`/bin/sh` line that lowers the processor-time ceiling and then hands over to the program. Your
+program and its arguments are passed alongside that line, never written into it. A ceiling already
+lower than yours is kept, never raised. When the command finishes or is stopped, everything still
+in its group is ended too: first asked to stop, then forced a moment later. This also covers
+programs left running (`process.start`), kept-open command lines, and language servers. What the
+system holds is written in each result, in `heldBySystem`. `isolation` stays `sampling`, because
+that name means a Windows job. Two things are **not** held by the system. **Memory**: the system's
+own memory caps count memory a program has only set aside, and at the default 1 GB they stop Node
+from starting at all, so memory is checked about once a second instead. That check covers the
+largest program in the group. Processor time is also checked as a total across the group. **The
+number of programs**: the only system cap counts every program you run, not just this command's.
+A program that deliberately leaves its group can outlive the command. On macOS a
+`shell` alias is best pointed at `/bin/zsh` (with `-f` to skip your startup files), and on Linux
+at your own `$SHELL` or `/bin/bash`. Add `HOME` (and `TMPDIR`, `USER`, `LOGNAME` or `SHELL` if a
+tool wants them) to `inheritEnv` so the shell behaves as it does in a terminal. Git and SSH also
+pass on `SSH_AUTH_SOCK`, so keys you have already unlocked keep working.
+
 **No internet, best effort.** `"netless": true` in the `shell` settings, or `netless` on a single call, points the command at a dead address on this computer (`http://127.0.0.1:9`) through the usual proxy variables, so curl, git, npm, pip and anything else that respects them fail at once instead of reaching a website. Be clear about what this is: it is **not** a firewall. Blocking a single program properly on Windows needs administrator rights, which a desktop app should not ask for, so a program that ignores proxy settings and opens its own connection is not stopped. Use it to stop an ordinary tool phoning home by accident, not to contain something you do not trust.
 
 The command's environment is built from nothing: only the variables named in `inheritEnv`, then the `env` you set, then the dead-address variables if the command is offline, then the secrets the call asked for. Nothing else from the host — no model keys, no vault variables, no `NODE_OPTIONS` — reaches the program, and the values of those secrets are taken back out of the output before it is recorded.

@@ -8,8 +8,8 @@ import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.js";
-import { defaultJobObjects, jobWithin, type Job, type JobObjects } from "./integrations/job-object.js";
-import { netlessEnvironment } from "./integrations/shell-config.js";
+import { defaultJobObjects, jobWithin, startedThrough, type Job, type JobObjects } from "./integrations/job-object.js";
+import { fromTheTop, netlessEnvironment } from "./integrations/shell-config.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 import {
   chooseSandboxBackend, defaultSandboxProbe, sandboxBackendSet, sliceFor,
@@ -49,7 +49,7 @@ export function backgroundSettings(store: Store, owner: string): BackgroundSetti
 export async function saveBackgroundSettings(store: Store, owner: string, input: unknown): Promise<BackgroundSettings> {
   const value = BackgroundSettingsSchema.parse(input ?? {});
   for (const [name, program] of Object.entries(value.programs)) {
-    if (!isAbsolute(program.path)) throw new Error(`Give "${name}" in full, starting from the drive.`);
+    if (!isAbsolute(program.path)) throw new Error(`Give "${name}" in full, ${fromTheTop()}.`);
     if (/\.(cmd|bat)$/i.test(program.path)) throw new Error(`Name the real program for "${name}", not a .cmd or .bat wrapper.`);
     if (!(await stat(program.path).catch(() => null))?.isFile()) throw new Error(`There is no program at the address given for "${name}".`);
   }
@@ -112,7 +112,7 @@ class Running {
   view(): ProcessView {
     return { id: this.id, name: this.name, program: this.program, pid: this.child.pid ?? null,
       sessionId: this.sessionId, runId: this.runId, status: this.status, startedAt: this.startedAt,
-      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job ? "job-object" : "sampling",
+      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job?.kind === "job-object" ? "job-object" : "sampling",
       bytes: this.bytes, dropped: this.dropped };
   }
   /** Stops it and everything it started; letting the job go is what really clears the tree. */
@@ -168,7 +168,9 @@ export class BackgroundProcesses {
     // what it started. A backend that is not on this computer refuses here, before anything starts.
     const start = await this.wrapped(context, cwd,
       { executable: program.path, args: [...program.args, ...input.args] }, shape, settings);
-    const child = spawn(start.executable, start.args, { cwd: start.cwd, shell: false, windowsHide: true,
+    // On macOS and Linux the limits are set as the program starts, so the job may change how it starts.
+    const argv = startedThrough(job, { executable: start.executable, args: start.args });
+    const child = spawn(argv.executable, argv.args, { cwd: start.cwd, shell: false, windowsHide: true,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], env: start.env });
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const entry = new Running(input.name, input.program, this.sessionOf(context), context.runId, child, job,
