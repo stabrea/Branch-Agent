@@ -11,7 +11,7 @@ import { estimateTokens } from "./contracts.js";
 
 /** Toolboxes a tool can belong to. "core" is always open; "other" catches anything unrecognised. */
 export const toolGroups = [
-  "core", "files", "code", "git", "web", "browser", "desktop", "memory", "documents",
+  "core", "files", "code", "git", "web", "browser", "desktop", "memory", "memory-extra", "documents",
   "data", "research", "media", "personal", "channels", "schedules", "agents", "skills", "settings", "services", "other",
 ] as const;
 
@@ -27,6 +27,10 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
+  // R17-F (integration review): memory blocks, finding facts by label, the learning timeline, meaning
+  // search, lessons and outside memory services get a box of their own, before "memory" so these
+  // names win. In "memory" they pushed the opened-boxes answer past its budget (tests/catalog-diet).
+  ["memory-extra", ["memory.block_", "memory.find", "memory.label", "memory.outside_", "history.meaning", "learning.journey", "lessons."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
   // "learning." is the learning core's one read-only question about what worked before (src/fly-core).
   ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning.",

@@ -124,6 +124,7 @@ import { boundPictures, markTaken, picturesKeptInView, takenPictureWords } from 
 import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
+import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1328,6 +1329,7 @@ ${run.output.slice(0, 6000)}`;
     const aboutYou = knobs.aboutYouMessage(this.store, memoryScope(this.store, context)); // R17-S13
     if (aboutYou) messages.push(aboutYou);
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
+    messages.push(...learningOpening(this.store, run, context)); // R17-F (src/learning-more/hook.ts); adds nothing while its parts are off
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);
