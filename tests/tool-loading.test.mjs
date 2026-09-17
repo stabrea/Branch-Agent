@@ -9,7 +9,7 @@ import {
   createBranch, ToolCatalog, ToolLoader, ToolIndex, ToolUsage, catalogHealthTick, catalogHealthId,
   estimateTokens, expandToolName, toolSearchName, toolDescribeName, toolNoteName,
   defaultToolBudgetTokens, defaultIndexLines, defaultMaxLoaded, promptShingles, safeDescription, withheldDescription,
-  maxExternalDescriptionChars, exportBackup, importBackup, indexLine,
+  maxExternalDescriptionChars, exportBackup, importBackup, indexLine, firstSentence,
 } from "../dist/index.js";
 
 /** A provider driven by a script; each entry is a function of the request. */
@@ -178,6 +178,80 @@ test("searching ranks an exact name, plain words and everyday synonyms", async (
   }
   assert.equal(index.search("files.read", 3)[0].entry.name, "files.read", "an exact name always comes first");
   assert.deepEqual(index.search("qwertyuiop zxcvbnm", 3), [], "a query about nothing finds nothing");
+});
+
+/**
+ * mac7/tool-search: the same search, asked to name the *one* right tool rather than land it in the
+ * top three, over a catalogue with today's newer areas switched on. Every one of these has an
+ * obvious right answer; before the ranking weighted a tool's own name and its opening sentence, a
+ * passing mention in somebody else's small print won several of them (the failure each line used
+ * to give is in the comment beside it). "Comfort" is in the same wave but registers no tools of its
+ * own — it is switches and settings — so there is nothing here to search for.
+ */
+test("the tool a request names comes first, not one that mentions it in passing", async (t) => {
+  const { app } = await fixture(t, [say("ok")]);
+  app.devices.setMode({ mode: "on" });                                  // devices
+  for (const part of ["tool-scripts", "wasm-add-ons"]) app.safetyExtras.setMode(part, { mode: "on" });   // safety extras
+  for (const part of ["kanban", "time-travel"]) app.flowsBoards.setMode(part, { mode: "on" });           // flows and boards
+  for (const part of ["machines", "video", "notes", "usb"]) await app.reachParts.setMode(part, { mode: "on" }); // reach
+  const index = new ToolIndex(app.registry.descriptions(new Set(app.registry.permissions())), { groupOf: groupOf(app) });
+  assert.ok(index.size > 200, `only ${index.size} tools to search`);
+  const table = [
+    // devices — "computer.look" won this one: its description mentions open web pages in passing.
+    ["open a web page on my tablet", "device.open"],
+    ["read what I copied on my other device", "device.clipboard"],
+    // safety extras
+    ["run a WebAssembly add-on on some text", "wasm.run"],
+    ["run one script that calls several tools", "tools.script"],
+    // flows and boards
+    ["move a card from doing to to check", "board.card_move"],
+    ["each step of a flow run", "flow.steps"],
+    // learning, deeper — its tools are always in the catalog; only what they do waits on a switch.
+    ["a timeline of what I learned", "learning.journey"],
+    ["read my memory blocks", "memory.block_view"],
+    // reach — "media.info" won the video one because its small print says it cannot *make* videos,
+    // "machines.list" won the look one, and "projects.notes" won the notes one.
+    ["make a video of a sunset", "video.generate"],
+    ["look at my other computer running Branch", "machines.look"],
+    ["list the notes I have written", "notes.list"],
+    ["which USB devices are plugged in", "usb.devices"],
+    // Older areas the same fault reached: "documents.add", "data.export" and "brief.preview" won these.
+    ["transcribe this recording", "media.transcribe"],
+    ["chart the sales spreadsheet", "data.chart"],
+    ["remind me tomorrow morning", "schedules.create"],
+  ];
+  assert.ok(table.length >= 12);
+  for (const [query, expected] of table) {
+    const top = index.search(query, 3).map((hit) => hit.entry.name);
+    assert.equal(top[0], expected, `"${query}" ranked ${JSON.stringify(top)}, wanted ${expected} first`);
+  }
+  // An exact name still beats everything, whatever else the words would have found.
+  assert.equal(index.search("board.cards", 3)[0].entry.name, "board.cards");
+  // The search is run on most rounds, so it stays cheap: well under a millisecond over the catalogue.
+  const started = performance.now();
+  for (let run = 0; run < 200; run++) index.search(table[run % table.length][0], 8);
+  const each = (performance.now() - started) / 200;
+  assert.ok(each < 5, `a search took ${each.toFixed(3)}ms over ${index.size} tools`);
+});
+
+/**
+ * Where a word sits decides what it is worth. Both tools below are about widgets by their words;
+ * only one is a widget tool. The other says "widget" twice while explaining that it is not, which
+ * is exactly the shape that used to win: shorter text, more mentions.
+ */
+test("a word in a tool's name outweighs the same word in somebody else's small print", () => {
+  const filler = Array.from({ length: 200 }, (_, at) => ({ name: `filler.tool_${at}`, description: `A tool that does job number ${at} on a thing.` }));
+  const index = new ToolIndex([...filler,
+    { name: "widget.make", description: "Make a widget on the dashboard. It asks the owner before anything shows, keeps its own settings, and asks again on a timer you choose." },
+    { name: "list.sort", description: "Sort a list of lines. It cannot make a widget and it cannot put a widget anywhere; for a widget use the dashboard." },
+  ]);
+  const ranked = index.search("make a widget", 2).map((hit) => hit.entry.name);
+  assert.deepEqual(ranked, ["widget.make", "list.sort"], "the tool named after the thing comes first");
+  const sort = index.entry("list.sort");
+  assert.deepEqual([...sort.nameTerms].sort(), ["list", "sort"]);
+  assert.ok(sort.headTerms.has("lin") && !sort.headTerms.has("widget"), "only the opening sentence is the opening line");
+  assert.equal(firstSentence("One. Two."), "One.");
+  assert.equal(firstSentence("No full stop here"), "No full stop here");
 });
 
 test("what past tasks needed is loaded before the next one asks, and tools used together load together", async (t) => {
