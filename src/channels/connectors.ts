@@ -19,6 +19,12 @@ import { redditService } from "./reddit.js";
 import { discourseService } from "./discourse.js";
 import { xService } from "./x-dm.js";
 import { twistService } from "./twist.js";
+import { nextcloudTalkService } from "./nextcloud-talk.js";
+import { smsService } from "./twilio-sms.js";
+import { ntfyService } from "./ntfy.js";
+import { pushoverService } from "./pushover.js";
+import { threemaService } from "./threema.js";
+import { homeassistantService } from "./homeassistant.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -196,4 +202,5 @@ export const parityServices: ParityService[] = [
   ircService, twitchService, gotifyService, imessageService,
   teamsBotService, webexService, synologyChatService, zaloService, flockService, pumbleService,
   mastodonService, blueskyService, redditService, discourseService, xService, twistService,
+  nextcloudTalkService, smsService, ntfyService, pushoverService, threemaService, homeassistantService,
 ];
