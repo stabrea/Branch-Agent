@@ -1,5 +1,28 @@
 name: Checks
-on: [push, pull_request]
+# Pushing every branch at once started a run on all 216 of them, including agent worktree branches
+# from months ago that were never meant to build. Six failed in the same minute, for reasons that had
+# nothing to do with anyone's work, and the queue they made delayed the release that did matter.
+#
+# A push now only builds the branches worth building on their own. Everything else is still checked,
+# because the pull request into main is the real gate and that trigger is unchanged.
+on:
+  push:
+    branches:
+      - main
+      - feat/assistant-runtime
+      - wave2/integration
+      - 'release/**'
+      - 'integrate/**'
+      - 'mac/**'
+      - 'wave9/**'
+  pull_request:
+
+# A second push to the same branch makes the first run pointless. Stop it rather than pay for it,
+# except on main, where every commit's result is worth keeping.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   verify:
     runs-on: windows-latest
