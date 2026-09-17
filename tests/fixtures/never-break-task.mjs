@@ -61,10 +61,11 @@ function killAtExactPoint() {
   const [point, callId] = (process.env.CHAOS_KILL_AT ?? "").split(":");
   if (!point || !callId) return;
   const save = app.store.message.bind(app.store);
+  const kill = () => { log("calls.log", `killed at ${point}:${callId}`); process.kill(process.pid, "SIGKILL"); };
   app.store.message = (sessionId, message, ...rest) => {
-    if (point === "result" && message.role === "tool" && message.toolCallId === callId) process.kill(process.pid, "SIGKILL");
+    if (point === "result" && message.role === "tool" && message.toolCallId === callId) kill();
     save(sessionId, message, ...rest);
-    if (point === "saved" && message.role === "assistant" && (message.toolCalls ?? []).some((call) => call.id === callId)) process.kill(process.pid, "SIGKILL");
+    if (point === "saved" && message.role === "assistant" && (message.toolCalls ?? []).some((call) => call.id === callId)) kill();
   };
 }
 

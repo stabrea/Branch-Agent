@@ -270,7 +270,9 @@ async function killedAtPoint(t, plan, killAt, { mode = "on" } = {}) {
     child.once("exit", (code, signal) => done({ code, signal, out }));
   });
   const worker = await run("work");
-  assert.equal(worker.signal, "SIGKILL", `the worker stopped itself at ${killAt}: ${worker.out}`);
+  // Windows reports a killed process as a failed exit rather than by signal, so the fixture's note is what proves it.
+  assert.ok(worker.signal === "SIGKILL" || (process.platform === "win32" && worker.code !== 0), `the worker was killed: ${JSON.stringify(worker)}`);
+  assert.match(await readFile(join(root, "calls.log"), "utf8"), new RegExp(`killed at ${killAt}\n`), "it was killed at that exact point");
   const recovered = await run("recover");
   const result = JSON.parse(recovered.out.trim().split("\n").pop());
   const reopened = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([say("x")]) });
