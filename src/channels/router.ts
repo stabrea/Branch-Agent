@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { heldReplay } from "../never-break/resume.js"; // mac3/never-break
 import type { Runtime } from "../runtime.js";
 import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
@@ -9,6 +10,7 @@ import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
+import { commandMode } from "../commands/settings.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -44,6 +46,9 @@ export interface ChannelHealth {
   state: "connected" | "reconnecting" | "needs attention";
   reason?: string;
 }
+/** mac3/never-break: how long a pairing code can be used; the sender gets a new one after that. */
+const pairingCodeMs = 60 * 60_000;
+const pairingCodeFresh = (pair: { requestedAt?: string }): boolean => Date.now() - Date.parse(pair.requestedAt ?? "") <= pairingCodeMs;
 export interface ChannelAdapter {
   readonly id: string;
   readonly kind: string;
@@ -477,7 +482,8 @@ export class ChannelRouter {
   private commandIn(message: InboundMessage): ChatCommand | null {
     const setting = this.switches().commands;
     if (setting === "off" || message.voice) return null;
-    const command = parseChatCommand(message.text);
+    // Wave mac3 (commands): which of the shared table's commands a chat may read follows the owner's switch.
+    const command = parseChatCommand(message.text, commandMode(this.store, this.runtime.owner));
     if (!command || setting === "on") return command;
     // "When needed": only the commands for a task that is working, and only while one is.
     const busy = this.turns.has(chatKey(message));
@@ -495,8 +501,10 @@ export class ChannelRouter {
   private async command(message: InboundMessage, command: ChatCommand): Promise<Outcome> {
     const { channel, chatId } = message;
     const turn = this.turns.get(chatKey(message));
-    // A side question and folding both ask the model, so they count against the chats working at once.
-    const asks = command.name === "btw" || command.name === "compact";
+    // A side question, folding and a question for the handbook all ask the model, so they count
+    // against the chats working at once (`/help` and `/help all` only list).
+    const question = command.name === "help" && !["", "all"].includes(command.argument.trim().toLowerCase());
+    const asks = command.name === "btw" || command.name === "compact" || question;
     const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
       sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(),
@@ -613,12 +621,21 @@ export class ChannelRouter {
     const message = turn.messages[0]!, live = turn.live;
     const heard = await this.heardAll(turn.messages);
     if (typeof heard === "string") { live?.cancel(); return this.voiceFailed(message, heard); }
+    // mac3/never-break: a message whose earlier task may already have reached the outside is not done twice.
+    const held = heldReplay(this.store, this.runtime.owner, message);
+    if (held) {
+      live?.cancel();
+      await this.deliver(message.channel, message.chatId, held, `replay-held:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "ignored";
+    }
     const off = this.store.onEvent((runId, kind, data) => { if (runId === turn.runId) live?.event(kind, data); });
     try {
       const sessionId = this.sessionFor(message.channel, message.chatId);
       const run = await this.runtime.run({
         prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
         onStarted: (started) => {
+          // mac3/never-break: a task a chat started is left for the chat app to send again after a restart.
+          this.store.event(started.id, "channel.inbound", { channel: message.channel, chatId: message.chatId, messageId: message.messageId });
           turn.runId = started.id;
           turn.startedAt = Date.now();
           live?.thinking();
@@ -738,7 +755,7 @@ export class ChannelRouter {
   }
   private pairingCode(message: InboundMessage): string {
     const existing = this.pair(message.channel, message.senderId);
-    if (existing?.status === "pending") return existing.code;
+    if (existing?.status === "pending" && pairingCodeFresh(existing)) return existing.code;
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     this.store.save("settings", this.runtime.owner, `channel-pair:${message.channel}:${message.senderId}`,
       { status: "pending", code, name: message.senderName.slice(0, 120), requestedAt: new Date().toISOString() } satisfies Pair);
@@ -747,8 +764,15 @@ export class ChannelRouter {
   /** The owner approves a pending sender by typing the code the sender was shown. */
   approve(owner: string, input: unknown) {
     const { code } = z.object({ code: z.string().regex(/^\d{6}$/) }).strict().parse(input);
-    const match = this.pairs(owner).find((p) => p.status === "pending" && p.code === code);
-    if (!match) throw new Error("No pending request has that code");
+    // mac3/never-break (integration review): a code works once, only while fresh, never when two
+    // requests share it, and a run of wrong guesses is slowed down.
+    const now = Date.now();
+    this.wrongCodes = this.wrongCodes.filter((at) => now - at < pairingCodeMs);
+    if (this.wrongCodes.length >= 10) throw new Error("Too many wrong codes in a row. Wait a few minutes and try again.");
+    const matches = this.pairs(owner).filter((p) => p.status === "pending" && p.code === code && pairingCodeFresh(p));
+    if (matches.length > 1) throw new Error("Two requests have that code. Ask the person to write to the bot again for a new one.");
+    const match = matches[0];
+    if (!match) { this.wrongCodes.push(now); throw new Error("No pending request has that code"); }
     const approved: Pair = { status: "approved", code: match.code, name: match.name, requestedAt: match.requestedAt, approvedAt: new Date().toISOString() };
     this.store.save("settings", owner, `channel-pair:${match.channel}:${match.senderId}`, approved);
     audit(this.store, owner, { action: "channel.paired", actor: owner, subject: `${match.name} on ${match.channel}`,
@@ -762,6 +786,8 @@ export class ChannelRouter {
       reason: "You disconnected this sender, so their messages no longer reach the assistant", outcome: "refused" });
     return { removed };
   }
+  /** mac3/never-break: when wrong pairing codes were typed, for slowing down guessing. */
+  private wrongCodes: number[] = [];
   private pair(channel: string, senderId: string): Pair | undefined {
     const parsed = pairSchema.safeParse(this.store.get("settings", this.runtime.owner, `channel-pair:${channel}:${senderId}`)?.data);
     return parsed.success ? parsed.data : undefined;

@@ -808,6 +808,6 @@ test("G6 typing /model with the models module blocked still lists the choices", 
   await page.locator("#prompt").fill("/help");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
   await page.waitForFunction(() => document.getElementById("toast").textContent.includes("/help"));
-  assert.match(await page.locator("#toast").textContent(), /\/model — Change the model/);
+  assert.match(await page.locator("#toast").textContent(), /\/model \[id\] — which model answers/);
   assert.deepEqual(errors, []);
 });

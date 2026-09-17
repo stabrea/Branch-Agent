@@ -68,6 +68,24 @@ Version 0.15.0. The machine-readable description is at `GET /api/openapi.json`.
 | `POST` | `/api/policy` | Change the approval settings. |
 | `GET` | `/api/lockdown` | Whether Lockdown is on. |
 | `POST` | `/api/lockdown` | Turn Lockdown on or off. |
+## commands
+
+| Method | Address | What it is for |
+| --- | --- | --- |
+| `GET` | `/api/commands` | The typed commands one page offers; add ?surface=window, phone or dashboard. |
+| `GET` | `/api/commands/table` | Every typed command on every surface, and how each compares with other assistants. |
+| `POST` | `/api/commands/run` | Carry out one typed command; a key that may only look may send only commands that look. |
+| `GET` | `/api/commands/settings` | The off, on and when-needed switch for the commands the table added. |
+| `POST` | `/api/commands/settings` | Change that switch (the key of this computer only). |
+## dashboard
+
+| Method | Address | What it is for |
+| --- | --- | --- |
+| `GET` | `/api/dashboard` | The browser dashboard in one answer: what is happening now, health, spending and recent activity (the dashboard must be switched on). |
+| `GET` | `/api/dashboard/settings` | The dashboard's switch, and what this key may do there. |
+| `POST` | `/api/dashboard/settings` | Switch the dashboard (the key of this computer only). |
+| `POST` | `/api/dashboard/automations` | Pause every schedule and trigger, or resume the ones that were paused (the key of this computer only). |
+| `POST` | `/api/dashboard/restart` | Restart Branch, where the computer's own service will start it again (the key of this computer only). |
 ## compatibility
 
 | Method | Address | What it is for |

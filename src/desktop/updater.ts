@@ -40,6 +40,11 @@ export interface UpdaterOptions {
    * nothing was working in the background.
    */
   stopDaemon?: () => Promise<number | null>;
+  /**
+   * mac3/never-break: tries the unpacked version on a copy of the owner's data before anything is
+   * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
+   */
+  canary?: (stagedDir: string, version: string) => Promise<void>;
 }
 export interface ReleaseInfo {
   currentVersion: string;
@@ -129,6 +134,7 @@ export class Updater {
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
+      await this.tryCanary(stagedDir, release.latestVersion); // mac3/never-break
       await this.safetyCopy();
       const script = await this.writeScript(stagedDir, await this.stopBackground());
       this.set("ready", "Restarting to finish the update…", 1, release);
@@ -137,6 +143,16 @@ export class Updater {
       this.set("error", error instanceof Error ? error.message : String(error), null, release);
       throw error;
     } finally { this.busy = false; }
+  }
+  /** mac3/never-break: the new version must pass its own check on a copy of the data first. */
+  private async tryCanary(stagedDir: string, version: string): Promise<void> {
+    if (!this.options.canary) return;
+    this.set("verifying", "Trying the new version on a copy of your work before using it…", null, this.status.release);
+    try { await this.options.canary(stagedDir, version); }
+    catch (error) {
+      const why = (error instanceof Error ? error.message : String(error)).replace(/\.?$/, ".");
+      throw new Error(`The new version did not pass its check, so nothing was changed. ${why}`);
+    }
   }
   /** The safety copy taken just before the files are swapped; three are kept by the caller. */
   private async safetyCopy(): Promise<void> {
@@ -240,6 +256,8 @@ export class Updater {
       // waited for too; it was already asked to close before this script was started.
       ...(daemonPid ? waitFor(String(daemonPid), "engine", "EWAITED", "background engine") : []),
       "set DRAIN=0", ":drain", running, `if not errorlevel 1 if %DRAIN% lss 15 ( set /a DRAIN+=1 & ${sleep(1)} & goto drain )`, sleep(2),
+      // mac3/never-break: the version before the previous one is kept too, so a rollback has one to spare.
+      `if exist "${previous}\\" ${mirror(previous, `${previous}-2`)}`,
       `echo [%time%] keeping previous version >>"${log}"`, mirror(install, previous), "if errorlevel 8 exit /b 1",
       ":copy", "set /a TRIES+=1", `echo [%time%] copying new version, attempt %TRIES% >>"${log}"`, mirror(stagedDir, install),
       `if errorlevel 8 ( if %TRIES% lss 3 ( ${sleep(3)} & goto copy ) else goto restore )`,

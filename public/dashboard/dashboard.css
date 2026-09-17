@@ -340,3 +340,11 @@ body.db > main.db-pane {
     transition: none;
   }
 }
+
+/* Wave mac3 (commands): the answer to a typed command keeps its lines but never scrolls the page sideways. */
+.db-command-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0.5rem 0 0;
+  color: var(--text);
+}

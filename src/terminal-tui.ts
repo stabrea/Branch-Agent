@@ -10,7 +10,11 @@ import {
 } from "./terminal-theme.js";
 import { loadWords, type Words } from "./terminal-words.js";
 import { Conversation } from "./terminal-conversation.js";
-import { runCommand, helpLines, type CommandContext } from "./terminal-command-table.js";
+import { runCommand, helpLines, terminalCommands, type CommandContext } from "./terminal-command-table.js";
+// Wave mac3 (commands): the shared table's switch, and what its commands can reach.
+import { commandMode } from "./commands/settings.js";
+import { commandHost } from "./commands/host.js";
+import type { FeatureMode } from "./feature-switches.js";
 import { PLACE_ROWS, assistantName, needsCount, type PlaceApp, type Row } from "./terminal-place-data.js";
 import { settingsRows } from "./terminal-settings.js";
 import { PLACES, SETTINGS_PAGES, firstTab, homeOf, parseRoute, placeById, type PlaceId, type Route } from "./terminal-places.js";
@@ -371,7 +375,12 @@ export class Tui {
       newConversation: () => this.newConversation(),
       quit: () => this.quit(),
       keys: () => this.keys(),
+      host: commandHost(this.runtime, this.app),
     };
+  }
+  /** Wave mac3 (commands): where the owner's switch for the shared commands is. */
+  commandMode(): FeatureMode {
+    return commandMode(this.runtime.store, this.runtime.owner);
   }
   newConversation(): void {
     this.conversation.reset();
@@ -409,6 +418,8 @@ export class Tui {
     const { store, owner } = this.runtime;
     const on = argument === "on" ? true : argument === "off" ? false : !lockdownState(store, owner).on;
     setLockdown(store, owner, { on });
+    // As the Lockdown route does: turning it on also ends the yeses already given (wave mac3, commands).
+    if (on) this.runtime.approvals.forgetAll();
     this.conversation.say(on ? "warn" : "note", on ? this.words.t("lockdown.on", "Lockdown is on. Everything waits for your yes.") : "[Lockdown is off]");
     void this.reload();
   }
@@ -446,7 +457,7 @@ export class Tui {
   }
   keys(): void {
     const lines = [
-      ...helpLines(this.words),
+      ...helpLines(this.words, this.commandMode()),
       "",
       this.words.t("terminal.keys.help1", "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize"),
       this.words.t("terminal.keys.help2", "Ctrl+K or /: find anything · Ctrl+N: new conversation · Ctrl+P or F2: side pane"),
@@ -460,7 +471,7 @@ export class Tui {
   }
   openPalette(query = ""): void {
     const recent = this.runtime.store.recentSessions(this.runtime.owner, 8).sessions;
-    this.overlay = { kind: "palette", query, items: paletteItems(this.words, recent, query, this.style.unicode ? " › " : " > "), selected: 0 };
+    this.overlay = { kind: "palette", query, items: paletteItems(this.words, recent, query, this.style.unicode ? " › " : " > ", terminalCommands(this.commandMode())), selected: 0 };
     this.readLook(true);
     this.requestDraw();
   }

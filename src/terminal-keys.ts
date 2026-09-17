@@ -1,7 +1,7 @@
 import type { Key } from "node:readline";
 import type { Hit } from "./terminal-canvas.js";
 import type { MouseEvent } from "./terminal-input.js";
-import { findCommand } from "./terminal-command-table.js";
+import { findCommand, terminalCommands } from "./terminal-command-table.js";
 import { MODEL_TABS } from "./terminal-places.js";
 import { paletteItems } from "./terminal-palette.js";
 import type { Tui } from "./terminal-tui.js";
@@ -126,9 +126,9 @@ function choose(tui: Tui): void {
   const item = overlay.items[overlay.selected];
   tui.overlay = undefined;
   tui.previewTheme = undefined;
-  if (typed.startsWith("/") && findCommand(typed.split(/\s+/)[0]!)) return void tui.command(typed);
+  if (typed.startsWith("/") && findCommand(typed.split(/\s+/)[0]!, tui.commandMode())) return void tui.command(typed);
   if (!item) return tui.closeOverlay();
-  const entry = findCommand(item.run.split(/\s+/)[0]!);
+  const entry = findCommand(item.run.split(/\s+/)[0]!, tui.commandMode());
   if (entry?.args.startsWith("<") && item.run === `/${entry.name}`) {
     tui.go({ place: "chat", tab: "" });
     tui.editor.clear();
@@ -146,7 +146,7 @@ function typeInPalette(tui: Tui, str: string | undefined, key: Key): void {
   } else if (printable(str, key)) overlay.query += str;
   else return;
   const recent = tui.runtime.store.recentSessions(tui.runtime.owner, 8).sessions;
-  overlay.items = paletteItems(tui.words, recent, overlay.query, tui.style.unicode ? " › " : " > ");
+  overlay.items = paletteItems(tui.words, recent, overlay.query, tui.style.unicode ? " › " : " > ", terminalCommands(tui.commandMode()));
   overlay.selected = 0;
   tui.requestDraw();
 }
