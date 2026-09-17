@@ -1096,6 +1096,20 @@ Branch joins as an ordinary (text-only) user. A private message to it is always 
 ```
 Make a bot application at developer.kookapp.cn, choose the WebSocket connection, invite the bot to your KOOK server, and save its token as `KOOK_BOT_TOKEN`. This is KOOK's official bot API (v3): the token travels as `Authorization: Bot …`, and the socket address KOOK hands back is followed only when it is on `kookapp.cn` or `kaiheila.cn` and is never written into an error, because it carries a key. Direct messages are always answered; in a channel the bot must be @mentioned. Replies are sent as plain text, never KMarkdown, so nothing a model writes can mention everybody. Branch pings every thirty seconds and reconnects when KOOK stops answering; after a drop, or a restart soon after one, it asks KOOK to resume the session and answers what was missed once. People are paired and listed as `kook:<user id>`. Replies are cut at 4000 characters.
 
+### WeChat Official Account (`wechat-mp`)
+
+```json
+{ "type": "wechat-mp", "id": "wechat", "appId": "wx0123456789abcdef" }
+```
+For a **verified** WeChat Official Account (the customer-service message API needs verification). In the account's developer settings, save the AppSecret as `WECHAT_MP_APP_SECRET`, add this computer's public address to the IP allowlist, and under server settings enter the address shown under Connections, a Token (saved as `WECHAT_MP_TOKEN`) and an EncodingAESKey (saved as `WECHAT_MP_AES_KEY`), with the message mode set to **safe mode** (安全模式). Branch answers WeChat's address check, then takes in only encrypted posts whose signature covers the message itself; plain-text and compatible mode are refused, because there WeChat signs only the time and a random word, not the words. A post more than five minutes old is refused, and WeChat's resend of a message it thinks went unanswered is taken in once. Replies go out through the customer-service message API, which WeChat allows for 48 hours after the person last wrote; a later reply waits under **Messages still to send** with "Outside WeChat's reply window". One-to-one only, text only, replies cut at 600 characters (WeChat's limit is 2048 bytes). Personal WeChat accounts are not supported.
+
+### WeCom app (`wecom-app`)
+
+```json
+{ "type": "wecom-app", "id": "wecom", "corpId": "ww0123456789abcdef", "agentId": 1000002 }
+```
+A self-built app (自建应用) in your WeCom admin console, which, unlike the group robot, can be written to. Save the app's Secret as `WECOM_APP_SECRET`, add this computer's public address to the app's trusted IP list, and under "Receive messages" enter the address shown under Connections with a Token (`WECOM_APP_TOKEN`) and an EncodingAESKey (`WECOM_APP_AES_KEY`). Every post is encrypted and signed the same way as WeChat's safe mode, and must be addressed to your CorpID and to this app's AgentId. Replies go out through the app message API with an access token that is renewed when WeCom says it has expired. WeCom only takes the app secret inside the token address; Branch never writes an address into an error or a log. One-to-one text only; replies cut at 600 characters.
+
 <!-- channels-parity:services-end -->
 
 **Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
@@ -1180,6 +1194,8 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Revolt (Stoat) | OpenFang | built now (`revolt`) |
 | Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
 | KOOK (Kaiheila) | audit row A2156 | built now (`kook`), official bot API v3 over its WebSocket gateway |
+| WeChat Official Account (Weixin gateway) | Hermes (`weixin`), audit row A2117 | built now (`wechat-mp`), safe mode only |
+| WeCom self-built app (two-way) | PicoClaw, OpenFang, ZeroClaw (`wecom_ws`) | built now (`wecom-app`); the group robot (`chat` / `wecom`) stays send only |
 | AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
 | LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
 | Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
@@ -1189,7 +1205,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Yuanbao (Tencent) | Hermes | not built: no public bot API documentation; the reference speaks a private protocol |
 | BlueBubbles, Photon, Linq (iMessage relays) | Hermes, OpenClaw, ZeroClaw | not built: third-party relays for iMessage; Branch drives Messages on your own Mac instead |
 | WhatsApp personal account (WhatsApp Web emulation, Baileys, whatsmeow) | OpenClaw, PicoClaw (`whatsapp_native`), nanobot, ZeroClaw (`whatsapp_web`), Agent Zero | not built: emulates the WhatsApp Web client, which WhatsApp's terms forbid; the official Business API is built |
-| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeCom is built |
+| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeChat Official Accounts and WeCom apps are built |
 | Personal QQ (OneBot, NapCat) | PicoClaw (`onebot`), nanobot (`napcat`) | not built: drives a personal QQ account through an unofficial client; the official QQ bot API is built |
 | Personal Zalo (zca-js) | OpenClaw (`zalouser`) | not built: drives a personal Zalo account through an unofficial client; Zalo Official Account is built |
 | Instagram private API | — | not built: unofficial and against Instagram's terms; Instagram messaging through Meta's Graph API is built |

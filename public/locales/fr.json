@@ -266,6 +266,8 @@
   "channels-more.service.twist": "Répond dans les conversations Twist que vous indiquez ; il faut un jeton d'accès pour le compte Twist de l'assistant et les identifiants des conversations.",
   "channels-more.service.twitch": "Lit le tchat d'une chaîne Twitch et répond quand quelqu'un mentionne l'identifiant de l'assistant. Demande un jeton de la console des développeurs Twitch.",
   "channels-more.service.vk": "Répond aux messages envoyés à votre communauté VK via son API Long Poll ; il vous faut le numéro de la communauté et un jeton d'accès de communauté.",
+  "channels-more.service.wechat-mp": "Répond aux personnes qui écrivent à votre compte officiel WeChat, pendant 48 heures après leur dernier message ; il vous faut un compte certifié, son AppID et son AppSecret, ainsi que le Token et l'EncodingAESKey du mode sécurisé.",
+  "channels-more.service.wecom-app": "Répond aux collègues qui écrivent à l'application WeCom de votre entreprise ; il vous faut le CorpID, l'AgentId et le Secret de l'application, ainsi que le Token et l'EncodingAESKey de ses réglages de messages.",
   "channels-more.service.webex": "Répond aux personnes qui écrivent à votre bot Webex, et dans les espaces quand le bot est mentionné ; il vous faut le jeton d'accès du bot et un secret de webhook de votre choix.",
   "channels-more.service.x-dm": "Répond aux messages privés X ; il faut votre propre compte développeur X avec une offre d'API payante et un jeton d'accès utilisateur.",
   "channels-more.service.xmpp": "Discutez avec l'assistant depuis n'importe quelle application XMPP (Jabber), en tête-à-tête ou dans des salons de groupe ; il vous faut un compte XMPP pour l'assistant et son mot de passe.",

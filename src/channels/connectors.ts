@@ -204,6 +204,7 @@ import { guildedService } from "./guilded.js";
 import { revoltService } from "./revolt.js";
 import { mumbleService } from "./mumble.js";
 import { kookService } from "./kook.js"; // mac6/bucket-16
+import { wechatOfficialService, wecomAppService } from "./wechat.js"; // mac6/bucket-16
 /**
  * Wave mac3 (channels-parity): every chat service added to match the other assistants. Each is
  * written in the connections file as `{ "type": "<kind>", "id": ... }`, built by
@@ -218,5 +219,5 @@ export const parityServices: ParityService[] = [
   xmppService, mqttService, keybaseService, simplexService, deltachatService, nostrService,
   vkService, qqBotService, guildedService, revoltService, mumbleService,
   // mac6/bucket-16: the rest of the chat apps.
-  kookService,
+  kookService, wechatOfficialService, wecomAppService,
 ];
