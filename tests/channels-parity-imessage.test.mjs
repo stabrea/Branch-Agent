@@ -31,6 +31,17 @@ function messagesDatabase(path) {
   };
 }
 
+/**
+ * Windows will not delete an open database, and the kit's own hook deletes the folder. This hook is
+ * registered first, so it runs first: the channel stops and the database closes before the folder goes.
+ */
+async function closingFixture(t) {
+  const closers = [];
+  t.after(async () => { for (const close of closers.reverse()) await close(); });
+  const context = await fixture(t);
+  return { ...context, closeFirst: (close) => closers.push(close) };
+}
+
 function fakeOsascript() {
   const runs = [];
   const runner = async (file, args) => { runs.push({ file, args }); return { stdout: "", stderr: "" }; };
@@ -50,14 +61,14 @@ test("the typed-stream body newer Macs store is read back into words", () => {
 });
 
 test("iMessage: history is left alone, a stranger pairs, an approved person is answered through osascript arguments", async (t) => {
-  const context = await fixture(t);
+  const context = await closingFixture(t);
   const database = join(context.root, "chat.db");
   const messages = messagesDatabase(database);
-  t.after(() => messages.close());
+  context.closeFirst(() => messages.close());
   const osascript = fakeOsascript();
   const channel = new IMessageChannel({ id: "imessage", reader: databaseReader(database), runner: osascript.runner, pollMs: 20, account: "owner@example.com" });
   await context.app.channels.attach(channel, { activation: "mention", pairing: true, allowlist: [] });
-  t.after(() => channel.stop());
+  context.closeFirst(() => channel.stop());
   await until(() => channel.health().state === "connected", "read the database");
   await delay(80);
   assert.equal(osascript.runs.length, 0, "the message from before Branch started is not answered");
@@ -80,14 +91,14 @@ test("iMessage: history is left alone, a stranger pairs, an approved person is a
 });
 
 test("iMessage: a group is answered in the group only when named, and a script-looking message stays words", async (t) => {
-  const context = await fixture(t);
+  const context = await closingFixture(t);
   const database = join(context.root, "chat.db");
   const messages = messagesDatabase(database);
-  t.after(() => messages.close());
+  context.closeFirst(() => messages.close());
   const osascript = fakeOsascript();
   const channel = new IMessageChannel({ id: "imessage", reader: databaseReader(database), runner: osascript.runner, pollMs: 20, account: "owner@example.com" });
   await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: ["friend@example.com"] });
-  t.after(() => channel.stop());
+  context.closeFirst(() => channel.stop());
   await until(() => channel.health().state === "connected", "read the database");
   messages.say(2, "dinner at eight?", { chat: 2 });
   await delay(150);
@@ -103,21 +114,21 @@ test("iMessage: a group is answered in the group only when named, and a script-l
 });
 
 test("iMessage: a stranger is refused when pairing is off, and a missing permission is said plainly", async (t) => {
-  const context = await fixture(t);
+  const context = await closingFixture(t);
   const database = join(context.root, "chat.db");
   const messages = messagesDatabase(database);
-  t.after(() => messages.close());
+  context.closeFirst(() => messages.close());
   const osascript = fakeOsascript();
   const channel = new IMessageChannel({ id: "imessage", reader: databaseReader(database), runner: osascript.runner, pollMs: 20 });
   await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
-  t.after(() => channel.stop());
+  context.closeFirst(() => channel.stop());
   await until(() => channel.health().state === "connected", "read the database");
   await refusalWalk(context, { label: "iMessage", say: async (text) => messages.say(1, text), sent: () => osascript.sent().map(([, text]) => text) });
 
   const locked = new IMessageChannel({ id: "locked", pollMs: 20, runner: osascript.runner,
     reader: databaseReader(join(context.root, "no-such-folder", "chat.db")) });
   await locked.start(async () => undefined);
-  t.after(() => locked.stop());
+  context.closeFirst(() => locked.stop());
   await until(() => /Full Disk Access/.test(locked.health().reason ?? ""), "the permission is named");
 
   const refusing = new IMessageChannel({ id: "refusing", pollMs: 20, reader: async () => [],

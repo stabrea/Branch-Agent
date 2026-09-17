@@ -182,7 +182,7 @@ test("restarting stops the engine with exit code 75 so the sign-in file starts i
   saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
   const refused = await f.call("/api/dashboard/restart", f.server.token, {});
   assert.equal(refused.status, 409, "a copy running in a test is not the background engine");
-  assert.match((await refused.json()).error, /window/);
+  assert.match((await refused.json()).error, /window/i, "its window here, or Windows' own icon by the clock");
 
   const sent = [];
   const request = { method: "POST", headers: {} };

@@ -45,7 +45,7 @@ test("a new signing key: its password goes to the Keychain on stdin and to keyto
 test("an existing key is read back from the Keychain, and a CI secret wins over it", async () => {
   const { calls, runner } = fakeRunner({ security: "s3cret\n" });
   const key = await ensureKeystore(runner, "/home/owner", () => true);
-  assert.deepEqual(key, { store: "/home/owner/.branch-mobile-keystore/branch-agent.jks", password: "s3cret" });
+  assert.deepEqual(key, { store: join("/home/owner", ".branch-mobile-keystore", "branch-agent.jks"), password: "s3cret" });
   assert.deepEqual(calls[0].args, ["find-generic-password", "-a", KEYCHAIN.account, "-s", KEYCHAIN.service, "-w"]);
   const fromCi = await releaseKey({ BRANCH_ANDROID_KEYSTORE: "/ci/key.jks", BRANCH_ANDROID_KEYSTORE_PASSWORD: "x" }, "linux", () => assert.fail("no Keychain on CI"));
   assert.deepEqual(fromCi, { store: "/ci/key.jks", password: "x" });
@@ -55,7 +55,7 @@ test("an existing key is read back from the Keychain, and a CI secret wins over 
 
 test("the iOS build is a target build, and leaves the asset catalog out only when no simulator runtime exists", async () => {
   const args = xcodeArgs("iphoneos", "/work");
-  assert.deepEqual(args.slice(0, 9), ["-project", join(MOBILE, "ios", "App", "App.xcodeproj"), "-target", "App", "-configuration", "Release", "-sdk", "iphoneos", "SYMROOT=/work/build"]);
+  assert.deepEqual(args.slice(0, 9), ["-project", join(MOBILE, "ios", "App", "App.xcodeproj"), "-target", "App", "-configuration", "Release", "-sdk", "iphoneos", `SYMROOT=${join("/work", "build")}`]);
   assert.ok(args.includes("CODE_SIGNING_ALLOWED=NO"));
   assert.equal(args.includes("EXCLUDED_SOURCE_FILE_NAMES=Assets.xcassets"), false);
   assert.ok(xcodeArgs("iphonesimulator", "/work", false).includes("EXCLUDED_SOURCE_FILE_NAMES=Assets.xcassets"));

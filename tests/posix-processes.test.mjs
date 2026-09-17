@@ -363,7 +363,9 @@ test("programs are found without .exe or where off Windows", async () => {
   assert.equal(sshProgram("scp", "linux"), "scp");
   const seen = [];
   const lines = async (executable, args) => { seen.push([executable, ...args]); return ["git", "", process.execPath]; };
-  assert.equal(await findGitOn({}, "linux", lines), process.execPath, "a bare name is skipped, a real file is taken");
+  // Off Windows only a full POSIX path is taken, so this computer's own runtime qualifies only where it has one.
+  assert.equal(await findGitOn({}, "linux", lines), process.platform === "win32" ? null : process.execPath,
+    "a bare name is skipped, a real file is taken");
   assert.deepEqual(seen, [["/bin/sh", "-c", "command -v git"]]);
   assert.equal(await findGitOn({}, "win32", async () => [process.execPath]), process.platform === "win32" ? process.execPath : null,
     "on Windows only an .exe is taken");

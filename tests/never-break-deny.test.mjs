@@ -32,8 +32,9 @@ test("reading is refused only for the database and the keys", () => {
 
 test("every word of a command is checked, and a sweeping command naming a parent is refused", () => {
   assert.match(check("shell.execute", { executable: "rm", args: ["-rf", "/home/o/.branch"] }), /never lets a task/);
+  // `~` and $HOME are read from this computer, so these folders are spelled the way this computer spells them.
   const home = protectedAreas({ workspace: join(homedir(), "never-work"), dataDir: join(homedir(), ".never-branch"),
-    installRoot: "/opt/branch", platform: "linux" });
+    installRoot: "/opt/branch", platform: process.platform });
   for (const line of ["echo x > ~/.never-branch/gateway.json", "cp evil.js $HOME/.never-branch/branch.sqlite",
     "cp evil.js ${HOME}/../../opt/branch/dist/cli.js"])
     assert.match(protectedTarget({ tool: "shell.execute", readOnly: false, args: { executable: "sh", args: ["-c", line] }, target: "" }, home) ?? "",
@@ -170,7 +171,12 @@ test("Windows spellings: long-path prefix, other slashes, other case", () => {
     "c:/users/o/appdata/local/branch agent/state/branch.sqlite", "..\\AppData\\Local\\Branch Agent\\state",
     "C:\\Users\\o\\AppData\\Local\\Programs\\Branch Agent\\Branch Agent.exe"])
     assert.match(call("files.write", { path }) ?? "", /never lets a task/, path);
-  assert.match(call("shell.execute", { executable: "cmd.exe", args: ["/c", "rd /s /q \"%LOCALAPPDATA%\\..\\Local\\Branch Agent\""] }) ?? "",
+  // %LOCALAPPDATA% is read from this computer: on Windows it is real, so the data folder is put under it.
+  const local = process.platform === "win32" ? process.env.LOCALAPPDATA : undefined;
+  const byVariable = local ? protectedAreas({ workspace: "C:\\Users\\o\\work", dataDir: `${local}\\Branch Agent\\state`,
+    installRoot: "C:\\Users\\o\\AppData\\Local\\Programs\\Branch Agent\\resources\\app.asar", platform: "win32", selfPids: [4242] }) : win;
+  assert.match(protectedTarget({ tool: "shell.execute", readOnly: false, target: "",
+    args: { executable: "cmd.exe", args: ["/c", "rd /s /q \"%LOCALAPPDATA%\\..\\Local\\Branch Agent\""] } }, byVariable) ?? "",
     /never lets a task|only through a variable/);
   assert.match(call("shell.execute", { executable: "powershell.exe", args: ["-Command", "Stop-Process -Name node -Force"] }) ?? "", /Branch itself/);
   assert.equal(call("files.write", { path: "C:\\Users\\o\\work\\notes.md" }), null);

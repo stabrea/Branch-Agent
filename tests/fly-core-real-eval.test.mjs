@@ -4,9 +4,9 @@ import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { discardTemp } from "./temp-dir.mjs";
 import {
   compare, gradeLocally, hermesTarget, loadSuites, parseArguments, passSummary, runRealEval, startedDirectly, targetsFromEnvironment,
@@ -143,7 +143,11 @@ test("R6 arguments, arms and the comparison rule", () => {
 });
 
 test("R7 the script runs when started directly, whatever its path looks like", async () => {
-  assert.equal(startedDirectly("file:///Volumes/512GB%20SSD/x/real-eval.mjs", "/Volumes/512GB SSD/x/real-eval.mjs"), true);
+  if (process.platform !== "win32")
+    assert.equal(startedDirectly("file:///Volumes/512GB%20SSD/x/real-eval.mjs", "/Volumes/512GB SSD/x/real-eval.mjs"), true);
+  // The same with this computer's own spelling of a full path (Windows puts a drive letter in front).
+  const spaced = resolve("/Volumes/512GB SSD/x/real-eval.mjs");
+  assert.equal(startedDirectly(pathToFileURL(spaced).href, spaced), true);
   assert.equal(startedDirectly("file:///a/real-eval.mjs", "/a/other.mjs"), false);
   assert.equal(startedDirectly("file:///a/real-eval.mjs", undefined), false);
   const refused = await run(process.execPath, [script, "--target", "nope"]).catch((error) => error);

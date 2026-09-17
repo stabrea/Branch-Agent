@@ -73,7 +73,7 @@ function fakeMedia(app, files, seen) {
   };
 }
 function understanding(app, media, programs, policy = quietPolicy()) {
-  return new MediaUnderstanding({ store: app.store, media, policy, run: programs.run, find: (name) => `/usr/local/bin/${name}` });
+  return new MediaUnderstanding({ store: app.store, media, policy, run: programs.run, find: (name) => `/usr/local/bin/${name.replace(/\.exe$/, "")}` }); // Windows asks for ffmpeg.exe
 }
 
 test("the ffmpeg and yt-dlp argument lists are exact, and no address can become an option", () => {

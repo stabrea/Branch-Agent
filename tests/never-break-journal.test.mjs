@@ -23,11 +23,19 @@ import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gate
 
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("BRANCH_") && name !== "NODE_OPTIONS"));
+/**
+ * Windows will not delete an open database, so what a test opened (`closeFirst`) is closed, newest
+ * first, in the same hook and before its folder is removed.
+ */
+const closers = new WeakMap();
 async function temp(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-never-journal-"));
-  t.after(() => discardTemp(root));
+  const list = [];
+  closers.set(t, list);
+  t.after(async () => { for (const close of list.reverse()) await close(); await discardTemp(root); });
   return root;
 }
+const closeFirst = (t, close) => closers.get(t).push(close);
 const say = (content) => ({ content, toolCalls: [] });
 function scripted(replies) {
   let index = 0;
@@ -80,7 +88,7 @@ test("a missed timed job says why it is late", () => {
 test("formats move forward on a copy, have a way back, and newer data is refused untouched", async (t) => {
   const root = await temp(t);
   const db = new DatabaseSync(join(root, "a.sqlite"));
-  t.after(() => db.close());
+  closeFirst(t, () => db.close());
   const steps = [
     { version: 1, readableBy: 1, up: (d) => d.exec("CREATE TABLE notes(id INTEGER PRIMARY KEY, text TEXT)"), down: (d) => d.exec("DROP TABLE notes") },
     { version: 2, readableBy: 1, up: (d) => d.exec("ALTER TABLE notes ADD COLUMN tag TEXT"), down: (d) => d.exec("ALTER TABLE notes DROP COLUMN tag") },
@@ -130,7 +138,7 @@ test("every turn and tool call is written down, flushed, before it runs", async 
   const root = await temp(t);
   const call = { id: "w1", name: "files.write", arguments: JSON.stringify({ path: "a.txt", content: "one" }) };
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([{ content: "", toolCalls: [call] }, say("done")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const run = await app.runtime.run({ prompt: "write it", onTextDelta: () => undefined });
   assert.equal(run.status, "completed");
   assert.deepEqual(app.neverBreak.journal.steps(run.id), [
@@ -145,7 +153,7 @@ test("a step that cannot be written down is not done, and the task says why", as
   let sent = 0;
   const call = { id: "s1", name: "chaos.send", arguments: "{}" };
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([{ content: "", toolCalls: [call] }, say("done")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   app.registry.register({ name: "chaos.send", permission: "chaos.send", description: "send", parameters: z.object({}).strict(), execute: async () => { sent++; return {}; } });
   app.neverBreak.journal.failWrites = () => Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
   const run = await app.runtime.run({ prompt: "send it", onTextDelta: () => undefined });
@@ -165,7 +173,7 @@ async function killedMidStep(t, plan, { mode = "on", waitFor }) {
   const env = { ...cleanEnv(), CHAOS_PLAN: JSON.stringify(plan), CHAOS_DELAY: "60000" };
   const script = resolve("tests/fixtures/never-break-task.mjs");
   const worker = spawn(process.execPath, [script, root, "work"], { env, stdio: ["ignore", "pipe", "inherit"] });
-  t.after(() => { if (worker.exitCode === null) worker.kill("SIGKILL"); });
+  closeFirst(t, () => { if (worker.exitCode === null) worker.kill("SIGKILL"); });
   for (let i = 0; i < 1200; i++) {
     const calls = await readFile(join(root, "calls.log"), "utf8").catch(() => "");
     if (calls.includes(waitFor)) break;
@@ -220,7 +228,7 @@ test("with the switch at when needed, interrupted work waits for the owner", asy
 test("a file step checked after the fact: done is kept, not done is done", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("carried on")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const make = async (callId, path, content, landed) => {
     const run = app.store.createRun("local", `write ${path}`);
     app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [{ id: callId, name: "files.write", arguments: JSON.stringify({ path, content }) }] });
@@ -248,7 +256,7 @@ test("a file step checked after the fact: done is kept, not done is done", async
 test("a task a chat app started is left for the chat app to send again", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("x")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const run = app.store.createRun("local", "from telegram");
   app.store.event(run.id, "channel.inbound", { channel: "tg", chatId: "1", messageId: "9" });
   app.store.finish(run.id, "interrupted", "cut off");
@@ -279,7 +287,7 @@ const update = (id, text) => ({ update_id: id, message: { message_id: id, text, 
 test("Telegram picks up where it had read to, so messages sent during a restart are answered once", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("x")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const position = channelPosition(app.store, "tg");
   const first = fakeTelegram([update(10, "one"), update(11, "two")]);
   const seen = [];
@@ -320,7 +328,7 @@ test("Telegram never saves past a message still being handled, even when a later
 test("a repeating job cut off by a restart goes back on the list, and a missed turn runs once with a note", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("ran")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const now = new Date();
   const threeHoursAgo = new Date(now.getTime() - 3 * 3600_000).toISOString();
   app.store.save("schedules", "local", "11111111-1111-4111-8111-111111111111", { kind: "task", prompt: "hourly", dueAt: threeHoursAgo,
@@ -372,7 +380,7 @@ test("a journal that cannot be read is put aside, Branch still starts, and nothi
   await writeFile(join(dataDir, "journal.sqlite"), "rubbish again ".repeat(400));
   await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
   const app = await createBranch({ workspace: join(root, "w"), dataDir, provider: scripted([say("carried on")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const run = app.store.createRun("local", "cut off while thinking");
   app.store.finish(run.id, "interrupted", "cut off");
   const [report] = await app.neverBreak.recoverOnStart(dataDir);
@@ -389,7 +397,7 @@ test("a journal that cannot be read is put aside, Branch still starts, and nothi
 test("nothing secret is written to the journal, and a hidden step is never re-run from it", async (t) => {
   const root = await temp(t);
   const journal = new TaskJournal(join(root, "journal.sqlite"));
-  t.after(() => journal.close());
+  closeFirst(t, () => journal.close());
   const hook = journalHook(journal, (text) => text.replace(/sk-[A-Za-z0-9]{20,}/g, "[hidden]"));
   const key = `sk-${"a".repeat(32)}`;
   const call = { id: "c1", name: "http.request", arguments: JSON.stringify({ url: "https://example.test", headers: { authorization: `Bearer ${key}` } }) };
@@ -404,7 +412,7 @@ test("nothing secret is written to the journal, and a hidden step is never re-ru
   assert.equal(open.key, idempotencyKey("r1", call), "the repeat key still comes from the real call");
 
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("x")]) });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const run = app.store.createRun("local", "write with a key in it");
   const args = { path: "k.txt", content: "[hidden]" };
   app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [{ id: "w1", name: "files.write", arguments: JSON.stringify(args) }] });
@@ -429,7 +437,7 @@ test("a chat task that may already have sent something is not done again when th
   const root = await temp(t);
   const provider = { name: "scripted", requests: 0, async complete() { provider.requests++; return say("answered"); } };
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   const chat = handChat();
   await app.channels.attach(chat, { allowlist: ["owner-1"] });
 

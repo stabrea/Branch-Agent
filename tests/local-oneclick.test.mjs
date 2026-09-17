@@ -530,7 +530,8 @@ test("O3 one click with LM Studio uses its download job, then loads with the fit
   assert.equal(savedLocalConnections(w.store, "owner")[0].id, "local-lm-studio-qwen3-4b");
 });
 
-test("O4 one click with MLX on Apple silicon: fetch the folder, start its server with it, connect", async (t) => {
+test("O4 one click with MLX on Apple silicon: fetch the folder, start its server with it, connect",
+  { skip: process.platform === "win32" && "a Mac's POSIX folders cannot sit on a Windows temporary folder" }, async (t) => {
   let served = null;
   const runtimes = fakeRuntimes({ mlxUp: () => served });
   const w = await world(t, { runtimes, installed: ["/opt/homebrew/bin/mlx_lm.server"] });

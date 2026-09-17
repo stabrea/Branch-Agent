@@ -25,11 +25,19 @@ import { rollBackUpdate } from "../dist/never-break/worker-link.js";
 
 const posix = process.platform !== "win32";
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("BRANCH_") && name !== "NODE_OPTIONS"));
+/**
+ * Windows will not delete an open database, so what a test opened (`closeFirst`) is closed, newest
+ * first, in the same hook and before its folder is removed.
+ */
+const closers = new WeakMap();
 async function temp(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-never-update-"));
-  t.after(() => discardTemp(root));
+  const list = [];
+  closers.set(t, list);
+  t.after(async () => { for (const close of list.reverse()) await close(); await discardTemp(root); });
   return root;
 }
+const closeFirst = (t, close) => closers.get(t).push(close);
 const exists = (path) => access(path).then(() => true, () => false);
 const run = (file, args) => new Promise((done) => {
   const child = spawn(file, args, { stdio: "ignore" });
@@ -223,7 +231,7 @@ test("the real engine passes its own check on a copy of real saved work", { skip
   const root = await temp(t);
   const dataDir = join(root, "data");
   const app = await createBranch({ workspace: join(root, "w"), dataDir });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   await app.runtime.run({ prompt: "remember this conversation", onTextDelta: () => undefined });
   await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
   const staged = join(root, "staged");
@@ -257,7 +265,7 @@ async function watchedGateway(t, { env, watch, rollBack }) {
   const events = [];
   const gw = new Gateway({ dataDir, script: resolve("tests/fixtures/never-break-worker.mjs"), args: [], port: 0, version: "2.0.0",
     env: { ...cleanEnv(), ...env }, settleMs: 100000, onWorker: (event) => events.push(event), ...(rollBack ? { rollBack } : {}) });
-  t.after(async () => { await gw.stop(); });
+  closeFirst(t, async () => { await gw.stop(); });
   await gw.start();
   return { gw, dataDir, events };
 }
@@ -307,7 +315,7 @@ test("the update only ever uses and removes a copy in its own place", async (t) 
 test("the check on a copy leaves the owner's timed jobs, webhooks and interrupted tasks alone", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d") });
-  t.after(() => app.close());
+  closeFirst(t, () => app.close());
   app.store.save("schedules", "local", "s1", { kind: "reminder", prompt: "pay the bill", status: "pending", dueAt: new Date(0).toISOString() });
   const owners = app.store.createRun("local", "the owner's own cut-off task");
   app.store.finish(owners.id, "interrupted", "cut off");

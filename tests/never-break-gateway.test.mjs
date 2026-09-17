@@ -152,7 +152,8 @@ test("requests go through to the worker, and a killed worker is replaced while t
   const second = JSON.parse((await get(gw.url, "/api/state")).body);
   assert.notEqual(second.pid, first.pid, "a request made during the restart waited and reached the new worker");
   assert.equal(gw.restarts, 1);
-  assert.equal(events.filter((e) => e.kind === "crash")[0].signal, "SIGKILL");
+  // Windows has no signals: a process ended from outside reports an exit code and no signal.
+  assert.equal(events.filter((e) => e.kind === "crash")[0].signal, process.platform === "win32" ? null : "SIGKILL");
   assert.equal(alive(first.pid), false);
 });
 
@@ -250,9 +251,10 @@ test("the real engine runs behind the gateway and comes back, database and all, 
   assert.equal(second.restarts, 1);
 
   child.kill("SIGTERM");
-  await until(() => child.exitCode !== null, "the gateway to close", 60000);
+  // On Windows SIGTERM ends the process outright: it has a signal, no exit code, and no chance to tidy up.
+  await until(() => child.exitCode !== null || child.signalCode !== null, "the gateway to close", 60000);
   await until(() => !alive(second.worker.pid), "the engine to close with it", 30000);
-  await assert.rejects(readFile(join(dataDir, "running.json")), "the running note is cleared");
+  if (process.platform !== "win32") await assert.rejects(readFile(join(dataDir, "running.json")), "the running note is cleared");
 });
 
 /* ---------- integration review (17 September) ---------- */
