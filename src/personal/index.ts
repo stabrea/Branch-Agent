@@ -15,6 +15,8 @@ import { registerSpotify, SpotifyConnector } from "./spotify.js";
 import { WebhookTunnel, type TunnelSpawn } from "./tunnel.js";
 import { VoiceApprovals } from "./voice-approvals.js";
 import { registerXSearch, XSearch } from "./x-search.js";
+import { opensTheHouse, ownerOnlyTools } from "./guard.js";
+import { categoryOf } from "../tool-categories.js";
 import type { MailServer } from "../channels/mail-client.js";
 
 /**
@@ -50,6 +52,11 @@ export interface PersonalDeps {
   imap?: (server: MailServer) => MailClient;
 }
 
+/** Integration review: a spoken yes to anything past looking and changing workspace files needs a press too. */
+function riskyQuestion(tool: string, permission: string, target: string): boolean {
+  return opensTheHouse(tool, target) || !["read", "files"].includes(categoryOf(tool, permission));
+}
+
 export class Personal {
   readonly signIns: { google: SignIn; microsoft: SignIn; spotify: SignIn };
   readonly google: GoogleConnector;
@@ -82,18 +89,21 @@ export class Personal {
     this.brief = this.makeBrief();
     this.voiceApprovals = new VoiceApprovals({ store, owner, transcribe: deps.transcribe,
       question: (sessionId, fingerprint) => runtime.approvals.questionFor(sessionId, fingerprint),
+      risky: (question) => riskyQuestion(question.tool, registry.permissionOf(question.tool), question.target),
       // A spoken yes is for this once only; a spoken no is kept for the conversation, as the No button is.
       approve: (sessionId, decision, fingerprint) => runtime.approve(sessionId, decision, decision === "allow" ? "never" : "session", fingerprint) });
     this.tunnel = new WebhookTunnel({ store, owner, refusal: deps.lockdownRefusal, ...(deps.tunnelSpawn ? { spawn: deps.tunnelSpawn } : {}) });
+    // Integration review: every personal tool refuses anybody but the owner before it runs (src/personal/guard.ts).
+    const tools = ownerOnlyTools(registry, store, deps.requireOwner);
     this.registrars = {
-      "chat-files": () => registerChatFiles(registry, this.chatFiles),
-      "home-control": () => registerHomeControl(registry, this.home),
-      "spoken-brief": () => registerSpokenBrief(registry, this.brief),
-      "x-search": () => registerXSearch(registry, this.x),
-      spotify: () => registerSpotify(registry, this.spotify),
-      google: () => registerGoogle(registry, this.google),
-      microsoft: () => registerMicrosoft(registry, this.microsoft),
-      "mail-search": () => registerMailSearch(registry, this.mail),
+      "chat-files": () => registerChatFiles(tools, this.chatFiles),
+      "home-control": () => registerHomeControl(tools, this.home),
+      "spoken-brief": () => registerSpokenBrief(tools, this.brief),
+      "x-search": () => registerXSearch(tools, this.x),
+      spotify: () => registerSpotify(tools, this.spotify),
+      google: () => registerGoogle(tools, this.google),
+      microsoft: () => registerMicrosoft(tools, this.microsoft),
+      "mail-search": () => registerMailSearch(tools, this.mail),
     };
     for (const part of personalParts) this.sync(part);
   }

@@ -139,8 +139,8 @@ test("R17-026: a spoken yes answers the real waiting question once, and never as
   const { app, call } = await fixture(t);
   await call("/api/personal/switch", { part: "voice-approvals", mode: "on" });
   const run = app.store.createRun(app.runtime.owner, "tidy the reports");
-  const ask = (fingerprint) => app.runtime.approvals.ask({ runId: run.id, sessionId: run.sessionId, tool: "files.delete", target: "reports/old.txt",
-    label: "Delete reports/old.txt", question: "Delete it?", source: "owner", remember: "always", askedAt: new Date().toISOString(), fingerprint });
+  const ask = (fingerprint) => app.runtime.approvals.ask({ runId: run.id, sessionId: run.sessionId, tool: "files.write", target: "reports/old.txt",
+    label: "Overwrite reports/old.txt", question: "Delete it?", source: "owner", remember: "always", askedAt: new Date().toISOString(), fingerprint });
   ask("fp-one");
   const stale = await call("/api/personal/voice/offer", { sessionId: run.sessionId, fingerprint: "fp-two" });
   assert.equal(stale.status, 400);

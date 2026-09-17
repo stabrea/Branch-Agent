@@ -221,7 +221,7 @@ test("R17-026: a spoken answer is bound to one request, used once, and runs out 
   const waiting = new Map([["s1:fp-a", { label: "Delete the old report" }]]);
   const voice = new VoiceApprovals({ store, owner: "local", now: () => now,
     question: (sessionId, fingerprint) => waiting.get(`${sessionId}:${fingerprint}`),
-    approve: (...args) => approved.push(args),
+    approve: (...args) => approved.push(args), risky: () => false,
     transcribe: async (clip) => (clip.bytes.toString() === "spoken-yes" ? "Yes." : "hmm") });
   const session = "11111111-1111-4111-8111-111111111111";
   waiting.set(`${session}:fp-a`, { label: "Delete the old report" });

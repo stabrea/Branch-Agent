@@ -98,7 +98,7 @@ export class SpokenBrief {
  * Two tools, so that sending is its own permission. Neither `personal.read` nor `channels.send` is
  * given to a task a chat started, so nobody writing from a chat can hear or forward the owner's day.
  */
-export function registerSpokenBrief(registry: ToolRegistry, brief: SpokenBrief): void {
+export function registerSpokenBrief(registry: Pick<ToolRegistry, "register">, brief: SpokenBrief): void {
   registry.register({ name: "brief.spoken", permission: "personal.read",
     description: "Make the owner's daily briefing from their connected calendars and mail and the morning brief, and read it aloud.",
     parameters: z.object({}).strict(), execute: async () => {

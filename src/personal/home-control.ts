@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { callJson } from "../channels/parity-common.js";
+import { RateLimiter } from "../approvals.js";
 import { clip, partSettings, requirePersonal, savePartSettings, secretNameSchema } from "./settings.js";
 
 /**
@@ -9,7 +10,8 @@ import { clip, partSettings, requirePersonal, savePartSettings, secretNameSchema
  * long-lived access token saved in Secrets (the same HOMEASSISTANT_TOKEN name the notify channel
  * uses). Reading states is a look; calling a service changes something in the house, so it has its
  * own permission, and only the kinds of device the owner listed can be called at all. Locks, alarms
- * and garage doors are not on the starting list.
+ * and garage doors are not on the starting list, and when the owner adds them every call to one is
+ * asked about, just this once (src/personal/guard.ts). A call names one device and is paced.
  * API: https://developers.home-assistant.io/docs/api/rest/
  */
 const domain = z.string().regex(/^[a-z_]{1,40}$/);
@@ -21,6 +23,9 @@ export const HomeSettingsSchema = z.object({
 }).strict();
 const settingsKey = "personal-home-settings";
 
+const targetKeys = new Set(["entity_id", "device_id", "area_id", "floor_id", "label_id"]);
+/** Integration review: how many service calls a minute, so a runaway task cannot flick the house on and off. */
+export const homeCallsPerMinute = 30;
 const entityId = z.string().regex(/^[a-z_]{1,40}\.[a-z0-9_]{1,200}$/, "An entity looks like light.kitchen");
 export const StatesSchema = z.object({
   entity: entityId.optional(),
@@ -35,7 +40,11 @@ export const CallSchema = z.object({
   service: z.string().regex(/^[a-z_]{1,60}$/),
   entity: entityId,
   /** Extra values the service takes, such as brightness_pct. */
-  data: z.record(z.string().regex(/^[a-z_]{1,40}$/), z.union([z.string().max(200), z.number(), z.boolean()])).refine((d) => Object.keys(d).length <= 20).default({}),
+  data: z.record(z.string().regex(/^[a-z_]{1,40}$/), z.union([z.string().max(200), z.number(), z.boolean()]))
+    .refine((d) => Object.keys(d).length <= 20)
+    // Integration review: these would point the call at more devices than the one named.
+    .refine((d) => !Object.keys(d).some((key) => targetKeys.has(key)), "A call names one device; area, device, floor and label targets are not taken")
+    .default({}),
 }).strict();
 
 const StateSchema = z.object({ entity_id: z.string(), state: z.string(), last_changed: z.string().optional(),
@@ -44,6 +53,7 @@ const summary = (s: z.infer<typeof StateSchema>) => ({ entity: s.entity_id, stat
   name: typeof s.attributes.friendly_name === "string" ? clip(s.attributes.friendly_name, 100) : "", changed: s.last_changed ?? null });
 
 export class HomeControl {
+  private readonly pace = new RateLimiter(60_000);
   constructor(private readonly store: Store, private readonly owner: string, private readonly fetcher: typeof fetch,
     private readonly secret: (name: string) => Promise<string>) {}
   settings() { return partSettings(this.store, this.owner, settingsKey, HomeSettingsSchema); }
@@ -83,13 +93,16 @@ export class HomeControl {
     if (!value.entity.startsWith(`${value.domain}.`)) throw new Error(`${value.entity} is not a ${value.domain}`);
     if (!this.settings().domains.includes(value.domain))
       throw new Error(`Branch may not control ${value.domain} devices. Add ${value.domain} to the list on the Home Assistant card first.`);
+    if (this.pace.waitMs("calls", homeCallsPerMinute) > 0)
+      throw new Error(`Too many Home Assistant calls in the last minute (${homeCallsPerMinute}). Wait a moment and try again.`);
+    this.pace.record("calls");
     const changed = await this.call(`/services/${value.domain}/${value.service}`, { method: "POST", json: { ...value.data, entity_id: value.entity } });
     const states = z.array(StateSchema).safeParse(changed);
     return { called: `${value.domain}.${value.service}`, entity: value.entity, now: states.success ? states.data.map(summary).slice(0, 20) : [] };
   }
 }
 
-export function registerHomeControl(registry: ToolRegistry, home: HomeControl): void {
+export function registerHomeControl(registry: Pick<ToolRegistry, "register">, home: HomeControl): void {
   registry.register({ name: "home.states", permission: "personal.read",
     description: "Look at devices in the owner's Home Assistant: one entity, one kind (light, sensor…), or those whose name has some words.",
     parameters: StatesSchema, execute: async (input) => home.states(input) });

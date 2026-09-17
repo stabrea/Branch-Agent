@@ -146,7 +146,7 @@ export class MicrosoftConnector {
   }
 }
 
-export function registerMicrosoft(registry: ToolRegistry, microsoft: MicrosoftConnector): void {
+export function registerMicrosoft(registry: Pick<ToolRegistry, "register">, microsoft: MicrosoftConnector): void {
   const tool = (name: string, permission: string, description: string, parameters: z.ZodType, run: (input: unknown) => Promise<unknown>) =>
     registry.register({ name, permission, description, parameters, execute: async (input) => run(input) });
   tool("outlook.search", "personal.read", "Search the owner's Outlook mail, or list the newest in the inbox when no words are given.",

@@ -3,6 +3,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo } from "node:net";
 import type { Readable } from "node:stream";
 import { z } from "zod";
+import { tunnelMark } from "../auth-limits.js";
 import type { Store } from "../store.js";
 import { partSettings, requirePersonal, savePartSettings } from "./settings.js";
 
@@ -48,7 +49,7 @@ export interface TunnelChild { stdout: Readable | null; stderr: Readable | null;
 export type TunnelSpawn = (file: string, args: string[]) => TunnelChild;
 const realSpawn: TunnelSpawn = (file, args) => spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
 
-const dropped = new Set(["authorization", "cookie", "origin", "referer", "host", "connection", "proxy-authorization", "x-branch-key"]);
+const dropped = new Set(["authorization", "cookie", "origin", "referer", "host", "connection", "proxy-authorization", "x-branch-key", tunnelMark]);
 const maxBody = 1024 * 1024;
 
 export interface TunnelDeps {
@@ -126,12 +127,14 @@ export class WebhookTunnel {
   /** One request through the door: a webhook path is passed on to Branch; anything else is a 404. */
   private async pass(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const method = request.method ?? "GET";
-    const path = new URL(request.url ?? "/", "http://door").pathname;
-    if (!webhookOnly(method, path) || !["GET", "POST"].includes(method)) { response.writeHead(404).end(); request.resume(); return; }
+    const asked = new URL(request.url ?? "/", "http://door");
+    if (!webhookOnly(method, asked.pathname) || !["GET", "POST"].includes(method)) { response.writeHead(404).end(); request.resume(); return; }
     const target = new URL(this.localAddress);
     const headers = Object.fromEntries(Object.entries(request.headers).filter(([name]) => !dropped.has(name.toLowerCase())));
-    const upstream = httpRequest({ host: target.hostname, port: target.port, method, path: request.url, timeout: 60_000,
-      headers: { ...headers, host: target.host, "x-forwarded-proto": "https" } }, (answer) => {
+    // The path Branch is handed is the one checked above, never the raw bytes the caller sent; and the
+    // mark tells Branch this came from the internet (src/auth-limits.ts).
+    const upstream = httpRequest({ host: target.hostname, port: target.port, method, path: `${asked.pathname}${asked.search}`, timeout: 60_000,
+      headers: { ...headers, host: target.host, "x-forwarded-proto": "https", [tunnelMark]: "1" } }, (answer) => {
       response.writeHead(answer.statusCode ?? 502, { "content-type": answer.headers["content-type"] ?? "text/plain" });
       answer.pipe(response);
     });

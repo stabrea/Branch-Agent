@@ -165,7 +165,7 @@ export class GoogleConnector {
   }
 }
 
-export function registerGoogle(registry: ToolRegistry, google: GoogleConnector): void {
+export function registerGoogle(registry: Pick<ToolRegistry, "register">, google: GoogleConnector): void {
   const tool = (name: string, permission: string, description: string, parameters: z.ZodType, run: (input: unknown) => Promise<unknown>) =>
     registry.register({ name, permission, description, parameters, execute: async (input) => run(input) });
   tool("gmail.search", "personal.read", "Search the owner's Gmail with Gmail's own search words (from:, subject:, is:unread, newer_than:2d).",

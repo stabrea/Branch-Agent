@@ -271,6 +271,7 @@ export const ROUTES = {
   "/api/personal/tunnel/start": "owner POST",
   "/api/personal/tunnel/stop": "owner POST",
   "/api/personal/voice/answer": "owner POST",
+  "/api/personal/voice/confirm": "owner POST",
   "/api/personal/voice/offer": "owner POST",
   "/api/personal/x": "secret-read",
   "/api/personal/x/search": "other POST",

@@ -12,8 +12,10 @@ import { requirePersonal } from "./settings.js";
  * English and French. Anything else — a sentence, a "yes but", silence — decides nothing and the
  * question stays where it is.
  *
- * A spoken yes is always "just this once": it never becomes a standing rule, and a request the
- * safety check advised against is handled exactly as a pressed "yes, just now" would be.
+ * A spoken yes is always "just this once": it never becomes a standing rule. For a risky request —
+ * one the safety check advised against, a lock or door, a command, a message, money or a setting —
+ * a spoken yes decides nothing on its own: the owner then presses to confirm it (integration review),
+ * so a recording played near the microphone cannot settle it.
  *
  * Nothing here listens by itself. There is no wake word: the owner has not yet decided how one could
  * be built safely, so the microphone is only ever opened by the owner's own press.
@@ -35,7 +37,7 @@ export function spokenDecision(transcript: string): "allow" | "deny" | null {
   return null;
 }
 
-interface Offer { sessionId: string; fingerprint: string; label: string; expiresAt: number }
+interface Offer { sessionId: string; fingerprint: string; label: string; expiresAt: number; heardYes?: boolean }
 
 export interface VoiceApprovalDeps {
   store: Store;
@@ -46,10 +48,13 @@ export interface VoiceApprovalDeps {
   approve: (sessionId: string, decision: "allow" | "deny", fingerprint: string) => unknown;
   /** The owner's own speech-to-text, for a recording. */
   transcribe: (clip: { bytes: Uint8Array; mediaType: string }) => Promise<string>;
+  /** Whether a yes to this question needs a press as well as the spoken word. */
+  risky: (question: PendingApproval) => boolean;
   now?: () => number;
 }
 
 export const OfferSchema = z.object({ sessionId: z.string().uuid(), fingerprint: z.string().min(1).max(200) }).strict();
+export const ConfirmSchema = z.object({ id: z.string().uuid() }).strict();
 export const AnswerSchema = z.object({
   id: z.string().uuid(),
   transcript: z.string().max(200).optional(),
@@ -77,18 +82,45 @@ export class VoiceApprovals {
   }
 
   /** Settles an offer with what was said. An unclear answer keeps the offer open. */
-  async answer(input: unknown): Promise<{ decision: "allow" | "deny" | null; heard: string; message: string }> {
+  async answer(input: unknown): Promise<{ decision: "allow" | "deny" | null; heard: string; message: string; confirm?: true }> {
     requirePersonal(this.deps.store, this.deps.owner, "voice-approvals");
     const value = AnswerSchema.parse(input);
-    this.sweep();
-    const offer = this.offers.get(value.id);
-    if (!offer) throw new Error("That spoken answer has run out (two minutes) or was already used. Press answer aloud again.");
+    const offer = this.open(value.id);
     const heard = value.transcript ?? await this.deps.transcribe({ bytes: Buffer.from(value.audio!, "base64"), mediaType: value.mediaType });
     const decision = spokenDecision(heard);
-    if (!decision) return { decision, heard: heard.slice(0, 200), message: "That was not a plain yes or no, so nothing was decided. Say just yes or no." };
-    this.offers.delete(value.id);
+    const said = heard.slice(0, 200);
+    if (!decision) return { decision, heard: said, message: "That was not a plain yes or no, so nothing was decided. Say just yes or no." };
+    if (decision === "allow" && this.needsPress(offer)) {
+      offer.heardYes = true;
+      return { decision: null, heard: said, confirm: true, message: `This one needs a press as well. Press "Yes, allow it" to confirm: ${offer.label}` };
+    }
+    return { decision, heard: said, message: this.settle(value.id, offer, decision) };
+  }
+
+  /** The press that confirms a spoken yes to a risky request; nothing without the spoken yes first. */
+  confirm(input: unknown): { decision: "allow"; message: string } {
+    requirePersonal(this.deps.store, this.deps.owner, "voice-approvals");
+    const { id } = ConfirmSchema.parse(input);
+    const offer = this.open(id);
+    if (!offer.heardYes) throw new Error("Nothing was said yet. Press answer aloud and say yes first.");
+    return { decision: "allow", message: this.settle(id, offer, "allow") };
+  }
+
+  private open(id: string): Offer {
+    this.sweep();
+    const offer = this.offers.get(id);
+    if (!offer) throw new Error("That spoken answer has run out (two minutes) or was already used. Press answer aloud again.");
+    return offer;
+  }
+  private needsPress(offer: Offer): boolean {
+    const question = this.deps.question(offer.sessionId, offer.fingerprint);
+    if (!question) throw new Error("That question is no longer waiting for an answer");
+    return question.onceOnly === true || this.deps.risky(question);
+  }
+  private settle(id: string, offer: Offer, decision: "allow" | "deny"): string {
+    this.offers.delete(id);
     this.deps.approve(offer.sessionId, decision, offer.fingerprint);
-    return { decision, heard: heard.slice(0, 200), message: decision === "allow" ? `Allowed just this once: ${offer.label}` : `Refused: ${offer.label}` };
+    return decision === "allow" ? `Allowed just this once: ${offer.label}` : `Refused: ${offer.label}`;
   }
 
   /** Forgets every open offer, as locking Branch does. */

@@ -90,21 +90,36 @@ function decodeBody(body: string, encoding: string): Buffer {
  * hands it over (read as UTF-8). Nesting is bounded so a hostile message cannot
  * make this recurse for ever.
  */
+export const maxParts = 100;
+const maxHeaderBytes = 256 * 1024;
 export function mimeParts(raw: string, depth = 0): MimePart[] {
   const split = /\r?\n\r?\n/.exec(raw);
-  const head = split ? raw.slice(0, split.index) : raw;
+  // Integration review: headers are read only up to a limit, so one endless header line is cheap.
+  const head = (split ? raw.slice(0, split.index) : raw).slice(0, maxHeaderBytes);
   const body = split ? raw.slice(split.index + split[0].length) : "";
   const headers = headersOf(head);
   const contentType = headers.get("content-type") ?? "text/plain";
   const boundary = parameter(contentType, "boundary");
-  if (/^multipart\//i.test(contentType) && boundary && depth < 6) {
-    const pieces = body.split(`--${boundary}`).slice(1);
-    return pieces.filter((piece) => !piece.startsWith("--")).flatMap((piece) => mimeParts(piece.replace(/^\r?\n/, ""), depth + 1)).slice(0, 100);
-  }
+  if (/^multipart\//i.test(contentType) && boundary && depth < 6) return multipartParts(body, boundary, depth);
   const disposition = headers.get("content-disposition") ?? "";
   const filename = parameter(disposition, "filename") || parameter(contentType, "name");
   return [{ contentType: contentType.split(";")[0]!.trim().toLowerCase(), filename, disposition: disposition.split(";")[0]!.trim().toLowerCase(),
     body: decodeBody(body, headers.get("content-transfer-encoding") ?? "7bit") }];
+}
+
+/** The parts of one multipart body, stopping as soon as there are enough, however many the sender wrote. */
+function multipartParts(body: string, boundary: string, depth: number): MimePart[] {
+  const found: MimePart[] = [];
+  const marker = `--${boundary}`;
+  let at = body.indexOf(marker);
+  while (at >= 0 && found.length < maxParts) {
+    const next = body.indexOf(marker, at + marker.length);
+    const piece = body.slice(at + marker.length, next < 0 ? undefined : next);
+    if (piece.startsWith("--")) break;
+    found.push(...mimeParts(piece.replace(/^\r?\n/, ""), depth + 1).slice(0, maxParts - found.length));
+    at = next;
+  }
+  return found;
 }
 
 /** The readable text of a message: its plain part, or its formatted part with the tags taken out. */

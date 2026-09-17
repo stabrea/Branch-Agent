@@ -59,7 +59,7 @@ export async function peopleSignInRoute(app: Branch, request: IncomingMessage, r
   if (!path.startsWith("/api/people/sign-in") && path !== "/api/people/oidc/callback") return false;
   const people = app.people;
   if (!people.enabled()) { send(404, { error: "Not found" }); return true; }
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   const waiting = people.limiter.refusal(from, "sign-in");
   if (waiting) { send(429, { error: waiting }); return true; }
   try {

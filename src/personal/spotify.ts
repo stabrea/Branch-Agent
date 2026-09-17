@@ -103,7 +103,7 @@ export class SpotifyConnector {
   }
 }
 
-export function registerSpotify(registry: ToolRegistry, spotify: SpotifyConnector): void {
+export function registerSpotify(registry: Pick<ToolRegistry, "register">, spotify: SpotifyConnector): void {
   registry.register({ name: "spotify.now", permission: "personal.read", description: "What is playing on the owner's Spotify right now, and on which device.",
     parameters: z.object({}).strict(), execute: async () => spotify.now() });
   registry.register({ name: "spotify.search", permission: "personal.read", description: "Search Spotify for tracks, albums, artists or playlists.",

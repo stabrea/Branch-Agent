@@ -329,7 +329,7 @@ function authorize(
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
@@ -1740,7 +1740,7 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the

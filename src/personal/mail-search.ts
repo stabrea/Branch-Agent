@@ -139,7 +139,7 @@ export class MailSearch {
   }
 }
 
-export function registerMailSearch(registry: ToolRegistry, mail: MailSearch): void {
+export function registerMailSearch(registry: Pick<ToolRegistry, "register">, mail: MailSearch): void {
   registry.register({ name: "mail.search", permission: "personal.read",
     description: "Search the email channel's inbox by sender, subject, words, dates, or unread. Nothing is marked read.",
     parameters: InboxSearchSchema, execute: async (input) => mail.search(input) });

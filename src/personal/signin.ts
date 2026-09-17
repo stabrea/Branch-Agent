@@ -115,6 +115,21 @@ export async function signedText(fetchImpl: typeof fetch, signIn: Pick<SignIn, "
   const token = await signIn.token();
   const response = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new Error(`${service} refused the request (${response.status})`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  return new TextDecoder().decode(bytes.subarray(0, maxBytes));
+  return new TextDecoder().decode(await firstBytes(response, maxBytes));
+}
+
+/** At most `maxBytes` of an answer, without holding the rest of a huge file in memory (integration review). */
+async function firstBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < maxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  await reader.cancel().catch(() => undefined);
+  return Buffer.concat(chunks).subarray(0, maxBytes);
 }

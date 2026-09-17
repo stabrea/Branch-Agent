@@ -15,8 +15,8 @@ import { partSettings, requirePersonal, savePartSettings } from "./settings.js";
  * app's own attachment, through the adapter that is already connected (Telegram, Slack, Discord).
  *
  * Before anything leaves this computer:
- *   - only the owner may send, and only to a chat that has already talked to the assistant or a
- *     sender the owner allowed (the one sender list, src/channels/allowlist.ts);
+ *   - only the owner may send, and only to a chat that has already talked to the assistant after
+ *     the sender list let it in, or one the owner linked to a conversation (the chats list);
  *   - the file must be inside the workspace (the same path checks every file tool has);
  *   - it must fit both the owner's limit and the chat app's own;
  *   - its words — the plain text, or what the document readers lift out of a PDF or an Office
@@ -41,11 +41,12 @@ export const SendFileSchema = z.object({
 const mediaTypes: Record<string, string> = {
   ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
   ".webp": "image/webp", ".svg": "image/svg+xml", ".csv": "text/csv", ".txt": "text/plain", ".md": "text/markdown",
-  ".json": "application/json", ".html": "text/html", ".zip": "application/zip", ".mp3": "audio/mpeg", ".ogg": "audio/ogg",
+  ".json": "application/json", ".html": "text/html", ".mp3": "audio/mpeg", ".ogg": "audio/ogg",
   ".mp4": "video/mp4", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
+const packed = /\.(zip|gz|tgz|bz2|xz|7z|rar|tar|zst|jar|apk|dmg|iso)$/i;
 export const mediaTypeOf = (name: string): string => mediaTypes[extname(name).toLowerCase()] ?? "application/octet-stream";
 
 export interface ChatFilesDeps {
@@ -90,6 +91,8 @@ export class ChatFiles {
     const limit = Math.min(this.settings().maxMegabytes * 1024 * 1024, adapter.maxFileBytes ?? 0);
     const info = await stat(path);
     if (!info.isFile()) throw new Error(`${value.path} is not a file`);
+    // Integration review: the leak guard cannot look inside a packed file, so none is sent.
+    if (packed.test(value.path)) throw new Error(`${value.path} is a packed file whose insides cannot be checked for keys; send the files themselves`);
     const size = info.size;
     if (size > limit) throw new Error(`${value.path} is ${Math.ceil(size / 1048576)} MB, over the ${Math.floor(limit / 1048576)} MB this chat may be sent`);
     return { adapter, path, limit };
@@ -97,8 +100,9 @@ export class ChatFiles {
 
   async send(input: unknown) {
     const value = SendFileSchema.parse(input);
-    const { adapter, path } = await this.target(value);
+    const { adapter, path, limit } = await this.target(value);
     const bytes = await readFile(path);
+    if (bytes.byteLength > limit) throw new Error(`${value.path} grew past the ${Math.floor(limit / 1048576)} MB this chat may be sent`);
     const name = basename(path);
     const words = wordsOf(bytes, name);
     const leaks = [...new Set(findLeaks(words).map((hit) => hit.kind))];
@@ -115,7 +119,7 @@ export class ChatFiles {
   }
 }
 
-export function registerChatFiles(registry: ToolRegistry, chatFiles: ChatFiles): void {
+export function registerChatFiles(registry: Pick<ToolRegistry, "register">, chatFiles: ChatFiles): void {
   registry.register({ name: "chat.send_file", permission: "channels.send",
     description: "Send a file from the workspace (a chart, PDF, spreadsheet…) into a linked chat on Telegram, Slack or Discord, as that app's own attachment.",
     parameters: SendFileSchema, target: (input) => input.path, execute: async (input) => chatFiles.send(input) });

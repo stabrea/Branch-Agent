@@ -1,6 +1,7 @@
 import { z, ZodError } from "zod";
 import { errorText } from "../contracts.js";
-import type { Runtime } from "../runtime.js";
+import { argumentFingerprint, type Runtime } from "../runtime.js";
+import { gateRefusal } from "../tool-gate.js";
 import type { Personal } from "./index.js";
 import { PersonalOffError, PersonalPartSchema, personalLabels, personalParts, requirePersonal, type PersonalPart } from "./settings.js";
 
@@ -10,7 +11,8 @@ import { PersonalOffError, PersonalPartSchema, personalLabels, personalParts, re
  * change by the fail-closed rule in src/short-lived-keys.ts, and every read by its owner-only list,
  * because what they return is the owner's mail, calendar and public webhook address. A route that
  * runs one of these parts' tools runs it through `Runtime.executeTool`, so the one tool gate
- * (src/tool-gate.ts) decides it.
+ * (src/tool-gate.ts) decides it. Playing the briefing needs the sound itself, which a tool answer
+ * cannot carry, so that route asks the same gate about `brief.spoken` first (integration review).
  */
 export const handlesPersonalPath = (path: string): boolean => path === "/api/personal" || path.startsWith("/api/personal/");
 
@@ -71,15 +73,23 @@ async function tunnelRoute(deps: PersonalHttpDeps, path: string): Promise<unknow
   return undefined;
 }
 
+/** The briefing, spoken, once the tool gate has said yes to `brief.spoken` for the owner at the window. */
+async function playBrief(deps: PersonalHttpDeps): Promise<unknown> {
+  const { personal, runtime } = deps;
+  requirePersonal(runtime.store, runtime.owner, "spoken-brief");
+  const refused = gateRefusal(runtime, "brief.spoken", {}, runtime.context({}), argumentFingerprint("{}"), "owner");
+  if (refused) throw new PersonalHttpError(403, refused);
+  const { text, audio } = await personal.brief.run({});
+  return { text, mediaType: audio.mediaType, audio: Buffer.from(audio.bytes).toString("base64") };
+}
+
 async function voiceRoute(deps: PersonalHttpDeps, path: string): Promise<unknown> {
   const { personal } = deps;
   if (deps.method !== "POST") return undefined;
   if (path === "/api/personal/voice/offer") return personal.voiceApprovals.offer(await deps.readBody());
   if (path === "/api/personal/voice/answer") return personal.voiceApprovals.answer(await deps.readBody());
-  if (path === "/api/personal/brief/play") {
-    const { text, audio } = await personal.brief.run({});
-    return { text, mediaType: audio.mediaType, audio: Buffer.from(audio.bytes).toString("base64") };
-  }
+  if (path === "/api/personal/voice/confirm") return personal.voiceApprovals.confirm(await deps.readBody());
+  if (path === "/api/personal/brief/play") return playBrief(deps);
   return undefined;
 }
 

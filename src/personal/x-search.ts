@@ -84,7 +84,7 @@ export class XSearch {
   }
 }
 
-export function registerXSearch(registry: ToolRegistry, x: XSearch): void {
+export function registerXSearch(registry: Pick<ToolRegistry, "register">, x: XSearch): void {
   registry.register({ name: "x.search", permission: "personal.read",
     description: "Search posts on X (Twitter) through xAI, optionally only from or never from some handles, and between two dates. Answers with the posts it cites.",
     parameters: XSearchSchema, execute: async (input) => x.search(input) });
