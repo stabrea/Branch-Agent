@@ -7162,6 +7162,10 @@ rounds are read from `/api/model-savings/rounds?session=<id>`.
 | Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
 | Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
 
+Setting names: `planModel` and `sideTier` (planning model and flex for side questions), `easyModel`, `hardModel` and
+`classifierModel` (choose by difficulty), `maxPings` (keep-alive), `allowFallbacks` and `dataCollection` (OpenRouter),
+and `mixtures` (mixtures of models).
+
 The planning, difficulty and OpenRouter ideas come from aider, cline, gemini-cli and Hermes Agent
 (Apache-2.0 and MIT); no code was copied.
 
