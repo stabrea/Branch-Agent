@@ -4258,6 +4258,16 @@ Where this uses a service's own setting and where it does not, honestly:
   agents): the shape is asked for in the words of the question and checked afterwards. That is the
   re-ask path, not a native one. It works; it is just not enforced by the service.
 
+### Pydantic: not applicable, and what stands in for it
+
+The capability audit asks for Pydantic model validation of structured output. Pydantic is a Python
+library and Branch is TypeScript, so there is nothing to integrate. The equivalent is zod, which
+Branch already uses to declare every tool's arguments and every setting on this page, and which is
+what a declared shape is written in above. A shape goes from zod through zod's own `toJSONSchema`
+into the same check every delegated answer already passes through, so a declared shape is validated
+the same way a tool's arguments are. Nothing further is needed, and adding a Python dependency to a
+TypeScript app to satisfy the letter of the row would be worse than not having it.
+
 ### The adapter family (`adapter-system` in #55): chat and XML are not applicable
 
 The audit's `adapter-system` family asks for three adapters. Only one of them means anything here,

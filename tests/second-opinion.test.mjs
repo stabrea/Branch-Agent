@@ -138,6 +138,34 @@ test("the advisor never fails a task that has already answered", async (t) => {
   assert.equal(app.runtime.advice(run.id), null);
 });
 
+test("the advisor stops at its own cost ceiling and says so, leaving the answer as it was", async (t) => {
+  const worker = scripted("worker", () => say("Paris."));
+  const advisor = scripted("advisor", () => say('{"stands":"yes"}'));
+  const { app } = await fixture(t, [
+    { id: "worker", name: "Worker", provider: worker, model: "w-1" },
+    { id: "advisor", name: "Advisor", provider: advisor, model: "a-1" },
+  ]);
+  saveSecondOpinionSettings(app.store, "local",
+    { advisor: true, advisorPreset: "advisor", advisorMaxTokens: 200 });
+  const run = await app.runtime.run({ prompt: "tell me at length about the capital of France ".repeat(20) });
+
+  assert.equal(advisor.calls, 0, "nothing was sent once the ceiling could not cover the check");
+  assert.equal(run.status, "completed", "a ceiling reached by the check never fails the task");
+  assert.equal(run.output, "Paris.", "the answer is given exactly as it was");
+  const failed = events(app, run.id, "advice.failed")[0];
+  assert.match(failed.reason, /^There was not enough left of the 200-token ceiling for the check/);
+  assert.match(failed.reason, /Raise it in Settings\.$/);
+  assert.ok(!/BudgetError|undefined|\{/.test(failed.reason), "it reads as a sentence, not an error object");
+  assert.equal(app.runtime.advice(run.id), null, "no advice is shown when none was given");
+
+  // With room to work in, the very same setup does produce advice.
+  saveSecondOpinionSettings(app.store, "local",
+    { advisor: true, advisorPreset: "advisor", advisorMaxTokens: 20000 });
+  const second = await app.runtime.run({ prompt: "and the capital of Spain" });
+  assert.equal(advisor.calls, 1);
+  assert.equal(app.runtime.advice(second.id).stands, "yes");
+});
+
 test("an advisor whose reply cannot be read says so rather than being dropped", () => {
   const advice = readAdvice("Advisor", "I think it's fine, honestly");
   assert.equal(advice.stands, "unsure");

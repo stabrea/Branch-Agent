@@ -948,7 +948,12 @@ ${run.output.slice(0, 6000)}`;
       const advice = readAdvice(chosen.name, said.content);
       this.store.event(run.id, "advice.given", { ...advice, preset: chosen.name, presetId: chosen.id, line: adviceLine(advice) });
     } catch (error) {
-      this.store.event(run.id, "advice.failed", { preset: chosen.id, reason: errorText(error) });
+      // The ceiling is the ordinary way this ends, so it is said as a sentence rather than as the
+      // budget's own words. Either way the answer is given exactly as it was.
+      const reason = error instanceof BudgetError
+        ? `There was not enough left of the ${settings.advisorMaxTokens.toLocaleString()}-token ceiling for the check, so the answer has not been looked at. Raise it in Settings.`
+        : errorText(error);
+      this.store.event(run.id, "advice.failed", { preset: chosen.id, reason });
     }
   }
   /**
