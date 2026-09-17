@@ -1,7 +1,18 @@
 name: Checks
-on: [push, pull_request]
+# A branch with a pull request is checked by the pull request, so it is not also checked on push:
+# running both doubles the queue and, on a shared runner, slows every job enough to fail tests that
+# wait on a clock. Branches without a pull request are still checked when they are pushed.
+on:
+  push:
+    branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'wave9/**']
+  pull_request:
 permissions:
   contents: read
+concurrency:
+  # One run per branch. A newer push replaces an older run rather than queueing behind it, except on
+  # main, where every commit's result is worth keeping.
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   verify:
     strategy:
