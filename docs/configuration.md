@@ -5140,8 +5140,9 @@ every row is listed here and that every file named here exists.
   `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
 - **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
   (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
-- **A1932** (a browser extension) — verified: `extras/browser-extension/` sends the page or the selection to
-  Branch (`src/embeds.ts`, `tests/embeds-watches.test.mjs`).
+- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
+  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
+  refuses this computer's own address, but no test drives the popup sending a page.
 - **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
   the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
   meant for putting in front of the public.
