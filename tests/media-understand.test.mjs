@@ -208,7 +208,7 @@ test("a video attached in the composer comes back as pictures and words, and onl
     method: "POST", headers: { authorization: "Bearer " + server.token, "content-type": type }, body: Buffer.from("video bytes"),
   });
   const off = await upload();
-  assert.notEqual(off.status, 200);
+  assert.equal(off.status, 400);
   assert.match((await off.json()).error, /switched off/);
   const seen = { heard: [], looked: [], kept: [] };
   app.understanding = understanding(app, fakeMedia(app, {}, seen), fakePrograms());
@@ -223,5 +223,11 @@ test("a video attached in the composer comes back as pictures and words, and onl
   const body = await on.json();
   assert.equal(body.pictures.length, 4);
   assert.equal(body.transcript, "we are building a treehouse");
-  assert.notEqual((await upload("text/html")).status, 200, "only video and sound are taken");
+  assert.equal((await upload("text/html")).status, 400, "only video and sound are taken");
+  const huge = await fetch(server.url + "/api/media/understand", {
+    method: "POST", headers: { authorization: "Bearer " + server.token, "content-type": "video/mp4" },
+    body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(33 * 1024 * 1024)); c.close(); } }), duplex: "half",
+  });
+  assert.equal(huge.status, 400, "a file over 32 MB sent without a length is still refused as the caller's mistake");
+  assert.match((await huge.json()).error, /32 MB/);
 });
