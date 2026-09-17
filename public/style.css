@@ -706,3 +706,34 @@ label > input[type="radio"] {
   overflow-x: auto;
   max-width: 100%;
 }
+
+/* Wave mac3 (commands): the "/" menu above the message box, and the list in the commands card. */
+.composer { position: relative; }
+.slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0 0 0.4rem;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.slash-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.slash-choice[aria-selected="true"], .slash-choice:hover { background: var(--selected); }
+.slash-choice strong { color: var(--text); }
+.commands-where { padding-left: 1rem; overflow-wrap: anywhere; }

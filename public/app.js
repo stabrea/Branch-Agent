@@ -4,6 +4,8 @@ import { fillMarkdown, inlineNodes } from "/markdown.js";
 // A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
 import { installDeviceHeaders } from "/device-headers.js";
 installDeviceHeaders();
+// Wave mac3 (commands): the command list is shown in the chosen language.
+import { t } from "/i18n.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -1509,33 +1511,60 @@ $("prompt").addEventListener("keydown", (event) => {
   if (!conversationBusy) $("chat-form").requestSubmit();
 });
 /**
- * Wave 7: lines you type that are commands rather than messages. The message box knows which lines
- * are commands on its own, so "/model" and "/help" still work when public/model-profiles.js has
- * not loaded; when it has, it handles "/model" itself. Returns true when the line was a command,
- * so nothing is sent to the model.
+ * Wave 7: lines you type that are commands rather than messages. Wave mac3: the list is no longer
+ * written here — it is read from the one table every surface shares (src/commands/catalog.ts,
+ * served at /api/commands), so the message box offers exactly what that table says the window
+ * does. Each row is [name, description, details]. "/model" and "/help" still work when
+ * public/model-profiles.js and public/commands.js have not loaded; when they have, they handle the
+ * rest. Returns true when the line was a command, so nothing is sent to the model.
  */
-export const SLASH_COMMANDS = [
-  ["/model", "Change the model for this conversation. On its own it lists what you can choose."],
-  ["/help", "Show these commands."],
-];
-export function parseSlashCommand(line) {
-  const match = /^\/([a-z]+)(?:\s+([\s\S]*))?$/i.exec(String(line ?? "").trim());
-  if (!match) return null;
-  const name = "/" + match[1].toLowerCase();
-  if (!SLASH_COMMANDS.some(([known]) => known === name)) return null;
-  return { name, rest: (match[2] ?? "").trim() };
+export const SLASH_COMMANDS = [];
+let slashList = null;
+/* The phone app opens the paired Branch at "/" and leaves a note in this tab first (apps/mobile inject.js). */
+const phoneNote = () => { try { return Boolean(sessionStorage.getItem("branch-phone")); } catch { return false; } };
+const slashSurface = () => (globalThis.Capacitor?.isNativePlatform?.() || phoneNote()
+  || new URLSearchParams(location.search).get("surface") === "phone" ? "phone" : "window");
+export function loadSlashCommands(fresh = false) {
+  if (slashList && !fresh) return slashList;
+  slashList = api(`commands?surface=${slashSurface()}`).then(({ commands, mode }) => {
+    const others = SLASH_COMMANDS.filter((row) => !row[2]);
+    SLASH_COMMANDS.splice(0, SLASH_COMMANDS.length, ...commands.map((entry) => [`/${entry.name}`, t(entry.key) === entry.key ? entry.english : t(entry.key), { ...entry, mode }]),
+      ...others.filter(([name]) => !commands.some((entry) => `/${entry.name}` === name)));
+    return SLASH_COMMANDS;
+  }).catch(() => { slashList = null; return SLASH_COMMANDS; });
+  return slashList;
 }
+globalThis.branchSlashCommands = { list: SLASH_COMMANDS, load: loadSlashCommands, surface: slashSurface };
+export function parseSlashCommand(line) {
+  const match = /^\/([a-z?][\w?-]*)(?:\s+([\s\S]*))?$/i.exec(String(line ?? "").trim());
+  if (!match) return null;
+  const typed = match[1].toLowerCase();
+  const row = SLASH_COMMANDS.find(([known, , details]) => known === "/" + typed || details?.aliases?.includes(typed));
+  if (!row) return null;
+  return { name: row[0], rest: (match[2] ?? "").trim() };
+}
+/** The /help list: what the table says this window lists. */
+const slashHelp = () => "Commands you can type here:\n" + SLASH_COMMANDS
+  .filter(([, , details]) => !details || details.listed)
+  .map(([name, what, details]) => `${name}${details?.args ? " " + details.args : ""} — ${what}`).join("\n");
 async function runSlashCommand(typed) {
+  if (!typed.startsWith("/")) return false;
+  await loadSlashCommands();
   const command = parseSlashCommand(typed);
   if (!command) return false;
-  if (command.name === "/help") {
-    toast("Commands you can type here:\n" + SLASH_COMMANDS.map(([name, what]) => `${name} — ${what}`).join("\n"));
+  if (command.name === "/help" && !command.rest) {
+    toast(slashHelp());
     return true;
   }
-  /* The models module is the handler when it is there; otherwise the message box does the work. */
-  if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
-  await switchModelWithoutModule(command.rest);
-  return true;
+  /* "/model" is the models module's when it is there, and this file's own otherwise; the shared
+     commands (public/commands.js) handle the rest. */
+  if (command.name === "/model") {
+    if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
+    await switchModelWithoutModule(command.rest);
+    return true;
+  }
+  if (globalThis.branchCatalogCommand) return (await globalThis.branchCatalogCommand(typed, sessionId)) !== false;
+  return false;
 }
 /** The plain fallback for "/model": list the choices, or change this conversation's model. */
 async function switchModelWithoutModule(wanted) {

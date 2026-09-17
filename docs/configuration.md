@@ -1050,7 +1050,7 @@ Routes: `GET /api/voice/plan` (which service would do the work, where the sound 
 
 ### Other speech services and spoken commands (bucket 17)
 
-Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
+Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region as `azureRegion`, for example `westeurope`, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line as `programArgs`, at most 20, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
 
 **Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. There is still no wake word. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
 
@@ -1369,6 +1369,23 @@ Any part of Branch that reads what a folder carries asks `isFolderTrusted(store,
 
 **macOS and Linux.** Both work the same on every system. Folder decisions compare paths with letter case on macOS and Linux and without it on Windows. Note files are listed whatever their letter case, since the usual macOS disk (and Windows) ignores case. A skills or plugin folder that is a link is never looked into.
 
+## Keeping Branch running (never breaks)
+
+The design, the threat list and the test for each threat are in [never-break.md](never-break.md).
+
+**What a task can never touch.** Whatever the rules, a standing yes, a hook, Lockdown or any switch say, a task cannot change the program's own folder (`BRANCH_INSTALL_ROOT`, or the folder `dist/` was loaded from; only `dist/`, `node_modules/`, `package.json`, `resources/` and `app.asar` when the workspace lives inside it), the data folder (only its database, key, gateway and updater files when the workspace lives inside it), or read the database and key files. Every word of a command is checked, `rm`-like commands naming a parent folder are refused, and so are commands that stop, reinstall or update Branch's own service (`src/never-break/protected.ts`). The refusal is written as `policy.denied`. A command that hides a path from plain reading (built at run time, encoded) is not caught by this check; the operating-system sandbox (`settings:computer`) is the layer for that.
+
+**The gateway.** `gateway.json` in the data folder, `GatewayConfigSchema` in `src/never-break/gateway-config.ts`: `mode` (`off`, the default; `when-needed`; `on`), `startSeconds` (90), `holdSeconds` (20), `maxQuickCrashes` (4), `gapSeconds` (300), `watchSeconds` (300) and `workerEnv` (only `BRANCH_*` names, never the data folder). With the mode not off, `branch start` runs the gateway on `BRANCH_PORT`, which runs the engine on a private loopback port and passes requests (and connection upgrades) through, checking the address exactly as the engine does. `GET /gateway/health` is answered by the gateway itself. An engine that stops is started again after 0.5, 1, 2 … 30 seconds; crashes chained less than `gapSeconds` apart, `maxQuickCrashes` times, slow it to once every five minutes and stop interrupted work carrying on by itself. Settings are promoted to `gateway.good.json` after a worker has stayed up; a broken `gateway.json`, or settings the engine fails to start with twice, are replaced by the good copy. `GET|POST /api/never-break { mode }` reads and sets the switch; `POST /api/never-break/proposal/accept|discard` answers a change the assistant suggested with the `gateway.propose` tool (offered only when the switch was on at launch), which is always tried on a throwaway gateway first. A short-lived key can do none of this.
+
+**Work that survives a restart.** Every model turn and tool call is written to `journal.sqlite` in the data folder (`src/never-break/journal.ts`, `synchronous=FULL`) before it runs, with an idempotency key, a side-effect class (`none` for tools with a reading permission; `idempotent` for `files.write`, `files.restore`, `files.mkdir`, `memory.forget`, `todos.done`, `git.branch`; `external` for everything else, MCP and plugin tools included) and, for file and git tools, what the file or the repository looked like just before. A step that cannot be written down is not run: the task stops with a sentence saying the disk may be full. This is not switchable. A task cut off because Branch closed is now marked `interrupted` rather than `cancelled`. On a real start (the app window, the background engine, or an engine under the gateway) with the switch not off, `recoverOnStart` (`src/never-break/resume.ts`) settles every task interrupted in the last day: an in-flight step with no side effects, or an idempotent one, is done again (only if the approval rules allow it without asking); a file or git step is checked (`verified` or done now); anything else is put to the owner as a question and the task waits (`needs_input`, event `attention.needed` with `afterRestart`). Then the task carries on by itself (**on**, event `run.auto_resumed`) or is offered (**when needed**, `run.can_continue`). After a crash loop (`BRANCH_RESUME=ask`, set by the gateway) nothing carries on by itself. A task a chat message started (`channel.inbound`) is left for the chat app (`run.left_for_channel`): Telegram's read position is kept in settings (`channel-position:<id>`) and saved only after a message is handled, so a message a crash cut off is fetched and answered again, and one already answered is not. A repeating timed job cut off by a restart goes back to `pending` for its next turn (`lastInterruption`); a turn missed while Branch was down runs once, with `late` in its history and a `schedule.caught_up` event. Other chat apps keep their own delivery rules (webhook services resend by themselves; Discord, Slack and Matrix do not replay missed messages yet).
+
+**Data formats.** The database carries a format stamp (`PRAGMA user_version` and a `branch_format` row with the oldest format that can still read it; `src/never-break/migrations.ts`). A version that finds data it cannot read stops with a sentence and changes nothing. Format changes are listed in `storeMigrations`, run in one transaction after a `VACUUM INTO` copy in `update-backups/`, and each has a way back (`migrateDown`); a change that only adds a column keeps `readableBy` at the old number, so the previous release still opens the data.
+
+**Updates that cannot brick it.** With the switch not off, the updater tries the unpacked version before anything is swapped (`src/never-break/canary.ts`): the process that holds the database takes a copy (`VACUUM INTO` of `branch.sqlite` and `journal.sqlite`, plus `locker.key` and `gateway.json`) into `updates/canary-*/` in the data folder — the window asks a background engine for it with `POST /api/never-break/snapshot` — and the new version's own runtime runs `branch start` with `BRANCH_SELF_TEST=<report>` on that copy (`src/never-break/self-test.ts`): it opens the saved work (applying its format changes to the copy), does a task with the offline model, loads every chat adapter, lets the timed jobs tick, carries an interrupted task on, and answers on its address. Any failed check stops the update with a sentence saying which, before the safety copy or the hand-over; the copy is always removed. A passed check writes `update-watch.json`; the new gateway watches the first `watchSeconds`, repairs a program folder an interrupted swap left half-done (`repairSwap`), ends the watch once the version has stayed up, and, if the new engine fails to start twice or trips the crash breaker inside the window, writes `updates/roll-back.sh` (or `roll-back.cmd`, started through the same hidden scheduled-task launcher as the update, so no console window opens) and closes: the script puts `<program>.previous` back, keeps the failed one as `<program>.failed`, promotes `<program>.previous-2`, and starts the previous version. Every update now keeps the last two versions (`.previous` and `.previous-2`) on all three systems. The gateway and its engine each state the contract version they speak and the range they read (`src/never-break/contract.ts`), so a new engine runs under an old gateway and the other way round for one release.
+
+**Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
+
+**macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
 ## Always allow, per command, and a second look before approvals (wave mac3)
 
 **Always allow, per command.** "Yes, always" (and "No, always") to a command is remembered for that
@@ -6063,7 +6080,7 @@ builds a recording only when one is opened; "on" does the same and lists recent 
 
 - **Save as a page** writes one HTML file that plays anywhere. It carries its own copy of
   `public/tokens.css` and can reach nothing (`default-src 'none'`). Pictures go into it only when
-  "Put the pictures it looked at into saved pages" is ticked, and then only the newest three.
+  "Put the pictures it looked at into saved pages" (`keepPictures`, off by default) is ticked, and then only the newest three.
 - **Make a workflow from it** turns the actions that worked into the steps of a saved workflow, with the
   settings they were given (secrets removed). Saving never runs it, and its steps pass the same checks
   as any workflow's when it does run.
@@ -6074,7 +6091,8 @@ builds a recording only when one is opened; "on" does the same and lists recent 
 **Is Branch keeping up** (Settings → Advanced, `src/event-loop-watch.ts`). Measures how late Branch's own
 work starts and how busy it is, and says in one sentence whether that is fine, slow or stuck. "When
 needed" takes a two-second measurement only when Check now is pressed; "on" watches from launch and
-counts every stall; off measures nothing.
+counts every stall; off measures nothing. A stall is work that starts later than `stallMs` (250 ms by
+default, between 50 and 10000).
 
 Integration review (mac4/bucket-13): the saved page is written in the window's language (`?lang=`,
 only a language file the app ships), and step names in the player and the page are translated too;
@@ -6131,6 +6149,154 @@ Bucket 14 of the public list ("what it has cost you, in plain figures"). Each pi
   span (`tests/tracing-policy.test.mjs` T1), which the diagnostics folder carries (T4).
 
 macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
+
+## Typed commands, the same everywhere (wave mac3)
+
+Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,
+`src/commands/catalog.ts`. The app window's message box, the phone (which shows the same window
+through the paired address), the `branch` terminal view, the chat apps and the browser dashboard all
+read their list from it, so they cannot drift apart. `/help` on each of them lists only what that
+place can do.
+
+**The switch** is in Settings › General, under *Typed commands*, and ships **off**:
+
+- **Off:** every place keeps exactly the commands it had before this table — the window `/help`,
+  `/model` and `/goal` (from goal mode), the terminal its 28, the chat apps `/stop /status /new /compact /usage /btw /help`.
+  Anything else typed with a slash is what it always was (a message in the window and in chats).
+- **When needed:** every command in the table works when it is typed, but the `/` menu and `/help`
+  show only the everyday ones; `/help all` shows the rest.
+- **On:** every command works and every list shows it. The window gets a `/` menu above the message
+  box (up and down choose, Tab or Enter fills one in, Esc closes), and the dashboard gets a command line.
+
+The chat apps still have their own switch (Customize › Chat apps, *Commands*), which decides whether
+a chat reads commands at all; this one decides which of the table's commands it may read.
+
+**Who may do what.** A command asks at least what the matching API route asks. Looking needs any
+key; starting a task (or stopping one, or asking on the side) needs a key that may start tasks;
+changing settings or permissions (`/preset <name>`, `/default`, `/lockdown on|off`, `/switch`) needs
+the key of this computer and the owner's own profile — a short-lived key is refused in one sentence.
+Typed on their own, `/preset`, `/lockdown` and `/model` only read, so any key may send them. A key
+that may only look sends its commands with `GET /api/commands/run`, which refuses anything that would
+change something. In a chat app, nothing that changes settings or permissions is a command at all
+(it is an ordinary message), `/goal` is not offered because a goal would run with the owner's tools,
+and `/whoami` tells the sender what their tasks may use.
+
+**What the new ones do.** `/tokens` shows what fills the next request — instructions, the list of
+tools, the conversation and the room left — from the figures the last task measured, and what
+sending it would cost (the idea of Aider's `/tokens`). `/help <question>` answers from Branch's own
+handbook (`docs/handbook`): the best-matching sections are found by word ranking and the model
+answers from those alone, with no tools; with no model it shows the sections themselves. `/goal`
+uses goal mode (mac2/goal-undo), which keeps its own switch; the window already had `/goal` from
+goal mode, and the terminal gets it from this table. `/stop`, `/status`, `/compact`, `/usage` and `/btw` work outside chats now too. `/health` is the
+same check as `branch doctor`.
+
+**Routes.** `GET /api/commands?surface=window|phone|dashboard` (the list that place offers, for the
+phone apps as well), `GET /api/commands/table` (every command on every surface, and the table
+below), `GET|POST /api/commands/run`, `GET|POST /api/commands/settings`.
+
+**macOS and Linux.** Nothing here depends on the operating system: the table, the routes and the
+terminal behave the same on macOS, Linux and Windows, and Windows behaves exactly as before while
+the switch is off.
+
+### Every command, and where it works
+
+"had it" means the place offered the command before this table (it works whatever the switch says);
+"new" means it follows the switch.
+
+| Command | Also | Needs | Window | Phone | Terminal | Chat apps | Dashboard |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `/help [question]` | `/?` | any key (with a question: a key that may start tasks) | had it | had it | had it | had it | new |
+| `/model [id]` | `/models` | a key that may start tasks (on its own: any key) | had it | had it | had it | new | — |
+| `/think <low\|medium\|high\|default>` | `/reasoning` | a key that may start tasks | new | new | had it | new | — |
+| `/preset [name]` | `/permissions`, `/approvals` | the key of this computer (on its own: any key) | new | new | had it | — | — |
+| `/memory [words]` | — | any key | new | new | had it | — | — |
+| `/skills` | — | any key | new | new | had it | — | — |
+| `/plan [on\|off]` | — | any key | new | new | had it | — | — |
+| `/verify [on\|off]` | — | any key | — | — | had it | — | — |
+| `/dry-run [on\|off]` | `/practice` | any key | — | — | had it | — | — |
+| `/temporary [on\|off]` | `/incognito` | any key | new | new | had it | — | — |
+| `/attach <file>` | `/image` | any key | new | new | had it | — | — |
+| `/history` | — | any key | — | — | had it | new | — |
+| `/export [file]` | `/save` | any key | new | new | had it | — | — |
+| `/new` | `/clear`, `/reset` | any key | new | new | had it | had it | — |
+| `/sessions [id]` | `/resume` | any key | new | new | had it | — | — |
+| `/go <place>` | `/open` | any key | new | new | had it | — | new |
+| `/inbox [tab]` | — | any key | new | new | had it | — | new |
+| `/automations [tab]` | `/cron` | any key | new | new | had it | — | new |
+| `/library [tab]` | — | any key | new | new | had it | — | new |
+| `/customize [tab]` | `/tools` | any key | new | new | had it | — | new |
+| `/settings [page]` | `/config` | any key | new | new | had it | — | new |
+| `/theme [name\|light\|dark\|follow\|list]` | `/skin` | any key | new | new | had it | — | — |
+| `/default <id>` | — | the key of this computer | new | new | had it | — | — |
+| `/switch <mouse\|sidePane\|oak> [on\|off\|when-needed]` | — | the key of this computer | — | — | had it | — | — |
+| `/pane [activity\|plan\|files\|memory]` | `/details` | any key | new | new | had it | — | — |
+| `/lockdown [on\|off]` | `/pause` | the key of this computer (on its own: any key) | new | new | had it | — | new |
+| `/keys` | `/shortcuts` | any key | — | — | had it | — | — |
+| `/exit` | `/quit` | any key | — | — | had it | — | — |
+| `/stop [task]` | `/cancel` | a key that may start tasks | new | new | new | had it | new |
+| `/status` | — | any key | new | new | new | had it | new |
+| `/compact` | `/compress`, `/fold` | a key that may start tasks | new | new | new | had it | — |
+| `/usage [on\|off]` | `/cost` | any key | new | new | new | had it | new |
+| `/btw <question>` | `/side` | a key that may start tasks | new | new | new | had it | — |
+| `/tokens` | `/context` | any key | new | new | new | new | — |
+| `/goal <what should be true> [--max rounds]` | — | a key that may start tasks | had it | had it | new | — | — |
+| `/whoami` | `/id` | any key | new | new | new | new | new |
+| `/version` | `/about` | any key | new | new | new | new | new |
+| `/health` | `/doctor` | any key | new | new | new | — | new |
+
+### Parity with other agents
+
+Studied from Hermes Agent, OpenClaw, Codex, Gemini CLI, OpenCode and Aider (MIT or Apache-2.0) and
+OpenHands (study only); Claude Code's list is from its public documentation. No code was copied.
+The same table is in `src/commands/parity.ts`.
+
+| What | Their commands | Branch | Status | Note |
+| --- | --- | --- | --- | --- |
+| List the commands | /help (all), /commands (OpenClaw, Hermes) | `/help` | existed | Now written from the one table, per surface. |
+| Ask about the agent itself | /help <question> (Aider), /docs (Gemini) | `/help <question>` | built | Answers from Branch's own handbook. |
+| Change the model | /model (all), /models (OpenClaw) | `/model` | existed | Now also in chat apps, for that chat's conversation. |
+| How hard it thinks | /think, /reasoning (OpenClaw, Hermes), /reasoning_effort (Aider) | `/think` | built | Was terminal only. |
+| Start afresh | /new, /clear, /reset (all) | `/new` | existed | Window, phone, terminal and chat. |
+| Earlier conversations | /resume, /sessions (Hermes, Codex, Gemini, Claude Code) | `/sessions` | existed |  |
+| Fold the conversation | /compact (Codex, Claude Code, OpenCode, OpenClaw), /compress (Hermes, Gemini) | `/compact` | built | Was chat only. |
+| Stop the task | /stop (Hermes, OpenClaw, Codex), Esc (Claude Code) | `/stop` | built | Was chat only. |
+| What is happening | /status (Hermes, OpenClaw, Codex, Claude Code), /stats (Gemini) | `/status` | built | Was chat only. |
+| Tokens and cost | /usage (Hermes, OpenClaw, Codex), /cost (Claude Code), /stats (Gemini) | `/usage` | built | Chat keeps its footer switch. |
+| What fills the next request | /tokens (Aider), /context (Hermes, OpenClaw, Claude Code) | `/tokens` | built |  |
+| A question on the side | /btw (Hermes, OpenClaw, Codex), /side (Codex) | `/btw` | built | Was chat only. The OpenHands version was only studied. |
+| Work until a goal is met | /goal (Hermes, OpenClaw, Codex, OpenHands) | `/goal` | built | Uses goal mode from mac2/goal-undo when that is in this copy. |
+| Who am I, what may I do | /whoami (Hermes, OpenClaw) | `/whoami` | built |  |
+| Version | /version (Hermes), /about (Gemini) | `/version` | built |  |
+| Health check | /doctor (Claude Code), /diagnostics (OpenClaw), /debug (Hermes) | `/health` | built | The same check as `branch doctor`. |
+| Approval mode | /permissions (Codex, Gemini, Claude Code), /approvals (Hermes), /yolo (Hermes) | `/preset` | existed | Changing it needs the key of this computer; never from a chat. |
+| Emergency stop for everything | /pause (Hermes), /elevated (OpenClaw) | `/lockdown` | existed | Owner only; ends earlier yeses as the route does. |
+| Memory | /memory (Hermes, Gemini, Claude Code, Codex) | `/memory` | existed |  |
+| Skills | /skills (Hermes, Codex, Gemini), /skill (OpenClaw) | `/skills` | existed |  |
+| Plan first | /plan (Hermes, Codex, Gemini), /architect (Aider) | `/plan` | existed |  |
+| Practice without changes | /ask (Aider) | `/dry-run` | existed |  |
+| Private conversation | incognito (OpenClaw) | `/temporary` | existed |  |
+| Attach a file or picture | /image, /paste (Hermes, Aider), /add (Aider), @file (Codex, Gemini) | `/attach` | existed |  |
+| Save the conversation | /export (Codex, Claude Code, OpenCode), /save (Hermes, Aider), /export-session (OpenClaw) | `/export` | existed |  |
+| Theme | /theme (Codex, Gemini, Claude Code), /skin (Hermes) | `/theme` | existed |  |
+| Settings | /config (Hermes, OpenClaw, Claude Code), /settings (Gemini, Aider) | `/settings` | existed |  |
+| Tools and connections | /tools (Hermes, Gemini), /mcp (Codex, Gemini, OpenCode, OpenClaw), /plugins | `/customize` | existed | Opens Customize; adding one stays a screen. |
+| Scheduled work | /cron (Hermes), /loop (OpenClaw, Hermes) | `/automations` | existed |  |
+| Steer the working task | /steer (Hermes, OpenClaw), /queue (Hermes) | — | elsewhere | Typing while it works steers it (window's follow-up, chat notes). |
+| Keyboard help | /keymap (Codex), /shortcuts (Gemini) | `/keys` | existed | Terminal only; the window shows keys in its own help. |
+| Leave | /quit, /exit (all) | `/exit` | existed | Terminal only. |
+| Take back a turn or files | /undo (Hermes, Aider, OpenCode), /rewind (Gemini), /rollback (Hermes) | — | elsewhere | mac2/goal-undo builds it as a message action; a command can follow it. |
+| Branch or fork a conversation | /branch (Hermes), /fork (Codex, OpenCode) | — | elsewhere | The window's branch action (session tree); not a typed command yet. |
+| Show the changes | /diff (Hermes, Codex, Aider) | — | elsewhere | Receipts in the side pane's Files tab. |
+| Review the work | /review (Hermes, Codex) | — | elsewhere | /verify (terminal) and the reviewer switch. |
+| Write project instructions | /init (Hermes, Codex, Gemini, Claude Code) | — | elsewhere | Context files belong to the context-file loader (Legion). |
+| Copy the last answer | /copy (Hermes, Codex, Gemini, Aider) | — | not applicable | The window has a copy button on each answer; a terminal copies with the mouse. |
+| Sign in or out | /login, /logout (Hermes, Codex, OpenClaw), /auth (Gemini) | — | not applicable | Signing in is a Settings screen; a typed command would carry secrets. |
+| Run a shell command | /run, /bash, ! (Aider, OpenClaw, Gemini) | — | not applicable | Programs run only as tool calls under the approval rules. |
+| Change directory | /cd (Codex), /directory (Gemini) | — | not applicable | The workspace is set per project in Settings. |
+| Mascots and pets | /pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini) | — | not applicable | Branch draws its own oak instead. |
+| Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
+| Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
+| Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |
 
 ## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
 

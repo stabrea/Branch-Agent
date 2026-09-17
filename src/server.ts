@@ -106,6 +106,8 @@ import { lookApi } from "./terminal-theme.js";
 import {
   DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
 } from "./dashboard-api.js";
+// Wave mac3 (commands): the one slash-command table's routes.
+import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -146,6 +148,9 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
+import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
@@ -354,6 +359,9 @@ async function staticFile(
     "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
     "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (commands): the message box's / menu and the commands card.
+    "/commands.js": ["commands.js", "text/javascript; charset=utf-8"],
     // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
     "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
     // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
@@ -385,6 +393,9 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // mac3/never-break: the Keep running card and the Telegram setup card.
+    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
@@ -719,6 +730,14 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
+  if (handlesNeverBreakPath(path))
+    return neverBreakApi(dataDir, request, path, readBody, {
+      snapshot: () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database }),
+      telegram: app.neverBreak.telegram,
+    }).catch((error: unknown) => {
+      throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
@@ -2341,13 +2360,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
+      // Wave mac3 (commands): a read key's command is sent with POST but only looks.
+      let onlyLooking = false;
       authorize(request, url, token, remote.allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
-        ?? app.sessionTokens.check(app.runtime.owner, supplied, {
-          method: request.method ?? "GET", executes: isExecution(request, path),
-        }));
+      }, (supplied) => {
+        const look = commandLook(app, request, path, supplied);
+        onlyLooking = look !== null;
+        return offLimitsToShortLivedKeys(request.method, path)
+          ?? app.sessionTokens.check(app.runtime.owner, supplied, look ?? {
+            method: request.method ?? "GET", executes: isExecution(request, path),
+          });
+      });
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2356,7 +2381,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
-      if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
+      if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
       // out once here, so the page can show a read-only view to a key that may only look. ----
@@ -2377,6 +2402,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (executes && !place)
         throw new HttpError(429, "Too many active executions");
       try {
+        // ---- Wave mac3 (commands): the one slash-command table, for the window, the phone and the
+        // dashboard (src/commands/api.ts). What the key may do is read the way the dashboard reads it,
+        // and checked command by command; running one takes a place like any other task. ----
+        if (handlesCommandsPath(path)) {
+          const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+          const answer = await commandsApi(app, path, {
+            method: request.method ?? "GET", url: new URL(request.url ?? "/", "http://local"), access, readBody: () => readBody(request),
+          }).catch((error: unknown) => {
+            throw error instanceof CommandApiError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the commands block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -2462,6 +2501,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
+  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
+    void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
+    void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
+  }
   if (options.presence) {
     await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
     await noteFirstStart(app, options.dataDir).catch(() => undefined);
@@ -2810,8 +2854,23 @@ function voiceDeps(app: Branch) {
  * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
  * two are the owner's own step, in the app window, with the master key.
  */
-function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+/**
+ * Wave mac3 (commands, integration review): a key that may only look sends its commands with POST
+ * too, so what it typed never lands in an address or a log. For that one route its POST counts as
+ * looking; `src/commands/api.ts` then lets it carry out only the commands that look.
+ */
+function commandLook(app: Branch, request: IncomingMessage, path: string, supplied: string): { method: string; executes: boolean } | null {
+  if (request.method !== "POST" || path !== "/api/commands/run") return null;
+  return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
+}
+
+export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
+  // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
+  // conversation starts with (and the model services behind it), and which commands are offered
+  // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
+  if (path === "/api/policy" || path === "/api/models" || path === "/api/commands/settings")
+    return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
@@ -2829,6 +2888,10 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // mac3/never-break: the gateway's settings are the owner's alone.
+  if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
+  if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
   if (path === "/api/media/programs" || path === "/api/voice/engines")
     return "A short-lived key cannot choose which programs or speech services Branch uses. Do that in the app window.";
@@ -2859,7 +2922,7 @@ async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
   );

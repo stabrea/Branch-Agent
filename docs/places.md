@@ -87,11 +87,14 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
+| Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
+| Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
 | Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
 | Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
 | Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |

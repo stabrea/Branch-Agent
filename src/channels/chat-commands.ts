@@ -2,6 +2,11 @@ import type { Runtime } from "../runtime.js";
 import { compactionSplit } from "../runtime.js";
 import { parseSessionSummary, summaryText } from "../session-summary.js";
 import { usageLine } from "../terminal-tui.js";
+import type { FeatureMode } from "../feature-switches.js";
+import { aliasesOn, lookup, parseLine, type CatalogCommand } from "../commands/catalog.js";
+import { available, commandMode, commandsFor } from "../commands/settings.js";
+import { executeCommand } from "../commands/execute.js";
+import { commandHost } from "../commands/host.js";
 
 /**
  * Commands a person can type in a chat app while Branch works: stop the task, ask where it is,
@@ -11,13 +16,13 @@ import { usageLine } from "../terminal-tui.js";
  *
  * The list follows OpenClaw's chat commands (MIT); the code is written for Branch.
  */
-export type ChatCommandName = "help" | "stop" | "status" | "new" | "compact" | "usage" | "btw";
+export type ChatCommandName = string;
 export interface ChatCommand { name: ChatCommandName; argument: string }
 /**
  * One chat command, as data: what it is called, other names it answers to, what it does in plain
  * words, what may follow it, whether it is one of the few that matter while a task works (the
- * "when needed" setting reads only those), and what it does. Kept as a table so the commands of
- * every surface can later be gathered into one catalog.
+ * "when needed" setting reads only those), and what it does. The names, words and arguments come
+ * from the one table every surface reads (src/commands/catalog.ts, wave mac3).
  */
 export interface ChatCommandSpec {
   name: ChatCommandName;
@@ -27,40 +32,65 @@ export interface ChatCommandSpec {
   whileWorking: boolean;
   run: (argument: string, context: CommandContext) => string | Promise<string>;
 }
-export const chatCommands: readonly ChatCommandSpec[] = [
-  { name: "stop", aliases: ["cancel"], description: "stop what I am doing", args: "", whileWorking: true, run: (_, c) => stop(c) },
-  { name: "status", aliases: [], description: "what I am doing right now", args: "", whileWorking: true, run: (_, c) => status(c) },
-  { name: "new", aliases: ["reset"], description: "start a fresh conversation (the old one stays in the app)", args: "", whileWorking: false, run: (_, c) => fresh(c) },
-  { name: "compact", aliases: [], description: "fold the earlier part of this conversation into a summary", args: "", whileWorking: false, run: (_, c) => compact(c) },
-  { name: "usage", aliases: [], description: "add a tokens-and-cost line to my replies", args: "on|off", whileWorking: false, run: (a, c) => usage(a, c) },
-  { name: "btw", aliases: [], description: "a quick question on the side; it does not join the task", args: "<question>", whileWorking: true, run: (a, c) => aside(a, c) },
-  { name: "help", aliases: [], description: "this list", args: "", whileWorking: true, run: () => chatCommandHelp() },
-];
+/** The chat apps' own code for the commands they had first; the rest is the shared code. */
+const RUNNERS: Record<string, ChatCommandSpec["run"]> = {
+  stop: (_, c) => stop(c),
+  status: (_, c) => status(c),
+  new: (_, c) => fresh(c),
+  compact: (_, c) => compact(c),
+  usage: (a, c) => usage(a, c),
+  btw: (a, c) => aside(a, c),
+  help: (a, c) => (a && modeHere(c) !== "off" ? shared("help")(a, c) : chatCommandHelp(modeHere(c))),
+};
+const modeHere = (context: CommandContext): FeatureMode => commandMode(context.runtime.store, context.runtime.owner);
+/** A command carried out by the shared code, for this chat, with what this chat's sender may do. */
+function shared(name: string): ChatCommandSpec["run"] {
+  return async (argument, context) => {
+    const outcome = await executeCommand(commandHost(context.runtime), {
+      surface: "chat", line: `/${name} ${argument}`.trim(), sessionId: context.sessionId, access: "run",
+      permissions: context.permissions,
+    });
+    return outcome?.text ?? "I do not know that command. Send /help for the list.";
+  };
+}
+const toSpec = (entry: CatalogCommand): ChatCommandSpec => ({
+  name: entry.name, aliases: entry.aliases, description: entry.english, args: entry.args,
+  whileWorking: entry.whileWorking === true, run: RUNNERS[entry.name] ?? shared(entry.name),
+});
+/** The chat commands with the shared switch where it is (off: the ones chat apps always had). */
+export function chatCommandsFor(mode: FeatureMode, all = false): ChatCommandSpec[] {
+  return commandsFor("chat", mode, all).map(toSpec);
+}
+export const chatCommands: readonly ChatCommandSpec[] = chatCommandsFor("off");
 export const chatCommandNames = chatCommands.map((command) => command.name);
-const byName = (word: string): ChatCommandSpec | undefined =>
-  chatCommands.find((command) => command.name === word || command.aliases.includes(word));
 /** The table entry for a parsed command. */
-export const chatCommandSpec = (name: ChatCommandName): ChatCommandSpec => byName(name)!;
+export const chatCommandSpec = (name: ChatCommandName): ChatCommandSpec => {
+  const found = lookup(name);
+  if (!found || !found.surfaces.includes("chat")) throw new Error(`/${name} is not a chat command`);
+  return toSpec(found);
+};
 
 /**
  * Reads "/stop", "/Stop", "/stop@BranchBot" (how Telegram addresses a command in a group), an
- * alias such as "/cancel", and so on. Anything else, including an unknown "/word", is an ordinary
- * message and returns null.
+ * alias such as "/cancel", and so on. Anything else, including an unknown "/word" or one the
+ * shared switch keeps out of chats, is an ordinary message and returns null.
  */
-export function parseChatCommand(text: string): ChatCommand | null {
-  const match = /^\/([a-z]+)(?:@[\w.-]+)?(?:\s+([\s\S]*))?$/i.exec(text.trim());
-  if (!match) return null;
-  const spec = byName(match[1]!.toLowerCase());
-  return spec ? { name: spec.name, argument: (match[2] ?? "").trim() } : null;
+export function parseChatCommand(text: string, mode: FeatureMode = "off"): ChatCommand | null {
+  if (!/^\/[a-z?]/i.test(text.trim())) return null;
+  const parsed = parseLine(text, mode === "off", "chat");
+  if (!parsed || !available(parsed.command, "chat", mode)) return null;
+  return { name: parsed.command.name, argument: parsed.argument };
 }
 
 /** The list a person gets for /help, written from the table. */
-export function chatCommandHelp(): string {
-  const lines = chatCommands.map((command) => {
-    const also = command.aliases.length ? ` (or ${command.aliases.map((alias) => `/${alias}`).join(", ")})` : "";
+export function chatCommandHelp(mode: FeatureMode = "off"): string {
+  const lines = chatCommandsFor(mode).map((command) => {
+    const shown = aliasesOn(lookup(command.name)!, "chat", mode === "off");
+    const also = shown.length ? ` (or ${shown.map((alias) => `/${alias}`).join(", ")})` : "";
     return `/${command.name}${command.args ? ` ${command.args}` : ""}${also} - ${command.description}`;
   });
-  return ["Things you can send while I work:", ...lines, "Any other message while I work is passed to the task as a note."].join("\n");
+  const more = mode === "when-needed" ? ["Send /help all for every command, or /help <question> to ask about Branch."] : [];
+  return ["Things you can send while I work:", ...lines, ...more, "Any other message while I work is passed to the task as a note."].join("\n");
 }
 
 /** The task a chat has going, as the router keeps it. */
@@ -100,6 +130,7 @@ export function usageFooter(runtime: Runtime, runId: string): string | null {
 
 /** Carries out one command and returns the words to send back. */
 export async function runChatCommand(command: ChatCommand, context: CommandContext): Promise<string> {
+  if (command.name === "help" && command.argument.toLowerCase() === "all") return chatCommandHelp(modeHere(context) === "off" ? "off" : "on");
   return chatCommandSpec(command.name).run(command.argument, context);
 }
 
@@ -204,8 +235,11 @@ async function compact(context: CommandContext): Promise<string> {
  * joins the task, never changes anything, and is gone when the app next starts.
  */
 async function aside(question: string, context: CommandContext): Promise<string> {
+  return askAside(context.runtime, context.sessionId, question);
+}
+/** The side question itself, shared with the other surfaces through src/commands (wave mac3). */
+export async function askAside(runtime: Runtime, sessionId: string | undefined, question: string): Promise<string> {
   if (!question) return "Ask it like this: /btw what time is it in Lagos?";
-  const { runtime, sessionId } = context;
   const recent = sessionId ? runtime.store.workingMessages(sessionId).rows.slice(-6)
     .filter((row) => row.message.role === "user" || row.message.role === "assistant")
     .map((row) => `${row.message.role}: ${String(row.message.content).slice(0, 1500)}`).join("\n") : "";

@@ -6,6 +6,12 @@ import type { Words } from "./terminal-words.js";
 import {
   choosePreset, exportConversation, historyLines, presetLines, readAttachment,
 } from "./terminal-commands.js";
+import type { FeatureMode } from "./feature-switches.js";
+import { aliasesOn, levelFor, lookup, type CatalogCommand } from "./commands/catalog.js";
+import { available, commandMode, commandsFor } from "./commands/settings.js";
+import { executeCommand } from "./commands/execute.js";
+import { commandHost } from "./commands/host.js";
+import type { CommandHost } from "./commands/handlers.js";
 
 /**
  * Every slash command the terminal view understands, as one table: its name, other names, what it
@@ -28,6 +34,8 @@ export interface CommandContext {
   newConversation(): void;
   quit(): void;
   keys(): void;
+  /** What the shared commands can reach; the runtime alone when the view was opened without the app. */
+  host?: CommandHost;
 }
 export interface TerminalCommand {
   name: string;
@@ -38,8 +46,6 @@ export interface TerminalCommand {
   run(context: CommandContext, argument: string): void | Promise<void>;
 }
 
-const command = (name: string, aliases: string[], args: string, english: string, run: TerminalCommand["run"]): TerminalCommand =>
-  ({ name, aliases, args, key: `terminal.command.${name}`, english, run });
 const onOff = (argument: string, current: boolean): boolean => (argument ? argument === "on" : !current);
 
 function listModels(context: CommandContext): void {
@@ -93,69 +99,99 @@ function toggle(name: "plan" | "verify" | "dryRun" | "temporary"): TerminalComma
   };
 }
 
-export const TERMINAL_COMMANDS: TerminalCommand[] = [
-  command("help", ["?"], "", "this list, and every key", (context) => context.keys()),
-  command("model", ["models"], "[id]", "which model answers; /model on its own lists them", chooseModel),
-  command("think", ["reasoning"], "<low|medium|high|default>", "how hard the model thinks in this conversation", think),
-  command("preset", ["permissions"], "[name]", "when Branch checks with you before doing something", (context, argument) => {
+/**
+ * What each terminal command does here. The names, other names, words and arguments come from the
+ * one table every surface reads (src/commands/catalog.ts); a command the terminal has no code of its
+ * own for is carried out by the shared code, exactly as the window and the chat apps carry it out.
+ */
+const RUNNERS: Record<string, TerminalCommand["run"]> = {
+  help: (context, argument) => (argument && modeOf(context) !== "off" ? shared("help")(context, argument) : context.keys()),
+  model: chooseModel,
+  think,
+  preset: (context, argument) => {
     if (!argument) presetLines(context.runtime).forEach((line) => context.say("note", line));
     else context.say("note", choosePreset(context.runtime, argument));
-  }),
-  command("memory", [], "[words]", "facts it has saved", memory),
-  command("skills", [], "", "skills installed here", skills),
-  command("plan", [], "[on|off]", "turn a short plan first on or off", toggle("plan")),
-  command("verify", [], "[on|off]", "turn a reviewer's check of the answer on or off", toggle("verify")),
-  command("dry-run", ["practice"], "[on|off]", "turn practice mode on or off (nothing is really changed)", toggle("dryRun")),
-  command("temporary", ["incognito"], "[on|off]", "a conversation that is not remembered; set it before the first message", toggle("temporary")),
-  command("attach", ["image"], "<file>", "send a file or picture with your next message", attach),
-  command("history", [], "", "this conversation so far", (context) =>
-    historyLines(context.runtime, context.conversation.sessionId).forEach((line) => context.say("note", line))),
-  command("export", ["save"], "[file]", "save this conversation as a Markdown file", async (context, argument) =>
-    context.say("note", `[saved to ${await exportConversation(context.runtime, context.conversation.sessionId, argument || undefined)}]`)),
-  command("new", ["clear", "reset"], "", "start a fresh conversation", (context) => context.newConversation()),
-  command("sessions", ["resume"], "[id]", "earlier conversations; with a number, carry one on", (context, argument) =>
-    argument ? context.resume(argument) : context.sessions()),
-  command("go", ["open"], "<place>", "open a place or a Settings page by name: /go inbox finished", (context, argument) => context.open(argument)),
-  command("inbox", [], "[tab]", "what needs you, what finished, and the history", (context, argument) => context.open(`inbox ${argument}`)),
-  command("automations", ["cron"], "[tab]", "schedules, procedures and triggers", (context, argument) => context.open(`automations ${argument}`)),
-  command("library", [], "[tab]", "memory, documents and what it made", (context, argument) => context.open(`library ${argument}`)),
-  command("customize", ["tools"], "[tab]", "skills, specialists, plugins, connections and channels", (context, argument) => context.open(`customize ${argument}`)),
-  command("settings", ["config"], "[page]", "the twelve Settings pages, by name", (context, argument) => context.open(`settings ${argument}`)),
-  command("theme", ["skin"], "[name|light|dark|follow|list]", "the theme, shared with the window", (context, argument) => context.theme(argument)),
-  command("default", [], "<id>", "the model every new conversation starts with", (context, argument) => {
+  },
+  memory,
+  skills,
+  plan: toggle("plan"),
+  verify: toggle("verify"),
+  "dry-run": toggle("dryRun"),
+  temporary: toggle("temporary"),
+  attach,
+  history: (context) => historyLines(context.runtime, context.conversation.sessionId).forEach((line) => context.say("note", line)),
+  export: async (context, argument) =>
+    context.say("note", `[saved to ${await exportConversation(context.runtime, context.conversation.sessionId, argument || undefined)}]`),
+  new: (context) => context.newConversation(),
+  sessions: (context, argument) => (argument ? context.resume(argument) : context.sessions()),
+  go: (context, argument) => context.open(argument),
+  inbox: (context, argument) => context.open(`inbox ${argument}`),
+  automations: (context, argument) => context.open(`automations ${argument}`),
+  library: (context, argument) => context.open(`library ${argument}`),
+  customize: (context, argument) => context.open(`customize ${argument}`),
+  settings: (context, argument) => context.open(`settings ${argument}`),
+  theme: (context, argument) => context.theme(argument),
+  default: (context, argument) => {
     const { runtime } = context;
     if (!runtime.models.presets.has(argument)) return context.say("warn", `No model called ${argument}. Use /model to list them.`);
     runtime.models.configure(runtime.owner, { activePreset: argument });
     context.say("note", `[new conversations start with ${runtime.models.presets.get(argument)!.name}]`);
-  }),
-  command("switch", [], "<mouse|sidePane|oak> [on|off|when-needed]", "the terminal's own switches, which all start off", (context, argument) => {
+  },
+  switch: (context, argument) => {
     const [name = "", value = ""] = argument.split(/\s+/);
     context.switchSetting(name, value);
-  }),
-  command("pane", ["details"], "[activity|plan|files|memory]", "show or hide the side pane", (context, argument) => context.togglePane(argument)),
-  command("lockdown", ["pause"], "[on|off]", "the one switch that makes everything wait for your yes", (context, argument) => context.lockdown(argument)),
-  command("keys", [], "", "every key the view answers to", (context) => context.keys()),
-  command("exit", ["quit"], "", "leave", (context) => context.quit()),
-];
+  },
+  pane: (context, argument) => context.togglePane(argument),
+  lockdown: (context, argument) => context.lockdown(argument),
+  keys: (context) => context.keys(),
+  exit: (context) => context.quit(),
+};
+const modeOf = (context: CommandContext): FeatureMode => commandMode(context.runtime.store, context.runtime.owner);
+/** A command carried out by the shared code, its answer printed line by line. */
+function shared(name: string): TerminalCommand["run"] {
+  return async (context, argument) => {
+    const host = context.host ?? commandHost(context.runtime);
+    const outcome = await executeCommand(host, {
+      surface: "terminal", line: `/${name} ${argument}`.trim(), sessionId: context.conversation.sessionId, access: "full",
+    });
+    if (!outcome) return context.say("warn", `I do not know /${name}. Type /help for the list.`);
+    for (const line of outcome.text.split("\n")) context.say(outcome.refused ? "warn" : "note", line);
+  };
+}
+const fromCatalog = (entry: CatalogCommand, mode: FeatureMode = "on"): TerminalCommand => ({
+  name: entry.name, aliases: [...aliasesOn(entry, "terminal", mode === "off")], key: entry.key, english: entry.english, args: entry.args,
+  run: RUNNERS[entry.name] ?? shared(entry.name),
+});
+/** Every command the terminal can take with the switch where it is; `all` adds what "when needed" keeps out of lists. */
+export function terminalCommands(mode: FeatureMode, all = false): TerminalCommand[] {
+  return commandsFor("terminal", mode, all).map((entry) => fromCatalog(entry, mode));
+}
+/** The terminal's list with the switch off, which is the list it has always had. */
+export const TERMINAL_COMMANDS: TerminalCommand[] = terminalCommands("off");
 
-export function findCommand(name: string): TerminalCommand | undefined {
-  const bare = name.replace(/^\//, "").toLowerCase();
-  return TERMINAL_COMMANDS.find((entry) => entry.name === bare || entry.aliases.includes(bare));
+/** The terminal command a typed name stands for, with the switch where it is (off when not given). */
+export function findCommand(name: string, mode: FeatureMode = "off"): TerminalCommand | undefined {
+  const found = lookup(name, mode === "off", "terminal");
+  return found && available(found, "terminal", mode) ? fromCatalog(found, mode) : undefined;
 }
 /** The help list: the keys in one line, then one line per command. */
-export function helpLines(words: Words): string[] {
-  const rows = TERMINAL_COMMANDS.map((entry) => {
+export function helpLines(words: Words, mode: FeatureMode = "off"): string[] {
+  const rows = terminalCommands(mode).map((entry) => {
     const usage = `/${entry.name}${entry.args ? " " + entry.args : ""}`;
     return `${usage.padEnd(22)} ${words.t(entry.key, entry.english)}`;
   });
-  return [words.t("terminal.keys.line", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves"), ...rows];
+  const more = mode === "when-needed" ? [words.t("commands.helpMore", "Send /help all for every command, or /help <question> to ask about Branch.")] : [];
+  return [words.t("terminal.keys.line", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves"), ...rows, ...more];
 }
 /** Runs one typed slash command; an unknown one is said so, never sent to the model. */
 export async function runCommand(context: CommandContext, text: string): Promise<void> {
   const [name = "", ...rest] = text.trim().split(/\s+/);
-  const found = findCommand(name);
+  const found = findCommand(name, modeOf(context));
   if (!found) return context.say("warn", `I do not know ${name}. Type /help for the list.`);
   try {
+    // Wave mac3 (commands): settings and permissions stay with the owner's own profile, as in the window.
+    const entry = lookup(found.name)!;
+    if (levelFor(entry, rest.join(" ")) === "owner") context.runtime.store.profiles.requireOwner(`/${found.name}`);
     await found.run(context, rest.join(" "));
   } catch (error) {
     context.say("bad", `[${error instanceof Error ? error.message : String(error)}]`);

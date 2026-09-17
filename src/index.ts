@@ -28,7 +28,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
-import { Scheduler, registerSchedules } from "./scheduler.js";
+import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
@@ -171,6 +171,14 @@ import { SecurityService } from "./security-audit/service.js";
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setWallEdge } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac3/never-break: the gateway's settings and the one tool that suggests a change to them.
+import { loadGatewayConfig } from "./never-break/gateway-config.js";
+import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
+import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
+import { migrate, storeMigrations } from "./never-break/migrations.js";
+import { recoverOnStart } from "./never-break/resume.js";
+import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
+import { fileURLToPath } from "node:url";
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -223,6 +231,11 @@ export async function createBranch(options: {
   // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
   const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
+  // the task journal beside the database, flushed before every step.
+  const { journal, reset: journalReset } = openNeverBreak(store, dataDir);
+  if (journalReset) console.error(journalReset);
+  // --- end mac3/never-break ---
   migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
@@ -359,6 +372,7 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
+  runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   runtime.artifacts = artifacts;
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
@@ -668,6 +682,10 @@ export async function createBranch(options: {
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
   registerTodos(registry, todos, runtime.owner);
+  // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
+  if ((await loadGatewayConfig(dataDir)).config.mode !== "off")
+    registerNeverBreak(registry, dataDir, gatewayDryRun(fileURLToPath(new URL("./cli.js", import.meta.url))));
+  // --- end mac3/never-break ---
   // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
   // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
   const obsidian = new ObsidianBridge(store, runtime.owner);
@@ -866,6 +884,18 @@ export async function createBranch(options: {
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
     interop,
     runtime,
+    /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
+    neverBreak: {
+      journal,
+      recoverOnStart: async (dataFolder: string) => recoverOnStart({ store, runtime, journal, nextTurn,
+        mode: (await loadGatewayConfig(dataFolder)).config.mode, askOnly: journalReset !== null }),
+      /** The Telegram setup card: its state, saving it, and connecting the bot it set up. */
+      telegram: {
+        view: () => telegramSetupView(store, runtime.owner, channels),
+        save: (input: unknown) => saveTelegramSetup(store, runtime.owner, input),
+        connect: () => connectGuidedTelegram({ store, owner: runtime.owner, router: channels, fetch: web.policy.guard(globalThis.fetch) }),
+      },
+    },
     /** mac3/security-check: the security self-check, its repairs, and the malware check on add-ons. */
     security,
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
@@ -1114,6 +1144,7 @@ export async function createBranch(options: {
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
+        journal.close(); // mac3/never-break
         oauth.closeAll();
       }
     })()),
@@ -1127,6 +1158,17 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   });
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
+}
+/** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
+function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
+  try {
+    migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    // A journal that cannot be read is put aside rather than stopping Branch from starting.
+    return openJournal(join(dataDir, "journal.sqlite"));
+  } catch (error) {
+    store.close();
+    throw error;
+  }
 }
 async function closeBranch(
   scheduler: Scheduler,

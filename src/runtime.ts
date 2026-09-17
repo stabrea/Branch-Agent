@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
+import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
+import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import {
   Budget,
   BudgetError,
@@ -289,6 +292,10 @@ export class Runtime {
   readonly requestCache: RequestCache;
   /** Wave mac2 (guards): the loop guard and folder trust. */
   readonly guards: RunGuards;
+  /** mac3/never-break: the places no task may touch (src/never-break/protected.ts). */
+  protectedAreas: ProtectedAreas;
+  /** mac3/never-break: the task journal (src/never-break/journal.ts); a no-op until createBranch connects it. */
+  journal: JournalHook = noJournal;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -308,6 +315,7 @@ export class Runtime {
     this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
     this.guards = new RunGuards(store, this.owner, workspace);
+    this.protectedAreas = protectedAreas({ workspace, dataDir: store.folder }); // mac3/never-break
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -780,7 +788,8 @@ ${run.output.slice(0, 6000)}`;
   }
   private failureStatus(context: ToolContext, error: unknown): Run["status"] {
     return context.signal.aborted
-      ? "cancelled"
+      // mac3/never-break: a task cut off because Branch is closing is interrupted, so it can be picked up again.
+      ? (this.accepting || neverBreakModeSync(this.store.folder) === "off" ? "cancelled" : "interrupted")
       : error instanceof NeedsInputError
         ? "needs_input"
         : error instanceof BudgetError
@@ -933,6 +942,7 @@ ${run.output.slice(0, 6000)}`;
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
+      this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
       const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -957,7 +967,9 @@ ${run.output.slice(0, 6000)}`;
         this.noteWork(run, call);
         catalog.noteUse(call.name);
         this.rememberToolWork(run.id, call.name, round + 1);
-        const result = await this.guards.call(run.id, call, () => this.callTool(call, context)); // wave mac2 (guards)
+        // mac3/never-break: each call is written to the task journal, flushed, before it runs.
+        const result = await this.journal.around({ runId: run.id, sessionId: run.sessionId, call, workspace: context.workspace, signal: context.signal,
+          permission: this.registry.permissionOf(call.name) }, () => this.guards.call(run.id, call, () => this.callTool(call, context))); // wave mac2 (guards)
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
@@ -1656,6 +1668,11 @@ ${run.output.slice(0, 6000)}`;
     const resource = resourceOf(tool, permission, target, args);
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
+    // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be
+    // touched by a task; checked before every rule, standing yes, hook, Lockdown or switch.
+    const untouchable = protectedTarget({ tool, readOnly, args, target, workspace: context.workspace, ...cwdOf(args) }, this.protectedAreas);
+    if (untouchable) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: untouchable };
+    // --- end mac3/never-break ---
     const refusal = this.roleRefusal(tool, permission);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
