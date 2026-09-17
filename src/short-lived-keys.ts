@@ -98,6 +98,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
   // mac7/r17-d: the shell snapshot holds the owner's PATH, aliases and functions.
   /^\/api\/coding\/shell$/,
+  // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
+  /^\/api\/personal(\/|$)/,
 ];
 
 /**

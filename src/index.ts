@@ -198,6 +198,7 @@ import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived a
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
+import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -983,6 +984,21 @@ export async function createBranch(options: {
   const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
   runtime.coding = coding;
   // ── end mac7/r17-d ──
+  // ── R17-C: files, voice, devices and personal connectors (src/personal/). Every part ships off. ──
+  const personalSecret = async (name: string, purpose: string) =>
+    (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!;
+  const personal = new Personal({ runtime, registry, files, oauth, fetch: web.policy.guard(globalThis.fetch), secret: personalSecret,
+    assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address"),
+    channels: { adapter: (id) => channels.adapter(id), outboundGuard: (text) => channels.outboundGuard(text),
+      reachable: (id, chatId) => channels.chats(runtime.owner).some((chat) => chat.channel === id && chat.chatId === chatId) },
+    holdsKnownSecret: (text) => store.secrets.scrubber.deep(text) !== text,
+    requireOwner: (what) => store.profiles.requireOwner(what),
+    morningBrief: () => brief.preview(runtime.owner).markdown,
+    speak: async (text) => { const spoken = await voice.speak(runtime.owner, { text, voice: "", speed: 1 }); return { bytes: spoken.bytes, mediaType: spoken.mediaType }; },
+    transcribe: async (clip) => (await voice.transcribe(runtime.owner, { ...clip, name: "spoken answer" })).text,
+    lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
+  releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
+  // ── end R17-C ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -1035,6 +1051,8 @@ export async function createBranch(options: {
     trunks,
     /** mac7/r17-d: coding polish (src/coding/); every part ships off. */
     coding,
+    /** R17-C: files, voice, devices and personal connectors (src/personal/); every part ships off. */
+    personal,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1300,6 +1318,7 @@ export async function createBranch(options: {
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns
+      await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

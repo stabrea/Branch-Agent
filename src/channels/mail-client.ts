@@ -146,6 +146,29 @@ export class ImapClient {
     }
     return messages;
   }
+  // ---- R17-C (R17-031): searching the inbox and reading a whole message, never marking it read.
+  /** UIDs matching search keys already built and quoted by src/personal/mail-search.ts, newest first. */
+  async searchUids(keys: string, limit = 20): Promise<number[]> {
+    if (/[\r\n]/.test(keys)) throw new Error("A search cannot contain a line break");
+    const found = await this.command(`UID SEARCH ${keys}`);
+    return (/^\* SEARCH([\d ]*)/m.exec(found)?.[1] ?? "").trim().split(/\s+/).filter(Boolean).map(Number)
+      .sort((a, b) => b - a).slice(0, limit);
+  }
+  /** One message's headers and the start of its text, by UID. */
+  async summary(uid: number): Promise<MailMessage> {
+    return parseFetched(0, await this.command(`UID FETCH ${Math.floor(uid)} (BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.2000>)`));
+  }
+  /** The whole message as the server holds it, refused when it is larger than `maxBytes`. */
+  async whole(uid: number, maxBytes: number): Promise<string> {
+    const sized = await this.command(`UID FETCH ${Math.floor(uid)} (RFC822.SIZE)`);
+    const size = Number(/RFC822\.SIZE (\d+)/.exec(sized)?.[1] ?? NaN);
+    if (!Number.isFinite(size)) throw new Error("The mail server has no message with that number");
+    if (size > maxBytes) throw new Error(`That message is ${Math.ceil(size / 1048576)} MB, larger than Branch will open`);
+    const raw = await this.command(`UID FETCH ${Math.floor(uid)} (BODY.PEEK[])`);
+    const literal = /\{(\d+)\}\r\n/.exec(raw);
+    return literal ? raw.slice(literal.index + literal[0].length, literal.index + literal[0].length + Number(literal[1])) : "";
+  }
+  // ---- end R17-C ----
   async close(): Promise<void> {
     try { await this.command("LOGOUT"); } catch { /* the server may hang up first, which is fine */ }
     this.socket?.close();
