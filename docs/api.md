@@ -21,6 +21,14 @@ Version 0.15.0. The machine-readable description is at `GET /api/openapi.json`.
 | `GET` | `/api/sessions/{sessionId}` | One conversation with its messages. |
 | `GET` | `/api/sessions/{sessionId}/tree` | This conversation and everything branched from it. |
 | `POST` | `/api/sessions/{sessionId}/merge-note` | Carry this branch's last answer back into the conversation it came off. |
+| `POST` | `/api/goals` | Keep working in rounds until a goal is judged met (goal mode must be switched on). |
+| `GET` | `/api/goal-undo/settings` | The off, on and when-needed switches for goal mode and rewind snapshots. |
+| `POST` | `/api/goal-undo/settings` | Change either switch; the one not sent keeps its value. |
+| `GET` | `/api/sessions/{sessionId}/goal` | The goal in this conversation: round, score, what is missing, time. |
+| `POST` | `/api/sessions/{sessionId}/goal` | Pause, resume or stop this conversation's goal. |
+| `GET` | `/api/sessions/{sessionId}/rewind` | Whether files can be taken back here, and the rewind that can be undone. |
+| `POST` | `/api/sessions/{sessionId}/rewind` | Take the conversation, the files, or both back to just before one message. |
+| `POST` | `/api/sessions/{sessionId}/unrevert` | Undo the newest rewind in this conversation. |
 ## memory
 
 | Method | Address | What it is for |

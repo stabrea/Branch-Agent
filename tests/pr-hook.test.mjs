@@ -22,8 +22,9 @@ async function fixture(t, provider = scripted()) {
   const workspace = join(root, "workspace"), dataDir = join(root, "data");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir, provider });
-  t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, workspace, dataDir, owner: app.runtime.owner };
+  const first = [];
+  t.after(async () => { for (const close of first) await close(); await app.close(); await discardTemp(root); });
+  return { app, workspace, dataDir, owner: app.runtime.owner, first };
 }
 
 /** A pretend Git: answers the questions, records every command, and can be told to fail one. */
@@ -212,9 +213,9 @@ test("A0300 over HTTP: a short-lived key is refused the switch, the tool, and th
     if (round === 1) return { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "note.txt", content: "hi" }) }] };
     return { content: "Done.", toolCalls: [] };
   } };
-  const { app, owner, dataDir } = await fixture(t, provider);
+  const { app, owner, dataDir, first } = await fixture(t, provider);
   const server = await startServer(app, { dataDir, port: 0 });
-  t.after(() => server.close());
+  first.push(() => server.close());
   const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 }).token;
   const call = (path, token, body) => fetch(server.url + path, {
     method: body === undefined ? "GET" : "POST",

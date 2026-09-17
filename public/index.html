@@ -258,7 +258,7 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
-            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture or a sound file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*" />
+            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
@@ -977,6 +977,15 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <!-- Wave mac3 (channels-parity): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="channels-more-form" class="card" data-home="customize:channels">
+            <h2 data-t="channels-more.title">More chat apps</h2>
+            <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
+            <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
+            <div id="channels-more-list" class="card-list" aria-live="polite"></div>
+            <p id="channels-more-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-channels-more">Save the chat app switches</button>
+          </form>
           <!-- Wave mac2 (chat-live): its home is Customize, Chat apps (docs/places.md). -->
           <form id="chat-live-form" class="card" data-home="customize:channels">
             <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
@@ -1132,7 +1141,7 @@
             <label for="media-folder" data-t="field.where-to-save-pictures-and">Where to save pictures and sound</label>
             <input id="media-folder" maxlength="100" placeholder="media" />
             <p class="subtle" id="media-prices"></p>
-            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
+            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos. With "Watching and saving videos" switched on below, it can look at still pictures from a video and read what is said in it.</p>
             <button type="submit" data-t="action.save-picture-and-sound-settings">Save picture and sound settings</button>
             <p id="media-status" role="status"></p>
           </form>
@@ -1814,6 +1823,7 @@
     <script src="/desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
+    <script src="/look-sync.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
     <script src="/docs-memory-2.js" type="module"></script>
@@ -1827,7 +1837,10 @@
     <script src="/second-opinion.js" type="module"></script>
     <script src="/chat-live.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
+    <!-- Bucket 17: watching videos and speech plug-ins. -->
+    <script src="/media-programs.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
+    <script src="/channels-more.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
     <!-- bucket-18: code editor (A0098) -->
@@ -1836,11 +1849,26 @@
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>
+    <!-- bucket 14 (A0367): the usage report card, placed in Settings → Data -->
+    <script src="/usage-report.js" type="module"></script>
     <script src="/folder-trust.js" type="module"></script>
+    <!-- Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it. -->
+    <script src="/goal.js" type="module"></script>
+    <script src="/rewind.js" type="module"></script>
+    <!-- Wave mac3 (tool-safety): a second look before approvals. -->
+    <script src="/approval-reviewer.js" type="module"></script>
     <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
     <script src="/context-files.js" type="module"></script>
+    <script src="/learning-loop.js" type="module"></script>
+    <script src="/security-check.js" type="module"></script>
+    <!-- mac2/fly-core-2: the learning core's card, which puts itself in Library → Memory. -->
+    <script src="/learning-core.js" type="module"></script>
     <!-- Wave mac3: the dashboard's switch (Customize → Channels) and the links back in from it. -->
     <script src="/dashboard-card.js" type="module"></script>
+    <!-- Bucket 13 (mac4): watching a task again (Inbox, History) and "is Branch keeping up" (Settings, Advanced). -->
+    <script src="/recordings.js" type="module"></script>
+    <!-- mac4/bucket-20: working with other agents and tools (Customize → Connections, Specialists). -->
+    <script src="/interop.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
   </body>
 </html>

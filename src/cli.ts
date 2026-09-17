@@ -14,6 +14,7 @@ import { loadIntegrations } from "./integrations/bootstrap.js";
 import { startTerminal } from "./terminal.js";
 import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
+import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
 import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
@@ -38,6 +39,8 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+// mac3/security-check: the security self-check on the command line.
+import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
 // Wave 7 (a coder's toolbox): handing the whole assistant over as one file.
 import { agentSections, exportAgent, importAgent, openAgent } from "./agent-export.js";
@@ -105,6 +108,13 @@ async function serve(
 }
 
 async function main(): Promise<void> {
+  // ---- Wave mac3 (terminal): `branch` alone opens the terminal view when it runs in a terminal (and
+  // starts the web app anywhere else, as before); names brought from Hermes and OpenClaw become the
+  // Branch command they mean; `version` needs nothing opened. See src/terminal-cli.ts.
+  const inTerminal = looksInteractive(process.env, process.stdout.isTTY === true && process.stdin.isTTY === true);
+  process.argv.splice(2, Infinity, ...terminalArgv(process.argv.slice(2), inTerminal));
+  if (process.argv[2] === "version" && !asksForHelp(process.argv.slice(3))) { console.log(versionText()); return; }
+  // ---- end of the terminal block
   const command = process.argv[2] ?? "start";
   // Batch 20 (wave 8): `branch <command> --help` says what that command does and stops. Asking must
   // never be the same thing as doing, so this comes before every command, workspace and database.
@@ -153,7 +163,8 @@ async function main(): Promise<void> {
     } else if (command === "chat") {
       // The full view needs a terminal that can be drawn on; anything else gets the plain stream.
       const full = looksInteractive(process.env, process.stdout.isTTY) && !process.argv.includes("--plain");
-      await (full ? startTui(app.runtime) : startTerminal(app.runtime));
+      const session = flag("session");
+      await (full ? startTui(app.runtime, { app, ...(session ? { sessionId: session } : {}) }) : startTerminal(app.runtime));
       return;
     } else if (command === "status") { await printStatus(app); return; }
     else if (command === "logs") { printLogs(app); return; }
@@ -163,6 +174,13 @@ async function main(): Promise<void> {
       return;
     } else if (command === "acp-serve") {
       await serveAcpStdio(app.runtime, app.store);
+      return;
+    }
+    // Wave mac3 (terminal): places, Settings pages and the everyday commands, in src/terminal-cli.ts.
+    if (terminalCommandNames.has(command)) {
+      const json = process.argv.includes("--json");
+      await runTerminalCommand(app, command, process.argv.slice(3).filter((word) => word !== "--json"),
+        { interactive: inTerminal && !json, env: process.env, json, write: (line) => console.log(line) });
       return;
     }
     if (command === "watch") { await watchCommand(app); return; }
@@ -180,6 +198,13 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "token") { tokenCommand(app); return; }
+    // mac3/security-check: `branch security audit [--fix] [--json]` (src/security-audit/api.ts).
+    if (command === "security") {
+      const { text, urgent } = await securityAuditCommand(app.security, process.argv.slice(3));
+      console.log(text);
+      if (urgent) process.exitCode = 1;
+      return;
+    }
     if (command === "trace") { traceCommand(app); return; }
     if (command === "eval") {
       await runEvaluation(app);
@@ -717,6 +742,7 @@ async function printDoctor(
   if (process.argv.includes("--fix") || process.argv.includes("--repair")) {
     console.log(doctorText(await doctorFix({
       fix: true, workspace: app.runtime.workspace, port: Number(process.env.BRANCH_PORT ?? 3210),
+      security: async () => (await app.security.check()).summary, // mac3/security-check
     })));
     return;
   }

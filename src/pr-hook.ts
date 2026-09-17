@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
+import { FeatureModeSchema } from "./feature-switches.js";
 import { startedWithShortLivedKey } from "./key-context.js";
 import { issueLinksIn } from "./integrations/issue-context.js";
 import type { ToolContext } from "./contracts.js";
@@ -47,12 +47,12 @@ export function savePullRequestHookSettings(store: Pick<Store, "get" | "save">, 
   return value;
 }
 
-export type GitCall = (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
+type PullRequestGit = (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
 export interface PullRequestDeps {
   store: Store;
   owner: string;
   files: WorkspaceFiles;
-  git: GitCall;
+  git: PullRequestGit;
   policy: NetworkPolicy;
   registry: ToolRegistry;
   /** Runs a registered tool as the owner (the saved GitHub tools); the runtime's executeTool. */
@@ -211,4 +211,3 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
   });
 }
 
-export type { FeatureMode };

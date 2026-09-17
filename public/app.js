@@ -1,6 +1,9 @@
 import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
 // Wave 6: replies render as markdown, and any task can be opened with "Look inside".
 import { fillMarkdown, inlineNodes } from "/markdown.js";
+// A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
+import { installDeviceHeaders } from "/device-headers.js";
+installDeviceHeaders();
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {
@@ -236,7 +239,12 @@ function renderLearning() {
     const node = el("div", undefined, "record");
     const what = p.kind === "put" ? "Remember" : p.kind === "update" ? "Change a memory to" : p.kind === "delete" ? "Forget a memory" : "Note for a skill";
     node.append(el("strong", `${what}${p.text ? ": " + p.text : ""}`), el("p", `${p.source || ""}${p.runId ? " · from a task" : ""}`, "meta"));
-    node.append(button("Accept", async () => { await api(`memory/proposals/${p.id}/accept`, {}); toast("Applied."); await refresh(); }),
+    node.append(button("Accept", async () => {
+      const done = await api(`memory/proposals/${p.id}/accept`, {});
+      toast("Applied."); await refresh();
+      // mac2/fly-core-2: a skill idea from the learning core opens as a draft in the skill editor.
+      if (done?.applied?.skillDraft) globalThis.branchOpenSkillDraft?.(done.applied.skillDraft);
+    }),
       button("Reject", async () => { await api(`memory/proposals/${p.id}/reject`, {}); await refresh(); }));
     return node;
   }, ["No suggestions waiting.", "When your assistant thinks something is worth remembering it will ask you here first."]);
@@ -1475,6 +1483,9 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    /* mac3/security-check: the security check card reads its switches once you are in. */
+    globalThis.branchSecurityCheckReady?.();
+    globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2
   } catch (e) {
     toast(e.message);
   }

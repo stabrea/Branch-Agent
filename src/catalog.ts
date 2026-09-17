@@ -29,7 +29,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
   // "learning." is the learning core's one read-only question about what worked before (src/fly-core).
-  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning."]],
+  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning.",
+    // mac4/bucket-20: choosing the project for a request, and handing a conversation on.
+    "project.", "conversation."]],
   // Wave 8: the to-do list is a box of its own rather than a corner of memory. Filing it under
   // memory reads tidier, but it put three more tools into a box almost every task opens, and the
   // opened-catalog budget in tests/catalog-diet.test.mjs is there to stop exactly that. A box of
@@ -44,8 +46,15 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["channels", ["channels.", "telegram.", "slack.", "discord.", "email.", "mail.", "messages.", "whatsapp."]],
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.
-  ["schedules", ["schedules.", "heartbeat.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue."]],
-  ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles."]],
+  ["schedules", ["schedules.", "heartbeat.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue.",
+    // mac4/bucket-20: finding a better flow.
+    "flow."]],
+  ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles.",
+    // mac4/bucket-20: ways of working, the fleet, and the market of shared assistants.
+    "mode.", "fleet.", "assistant."]],
+  // mac4/bucket-20: tools a connected program lends over its socket; a box of their own, since
+  // they are somebody else's and come and go with the program.
+  ["client", ["client."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
   // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
   // set up, so they file under settings rather than opening a box of their own for two tools.

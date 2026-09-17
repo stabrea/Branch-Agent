@@ -35,6 +35,8 @@ import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
 import { JiraAccess, JiraConfigSchema } from './jira.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
+// Wave mac3 (channels-parity): the chat services added to match other assistants, all behind a switch.
+import { ParityChannelSchema, buildParityChannel, isParityChannel, type ParityChannelConfig } from '../channels/parity-config.js';
 
 const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
 const credentialName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
@@ -146,6 +148,8 @@ export const SignalChannelSchema = z.object({
 export const ChannelConfigSchema = z.discriminatedUnion('type', [
   TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
   WebhookChatChannelSchema, MessengerChannelSchema, InstagramChannelSchema, MatrixChannelSchema, SignalChannelSchema,
+  // Checked here, but typed as nothing: the launcher never looks inside one, it hands it on whole.
+  ParityChannelSchema as never,
 ]).superRefine((value, context) => {
   if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
@@ -308,6 +312,11 @@ async function startMcp(
   policy: NetworkPolicy | undefined, host: McpHost | undefined,
 ): Promise<(() => Promise<void>) | null> {
   const guard = policy ? { guard: (base: typeof fetch) => policy.guard(base) } : undefined;
+  // mac3/security-check: a server fetched from a package registry is looked up in the malware list
+  // before it is added, and again before it is opened later (src/security-audit/malware-check.ts).
+  // With no checker this adds nothing.
+  const vet = () => vetLaunch(server, host);
+  await vet();
   const connect = () => connectMcp(registry, server, env, guard, host?.cache);
   if (!host || host.connectWhen() !== 'on-demand') {
     const connection = await connect();
@@ -316,7 +325,7 @@ async function startMcp(
   const id = McpConfigSchema.parse(server).id;
   // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
   // `connectMcp`: the same connection, without a second registration to collide with the first.
-  host.connections.register(id, () => openMcp(server, env, guard, host.cache));
+  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache)));
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
     // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
     // says its tools are NOW, and the credentials it was opened with, travel back with it: the
@@ -331,9 +340,17 @@ async function startMcp(
   }
   return async () => { for (const name of names) registry.unregister(name); };
 }
+/** mac3/security-check: asks the malware check about a server started from a package, if there is one. */
+async function vetLaunch(server: unknown, host: McpHost | undefined): Promise<void> {
+  if (!host?.vetLaunch) return;
+  const config = McpConfigSchema.parse(server);
+  if (config.transport === 'stdio') await host.vetLaunch(config.command, config.args);
+}
 /** What `loadIntegrations` needs to run outside servers on demand rather than at startup. */
 export interface McpHost {
   connectWhen(): 'startup' | 'on-demand';
+  /** mac3/security-check: throws a plain sentence for a package listed as malware. */
+  vetLaunch?: (command: string, args: readonly string[]) => Promise<void>;
   cache: McpToolCache;
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
@@ -361,6 +378,9 @@ function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | un
 
 /** Builds the adapter one configured channel asks for, with its secrets and network guards. */
 async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
+  // Wave mac3 (channels-parity): IRC, XMPP, Mastodon and the rest are built in their own files.
+  if (isParityChannel(channel)) return buildParityChannel(channel as unknown as ParityChannelConfig, { credential: (name) => credential(name, env, host),
+    policy, store: host.store, owner: host.context?.('bootstrap').owner });
   const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
   const connect = guardedSocket(policy);
   const base = 'apiBase' in channel && channel.apiBase ? { apiBase: channel.apiBase } : {};

@@ -18,8 +18,9 @@ async function fixture(t) {
   const workspace = join(root, "workspace"), dataDir = join(root, "data");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir, provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } } });
-  t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, workspace, dataDir, owner: app.runtime.owner };
+  const first = [];
+  t.after(async () => { for (const close of first) await close(); await app.close(); await discardTemp(root); });
+  return { app, workspace, dataDir, owner: app.runtime.owner, first };
 }
 const remember = (app, text, kind = "preference") => app.runtime.executeTool("memory.put", { text, source: "a test", kind });
 
@@ -78,7 +79,7 @@ test("A2317 a copy goes only where the owner and the network rules allow, and a 
   assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "file:///tmp/x" }).success, false);
   assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "git@github.com:me/memory.git" }).success, true);
 
-  const { app, dataDir, owner } = await fixture(t);
+  const { app, dataDir, owner, first } = await fixture(t);
   const calls = [];
   const fakeGit = async (options) => {
     calls.push(options.args);
@@ -92,7 +93,7 @@ test("A2317 a copy goes only where the owner and the network rules allow, and a 
   assert.match(history.status(owner).lastProblem, /blocked list/);
 
   const server = await startServer(app, { dataDir, port: 0 });
-  t.after(() => server.close());
+  first.push(() => server.close());
   const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 }).token;
   const refused = await fetch(`${server.url}/api/memory/history`, {
     method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },

@@ -13,8 +13,9 @@ async function fixture(t) {
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } } });
-  t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, workspace, root };
+  const first = [];
+  t.after(async () => { for (const close of first) await close(); await app.close(); await discardTemp(root); });
+  return { app, workspace, root, first };
 }
 const put = async (workspace, path, content) => {
   await mkdir(join(workspace, path, ".."), { recursive: true });
@@ -78,7 +79,7 @@ test("A0344 secret, ignored and outside files are never read", async (t) => {
 });
 
 test("A0344 one burst of changes becomes one task, and the assistant's own edits do not start another", async (t) => {
-  const { app, workspace } = await fixture(t);
+  const { app, workspace, first } = await fixture(t);
   await mkdir(join(workspace, "src"), { recursive: true });
   const tasks = [];
   const handle = await watchAIComments({
@@ -90,7 +91,7 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
       return { runId: `run-${tasks.length}`, status: "completed", changed: ["src/a.js"] };
     },
   });
-  t.after(() => handle.stop());
+  first.push(() => handle.stop());
   await writeFile(join(workspace, "src/a.js"), "export const a = 1; // make it two AI!\n");
   await writeFile(join(workspace, "src/b.js"), "// ai: numbers are small\n");
   await writeFile(join(workspace, "src/c.js"), "export const c = 3;\n");
@@ -108,10 +109,9 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
 
 test("A0344 the path-tracking watcher reports each changed file once per burst, and skips ignored folders", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-watch-paths-"));
-  t.after(() => discardTemp(root));
   const calls = [];
   const handle = watchFolderPaths(root, async (paths) => { calls.push(paths.sort()); }, { settleMs: 60, ignore: ["node_modules"] });
-  t.after(() => handle.stop());
+  t.after(async () => { await handle.stop(); await discardTemp(root); });
   await writeFile(join(root, "a.js"), "1");
   await writeFile(join(root, "a.js"), "2");
   await mkdir(join(root, "node_modules"), { recursive: true });
@@ -120,5 +120,6 @@ test("A0344 the path-tracking watcher reports each changed file once per burst, 
   await waitFor(() => calls.length > 0);
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(handle.runs, 1);
-  assert.deepEqual(calls[0].filter((path) => path !== "node_modules"), ["a.js", "b.js"]);
+  // macOS may also report the watched folder itself, or the new node_modules folder; neither is a file change.
+  assert.deepEqual(calls[0].filter((path) => path.endsWith(".js")), ["a.js", "b.js"]);
 });

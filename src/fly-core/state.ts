@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { Circuit, type ActionKind, type ActionState, type ActionUse } from "./circuit.js";
+import { Circuit, actionKey, type ActionKind, type ActionState, type ActionUse, type Scored } from "./circuit.js";
 import type { KenyonCode } from "./encode.js";
+import { dropIndex, existingIndex, indexFor } from "./fast-index.js";
 
 /**
  * Where the learning core keeps what it has learned: in the same SQLite database as everything
@@ -38,12 +39,23 @@ export function unpackWeights(text: string): Map<number, number> {
   return weights;
 }
 
+/** Every table the core keeps, in the order a restore fills them. */
+export const flyTables = ["fly_wiring", "fly_synapses", "fly_traces", "fly_patterns"] as const;
+
+/** Creates the core's tables when they are not there yet. Off never calls this. */
+export function ensureFlyTables(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS fly_wiring(owner TEXT PRIMARY KEY, seed TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS fly_synapses(owner TEXT NOT NULL, kind TEXT NOT NULL, action TEXT NOT NULL, approach TEXT NOT NULL, avoid TEXT NOT NULL, uses INTEGER NOT NULL, net REAL NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(owner, kind, action));
+    CREATE TABLE IF NOT EXISTS fly_traces(run_id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL, code TEXT NOT NULL, uses TEXT NOT NULL, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS fly_patterns(owner TEXT NOT NULL, fingerprint TEXT NOT NULL, successes INTEGER NOT NULL, failures INTEGER NOT NULL, proposed_at TEXT, seen_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner, fingerprint));`);
+}
+
+/** What has been learned about one action, for the owner to read. */
+export interface Habit { kind: ActionKind; action: string; uses: number; net: number; updatedAt: number }
+
 export class FlyState {
   constructor(private readonly db: DatabaseSync) {
-    db.exec(`CREATE TABLE IF NOT EXISTS fly_wiring(owner TEXT PRIMARY KEY, seed TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS fly_synapses(owner TEXT NOT NULL, kind TEXT NOT NULL, action TEXT NOT NULL, approach TEXT NOT NULL, avoid TEXT NOT NULL, uses INTEGER NOT NULL, net REAL NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(owner, kind, action));
-      CREATE TABLE IF NOT EXISTS fly_traces(run_id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL, code TEXT NOT NULL, uses TEXT NOT NULL, at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS fly_patterns(owner TEXT NOT NULL, fingerprint TEXT NOT NULL, successes INTEGER NOT NULL, failures INTEGER NOT NULL, proposed_at TEXT, seen_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner, fingerprint));`);
+    ensureFlyTables(db);
   }
   /** The owner's wiring seed, chosen once and never changed afterwards. */
   seed(owner: string): string {
@@ -55,6 +67,17 @@ export class FlyState {
   }
   load(owner: string): Circuit {
     return this.fill(new Circuit(), this.db.prepare("SELECT * FROM fly_synapses WHERE owner=?").all(owner));
+  }
+  /**
+   * Every action ranked for a situation, from the index kept in memory (fast-index.ts). The first
+   * call after a launch reads the table once; later calls read nothing.
+   */
+  rank(owner: string, code: KenyonCode, now: number, least = 0): Record<ActionKind, Scored[]> {
+    return indexFor(this.db, owner, () => this.db.prepare("SELECT kind, action, approach, avoid, uses, updated_at FROM fly_synapses WHERE owner=?")
+      .all(owner).map((row) => ({
+        kind: String(row.kind) as ActionKind, action: String(row.action), approach: String(row.approach), avoid: String(row.avoid),
+        uses: Number(row.uses), updatedAt: Number(row.updated_at),
+      }))).rank(code, now, least);
   }
   /**
    * Only the named actions: what a finished task needs to learn from. It keeps the work done as a
@@ -77,10 +100,44 @@ export class FlyState {
   save(owner: string, states: readonly ActionState[]): void {
     const put = this.db.prepare(`INSERT INTO fly_synapses(owner, kind, action, approach, avoid, uses, net, updated_at) VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(owner, kind, action) DO UPDATE SET approach=excluded.approach, avoid=excluded.avoid, uses=excluded.uses, net=excluded.net, updated_at=excluded.updated_at`);
-    for (const s of states)
-      put.run(owner, s.kind, s.action.slice(0, 200), packWeights(s.approach), packWeights(s.avoid), s.uses, s.net, Math.round(s.updatedAt));
-    this.db.prepare(`DELETE FROM fly_synapses WHERE owner=? AND rowid IN (SELECT rowid FROM fly_synapses WHERE owner=?
-      ORDER BY updated_at DESC LIMIT -1 OFFSET ?)`).run(owner, owner, maximumActions);
+    const saved = states.map((s) => ({ ...s, action: s.action.slice(0, 200), updatedAt: Math.round(s.updatedAt) }));
+    for (const s of saved)
+      put.run(owner, s.kind, s.action, packWeights(s.approach), packWeights(s.avoid), s.uses, s.net, s.updatedAt);
+    const index = existingIndex(this.db, owner);
+    index?.put(saved);
+    const over = this.db.prepare(`SELECT kind, action FROM fly_synapses WHERE owner=? ORDER BY updated_at DESC LIMIT -1 OFFSET ?`)
+      .all(owner, maximumActions);
+    if (!over.length) return;
+    const drop = this.db.prepare("DELETE FROM fly_synapses WHERE owner=? AND kind=? AND action=?");
+    for (const row of over) drop.run(owner, String(row.kind), String(row.action));
+    const kept = this.db.prepare("SELECT kind, action FROM fly_synapses WHERE owner=?").all(owner);
+    index?.keep(new Set(kept.map((row) => actionKey(String(row.kind) as ActionKind, String(row.action)))));
+  }
+  /** What has been learned, most used first, without the weights. */
+  habits(owner: string, limit = 200): Habit[] {
+    return this.db.prepare("SELECT kind, action, uses, net, updated_at FROM fly_synapses WHERE owner=? ORDER BY uses DESC, updated_at DESC LIMIT ?")
+      .all(owner, limit).map((row) => ({
+        kind: String(row.kind) as ActionKind, action: String(row.action), uses: Number(row.uses), net: Number(row.net), updatedAt: Number(row.updated_at),
+      }));
+  }
+  /** How much is kept for an owner, in rows. */
+  counts(owner: string): { actions: number; traces: number; patterns: number } {
+    const n = (table: string): number => Number(this.db.prepare(`SELECT count(*) AS n FROM ${table} WHERE owner=?`).get(owner)?.n ?? 0);
+    return { actions: n("fly_synapses"), traces: n("fly_traces"), patterns: n("fly_patterns") };
+  }
+  /**
+   * Forgets everything learned for an owner, the wiring seed included, so what comes next starts
+   * from nothing. Returns how many rows went.
+   */
+  forget(owner: string): number {
+    let removed = 0;
+    this.db.exec("BEGIN");
+    try {
+      for (const table of flyTables) removed += Number(this.db.prepare(`DELETE FROM ${table} WHERE owner=?`).run(owner).changes);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    dropIndex(this.db, owner);
+    return removed;
   }
   saveTrace(owner: string, trace: Trace): void {
     this.db.prepare("INSERT OR REPLACE INTO fly_traces(run_id, owner, session_id, code, uses, at) VALUES(?,?,?,?,?,?)")
