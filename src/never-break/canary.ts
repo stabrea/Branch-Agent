@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { gatewayFile, loadGatewayConfig, writeAtomic } from "./gateway-config.js";
@@ -25,6 +25,8 @@ export const canaryFolder = "updates";
 
 /** Where the engine and the runtime sit inside an unpacked release. */
 export function stagedEngine(stagedDir: string, platform: NodeJS.Platform, executableName: string): { executable: string; script: string } {
+  // The release's own system decides the separator, not the computer this runs on (tests ask for all three).
+  const { join } = platform === "win32" ? win32 : posix;
   if (platform === "darwin") {
     const contents = join(stagedDir, "Contents");
     return { executable: join(contents, "MacOS", executableName.replace(/\.app$/, "")), script: join(contents, "Resources", "app", "dist", "cli.js") };

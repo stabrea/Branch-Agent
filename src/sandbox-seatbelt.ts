@@ -1,6 +1,9 @@
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { posix } from "node:path";
 import type { WallNetwork } from "./sandbox.js";
+
+// The profile is only ever built for macOS, so its paths are POSIX paths on whatever computer builds it.
+const { join } = posix;
 
 /**
  * macOS's own sandbox for a program Branch starts. The profile starts from "refuse everything" and

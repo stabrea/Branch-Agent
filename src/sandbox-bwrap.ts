@@ -1,7 +1,10 @@
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { posix } from "node:path";
 import type { WallNetwork } from "./sandbox.js";
 import { protectedWorkspaceNames, secretHomePlaces } from "./sandbox-seatbelt.js";
+
+// Bubblewrap only runs on Linux, so its arguments are POSIX paths on whatever computer builds them.
+const { join } = posix;
 
 /**
  * The Linux wall: bubblewrap, when this computer already has it. Branch never ships or installs it
