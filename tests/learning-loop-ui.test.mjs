@@ -97,6 +97,8 @@ test("new skills: draft one from a conversation, see it tried, and keep it", asy
   const draft = page.locator("#new-skills-list .record").first();
   await draft.waitFor({ timeout: 15000 });
   await app.learningLoop.idle();
+  /* The trial can finish between two of the card's looks, so wait for the look that shows it. */
+  await draft.filter({ hasText: "Did at least as well" }).waitFor({ timeout: 15000 });
   assert.match(await draft.innerText(), /water-the-plants/);
   assert.match(await draft.innerText(), /Did at least as well: 1 of 1/);
   const [{ skillId }] = app.learningLoop.newSkills();
