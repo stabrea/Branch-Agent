@@ -91,7 +91,8 @@ test("the Mac sign-in file is a valid property list", { skip: process.platform !
   assert.match(stdout, /OK/);
 });
 
-test("installing on a Mac writes the file and loads it for this person only; removing unloads first", async (t) => {
+// Installing a LaunchAgent or a systemd unit only means something on macOS or Linux; Windows does not pretend to prove it.
+test("installing on a Mac writes the file and loads it for this person only; removing unloads first", { skip: !posix }, async (t) => {
   const root = await scratch(t);
   const path = join(root, "LaunchAgents", `${launchdLabel}.plist`);
   const options = { ...program, dataDir: join(root, "data"), launcherPath: join(root, "unused.vbs"), platform: "darwin", plistPath: path, uid: 501 };
@@ -156,7 +157,7 @@ test("the Linux sign-in file passes systemd's own check", { skip: process.platfo
   assert.ok(!/Unknown key|Failed to parse|Invalid/i.test(analyze), analyze);
 });
 
-test("installing on Linux writes the file and switches it on for this person only", async (t) => {
+test("installing on Linux writes the file and switches it on for this person only", { skip: !posix }, async (t) => {
   const root = await scratch(t);
   const path = join(root, "systemd", "user", "branch-agent.service");
   const options = { ...program, dataDir: join(root, "data"), launcherPath: "", platform: "linux", unitPath: path };

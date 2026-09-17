@@ -16,3 +16,18 @@ keep their notice in `THIRD_PARTY_NOTICES.md`, and study GPL/AGPL code only. Ups
 
 `src/runtime.ts` is shared by several briefs in this wave: keep your change there to one clearly separated
 call into your own new file, and say where in your report.
+
+## Screens (from Legion, who is redesigning the window)
+
+KeepOak tokens only, no literal colours (`docs/design.md`; design tests enforce it). Every visible label needs a
+`data-t` key in `public/locales/en.json` **and real French** in `fr.json` (English copied across fails test Q6).
+Match the existing Settings cards: an `<h2>` naming the thing in plain words, one `.subtle` sentence saying what it
+does, then the controls. No jargon. Check at 400 px wide with no sideways scrolling. Keep your screen in its own
+`public/*.js` file so the redesign can restyle it.
+
+## Licences
+
+Code may only be ported from MIT or Apache-2.0 sources (see `/Users/taofikbishi/Code/agent-refs/INDEX.md`).
+AGPL, GPL or restricted projects are study-only: implement independently, never transliterate.
+**Study-only by name (Legion's licence check): OpenHands, Khoj (AGPL-3.0), AutoGPT (PolyForm Shield inside
+`autogpt_platform`), and Eon's fly-brain (GPL-2.0).** Where a brief points at one of these, take the idea, not the code.
