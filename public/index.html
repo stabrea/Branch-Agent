@@ -1177,6 +1177,73 @@
             </div>
             <p id="desktop-status" class="subtle" role="status"></p>
           </section>
+          <section id="sandbox-card" class="card">
+            <h2 data-t="settings.card.where-scripts-run">Where scripts run</h2>
+            <p>A script Branch runs can be held on this computer, inside a container, on the Linux side, or in Windows' own throwaway desktop. Nothing here is ever installed: each one is offered only if it is already on this computer, and one that is missing says what you would have to install.</p>
+            <div id="sandbox-backends" class="card-list"></div>
+            <label for="sandbox-image" data-t="field.container-image">Container image</label>
+            <input id="sandbox-image" type="text" maxlength="200" placeholder="node:22-alpine" />
+            <label for="sandbox-distro" data-t="field.which-linux">Which Linux, by name</label>
+            <input id="sandbox-distro" type="text" maxlength="100" />
+            <label class="check-row"><input type="checkbox" id="sandbox-windows" /> <span data-t="field.allow-windows-throwaway-desktop">Let Branch use Windows' throwaway desktop</span></label>
+            <p class="subtle">The throwaway desktop opens a window on your screen, so Branch never chooses it for you.</p>
+            <button id="sandbox-save" type="button" data-t="action.save-where-scripts-run">Save where scripts run</button>
+            <p id="sandbox-status" class="subtle" role="status"></p>
+          </section>
+          <section id="firewall-card" class="card">
+            <h2 data-t="settings.card.what-can-reach-out">What can reach out</h2>
+            <p>The rules that decide what Branch may reach, read back in plain sentences. Nothing on this card decides anything: it is only a reading of the rules, so it cannot say one thing while Branch does another.</p>
+            <div id="firewall-sentences" class="card-list"></div>
+            <label for="firewall-address" data-t="field.try-an-address">Try an address</label>
+            <input id="firewall-address" type="text" maxlength="2000" placeholder="https://example.com" />
+            <button id="firewall-test" type="button" data-t="action.try-this-address">Try this address</button>
+            <p class="subtle">This asks the same check every real request asks. Nothing is fetched, so pressing it cannot reach the address you asked about.</p>
+            <p id="firewall-status" class="subtle" role="status"></p>
+          </section>
+          <section id="limits-card" class="card">
+            <h2 data-t="settings.card.ceilings">How much one person may ask for</h2>
+            <p>Your own task waits for its minute to free up and then carries on. Somebody messaging you from a chat app is told in one sentence and their message is let go, because a stranger waiting silently looks exactly like Branch being broken. Leave a number at 0 for no limit.</p>
+            <label for="limit-requests" data-t="field.questions-a-minute">Questions a minute, one conversation</label>
+            <input id="limit-requests" type="number" min="0" max="1000" step="1" value="0" />
+            <label for="limit-tokens" data-t="field.thinking-an-hour">Thinking an hour, one conversation</label>
+            <input id="limit-tokens" type="number" min="0" max="50000000" step="1000" value="0" />
+            <label for="limit-sender-requests" data-t="field.questions-a-minute-from-outside">Questions a minute, one person messaging you</label>
+            <input id="limit-sender-requests" type="number" min="0" max="1000" step="1" value="0" />
+            <label for="limit-sender-tokens" data-t="field.thinking-an-hour-from-outside">Thinking an hour, one person messaging you</label>
+            <input id="limit-sender-tokens" type="number" min="0" max="50000000" step="1000" value="0" />
+            <button id="limit-save" type="button" data-t="action.save-these-ceilings">Save these ceilings</button>
+            <p id="limit-status" class="subtle" role="status"></p>
+          </section>
+          <section id="remote-card" class="card">
+            <h2 data-t="settings.card.remote-computers">Your other computers</h2>
+            <p>Branch can work in a folder on another computer, using the SSH client Windows already has. <strong>It never asks for a password.</strong> A computer can only be added by the short name you already wrote in your own SSH config, and only if you have already accepted its key yourself. A new computer may hold files and run nothing at all until you say which programs it may run.</p>
+            <div id="remote-list" class="card-list"></div>
+            <label for="remote-alias" data-t="field.short-name-from-your-ssh-config">Short name from your SSH config</label>
+            <input id="remote-alias" type="text" maxlength="64" placeholder="tower" />
+            <label for="remote-root" data-t="field.folder-on-that-computer">Folder on that computer</label>
+            <input id="remote-root" type="text" maxlength="300" placeholder="/srv/work" />
+            <label for="remote-label" data-t="field.a-name-you-will-recognise">A name you will recognise</label>
+            <input id="remote-label" type="text" maxlength="80" />
+            <label for="remote-programs" data-t="field.programs-it-may-run">Programs it may run, separated by commas</label>
+            <input id="remote-programs" type="text" maxlength="600" />
+            <button id="remote-add" type="button" data-t="action.add-this-computer">Add this computer</button>
+            <p id="remote-status" class="subtle" role="status"></p>
+          </section>
+          <section id="retention-card" class="card">
+            <h2 data-t="settings.card.how-long-conversations-are-kept">How long conversations are kept</h2>
+            <p>Branch keeps everything until you say otherwise. Set a rule here and Branch will offer to delete what it covers — it never deletes on its own, and it hands you a saved copy of everything before it goes.</p>
+            <label class="check-row"><input type="checkbox" id="retention-enabled" /> <span data-t="field.offer-to-delete-old-conversations">Offer to delete old conversations</span></label>
+            <label for="retention-days" data-t="field.older-than-this-many-days">Older than this many days (0 for never by age)</label>
+            <input id="retention-days" type="number" min="0" max="3650" step="1" value="0" />
+            <label for="retention-mb" data-t="field.once-everything-is-over-this-many-mb">Once everything together is over this many MB (0 for never by size)</label>
+            <input id="retention-mb" type="number" min="0" max="100000" step="1" value="0" />
+            <label class="check-row"><input type="checkbox" id="retention-export" checked /> <span data-t="field.hand-back-a-saved-copy-first">Hand back a saved copy first</span></label>
+            <button id="retention-save" type="button" data-t="action.save-this-rule">Save this rule</button>
+            <p id="retention-sentence"></p>
+            <div id="retention-proposal" class="card-list"></div>
+            <button id="retention-prune" type="button" hidden data-t="action.delete-the-conversations-listed">Delete the conversations on this list</button>
+            <p id="retention-status" class="subtle" role="status"></p>
+          </section>
           <section id="policy-waiting-card" class="card" hidden>
             <h2 data-t="settings.card.waiting-for-your-yes">Waiting for your yes</h2>
             <p>A task has stopped and wants to know whether to go ahead. After you answer, send your next message in that conversation to carry on.</p>
@@ -1579,5 +1646,6 @@
     <script src="/code-ide.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
+    <script src="/sandbox-remote.js" type="module"></script>
   </body>
 </html>

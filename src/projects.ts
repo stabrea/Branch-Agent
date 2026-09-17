@@ -19,6 +19,12 @@ export const ProjectSchema = z.object({
   profile: z.string().trim().max(64).nullable().default(null),
   /** Which collections of the person's own documents this project's tasks look in first. */
   knowledgeBases: z.array(z.string().trim().min(1).max(80)).max(16).default([]),
+  /**
+   * The line of work in Git this project is about. Switching to the project switches the folder to
+   * it (see src/git-checkpoint.ts). Empty, which every project written before this is, changes
+   * nothing at all about the folder.
+   */
+  branch: z.string().trim().max(100).default(""),
 }).strict();
 export type Project = z.infer<typeof ProjectSchema>;
 export const defaultProjectId = "default";
@@ -26,6 +32,15 @@ const activeSchema = z.object({ active: projectIdSchema }).strict();
 
 export class Projects {
   constructor(private readonly store: Store) {}
+  /**
+   * Told whenever the active project really changes. The git side listens, so a project that names
+   * a line of work switches the folder to it; nothing else has to know that happens.
+   */
+  private readonly switched = new Set<(owner: string, project: Project) => void>();
+  onSwitched(listener: (owner: string, project: Project) => void): () => void {
+    this.switched.add(listener);
+    return () => void this.switched.delete(listener);
+  }
   list(owner: string): Project[] {
     const saved = this.store.list("settings", owner)
       .filter((record) => record.id.startsWith("project:"))
@@ -46,10 +61,14 @@ export class Projects {
     if (!this.list(owner).some((project) => project.id === active)) throw new Error("Project not found");
     const before = this.active(owner).id;
     this.store.save("settings", owner, "projects", { active });
-    if (before !== active)
+    const now = this.active(owner);
+    if (before !== active) {
       audit(this.store, owner, { action: "profile.switched", actor: owner, subject: `${before} to ${active}`,
         reason: "The active project decides which folder and which saved secrets it can reach", outcome: "saved" });
-    return this.active(owner);
+      for (const listener of this.switched)
+        try { listener(owner, now); } catch { /* telling someone must never break the switch */ }
+    }
+    return now;
   }
   save(owner: string, input: unknown): Project {
     const project = ProjectSchema.parse(input);
@@ -81,6 +100,6 @@ export class Projects {
   }
   private defaultProject(): Project {
     return { id: defaultProjectId, name: "Default", instructions: "", modelPreset: null, repository: "",
-      folder: "", profile: null, knowledgeBases: [] };
+      folder: "", profile: null, knowledgeBases: [], branch: "" };
   }
 }

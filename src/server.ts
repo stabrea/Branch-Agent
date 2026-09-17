@@ -105,6 +105,9 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+// Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
+// for, the owner's other computers, marks, and how long conversations are kept.
+import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -292,6 +295,7 @@ async function staticFile(
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
+    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -588,6 +592,12 @@ async function api(
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 26 (wave 8): sandboxes, the firewall card, per-person ceilings, other computers, marks,
+  // and how long conversations are kept.
+  if (handlesSandboxRemotePath(path))
+    return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -825,9 +835,15 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
   const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
-  if (plugin && request.method === "POST")
-    return plugin[2] === "inspect" ? app.plugins.inspect(plugin[1]!)
-      : plugin[2] === "enable" ? app.plugins.enable(plugin[1]!) : app.plugins.disable(plugin[1]!);
+  if (plugin && request.method === "POST") {
+    if (plugin[2] === "inspect") return app.plugins.inspect(plugin[1]!);
+    if (plugin[2] === "disable") return app.plugins.disable(plugin[1]!);
+    // Batch 26 (wave 8): the permissions the owner ticked. Left out, the plugin gets everything its
+    // own manifest declared, exactly as switching one on did before.
+    const body = z.object({ allow: z.array(z.string().trim().max(64)).max(20).optional() })
+      .strict().parse((await readBody(request).catch(() => ({}))) ?? {});
+    return app.plugins.enable(plugin[1]!, body.allow);
+  }
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
   // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
@@ -1640,7 +1656,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
     const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
     const bytes = Buffer.from(body.file, "base64");
-    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve, body.allow);
   }
   // Wave 7: the three browser skills that come with Branch. Listing shows what they are; installing
   // puts one in as an ordinary skill package, switched off until the owner turns it on.
@@ -2491,7 +2507,7 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

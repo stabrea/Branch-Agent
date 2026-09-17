@@ -52,6 +52,8 @@ async function configuredApp(options: Parameters<typeof createBranch>[0]) {
       app.channelHost,
     );
     app.browser = integrations.hosted.browser ?? null;
+    app.reach = { browserOrigins: integrations.hosted.browserOrigins ?? [],
+      commandsMayReachInternet: integrations.hosted.commandsNetless !== true };
     app.issues = integrations.hosted.issues ?? null;
     return {
       app,

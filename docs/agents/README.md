@@ -33,6 +33,13 @@ This folder is the operating manual for the autonomous build loop that produced 
   on which branch, so an outside contributor can see what is taken. `CONTRIBUTING.md` explains how
   to read the boxes.
 - Plain language everywhere the owner reads: UI copy, docs, release notes, error sentences. KeepOak tokens only; the design tests enforce it.
+- **`npm run build` can leave `dist/` stale after a merge, silently.** On 2026-09-16 the merge of
+  `wave8/sandbox-remote` added a static route to `src/server.ts`, the build reported nothing wrong,
+  and the built `dist/server.js` did not contain it: the page then failed to load its own script with
+  a 401 and the cause looked like a missing allowlist entry that was in fact present in the source.
+  After merging, check that something you know changed is really in `dist` (`grep` for it) before
+  trusting a test run, and delete `dist/` outright when anything looks wrong. A stale `dist` can
+  produce a false green as easily as a false red.
 - A written Office file passing our own readers is not proof Word will open it. `scripts/check-office-opens.mjs` writes one of each and `check-office-opens.ps1` opens them in the real applications with no window; run both after any change to the document writers. Verified on 2026-09-16: Word read 15 paragraphs and the table, Excel kept the money format and a live `=SUM(B2:B2)`, PowerPoint opened both slides.
 
 ## Where things are

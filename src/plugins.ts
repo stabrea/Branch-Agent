@@ -6,6 +6,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ToolContext } from "./contracts.js";
 import { schemaFor } from "./skill-http-tools.js";
+import { grantAll, narrowedSentence, narrowTools, type ManifestGrant } from "./manifest-permissions.js";
 import { ParametersSchema, type InputValue } from "./recipes.js";
 import type { BranchPluginProvider } from "./provider-plugins.js";
 import type { BranchPluginChannel } from "./channels/connectors.js";
@@ -54,7 +55,12 @@ export interface PluginChannelHost {
   register(pluginId: string, entry: BranchPluginChannel): unknown;
   forget(pluginId: string): unknown;
 }
-export interface PluginSummary { id: string; name: string; description: string; permissions: string[]; tools: { name: string; description: string; permission: string }[]; hooks: string[] }
+export interface PluginSummary {
+  id: string; name: string; description: string; permissions: string[];
+  tools: { name: string; description: string; permission: string }[]; hooks: string[];
+  /** Batch 26 (wave 8): the tools the owner's grant left out, each with the reason, in plain words. */
+  leftOut?: string[];
+}
 interface Loaded { summary: PluginSummary; toolNames: string[]; stopHooks: (() => void)[] }
 
 export class Plugins {
@@ -65,8 +71,19 @@ export class Plugins {
   channels?: PluginChannelHost | undefined;
   constructor(private readonly store: Store, private readonly owner: string, private readonly registry: ToolRegistry, private readonly folder: string) {}
   private key(id: string): string { return `plugin:${id}`; }
-  private saved(id: string): { enabled: boolean; summary?: PluginSummary } | undefined {
-    return this.store.get("settings", this.owner, this.key(id))?.data as { enabled: boolean; summary?: PluginSummary } | undefined;
+  private saved(id: string): { enabled: boolean; summary?: PluginSummary; grant?: ManifestGrant } | undefined {
+    return this.store.get("settings", this.owner, this.key(id))?.data as { enabled: boolean; summary?: PluginSummary; grant?: ManifestGrant } | undefined;
+  }
+  /**
+   * What the owner allowed: the permissions they named, or — for a plugin switched on before wave 8
+   * and for a plain "switch this on" — everything its own manifest declared. A plugin can never
+   * widen this: `allow` is filtered against what the manifest declared, so naming a permission the
+   * plugin never asked for grants nothing.
+   */
+  private grantFor(summary: PluginSummary, allow: readonly string[] | undefined): ManifestGrant {
+    const asked = grantAll({ permissions: summary.permissions.map((permission) => ({ permission, why: "" })), hosts: [] });
+    if (!allow) return asked;
+    return { ...asked, permissions: asked.permissions.filter((permission) => allow.includes(permission)) };
   }
   /** The plugin files present, with what the owner already decided. Listing does not load any file. */
   async list() {
@@ -102,13 +119,23 @@ export class Plugins {
     if (!module.default || typeof module.default !== "object") throw new Error(`${id}.mjs does not export a plugin as its default export`);
     return module.default;
   }
-  /** Switches a plugin on: its tools join the catalog and its hooks start listening. */
-  async enable(id: string): Promise<PluginSummary> {
+  /**
+   * Switches a plugin on: its tools join the catalog and its hooks start listening.
+   *
+   * Batch 26 (wave 8): `allow` is what the owner actually agreed to after reading the plugin's own
+   * list of permissions. A tool asking for anything outside it is not registered at all — it never
+   * reaches the catalog, so nothing can call it — and the owner is told which ones were left out.
+   */
+  async enable(id: string, allow?: readonly string[]): Promise<PluginSummary> {
     if (this.loaded.has(id)) return this.loaded.get(id)!.summary;
     const plugin = await this.read(id), summary = await this.inspect(id);
+    const grant = this.grantFor(summary, allow ?? this.saved(id)?.grant?.permissions);
+    const { kept, left } = narrowTools(summary.tools, grant);
+    const leftOut = left.map((tool) => narrowedSentence(tool.name, tool.permission));
+    const wanted = new Set(kept.map((tool) => tool.name));
     const toolNames: string[] = [], stopHooks: (() => void)[] = [];
     try {
-      for (const tool of plugin.tools ?? []) {
+      for (const tool of (plugin.tools ?? []).filter((tool) => wanted.has(String(tool.name)))) {
         this.registry.register({
           name: tool.name, description: tool.description, permission: tool.permission, external: true,
           parameters: schemaFor(ParametersSchema.parse(tool.input ?? {})),
@@ -128,9 +155,10 @@ export class Plugins {
     }
     for (const hook of plugin.hooks ?? [])
       stopHooks.push(this.store.onEvent((runId, kind, data) => { if (kind === hook.event) void hook.run({ event: kind, runId, data }).catch(() => undefined); }));
-    this.loaded.set(id, { summary, toolNames, stopHooks });
-    this.store.save("settings", this.owner, this.key(id), { enabled: true, summary });
-    return summary;
+    const narrowed: PluginSummary = { ...summary, tools: kept, leftOut };
+    this.loaded.set(id, { summary: narrowed, toolNames, stopHooks });
+    this.store.save("settings", this.owner, this.key(id), { enabled: true, summary: narrowed, grant });
+    return narrowed;
   }
   /** Takes a plugin out of this running copy without changing the owner's choice. */
   private unload(id: string): void {
