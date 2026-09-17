@@ -202,7 +202,8 @@ test("G2 a paused task asks in Telegram with buttons, and a pressed button answe
   const asked = state.sent.find((sent) => sent.reply_markup);
   assert.match(asked.text, /Before I go ahead/, "the question is put in words too");
   const row = asked.reply_markup.inline_keyboard[0];
-  assert.deepEqual(row.map((b) => b.text), ["Yes", "Yes always", "No"]);
+  // mac7/chat-source: a chat cannot prove who is typing, so its task is never offered a standing yes.
+  assert.deepEqual(row.map((b) => b.text), ["Yes", "No"]);
   const waiting = app.runtime.waitingApprovals()[0];
   assert.ok(waiting.fingerprint, "the question has a fingerprint of the exact request");
   for (const button of row) assert.equal(button.callback_data.split(":")[1], waiting.fingerprint);
