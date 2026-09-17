@@ -55,7 +55,7 @@ async function fixture(t, steps = [say("ok")]) {
     if (!response.ok) throw new Error(json.error);
     return json;
   };
-  return { app, call, root, dataDir, provider };
+  return { app, call, root, dataDir, provider, server };
 }
 
 const claudePlugin = {
@@ -467,4 +467,28 @@ export default { id: "listen", name: "Listen", apiVersion: 1, tools: [], hooks: 
   assert.equal(app.addOns.walled.holds("nothing-installed"), true);
   await call("plugin-catalog/add-ons/settings", { wallEveryPlugin: false });
   assert.equal(app.addOns.walled.holds("listen"), false);
+});
+
+test("the add-ons card: served, placed in Customize → Plugins, every word in English and real French, no colours", async (t) => {
+  const { call, server } = await fixture(t);
+  const base = join(import.meta.dirname, "..", "public");
+  const js = await readFile(join(base, "add-ons.js"), "utf8");
+  const en = JSON.parse(await readFile(join(base, "locales", "en.json"), "utf8"));
+  const fr = JSON.parse(await readFile(join(base, "locales", "fr.json"), "utf8"));
+  const keys = new Set([...js.matchAll(/"(addons\.[A-Za-z.]+)"/g)].map((m) => m[1]));
+  assert.ok(keys.size > 50);
+  for (const key of keys) {
+    assert.ok(en[key], `${key} has no English`);
+    assert.ok(fr[key] && fr[key] !== en[key], `${key} has no French of its own`);
+  }
+  assert.doesNotMatch(js, /#[0-9a-f]{3,8}\b|rgb\(|innerHTML/i, "no colour written in, and no markup built from text");
+  assert.match(js, /card\.dataset\.home = "customize:plugins"/);
+  const index = await readFile(join(base, "index.html"), "utf8");
+  assert.match(index, /<script src="\/add-ons\.js" type="module"><\/script>/);
+  const layout = await readFile(join(base, "layout.js"), "utf8");
+  assert.match(layout, /\["plugins", "place\.customize\.plugins", "Plugins"\]/, "the place the card goes to exists");
+  assert.equal((await call("plugin-catalog/add-ons")).parts.length, 7);
+  const served = await fetch(`${server.url}/add-ons.js`);
+  assert.equal(served.status, 200);
+  assert.match(served.headers.get("content-type"), /javascript/);
 });

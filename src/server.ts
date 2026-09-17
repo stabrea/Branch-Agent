@@ -391,6 +391,8 @@ async function staticFile(
     "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
     // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
     "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
+    // Bucket 15: the add-ons card (Customize → Plugins).
+    "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.

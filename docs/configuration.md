@@ -6725,3 +6725,91 @@ same on all three, and the tests run on each.
   call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
+
+## Add-ons other people wrote (bucket 15)
+
+Customize → Plugins has a card, **Add-ons other people wrote**, with the three-way switch for each part.
+Every part ships off; while a part is off its routes refuse in one sentence and its tools are not in the
+catalog. Switching an add-on off and removing one always work, whatever the switches say.
+
+| Part | What it does |
+| --- | --- |
+| Installing add-on packages | Reads a package in Branch's own layout (`branch-addon.json`), as a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin (`.codex-plugin/plugin.json` or an Agent Plugins `plugin.json`) or a Gemini CLI extension (`gemini-extension.json`). |
+| Add-on lists you name | A signed web list (`branch-addon-list`) or a folder holding a Claude Code / Codex marketplace. |
+| Your own filters | Rules on what goes in to the model and what comes out. |
+| Reading a Pipelines server | Whether an address is a Pipelines server, its pipelines, their settings. Read only. |
+| Letting the assistant draft an add-on | The `addon.draft` tool saves a plugin as a draft for you to review. |
+| Search sources that plugins bring | The `addon.search` tool searches every source your switched-on plugins bring. |
+| Branch as a plugin for Claude Code and Codex | Writes Branch's own plugin into a folder you name. |
+
+**Looking, installing and switching on are three separate presses.** Looking (`POST /api/plugin-catalog/add-ons/look`)
+reads the files — nothing is run — and lists in plain words everything the package would add and need, what
+was left out and why, and its fingerprint. Each outside server it names is looked up in the malware list
+first (the security check's "Check add-ons for malware"); a listed one stops the package. Installing copies the
+files with a fingerprint for each, and switches nothing on. Switching on adds its skills (scanned like any
+skill), puts its plugin file in the plugins list, and adds its filters switched off. Its outside servers are
+**never connected**: they come back as drafts to try under Connections. Shell hooks, scripts, tool
+allowances (`allowed-tools`), themes and "tools to hide" lists are left out, and the look says so. A package
+whose files changed since it was installed is refused, and nothing is updated by itself — a list only offers
+a newer version, and taking it installs the new version switched off.
+
+**A plugin that came from a package, a list or a draft runs walled.** It is never imported into Branch: each
+question ("what are you", one tool call, one event for a hook) starts the plugin as its own program behind the
+same wall as any program Branch starts, in a throwaway folder, with none of Branch's environment, no saved
+key, and limits on time (30 s), memory (512 MB) and output (1 MB). The code is checked against its install
+fingerprint before every run. A walled plugin gets tools, hooks and search sources; model connections and
+chat services need Branch's own process and are left out, with a sentence. The owner's yes can only narrow
+what the package asked for: a permission the package did not list is never granted, and a tool needing one is
+not registered. Plugin files a developer puts in the plugins folder by hand keep running inside Branch as
+before, unless "Also run plugin files I put in the plugins folder myself in their own walled program" is ticked.
+
+**Filters** (`POST /api/plugin-catalog/add-ons/filters`) look for plain words (or a pattern; one that could hang
+is refused) and take them out, stop the message, or add a note, in order of priority, only for the models they
+name. They run on a new message before it is stored or sent, and on an answer before it is kept. A stopped
+message never reaches the model. A filter never grants anything, and a stop is final. The live preview of an
+answer as it is typed may show words before the outlet filter takes them out; what is kept and delivered is
+filtered.
+
+**Pipelines.** Branch reads `GET <address>/models`, `/pipelines` and `/<id>/valves`, with a saved secret as the
+key, through the network rules. Values whose names look like keys are shown as "(hidden)". Uploading Python
+files, adding pipelines from an address and changing valves are deliberately not built: that would make Branch
+install code on another computer. Talk to a Pipelines server as an OpenAI-compatible connection in Settings,
+Models.
+
+**Branch as a plugin.** `POST /api/plugin-catalog/add-ons/export` writes `.claude-plugin/` (or `.codex-plugin/`),
+`.mcp.json` (starting `branch mcp-serve`) and one skill into an empty folder you name, with a fingerprint list.
+`export/status` says whether the folder is Branch's, for which tool and version, and what changed; `export/remove`
+takes out only the files Branch wrote and nobody changed. Branch never writes into another tool's settings; add
+the folder there yourself. The same plugin is in the repository at `integrations/agent-plugin/`.
+
+**The add-on that comes with Branch.** `data/add-ons/branch-starter` (copied to `dist/bundled-add-ons`) is offered
+while packages are switched on and installed only on a press: a word counter, a "Branch words" search source, a
+skill, and a filter that takes out card numbers.
+
+**Writing an add-on.** A plugin's default export is `{ id, name, apiVersion: 1, permissions, tools, hooks }`;
+`definePlugin` (exported by the package) checks it. A tool with `search: { label }` is a search source and takes
+`{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
+
+### macOS and Linux
+
+The wall around a walled plugin is macOS's own sandbox (`/usr/bin/sandbox-exec`) on macOS and bubblewrap on Linux,
+exactly as for any program Branch starts: the plugin may read the disk except where keys, passwords and Branch's
+data live, may write only in the temporary folders, and reaches no network unless its package named web addresses —
+then only those, through Branch's door, and never an address on this computer or a private network. Where the wall
+cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows a walled
+plugin still runs as its own program inside a job object with the same limits, without the file and network wall.
+
+### Where each audit row stands
+
+- **extensions** — A2130 (search plugins): built, `src/add-ons/search.ts`; A2150 (plugin and extension hooks):
+  verified and extended, hooks fire in-process and walled (`src/plugins.ts`, `src/add-ons/walled-plugin.ts`);
+  A2274 (extension SDK): built, `src/add-ons/sdk.ts`; A2275 (bundled extensions): built, `data/add-ons/`;
+  A2322 (mods): built, `src/add-ons/drafts.ts`. Tests: `tests/add-ons.test.mjs`, `tests/add-ons-walled.test.mjs`.
+- **plugin-marketplace** — A0022, A2045: built as lists the owner names, `src/add-ons/lists.ts`.
+- **extension-packages** — A0045: built, `src/add-ons/formats.ts`, `src/add-ons/package-shelf.ts`.
+- **filter-system** — A1891: built, `src/add-ons/filters.ts` and the marked hook in `src/runtime.ts`.
+- **pipeline-integration** — A1890: built, read side only, `src/add-ons/pipelines.ts`.
+- **claude-integration** — A1333, A1567: built, `src/add-ons/export.ts`, `integrations/agent-plugin/`; Claude Code
+  plugins are also installable (`src/add-ons/formats.ts`).
+- **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
+  remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
