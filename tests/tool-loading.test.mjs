@@ -215,6 +215,9 @@ test("the tool a request names comes first, not one that mentions it in passing"
     ["look at my other computer running Branch", "machines.look"],
     ["list the notes I have written", "notes.list"],
     ["which USB devices are plugged in", "usb.devices"],
+    // "Online" is how a person says "on the web": without that everyday word the only thing
+    // web.search matched in this request was "up", which is no reason to rank anything.
+    ["look up the prices online", "web.search"],
     // Older areas the same fault reached: "documents.add", "data.export" and "brief.preview" won these.
     ["transcribe this recording", "media.transcribe"],
     ["chart the sales spreadsheet", "data.chart"],
