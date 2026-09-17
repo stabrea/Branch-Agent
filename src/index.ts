@@ -464,6 +464,8 @@ export async function createBranch(options: {
       : privacy.outbound(text);
   // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
   channels.liveAllowed = () => !lockedDown(store, runtime.owner);
+  // ...and nothing key-shaped or secret shows in a step label or streamed text (mac2/leak-guard).
+  channels.hideLeaks = (text) => redactLeaksIn(store.secrets.scrubber.deep(text)).value;
   runtime.hideSecrets = (value) => {
     // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
     const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;

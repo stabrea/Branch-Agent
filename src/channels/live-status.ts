@@ -38,6 +38,8 @@ export interface LiveTarget {
   /** The person's message: reactions go on it and the progress message replies to it. */
   messageId: string;
   reactTo?: string | undefined;
+  /** Checked before every call to the app, so Lockdown or quiet hours starting mid-task stop the status too. */
+  allowed?: () => boolean;
 }
 interface Step { label: string; state: "working" | "done" | "failed" }
 /** A part that failed this many times in a row is left alone for the rest of the task. */
@@ -181,7 +183,7 @@ export class LiveStatus {
   }
   private typing(): void {
     const { adapter, chatId } = this.target;
-    if (this.closed || !adapter.sendTyping || this.failures.typing >= giveUpAfter) return;
+    if (this.closed || !adapter.sendTyping || this.failures.typing >= giveUpAfter || !this.permitted()) return;
     adapter.sendTyping(chatId).then(() => { this.failures.typing = 0; }, () => { this.failures.typing++; });
   }
   /** Asks for a reaction; quick changes wait a moment so only the latest one is shown. */
@@ -199,7 +201,7 @@ export class LiveStatus {
   private async applyReaction(): Promise<void> {
     const { adapter, chatId, messageId, reactTo } = this.target;
     const wanted = this.wanted;
-    if (!adapter.react || !wanted || wanted === this.state || this.failures.react >= giveUpAfter) return;
+    if (!adapter.react || !wanted || wanted === this.state || this.failures.react >= giveUpAfter || !this.permitted()) return;
     const previous = this.state ? statusEmoji[this.state] : undefined;
     try {
       await adapter.react(chatId, reactTo ?? messageId, statusEmoji[wanted], previous);
@@ -212,7 +214,7 @@ export class LiveStatus {
   /** Sends the progress message once the task has been working for a while. */
   private openProgress(): Promise<void> {
     return this.enqueue(async () => {
-      if (this.closed || this.progressId) return;
+      if (this.closed || this.progressId || !this.permitted()) return;
       const rendered = this.render();
       const text = await this.checked(rendered);
       if (text === null) return;
@@ -247,13 +249,20 @@ export class LiveStatus {
   }
   private async editTo(text: string): Promise<boolean> {
     const { adapter, chatId } = this.target;
-    if (!adapter.edit || !this.progressId || this.failures.edit >= giveUpAfter) return false;
+    if (!adapter.edit || !this.progressId || this.failures.edit >= giveUpAfter || !this.permitted()) return false;
     try {
       await adapter.edit(chatId, this.progressId, text);
       this.failures.edit = 0;
       return true;
     } catch {
       this.failures.edit++;
+      return false;
+    }
+  }
+  private permitted(): boolean {
+    try {
+      return this.target.allowed?.() ?? true;
+    } catch {
       return false;
     }
   }

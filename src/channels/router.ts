@@ -66,14 +66,36 @@ export interface ChannelAdapter {
    * channel has none, and the question goes out as words with "reply y / a / n" instead.
    */
   sendButtons?(chatId: string, text: string, buttons: ApprovalButton[], replyToMessageId?: string): Promise<string | undefined>;
-  /** Shows "typing…" in the chat for a few seconds, on the apps that have it. See live-status.ts. */
+  // ---- Optional live-status methods (wave mac2, chat-live; used by live-status.ts) -------------
+  // Any adapter may add any of these three; leave one out and the chat simply goes without it.
+  // Rules every adapter follows (Telegram, Slack, Discord and Matrix are the worked examples):
+  // - Absent means "this app cannot". Never add a method that does nothing.
+  // - A failure must throw. The live status counts failures and leaves a part alone after two in a
+  //   row; it never fails the task, so there is no need to swallow errors yourself.
+  // - The router calls them only for paired or allowed senders, never under Lockdown or quiet hours,
+  //   and every word passes the same outbound check as a reply before it reaches `edit` or `send`.
+  // - `send` must return the id of the message it sent, or the progress message cannot be edited
+  //   and the finished reply is sent the ordinary way instead.
+  // - A reply inside a thread sets `InboundMessage.reactTo` to the person's own message, so the
+  //   reaction lands on it rather than on the thread's first message (see slack.ts).
+  /**
+   * Shows "typing…" in the chat for a few seconds, on the apps that have it. The router asks again
+   * every few seconds while the task works, so one call only needs to cover a short while.
+   */
   sendTyping?(chatId: string): Promise<void>;
   /**
-   * Puts `emoji` on a message, taking `previous` off first on the apps that keep several side by
-   * side. Absent means this app has no reactions and the status shows only as typing and progress.
+   * Puts `emoji` (one of `statusEmoji` in live-status.ts) on a message. Apps that keep several
+   * reactions side by side (Slack, Discord) take `previous` off first; apps where a new reaction
+   * replaces the old one (Telegram) may ignore it. An app that names reactions in words maps the
+   * emoji itself and throws for one it has no name for. Absent means this app has no reactions and
+   * the status shows only as typing and progress.
    */
   react?(chatId: string, messageId: string, emoji: string, previous?: string): Promise<void>;
-  /** Replaces the words of a message this adapter sent. Absent means there is no progress message. */
+  /**
+   * Replaces the words of a message this adapter sent, cut to the app's own limit. An app that
+   * refuses an edit because the words did not change must treat that as success (see telegram.ts).
+   * Absent means there is no progress message and replies are not streamed.
+   */
   edit?(chatId: string, messageId: string, text: string): Promise<void>;
   stop(): Promise<void>;
 }
@@ -132,12 +154,17 @@ const pairSchema = z.object({
 }).strict();
 type Pair = z.infer<typeof pairSchema>;
 
+/**
+ * A message passed to a running task. `pending` is true while a voice note is still being written
+ * out: it keeps its place in the line, so a quicker message sent after it cannot overtake it.
+ */
+interface TurnNote { text: string; message: InboundMessage; passed?: boolean; late?: boolean; pending?: boolean }
 /** One chat's task while it gathers messages and works. */
 interface ChatTurnState extends ChatTurn {
   phase: "gathering" | "running";
   dropped: boolean;
   messages: InboundMessage[];
-  notes: { text: string; message: InboundMessage; passed?: boolean; late?: boolean }[];
+  notes: TurnNote[];
   waiters: ((outcome: Outcome) => void)[];
   live: LiveStatus | null;
 }
@@ -149,11 +176,23 @@ function fitsTurn(messages: InboundMessage[], next: InboundMessage): boolean {
   return messages.length < turnMessages && size <= turnCharacters;
 }
 /** A note turned back into a message of its own, with the words already written out. */
-function withText(message: InboundMessage, text: string): InboundMessage {
-  const { voice, ...rest } = message;
+function withText(note: TurnNote): InboundMessage {
+  // A voice note still being written out goes on as it is, and the next turn writes it out itself.
+  if (note.pending) return note.message;
+  const { voice, ...rest } = note.message;
   void voice;
-  return { ...rest, text };
+  return { ...rest, text: note.text };
 }
+/**
+ * Who a note came from, as the task is told. A chat cannot prove who is typing, so a note from a chat
+ * always names its sender and never speaks as the owner (see src/steer.ts).
+ */
+function noteSender(message: InboundMessage): string {
+  const where = message.chatKind === "group" ? ` in ${message.chatTitle ?? "a group"}` : "";
+  return `${message.senderName}${where} on ${message.channel}`;
+}
+/** A message that goes over the sender's ceiling is told so at most once in this many milliseconds. */
+const ceilingNoticeMs = 60_000;
 
 export class ChannelRouter {
   private readonly adapters = new Map<string, { adapter: ChannelAdapter; policy: ChannelPolicy }>();
@@ -197,6 +236,12 @@ export class ChannelRouter {
    * off while Lockdown is on, as it does every other outbound message.
    */
   liveAllowed: () => boolean = () => true;
+  /**
+   * Hides key-shaped values and known secrets in what the live status shows (step labels, streamed
+   * text). `createBranch` connects the leak guard; on its own this changes nothing.
+   */
+  hideLeaks: (text: string) => string = (text) => text;
+  private readonly ceilingNotices = new Map<string, number>();
   private readonly turns = new Map<string, ChatTurnState>();
   /** How many chats may have a task working at the same time. */
   maxChatTasks = 4;
@@ -305,7 +350,26 @@ export class ChannelRouter {
       await adapter.send(message.chatId, text, message.messageId);
       return access;
     }
+    // Checked without waiting, so messages from one chat still reach `answer` in the order they came.
+    if (this.overCeiling(message)) return "rejected";
     return this.answer(message);
+  }
+  /**
+   * Batch 26 (wave 8), enforced here since wave mac2: somebody who has sent as much as the owner allows
+   * for one person is told so once a minute, and the message is let go. "/stop" always gets through, so
+   * nobody is left unable to stop their own task. With no ceiling set, nobody is limited.
+   */
+  private overCeiling(message: InboundMessage): boolean {
+    if (!this.senderCeiling || this.commandIn(message)?.name === "stop") return false;
+    const verdict = this.senderCeiling(message.channel, message.senderId);
+    if (verdict.ok) return false;
+    const key = `${message.channel}\u0001${message.senderId}`, now = Date.now();
+    if ((this.ceilingNotices.get(key) ?? 0) + ceilingNoticeMs <= now) {
+      this.ceilingNotices.set(key, now);
+      void this.deliver(message.channel, message.chatId, verdict.reason, `ceiling:${message.channel}:${message.messageId}`, message.messageId)
+        .catch(() => undefined);
+    }
+    return true;
   }
   /**
    * A voice note becomes an ordinary message: the words are written out first, and the transcript
@@ -368,7 +432,8 @@ export class ChannelRouter {
     const waiting = this.runtime.waitingApprovals(sessionId).at(-1);
     const checked = await this.outboundGuard(question);
     if (checked.blocked) return;
-    const canAlways = waiting?.source === "owner";
+    // In a group anybody paired may press the button, so a standing yes is only offered one to one.
+    const canAlways = waiting?.source === "owner" && message.chatKind === "direct";
     const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways);
     if (adapter.sendButtons) {
       await adapter.sendButtons(message.chatId, checked.text, buttons, message.messageId).catch(() => undefined);
@@ -430,7 +495,9 @@ export class ChannelRouter {
   private async command(message: InboundMessage, command: ChatCommand): Promise<Outcome> {
     const { channel, chatId } = message;
     const turn = this.turns.get(chatKey(message));
-    const reply = await runChatCommand(command, {
+    // A side question and folding both ask the model, so they count against the chats working at once.
+    const asks = command.name === "btw" || command.name === "compact";
+    const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
       sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(),
       dropWaiting: () => {
@@ -440,6 +507,7 @@ export class ChannelRouter {
       },
       forget: () => this.forgetSession(channel, chatId),
     });
+    const reply = asks ? await this.withSlot(work) : await work();
     await this.deliver(channel, chatId, reply, `command:${chatId}:${message.messageId}`, message.messageId).catch(() => undefined);
     return "replied";
   }
@@ -468,14 +536,22 @@ export class ChannelRouter {
       turn.messages.push(message);
       return new Promise((resolve) => turn.waiters.push(resolve));
     }
-    let heard: string;
+    // The note takes its place before a voice note is written out, so later messages queue behind it.
+    const note: TurnNote = { text: "", message, pending: true };
+    turn.notes.push(note);
+    let heard = "";
     try {
       heard = (await this.spoken(message)).trim();
     } catch {
-      return "failed";
+      heard = "";
     }
-    if (!heard) return "ignored";
-    turn.notes.push({ text: heard, message });
+    note.text = heard;
+    note.pending = false;
+    if (!heard) {
+      turn.notes.splice(turn.notes.indexOf(note), 1);
+      if (turn.runId) this.passNotes(turn);
+      return message.voice ? "failed" : "ignored";
+    }
     if (turn.runId) this.passNotes(turn);
     const adapter = this.adapters.get(message.channel)?.adapter;
     if (adapter?.react && this.liveOn() && this.switches().liveStatus !== "off") await adapter.react(message.chatId, message.reactTo ?? message.messageId, statusEmoji.queued).catch(() => undefined);
@@ -486,9 +562,10 @@ export class ChannelRouter {
   /** Hands the waiting notes to the running task; a note it can no longer take waits for the next turn. */
   private passNotes(turn: ChatTurnState): void {
     for (const note of turn.notes) {
+      if (note.pending) break; // keep the order: nothing overtakes a voice note still being written out
       if (note.passed || note.late) continue;
       try {
-        this.runtime.steer(turn.runId!, note.text);
+        this.runtime.steer(turn.runId!, note.text, noteSender(note.message));
         note.passed = true;
         turn.passed++;
       } catch {
@@ -528,7 +605,7 @@ export class ChannelRouter {
       for (const resolve of turn.waiters) resolve(outcome);
     }
     const unread = turn.dropped ? [] : this.unreadNotes(turn);
-    if (unread.length) void this.startTurn(unread.map((note) => withText(note.message, note.text)), true).catch(() => undefined);
+    if (unread.length) void this.startTurn(unread.map(withText), true).catch(() => undefined);
     return outcome;
   }
   /** Runs one turn's messages as a task and sends the answer, showing progress while it works. */
@@ -644,8 +721,8 @@ export class ChannelRouter {
   private liveFor(message: InboundMessage): LiveStatus | null {
     const adapter = this.adapters.get(message.channel)?.adapter, setting = this.switches().liveStatus;
     if (!adapter || setting === "off" || !this.liveOn() || (!adapter.sendTyping && !adapter.react && !adapter.edit)) return null;
-    return new LiveStatus({ adapter, chatId: message.chatId, messageId: message.messageId, reactTo: message.reactTo },
-      (text) => this.outboundGuard(text), this.liveTiming, setting === "when-needed");
+    return new LiveStatus({ adapter, chatId: message.chatId, messageId: message.messageId, reactTo: message.reactTo,
+      allowed: () => this.liveOn() }, (text) => this.outboundGuard(this.hideLeaks(text)), this.liveTiming, setting === "when-needed");
   }
   private access(message: InboundMessage, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
     // Batch 20 (wave 8): the one list for every chat app is read first, so "never this person"

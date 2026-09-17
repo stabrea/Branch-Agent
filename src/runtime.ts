@@ -208,7 +208,7 @@ export class Runtime {
   private readonly unreconciled = new Map<string, { name: string; arguments: string }[]>();
   private readonly activeSessions = new Set<string>();
   /** Notes the owner sent to a task that is still working, waiting for its next round. */
-  private readonly steers = new Map<string, string[]>();
+  private readonly steers = new Map<string, { note: string; from: string | undefined }[]>();
   /** The catalog each running task is showing the model, so a tool it found stays loaded. */
   private readonly catalogs = new Map<string, ToolLoader>();
   /** Conversations already put back in this launch, so it is done once and not on every task. */
@@ -1035,15 +1035,16 @@ ${run.output.slice(0, 6000)}`;
    * A note the owner sends to a task that is still working. It goes in front of the next round,
    * unlike a follow-up message, which waits for the task to finish.
    */
-  steer(runId: string, text: string): { queued: number } {
+  steer(runId: string, text: string, from?: string): { queued: number } {
     const note = String(text ?? "").trim();
     if (!note || note.length > 2000) throw new Error("A note has to be between 1 and 2000 characters");
     const run = this.store.run(runId);
     if (!run || run.owner !== this.owner) throw new Error("Run not found");
     if (run.status !== "running") throw new Error("Only a task that is still working can be steered");
-    const queue = [...(this.steers.get(runId) ?? []), note];
+    // `from` names a chat participant (wave mac2, chat-live); such a note never speaks as the owner.
+    const queue = [...(this.steers.get(runId) ?? []), { note, from }];
     this.steers.set(runId, queue);
-    this.store.event(runId, "run.steered", { note: note.slice(0, 500), waiting: queue.length });
+    this.store.event(runId, "run.steered", { note: note.slice(0, 500), waiting: queue.length, ...(from === undefined ? {} : { from: from.slice(0, 80) }) });
     return { queued: queue.length };
   }
   private applySteers(run: Run, messages: Message[], ids: (number | null)[]): void {
@@ -1052,8 +1053,8 @@ ${run.output.slice(0, 6000)}`;
     this.steers.delete(run.id);
     // Wrapped in the marker the standing instructions name as the only trusted one. A bare line
     // saying "the owner says" is exactly what an injection says, and gets refused for it.
-    for (const note of queue)
-      this.add(run, messages, ids, { role: "user", content: steerMessage(note) });
+    for (const { note, from } of queue)
+      this.add(run, messages, ids, { role: "user", content: steerMessage(note, from) });
     this.store.event(run.id, "run.steer_applied", { notes: queue.length });
   }
   /**
