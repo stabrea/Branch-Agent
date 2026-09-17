@@ -1520,7 +1520,10 @@ $("prompt").addEventListener("keydown", (event) => {
  */
 export const SLASH_COMMANDS = [];
 let slashList = null;
-const slashSurface = () => (globalThis.Capacitor?.isNativePlatform?.() || new URLSearchParams(location.search).get("surface") === "phone" ? "phone" : "window");
+/* The phone app opens the paired Branch at "/" and leaves a note in this tab first (apps/mobile inject.js). */
+const phoneNote = () => { try { return Boolean(sessionStorage.getItem("branch-phone")); } catch { return false; } };
+const slashSurface = () => (globalThis.Capacitor?.isNativePlatform?.() || phoneNote()
+  || new URLSearchParams(location.search).get("surface") === "phone" ? "phone" : "window");
 export function loadSlashCommands(fresh = false) {
   if (slashList && !fresh) return slashList;
   slashList = api(`commands?surface=${slashSurface()}`).then(({ commands, mode }) => {

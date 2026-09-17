@@ -129,3 +129,14 @@ test("the dashboard's command line answers, and a key that may only look can sti
   assert.equal(sideways, false);
   assert.deepEqual(errors, []);
 });
+
+test("the phone app's window asks for the phone's list", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(() => sessionStorage.setItem("branch-phone", JSON.stringify({ at: Date.now() })));
+  const asked = page.waitForRequest((request) => request.url().includes("/api/commands?surface=phone"));
+  await page.reload();
+  await page.locator("#workspace").waitFor({ state: "visible" }).catch(() => undefined);
+  await asked;
+  assert.equal(await page.evaluate(() => globalThis.branchSlashCommands.surface()), "phone");
+  assert.deepEqual(errors, []);
+});
