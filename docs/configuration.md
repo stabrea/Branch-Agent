@@ -1050,7 +1050,7 @@ Routes: `GET /api/voice/plan` (which service would do the work, where the sound 
 
 ### Other speech services and spoken commands (bucket 17)
 
-Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
+Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region as `azureRegion`, for example `westeurope`, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line as `programArgs`, at most 20, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
 
 **Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. There is still no wake word. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
 
@@ -6061,7 +6061,7 @@ builds a recording only when one is opened; "on" does the same and lists recent 
 
 - **Save as a page** writes one HTML file that plays anywhere. It carries its own copy of
   `public/tokens.css` and can reach nothing (`default-src 'none'`). Pictures go into it only when
-  "Put the pictures it looked at into saved pages" is ticked, and then only the newest three.
+  "Put the pictures it looked at into saved pages" (`keepPictures`, off by default) is ticked, and then only the newest three.
 - **Make a workflow from it** turns the actions that worked into the steps of a saved workflow, with the
   settings they were given (secrets removed). Saving never runs it, and its steps pass the same checks
   as any workflow's when it does run.
@@ -6072,7 +6072,8 @@ builds a recording only when one is opened; "on" does the same and lists recent 
 **Is Branch keeping up** (Settings → Advanced, `src/event-loop-watch.ts`). Measures how late Branch's own
 work starts and how busy it is, and says in one sentence whether that is fine, slow or stuck. "When
 needed" takes a two-second measurement only when Check now is pressed; "on" watches from launch and
-counts every stall; off measures nothing.
+counts every stall; off measures nothing. A stall is work that starts later than `stallMs` (250 ms by
+default, between 50 and 10000).
 
 Integration review (mac4/bucket-13): the saved page is written in the window's language (`?lang=`,
 only a language file the app ships), and step names in the player and the page are translated too;
