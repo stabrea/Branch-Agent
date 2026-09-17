@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, WebAccess, isPrivateAddress, readable, parseSearchResults } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
@@ -31,7 +32,7 @@ async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-web-"));
   const provider = { name: "scripted", requests: [], async complete(request) { provider.requests.push(request); return { content: "ok", toolCalls: [] }; } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 

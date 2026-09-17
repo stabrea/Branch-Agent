@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { deflateRawSync } from "node:zlib";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { chunkText, documentBytesLimit } from "../dist/documents.js";
@@ -19,7 +20,7 @@ async function fixture(t, provider) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     ...(provider ? { provider } : {}),
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace: join(root, "workspace") };
 }
 const scripted = (extra = {}) => ({

@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { discardTemp } from "./temp-dir.mjs";
 
 test("CLI loads explicitly configured integrations before doctor", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const config = join(root, "integrations.json");
   await writeFile(
     config,

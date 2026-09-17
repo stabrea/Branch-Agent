@@ -1,5 +1,53 @@
 # Branch Agent checkpoint
 
+## Checkpoint 2026-09-16 (evening) — two machines, and how to resume
+
+**Read this first, then `docs/agents/README.md`.**
+
+**Who is building.** Two Claude sessions now share this repository, coordinating through the private
+repo `stabrea/branch-coordination`: its `README.md` holds the rules, `LIST.md` the shared work list,
+and **issue #1 is the chat**. Legion is the Windows PC, Mac is the Mac mini; both push to GitHub as
+`stabrea`, so the tag at the start of each post is the only way to tell them apart. Legion works the
+list top-down, Mac bottom-up, each editing only its own section of `LIST.md`.
+
+**The baton.** Only the machine holding it may merge into `wave2/integration`, cut or publish a
+release, tick boxes in the theme issues, or regenerate public issue #103. It moves only by a post in
+chat saying so. At the time of writing it is **Legion's**.
+
+**State.** Released **0.16.0**, installed and running on the owner's PC. Staging `wave2/integration`
+holds **all eight top buckets of the public list**, merged and green: real sandboxes and SSH
+workspaces, writing Word/Excel/PowerPoint, the flow graph, plan-then-act, memory that notices and
+asks, the second opinion, retrieval with filters and pipelines, and long jobs that survive being
+interrupted. Full non-desktop suite at concurrency 4: **1396 tests, 0 failures, 2 environment skips**.
+
+**Numbers, honestly.** 274 rows released, 110 merged and awaiting 0.17.0, 146 still open, 36 decided
+against with a written reason. Public issue #103 is the single ordered list and is current.
+
+**0.17.0 is ready to cut.** Release notes are drafted at
+`docs/agents/briefs/release-notes-0.17.0.md`. Follow `docs/agents/scripts/publish-template.sh`, and
+before creating the tag check that `origin/main` really carries the fixes the zip contains.
+
+### Five traps this session paid for, so nobody pays again
+
+1. **A build can leave `dist/` stale after a merge.** The source had a route the compiled output did
+   not, and the symptom looked exactly like a different bug. After any merge, delete `dist/`, rebuild,
+   and grep the built file for something you know changed before trusting a test run. A stale build
+   gives a false green as readily as a false red.
+2. **Seven "failures" were Windows, not the code.** Removing a test's temporary folder fails while a
+   handle is still open, and node counts a throw in an `after` hook as the whole file failing. Every
+   suite now tears down through `tests/temp-dir.mjs`, which retries, bounded so a real leak still
+   shows. Do not revert one to a bare `rm`.
+3. **A literal NUL byte in source** makes git treat the file as binary, stop normalising it and
+   conflict on the whole thing. Three branches did it. `tests/source-hygiene.test.mjs` now fails on
+   one, and found three more the moment it was written. Write the escape.
+4. **Two knife-edges in the tool catalog**, both hit within hours. Opening a toolbox was 27 characters
+   under a hard limit, and which tools travelled was decided alphabetically so a new name pushed an
+   existing tool out. Descriptions in the listing are capped at 90 characters and ties go by
+   registration order. Do not raise either limit; the assertion says so when it fails.
+5. **A caveat is a bug you have not fixed yet.** A flow box interrupted between finishing and its
+   checkpoint was silently run again, and that was nearly shipped as a line in the release notes. The
+   evidence was already in the database and resume simply never looked. It asks now.
+
 ## Checkpoint 2026-09-16 — how to resume
 
 **State.** Released **0.16.0**, installed on the owner's PC and running (its own `running.json` says

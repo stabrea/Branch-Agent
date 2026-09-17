@@ -61,6 +61,10 @@ export function describeToolCall(name: string, args: unknown): string {
     case "web.search": return `Searching the web for “${short(a.query)}”`;
     case "web.fetch": return `Reading ${host(a.url)}`;
     case "shell.execute": return "Running a command";
+    case "shell.session.open": return "Opening a command line to keep";
+    case "shell.session.run": return "Running a command on the open command line";
+    case "shell.session.list": return "Listing the command lines being kept open";
+    case "shell.session.close": return "Closing a kept-open command line";
     case "remote.run": return `Running a program on ${String(a.computer ?? "another computer")}`;
     case "git.status": return "Checking what changed";
     case "git.diff": return "Looking at the changed lines";

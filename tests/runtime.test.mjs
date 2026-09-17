@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, DemoProvider } from "../dist/index.js";
 
 async function fixture(t, provider = new DemoProvider()) {
@@ -20,7 +21,7 @@ async function fixture(t, provider = new DemoProvider()) {
   const app = await createBranch({ workspace, dataDir, provider });
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root, workspace, dataDir };
 }

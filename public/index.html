@@ -207,6 +207,24 @@
             </div>
           </div>
           <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
+          <!-- Wave 9: plan first or just do it, and how far it may go before checking back. The
+               choice belongs in the conversation, not buried in Settings (public/plan-act.js). It
+               is here before the first message too, so a plan can be asked for from the start. -->
+          <div id="plan-controls" class="model-controls">
+            <label for="session-plan-mode" data-t="field.how-it-should-work">How it should work</label>
+            <select id="session-plan-mode">
+              <option value="just-do-it" data-t="planAct.justDoIt">Just do it</option>
+              <option value="show-plan" data-t="planAct.showPlan">Show me the plan first</option>
+            </select>
+            <label for="session-autonomy" data-t="field.check-back-with-me">Check back with me</label>
+            <select id="session-autonomy">
+              <option value="every-step" data-t="planAct.everyStep">Before every step</option>
+              <option value="changes-only" data-t="planAct.changesOnly">Before steps that change something</option>
+              <option value="at-the-end" data-t="planAct.atTheEnd">Not until the end</option>
+            </select>
+            <button id="plan-mode-project" type="button" class="text-button" data-t="action.use-this-for-the-whole-project">Use this for the whole project</button>
+            <span id="plan-mode-state" class="meta" role="status"></span>
+          </div>
           <div id="model-controls" class="model-controls" hidden>
             <label for="session-model" data-t="field.model-for-this-conversation">Model for this conversation</label>
             <select id="session-model"></select>
@@ -221,6 +239,8 @@
             <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
+          <!-- The plan itself: what it intends to do, before it does any of it. -->
+          <div id="plan-card" class="plan-card" hidden></div>
           <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
             <label class="sr-only" for="prompt" data-t="composer.yourMessage">Your message</label
@@ -719,6 +739,8 @@
             <h2 data-t="documents.card.answering-from-your-documents">Answering from your documents</h2>
             <p>While this is on, your assistant looks through the documents below before it answers, and says which one it took each line from.</p>
             <label class="check-row"><input type="checkbox" id="documents-use" /> <span data-t="field.use-my-documents-when-answering">Use my documents when answering</span></label>
+            <label class="check-row"><input type="checkbox" id="documents-repository" /> <span data-t="field.also-name-the-files-of">Also name the files of this project that match, when nothing of yours does</span></label>
+            <p class="subtle" data-t="documents.note.naming-project-files-is-off">This is off unless you want it. Most questions are not about code, and a list of file names in front of every question would only get in the way. When it is on, it speaks last: a knowledge base or a document of yours is always preferred.</p>
             <p class="subtle" id="documents-meaning"></p>
           </div>
           <form id="documents-path-form" class="card">
@@ -785,8 +807,34 @@
                 <input id="knowledge-query" type="search" maxlength="500" placeholder="what does the handbook say about holiday?" />
                 <button type="submit" data-t="action.search">Search</button>
               </div>
+              <div class="input-row">
+                <label for="knowledge-filter-kind" data-t="field.only-this-kind-of-file">Only this kind of file</label>
+                <select id="knowledge-filter-kind">
+                  <option value="" data-t="option.any-kind">Any kind</option>
+                  <option value="pdf">PDF</option>
+                  <option value="docx">Word</option>
+                  <option value="xlsx">Spreadsheet</option>
+                  <option value="pptx">Slides</option>
+                  <option value="md">Notes</option>
+                  <option value="csv">Table</option>
+                </select>
+                <label for="knowledge-filter-changed" data-t="field.only-files-changed-since">Only files changed since</label>
+                <input id="knowledge-filter-changed" type="date" data-t-label="field.only-files-changed-since" aria-label="Only files changed since" />
+              </div>
+              <p class="subtle" data-t="documents.note.a-filter-that-matches-nothing">A filter narrows the search before anything is ranked, and two filters narrow it further. If nothing matches, Branch says so rather than answering from everything else you have.</p>
               <div id="knowledge-results" class="card-list"></div>
             </form>
+            <h3 data-t="documents.heading.where-your-vectors-are-kept">Where your vectors are kept</h3>
+            <p class="subtle" data-t="documents.note.vectors-are-kept-in-branchs">Matching by meaning needs a list of numbers for every passage. They are kept in the database Branch already has. If you have a large library you can put them in a database file of your own instead, on any drive. Nothing is deleted by changing this: press Read it again to fill the new place.</p>
+            <div class="input-row">
+              <select id="knowledge-vectors-in">
+                <option value="database" data-t="option.in-branchs-own-database">In Branch's own database</option>
+                <option value="file" data-t="option.in-a-file-i-choose">In a file I choose</option>
+              </select>
+              <input id="knowledge-vectors-file" type="text" maxlength="400" placeholder="D:/branch/vectors.db" data-t-label="field.the-full-path-of-that" aria-label="The full path of that file" />
+              <button id="knowledge-vectors-save" type="button" data-t="action.save">Save</button>
+            </div>
+            <p id="knowledge-vectors-status" role="status" class="meta"></p>
           </div>
           <div class="card" id="docs3-card">
             <h2 data-t="documents.card.write-a-document">Write a document</h2>
@@ -922,6 +970,29 @@
             </div>
             <p class="appearance-note" data-t="appearance.note">Saved with this workspace, so it looks the same the next time you open it.</p>
             <button data-t="appearance.save">Save appearance</button>
+          </form>
+          <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <form id="second-opinion-form" class="card">
+            <h2 data-t="settings.card.second-opinion">A second opinion</h2>
+            <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
+            <label class="check-row"
+              ><input type="checkbox" id="advisor-on" />
+              <span data-t="field.advisor-on">Have a second connection check each finished answer</span></label
+            >
+            <label for="advisor-preset" data-t="field.advisor-connection">Which connection advises</label>
+            <select id="advisor-preset">
+              <option value="" data-t="settings.second-opinion.same-connection">Whichever one answered</option>
+            </select>
+            <p class="field-note" data-t="settings.second-opinion.same-connection-note">Leaving this on the one that answered is a weaker check: a model rarely argues with itself.</p>
+            <label for="advisor-ceiling" data-t="field.advisor-ceiling">Most the check may spend on one task (tokens)</label>
+            <input type="number" id="advisor-ceiling" min="200" max="200000" step="100" />
+            <h3 data-t="settings.second-opinion.debate">Two connections arguing</h3>
+            <p data-t="settings.second-opinion.debate-intro">For a question worth the cost, two connections answer on their own and then read each other. It stops at whichever of these two it reaches first, and says which one stopped it.</p>
+            <label for="debate-exchanges" data-t="field.debate-exchanges">Times each side may answer the other</label>
+            <input type="number" id="debate-exchanges" min="1" max="3" step="1" />
+            <label for="debate-ceiling" data-t="field.debate-ceiling">Most a whole debate may spend (tokens)</label>
+            <input type="number" id="debate-ceiling" min="1000" max="500000" step="1000" />
+            <button data-t="action.save-second-opinion">Save second opinion</button>
           </form>
           <form id="voice-settings-form" class="card">
             <h2 data-t="settings.card.voice">Voice</h2>
@@ -1665,6 +1736,7 @@
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
     <script src="/flows.js" type="module"></script>
+    <script src="/second-opinion.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>

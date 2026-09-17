@@ -736,6 +736,21 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## A conversation that survives a restart
+
+Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end
+of every task, the conversation's model choice, how hard it was asked to think, the project it was
+under, the toolboxes it had opened for itself (at most three) and the standing yeses given in it are
+written down beside it. The first task in that conversation after a restart puts them back and records
+a `session.restored` line on itself saying what came back.
+
+Anything that could not be put back is **said plainly instead of papered over**: a model that is no
+longer set up names the one being used in its place, a project that has been removed names the one the
+conversation is in now, a toolbox nothing offers any more is named, and a standing permission that had
+already run out while the app was closed is named as needing to be asked for again. A permission that
+is still in date comes back with the moment it was always going to run out, never a fresh hour: a
+restart cannot lengthen a permission you gave.
+
 ## Long conversations and questions for you
 
 When a conversation's working context passes about 11,000 estimated tokens, Branch asks the model for a short handoff summary of the older turns (facts, decisions, file paths, open tasks, next step), keeps at least the six most recent turns plus everything from the current task, and continues with the summary in place. The run records a `context.compacted` event with sizes before and after; the summary is saved per conversation and reused; the complete transcript stays stored and searchable.
@@ -1032,11 +1047,67 @@ The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|defa
 
 `branch status` lists the tasks working now, the ones waiting for an answer, and the health summary (`--json` for the same thing as JSON). `branch logs <task id>` prints that task's timeline one line per step (`--json` for the stored events). `branch approve <task id> yes|no` answers a task that stopped to ask. It cannot answer just this once: the program run that stopped has already ended, so the answer is **saved as a standing rule** for that tool and that exact target and applies to every future task, not only this one. The command says so when it runs, and the rule can be changed under **Settings → When to check with me**. For a one-time yes, use the terminal view (`branch chat`) or the settings screen instead.
 
+**No window at all.** `branch headless` runs a scripted job with nothing on the screen: no web page, no
+terminal conversation, no window. Give it one request, or `--script <file>` with one request per line
+(blank lines and lines starting with `#` are notes, at most 100 requests). Every request after the
+first joins the conversation the first one made, so a script reads as one job. `--stop-early` stops at
+the first request that does not finish; without it the rest still run. It takes the same `--json`,
+`--budget`, `--timeout`, `--session` and `--preset` flags as `branch run`, and **the exit code is the
+same contract as the table above** — 0 finished, 2 stopped to ask you something, 3 failed, 4 out of
+budget. For a whole job, the first request that did not finish decides the code. A summary line goes
+to stderr; with `--json` the last line of stdout is `{"type":"headless.finished", ...}`.
+
+**A command line kept open.** An ordinary command starts a program, waits for it and lets it go, so
+nothing carries from one command to the next. `shell.session.open` opens one of the same programs your
+host command settings allow and **keeps it open**, so a later command lands in the same folder with the
+same loaded state, in a later task of the same conversation. `shell.session.run` sends one command and
+reads what it printed, `shell.session.list` lists the ones this conversation has open (name one to read
+what it has printed lately), and `shell.session.close` closes it and everything it started. It is held
+to exactly what any other command is held to: the same allowed programs, the same environment built
+from an allowlist, the same Windows job enforcing the limits, and the same approval rules — asked again
+for **every** command sent, not once when it was opened. The limits are the ones under **programs left
+running** (`maxRunning`, `maxMinutes`, `maxMemoryMb`, `maxCpuSeconds`, `bufferBytes`); it is never a
+window on your screen, and every kept-open command line is closed when the app closes.
+
+**When a task cannot be placed.** A task that cannot start is never left to hang in silence. The
+waiting line answers every `submit` with where the task went and why: started, waiting (with its place
+in the line and what would let it start sooner), moved to another model because the one it asked for is
+no longer set up, or refused because something it needs is not on this computer — each with the next
+best thing you can actually do about it.
+
 **Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+
+## A queue service, and why there is not one
+
+Some assistants put a queue service such as Redis in the middle: tasks go into it, separate workers
+take them out, and the two halves talk over the network. Branch does not, and this is a decision
+rather than an omission. The waiting line is already here, in `src/run-queue.ts`: it is kept in the
+same private database as everything else, it orders what you asked for ahead of anything automatic,
+it holds one task at a time per conversation, it shares one count of what is working with the app's
+own screen, and it marks anything that was working when the app closed instead of quietly replaying
+it. A queue service would add a second program to keep running and a second place your work can sit,
+for a single computer that has no second worker to coordinate with. That is the same reason the
+audit's other middle-men were turned down (see the "not going to be built" list). If Branch ever runs
+across more than one computer, this is the paragraph to come back to.
 
 ## Other programs and streams
 
 `POST /v1/chat/completions` accepts the OpenAI chat shape with the local session token as the bearer token. The last user message becomes the task, system/developer messages travel as caller instructions, `model` may name a preset id, `x-branch-session` (or `metadata.session_id`) continues a conversation, and `stream: true` returns `chat.completion.chunk` events. Every response carries `branch.{run_id, session_id, status}`. `GET /v1/models` lists presets. `GET /api/runs/:id/stream?after=<id>` streams a run's events in order over Server-Sent Events until it ends.
+
+## Schedules that repeat, and ones that keep failing
+
+`schedules.create` writes down a reminder, a task, a check or an evaluation with a due moment, and
+optionally an interval (`intervalMs`, at least a minute) or a daily time in a timezone (`dailyAt` plus
+`timezone`). It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook
+(`webhook`), and be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns
+while the app was closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list`
+do what they say, and each schedule keeps the last fifty turns with what happened on each.
+
+A repeating job that **fails** a turn now moves on to its next turn rather than stopping for good, and
+the failures in a row are counted on the record as `consecutiveFailures`. After three in a row the job
+is paused and the reason is written down in plain words under `pausedBecause`, so a job that is broken
+rather than unlucky does not fail quietly every day for ever; start it again with `schedules.pause` set
+to false once whatever it needs is working. One turn finishing clears the count.
 
 ## Follow-ups and background specialists
 
@@ -1212,7 +1283,21 @@ Everything in this section is off until you turn it on, so a task behaves exactl
 
 **A plan for one task.** `POST /api/run { prompt, plan: true }` asks the model for two to six numbered steps before any work starts. The steps are saved for the conversation and carried out in order: each one is given to the model on its own, and a step that comes back without the word its plan entry asked for is tried once more before the task stops. Events: `plan.created`, `plan.step.started`, `plan.step.retry`, `plan.step.finished`, `plan.completed`, and `plan.failed` when the model's plan cannot be read (the task then simply runs as usual). A planned task gets four extra rounds per step, up to forty.
 
-**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task.
+**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan made this way to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task. A plan made in "Show me the plan first" mode is kept instead, and picked up where it stopped; see the next section.
+
+## Plan first, show me the plan, then act
+
+Asking about one tool call at a time is not the same as agreeing what is going to happen. This section is the other way round: you see the whole plan in plain words, change a step if you want to, and only then does anything run.
+
+**The two modes.** `GET|POST /api/plan-act` holds `planMode` — `just-do-it` (what Branch has always done, and still the default) or `show-plan` (make a plan, show it, and wait) — and `autonomy`, which says how far a task carrying out an agreed plan may go before it checks back: `every-step`, `changes-only` (only steps that change something) or `at-the-end` (the default: not until the whole plan is done). Both live per conversation **and** per project: `POST /api/plan-act { sessionId, planMode }` sets one conversation, `POST /api/plan-act { scope: "project", planMode }` sets what every new conversation in the project starts from, and `{ sessionId, followProject: true }` puts a conversation back on the project's choice. A conversation's own choice always wins. The switch is in the conversation itself, beside the model picker, not in Settings.
+
+**What a plan says.** In `show-plan` mode the first round of the model produces two to six numbered steps in plain words. Each step carries `title` (what it will do), `touches` (the one file, website or program it uses) and `changes` (whether it changes anything; a step that does not say is taken to change something). The plan is stored with the task — run id, conversation, the prompt it was made for, the mode and the autonomy setting — and shown with one sentence naming which steps change something. Events: `plan.created` and `plan.awaiting_approval` carry the titles, what each step touches, which of them change something, and that one sentence.
+
+**Agreeing it.** The task stops with status `needs_input` and the plan as its question. `POST /api/runs/:id/plan {}` agrees to it as it stands; `POST /api/runs/:id/plan { steps }` agrees to it with the wording you changed, and the changed wording is what runs; `POST /api/runs/:id/plan { decision: "reject", reason }` sends it back, and the model is asked for another plan straight away with your reason in front of it. Saying "go ahead" in the conversation also agrees to it. Nothing that changes anything runs before you have agreed. Events: `plan.approved`, `plan.rejected`, `plan.decided`. Every answer is written into the record of what the assistant was allowed to do, against the task, with the numbered plan, the autonomy setting and who answered.
+
+**Following it.** Each step shows as waiting, doing, done or failed against the plan you agreed (`plan.step.started`, `plan.step.finished`). With `autonomy` set to `every-step` or `changes-only`, the task stops before the next step and says which one is coming (`plan.check_back`); your "go ahead" carries it on from exactly there. And if a step that said it would change nothing turns out to need something that does, the task stops and names the difference rather than quietly doing it (`plan.off_plan`), through the same question card as every other approval.
+
+**Debugging a command.** When a command does not work — it failed, or it came back with a complaint — and the assistant then wants to run the same program again, you are shown both commands and what changed between them before anything runs (`command.correction`). You are asked once per command, so agreeing lets the corrected one through.
 
 **Several specialists at once.** `delegate.parallel` runs up to six specialist branches together (at most four are in flight at a time, the same limit as other children). What is left of the task's token budget is split evenly between them, and a branch never costs the task more than its share. One branch failing leaves the others running unless `failFast` is true. The answers come back for the model to combine into one, and the whole thing is recorded as a `delegation.parallel` event. `delegate.handoff { specialist, brief }` hands the rest of a piece of work to a named specialist and brings its answer back, recorded as `delegation.handoff`.
 
@@ -2031,10 +2116,179 @@ interface. What they find is merged and then put in order by a second pass. By d
 counts how much of your question each passage uses — it costs nothing, happens on this computer,
 and gives the same order every time. Set `mode` to `model` and it instead asks the model once to
 read the top twenty and pick the best five.
-`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`.
+`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`; the same
+`GET` also returns the named pipelines and which knowledge base uses which, and
+`POST /api/retrieval/pipelines` sets them.
 `POST /api/retrieval/search {"query": "..."}` returns the passages with `reranked` and
 `rerankCalls`, which is 0 for the word count and 1 for the model. The same ordering is used for the
 passages put in front of an ordinary task.
+### Narrowing a search before anything is ranked (wave 9)
+
+A question about this year's invoices should not drag last year's in behind it. Every search of a
+knowledge base — the `knowledge.search` tool and `POST /api/knowledge/search` — takes an optional
+`filter` made of things a passage already carries, so the unwanted ones are left out of the
+comparison rather than pushed down it:
+
+| In `filter` | What it means |
+| --- | --- |
+| `collections` | Knowledge bases, by name or by id. |
+| `files` | Files, by workspace path or by the file's own name. A folder path matches everything under it. |
+| `kinds` | Kinds of document: `pdf`, `docx`, `xlsx`, `pptx`, `md`, `csv`, `txt`, `html`, `json`, `odt`, `ods`, `epub`, `rtf`. |
+| `changedAfter` | Only files Branch last saw change on or after this date, written `2026-01-01`. |
+| `changedBefore` | Only files Branch last saw change before this date. |
+
+**Filters combine.** Naming a kind and a date means both must be true, not either. The narrowing is
+done in the database, in **both** ways Branch finds candidates — the full-text one and the plain scan
+it falls back to — so a filter is never quietly dropped when full-text search happens to find
+nothing.
+
+**A filter that matches nothing says so.** The answer carries a `note` naming what you asked for and
+saying plainly that the search was not widened and no answer was taken from outside the filter. An
+empty list on its own cannot tell "nothing in those invoices" from "nothing anywhere", and the
+difference is the whole point of having a filter. A knowledge base you named that does not exist is
+named back to you in the same sentence.
+
+"Last changed" means the last time Branch saw that file's contents differ from what it had. Reading
+a folder where nothing changed does not move the date.
+
+In the **Knowledge** card, the two boxes under the search row set a kind and a date.
+
+### Naming an order for the places Branch looks (wave 9)
+
+Branch looks in several places for passages: your documents, your saved notes, your knowledge bases,
+one hop through the map of a knowledge base, and text pasted in for this job alone. By default all of
+them are asked at once, their answers merged, and the best put first. That is still exactly what
+happens unless you write down something else, and `tests/retrieval-2.test.mjs` asserts that the
+default and the old code give the identical answer.
+
+The picker on each knowledge base's card is what the assistant uses when it looks something up for
+you; the search box on that same card always searches that one knowledge base directly.
+
+A **named pipeline** is an order for those places, with a ceiling on each, and the pass that puts the
+best first at the end. `POST /api/retrieval/pipelines` holds two things. `pipelines` is the list of
+orders you have written, each `{ name, stages: [{ retriever, cap }] }`; `byCollection` says which of
+them a search aimed at one knowledge base uses, keyed by that knowledge base's name or id. Anything
+not named there uses the usual way.
+
+`retriever` is one of `documents`, `memory`, `knowledge`, `knowledge-graph`, `ephemeral`, or
+`rerank`. `cap` is the most that step may bring back — or, for `rerank`, the most it may keep. The
+rerank always runs last whether or not you write it down; writing it down is how you set its number.
+A step naming something Branch has no retriever for is skipped and said so in the answer's `note`,
+rather than failing the search.
+
+```
+POST /api/retrieval/pipelines
+{
+  "pipelines": [
+    { "name": "the contract in front of me",
+      "stages": [ { "retriever": "ephemeral", "cap": 8 },
+                  { "retriever": "documents", "cap": 2 },
+                  { "retriever": "rerank", "cap": 3 } ] }
+  ],
+  "byCollection": { "Contracts": "the contract in front of me" }
+}
+```
+
+`POST /api/retrieval/search` takes `query` and optionally `pipeline` (a name) or `collection` (which
+picks the pipeline through `byCollection`). The answer carries `pipeline` and a `stages` list saying
+what each step was allowed and what it actually brought back, so you can see where an answer came
+from. Each knowledge base's card in **Documents** has the same picker.
+
+### A retrieval, end to end, that you can actually run
+
+This is the whole path, from nothing to a quoted answer with its source, on one computer. Every step
+is a real request.
+
+1. **Make a knowledge base and point it at a folder of your own.**
+
+   ```
+   POST /api/knowledge  { "name": "Invoices", "sources": [ { "kind": "folder", "path": "invoices" } ] }
+   ```
+
+2. **Read it.** Every file is cut into passages and kept for word search. With no model connected
+   that is all that happens, and the answer says so — word search on its own is enough for this
+   example.
+
+   ```
+   POST /api/knowledge/reindex  { "collection": "Invoices" }
+   ```
+
+   The answer is a progress line: `files`, `filesDone`, `chunks`, `unchanged`, `tokens` and a
+   `status` in words.
+
+3. **Ask it something, narrowed to this year's spreadsheets.**
+
+   ```
+   POST /api/knowledge/search
+   { "query": "what did we pay Dane Heating",
+     "limit": 5,
+     "filter": { "kinds": ["xlsx"], "changedAfter": "2026-01-01" } }
+   ```
+
+   Each result names its `collectionName`, `documentName`, `heading` and `page`, so the answer can be
+   quoted and checked. If the filter left nothing, `note` says so and the list is empty — Branch does
+   not widen it.
+
+4. **Have the assistant answer in sentences, with numbered sources.**
+
+   ```
+   POST /api/knowledge/ask  { "collection": "Invoices", "question": "what did we pay Dane Heating" }
+   ```
+
+5. **Change the order it looks in, and check it.** Say you want the map of the knowledge base asked
+   first for this one, and only three answers kept:
+
+   ```
+   POST /api/retrieval/pipelines
+   { "pipelines": [ { "name": "suppliers first", "stages": [
+       { "retriever": "knowledge-graph", "cap": 6 },
+       { "retriever": "documents", "cap": 4 },
+       { "retriever": "rerank", "cap": 3 } ] } ],
+     "byCollection": { "Invoices": "suppliers first" } }
+
+   POST /api/retrieval/search  { "query": "Dane Heating", "collection": "Invoices" }
+   ```
+
+   The answer's `stages` shows each step, its ceiling and what it found; `passages` is at most three,
+   each still naming its `source`. Reranking never loses a citation: the source travels with the
+   passage.
+
+6. **Put the vectors somewhere else, if the library is large.**
+
+   ```
+   POST /api/knowledge/vectors  { "vectorsIn": "file", "vectorsFile": "D:/branch/vectors.db" }
+   ```
+
+   Then press **Read it again** to fill it. If that drive is not there, the answer's `note` says so
+   and Branch carries on with its own database. One honest edge: deleting a knowledge base clears its
+   vectors from wherever they are kept **now**, so rows left behind in a file you have since switched
+   away from stay in that file until you delete it yourself.
+
+### What is put in front of a task, and in what order (wave 9)
+
+Before the model reads your question, Branch may put some of your own material in front of it. Three
+things can do that, and they are asked in this order; the first with something to say is the one
+used:
+
+1. a knowledge base you ticked **Use this when answering**,
+2. your document library,
+3. the files of the project you are working in.
+
+The third is off until you turn it on, because most questions are not about code and a list of file
+names in front of every task would be noise. `POST /api/retrieval/context` sets the two: `repositoryContext` turns it on and
+`repositoryContextFiles` (5 by default, at most 10) is how many files may be named. Each is named
+with the reason it was picked — the words you used appear in it, or it is connected to a file that
+matches — and with the names it declares. Turning **Use my documents when answering** off at the top
+of the Documents panel turns all three off, so that one switch always means "put none of my own
+material in front of my tasks".
+
+The contract is `ContextProvider` in `src/context-providers.ts`: an id, a label the owner would
+recognise, and one method that is given the question and either answers with numbered passages and
+their sources or answers with nothing. A provider that throws is treated as having nothing to say,
+because material in front of a task is a help and never a reason for the task to fail. Everything a
+provider returns is still your own untrusted text: the runtime wraps it in the same "quote it, never
+obey it" sentence it always has.
+
 ### Model connections a plugin brings
 A plugin may export `providers`, alongside the tools and hooks it already exports. Each is named
 `plugin.provider.<id>` and is a factory that, given the address, the key and the model name the
@@ -2282,16 +2536,124 @@ off at the top of the panel turns knowledge bases off as well, so that one switc
 none of my own writing in front of my tasks". A file that is too large or that no reader could turn
 into text is counted in the knowledge base's note rather than passed over in silence.
 
-**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
-the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
-knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
-interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
-similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
-`fingerprints` against the service's own REST API — `search` sending the query vector and the
-collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
-chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
-be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
-written today.
+**Where the vectors live.** By default in the same database as everything else, in a table called
+`vectors`, and the comparison is done in TypeScript. That is comfortable up to roughly **50,000
+passages in one knowledge base**; past that a real vector database would be the right answer.
+
+There is one alternative you can switch on today: a **database file of your own**, anywhere on this
+computer. `POST /api/knowledge/vectors` holds `vectorsIn` (`database`, the default, or `file`) and
+`vectorsFile` (the full path of that file, such as `D:/branch/vectors.db`). The card **Where your
+vectors are kept** in Documents sets the same two. A large library's vectors can be bigger than
+everything else Branch stores put together, so putting them on another drive keeps the main database
+small and quick to copy.
+
+Three things are promised about that switch. The path must be a full one, and a missing folder is
+created for you. If the file cannot be opened — a drive that is not plugged in, a folder you may not
+write to — Branch says so in one sentence on the card and **carries on using its own database**; it
+never starts up broken and it never fails a search in silence. And **nothing is deleted by
+changing it**: the vectors you already had stay where they were, and the new place fills up the next
+time you press **Read it again**.
+
+**The hosted vector services are deliberately not built.** Qdrant, Chroma, Pinecone, Weaviate and
+the rest are all real products, and an adapter for each was asked for in the capability audit. None
+is built here, for one reason: nobody running Branch on their own computer is also running one of
+them, an adapter could not be tested on this machine without a network, and each one would be a new
+dependency to talk to a service you do not have. What exists instead is the contract, a second real
+implementation of it, and the worked example below. If you do run one, that example is enough to
+write the adapter in an afternoon.
+
+### Writing your own place to keep the vectors, end to end
+
+`VectorBackend` in `src/vector-store.ts` is seven methods, six of them required. Here is a complete
+one, for a service that speaks HTTP. Nothing is left out; this compiles.
+
+```ts
+import type { VectorBackend, VectorMatch, VectorRecord } from "branch-agent";
+
+/** Your service, behind the same contract the shipped SQLite one implements. */
+export class MyVectors implements VectorBackend {
+  readonly name = "my vector service";
+  constructor(private readonly base: string, private readonly call: typeof fetch) {}
+
+  /** `POST` the passages. Returns how many were written, which the progress line shows. */
+  async upsert(owner: string, records: VectorRecord[]): Promise<number> {
+    if (!records.length) return 0;
+    const body = records.map((record) => ({
+      id: `${owner}:${record.collection}:${record.chunkId}`,
+      vector: Array.from(record.vector),
+      payload: { owner, collection: record.collection, docId: record.docId,
+        model: record.model, textHash: record.textHash },
+    }));
+    const answer = await this.call(`${this.base}/points`, { method: "PUT",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ points: body }) });
+    if (!answer.ok) throw new Error(`The vector service refused the write: ${answer.status}`);
+    return records.length;
+  }
+
+  async removeDocument(owner: string, collection: string, docId: string): Promise<number> {
+    return this.deleteWhere({ owner, collection, docId });
+  }
+  async removeCollection(owner: string, collection: string): Promise<number> {
+    return this.deleteWhere({ owner, collection });
+  }
+  private async deleteWhere(match: Record<string, string>): Promise<number> {
+    const answer = await this.call(`${this.base}/points/delete`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ filter: match }) });
+    if (!answer.ok) throw new Error(`The vector service refused the delete: ${answer.status}`);
+    return Number(((await answer.json()) as { deleted?: number }).deleted ?? 0);
+  }
+
+  /** Best first. `scanAtMost` may be ignored where the service does the comparison itself. */
+  async search(owner: string, collection: string, query: Float32Array, limit: number): Promise<VectorMatch[]> {
+    const answer = await this.call(`${this.base}/points/search`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vector: Array.from(query), limit, filter: { owner, collection } }) });
+    if (!answer.ok) return [];
+    const found = (await answer.json()) as { result?: { payload: { docId: string }; id: string; score: number }[] };
+    return (found.result ?? []).map((row) => ({
+      docId: row.payload.docId, chunkId: String(row.id).split(":").slice(2).join(":"),
+      score: Number(row.score.toFixed(6)),
+    }));
+  }
+
+  async count(owner: string, collection?: string): Promise<number> {
+    const answer = await this.call(`${this.base}/points/count`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filter: collection ? { owner, collection } : { owner } }) });
+    return answer.ok ? Number(((await answer.json()) as { count?: number }).count ?? 0) : 0;
+  }
+
+  /** Chunk id to fingerprint, so a passage that has not changed is never read again. */
+  async fingerprints(owner: string, collection: string, model: string): Promise<Map<string, string>> {
+    const answer = await this.call(`${this.base}/points/scroll`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filter: { owner, collection, model }, with_payload: true, limit: 50000 }) });
+    if (!answer.ok) return new Map();
+    const found = (await answer.json()) as { result?: { id: string; payload: { textHash: string } }[] };
+    return new Map((found.result ?? []).map((row) =>
+      [String(row.id).split(":").slice(2).join(":"), row.payload.textHash]));
+  }
+}
+```
+
+Three rules that are not in the type and that a wrong adapter will break. **Every call takes an
+owner and must scope to it**: two people on one computer never see each other's passages. **Lists of
+different lengths score zero rather than throwing** — a knowledge base read by two different models
+has both, and a search must not fall over. And **the network policy is not optional**: hand your
+adapter the guarded `fetch`, never `globalThis.fetch`, so the owner's address rules are checked
+before anything leaves.
+
+Then hand it over where the knowledge bases are made, in `src/index.ts`:
+
+```ts
+const knowledgeBases = new KnowledgeBases(store, files, runtime.models, ledger,
+  new MyVectors("http://127.0.0.1:6333/collections/branch", guardedFetch), guardedFetch);
+```
+
+`countNow` is the seventh method and the only optional one: the Documents panel draws its cards in
+one pass and cannot wait, so a backend that can answer a count without waiting implements it and one
+that cannot leaves it out — the card then says nothing about how many passages are compared by
+meaning rather than showing a wrong zero.
 
 **In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
 each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
@@ -2309,9 +2671,10 @@ in **Memory**, the same as every other tidying suggestion. Settings live under `
 
 Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
 now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
-`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit, filter? }`,
 `POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
 `{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/vectors` with `{ vectorsIn?, vectorsFile? }`,
 `POST /api/knowledge/source` with `{ collection, source }` or
 `{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
 `knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
@@ -4196,3 +4559,90 @@ backup and the diagnostics folder both already understand is the whole design.
   what is mentioned with what is built in the same SQLite file (`src/knowledge-graph.ts`), which is
   what a house-sized knowledge base actually needs. A separate graph server would be a service to
   install, run and back up for no gain here.
+
+## A second opinion before it commits (wave 9)
+
+Three separate things, all of them off or opt-in, because a second opinion costs a second model call.
+
+### An advisor that reads the answer
+
+When it is on, a connection of your choosing reads each finished answer and says whether it stands
+up and what it would check. **Its words go beside the answer and are never written into it.** The
+answer you were given is the answer the model gave; the advice is a second thing you read next to
+it, and you decide. The pass runs on its own budget and its cost lands on the task like any other
+model call, so you can see what it came to on the Usage screen.
+
+Settings, saved under `second-opinion` and set on the Settings screen:
+
+- `advisor` — whether a second connection checks each finished answer. Off by default.
+- `advisorPreset` — which connection advises. Empty means whichever one answered, which is a
+  weaker check: a model rarely argues with itself.
+- `advisorMaxTokens` — the most the pass may spend on one task.
+
+It never runs for a specialist's sub-task, and it can never fail a task that has already answered:
+an advisor that errors, times out or runs out of its own tokens is written down as
+`advice.failed` and the answer is given exactly as it was.
+
+### Two connections arguing
+
+`delegate.debate` puts two of your model connections on one question. Each answers on its own, then
+each reads the other and says where it disagrees and why, and a short verdict says what was argued
+and what is still open. Nothing here decides anything for you — two models arguing is evidence to
+read, not a ruling to act on.
+
+It is bounded twice over, and it says which bound stopped it:
+
+- `debateExchanges` — how many times each side may answer the other. One unless you raise it.
+- `debateMaxTokens` — the most a whole debate may spend. The running total is checked before every
+  single call, so reaching the ceiling means nothing more is sent.
+
+### Answers in a shape the app can rely on
+
+A task can declare the shape it wants back in zod, the same way a tool declares its arguments
+(`declareShape("weather", z.object({ city: z.string(), temperature: z.number() }))`). The model is
+asked for exactly that shape, and the reply goes through the same check every delegated answer
+already goes through. A reply that does not fit is re-asked **once** with its own validation error,
+and a second reply that still does not fit is refused in a plain sentence naming what was wrong.
+Nothing is half-parsed: a shape that could not be met produces no answer rather than a guess.
+
+Where this uses a service's own setting and where it does not, honestly:
+
+- **OpenAI** (and the OpenAI-compatible adapters that share `openaiBody`): its own
+  `response_format: {"type":"json_schema"}` is sent, so the model is genuinely constrained. `strict`
+  is deliberately left off — it would demand that every property be required and no extras be
+  allowed anywhere, which a shape written in zod need not be, and a refused request is worse than a
+  reply that has to be checked.
+- **Anthropic**: there is no response-format setting. Anthropic's own way of fixing a reply's shape
+  is a tool the model is made to call, so the shape is sent as one tool with `tool_choice` naming
+  it, and the reply arrives as that tool's arguments. This only works when the request carries no
+  other tools — true of the shaped pass, which runs with no permissions and so an empty catalog. A
+  request that does carry tools keeps them and falls back to asking in words.
+- **Every other adapter** (Gemini, Bedrock, Cohere, Ollama, Azure through its own body, the CLI
+  agents): the shape is asked for in the words of the question and checked afterwards. That is the
+  re-ask path, not a native one. It works; it is just not enforced by the service.
+
+### Pydantic: not applicable, and what stands in for it
+
+The capability audit asks for Pydantic model validation of structured output. Pydantic is a Python
+library and Branch is TypeScript, so there is nothing to integrate. The equivalent is zod, which
+Branch already uses to declare every tool's arguments and every setting on this page, and which is
+what a declared shape is written in above. A shape goes from zod through zod's own `toJSONSchema`
+into the same check every delegated answer already passes through, so a declared shape is validated
+the same way a tool's arguments are. Nothing further is needed, and adding a Python dependency to a
+TypeScript app to satisfy the letter of the row would be worse than not having it.
+
+### The adapter family (`adapter-system` in #55): chat and XML are not applicable
+
+The audit's `adapter-system` family asks for three adapters. Only one of them means anything here,
+and building the other two would be building something nobody would run:
+
+- **JSON adapter — built.** That is the shaped answer above, native where a service offers it.
+- **Chat adapter — not applicable.** Every connection Branch has already speaks the one chat shape:
+  `Message[]` in, `Completion` out, through `openaiMessage`, `anthropicMessages` and their
+  equivalents. A "chat adapter" is the `Provider` contract itself, which has existed since the
+  first release. Adding a thing called a chat adapter on top of it would be a second name for the
+  same object.
+- **XML adapter — not applicable.** Nothing in Branch consumes XML from a model. Tool calls arrive
+  as structured objects from every provider's own API, not as tags to be parsed out of prose, and
+  the one place a reply's shape matters is covered by JSON above. An XML adapter would add a
+  parser, a failure mode and a setting for a format no part of the app reads.

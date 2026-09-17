@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, compileGraph, FlowGraphError, maximumGraphDepth } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -29,7 +30,7 @@ async function fixture(t, answers = ["ok"]) {
   const root = await mkdtemp(join(tmpdir(), "branch-flow-graph-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: scripted(answers) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 /** A tool a box can use whose answer is entirely predictable. */
@@ -248,6 +249,9 @@ const threeBoxes = {
   edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
 };
 
+/** The one saved graph flow in a fixture. */
+const graphId = (app) => app.flows.list().find((flow) => flow.kind === "graph")?.id ?? app.flows.list()[0].id;
+
 test("G6 a flow stopped in the middle carries on from the box after the last one that finished", async (t) => {
   const { app } = await fixture(t, ["first answer", "last answer"]);
   const broken = flaky(app);
@@ -302,7 +306,7 @@ test("G6 a flow interrupted by the app closing is carried on by the next start",
   let opened = null;
   t.after(async () => {
     await opened?.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const graph = { ...threeBoxes, nodes: threeBoxes.nodes.map((node) =>
     (node.id === "b" ? { id: "b", name: "Middle", kind: "prompt", prompt: "two",
@@ -330,14 +334,52 @@ test("G6 a flow interrupted by the app closing is carried on by the next start",
     await new Promise((done) => setTimeout(done, 20));
     view = second.flows.graphs.view(runId);
   }
-  assert.equal(view.status, "completed", view.error ?? "");
+  // The middle box was still running when the app was killed, so whether its work happened is not
+  // knowable from here. It is not guessed at: the flow stops and asks, naming the box.
+  assert.equal(view.status, "waiting_approval", view.error ?? "");
+  assert.match(view.question ?? "", /"Middle" was still running when Branch stopped/);
+  assert.match(view.question ?? "", /do it again or to carry on past it/);
   assert.equal(view.state.first, "first answer", "the state from before the restart was lost");
   assert.equal(view.nodes.filter((node) => node.nodeId === "a" && node.status === "done").length, 1,
     "the first box was done again after the restart rather than carried on from");
-  assert.equal(view.state.note, "second answer", "the box after the last finished one never ran");
+  assert.equal(view.state.note, undefined, "the interrupted box was done again without being asked about");
+
+  /* Saying "do it again" carries on through that box. */
+  await second.flows.run(graphId(second), { resume: true, interrupted: "again" });
+  view = await settle(second, runId);
+  assert.equal(view.status, "completed", view.error ?? "");
+  assert.equal(view.state.note, "second answer", "answering did not carry the flow on");
 });
 
-/* ---------- 7. the run socket ---------- */
+test("G6 saying the interrupted box already happened carries on past it instead of repeating it", async (t) => {
+  const { app } = await fixture(t, ["first answer", "second answer", "third answer", "spare"]);
+  const definition = { ...threeBoxes, nodes: threeBoxes.nodes.map((node) =>
+    (node.id === "b" ? { id: "b", name: "Middle", kind: "prompt", prompt: "two",
+      input: { first: "text" }, output: { note: "text" } } : node)) };
+  const saved = app.flows.save(definition);
+  const started = await app.flows.run(saved.id, { input: {} });
+  await app.flows.settled(started.runId);
+
+  // Put the run back the way a kill in the middle of box b leaves it: b's row says running, nothing
+  // later exists, and the checkpoint still points at b.
+  const top = app.store.sqlite.prepare(
+    "SELECT seq FROM flow_graph_nodes WHERE run_id=? AND node_id='b' ORDER BY seq DESC LIMIT 1").get(started.runId);
+  app.store.sqlite.prepare("DELETE FROM flow_graph_nodes WHERE run_id=? AND seq>?").run(started.runId, top.seq);
+  app.store.sqlite.prepare("UPDATE flow_graph_nodes SET status='running' WHERE run_id=? AND seq=?")
+    .run(started.runId, top.seq);
+  app.store.sqlite.prepare("UPDATE flow_graph_runs SET status='running', next_node='b' WHERE run_id=?")
+    .run(started.runId);
+
+  const asked = await app.flows.graphs.resume(started.runId, definition, { source: "owner" });
+  assert.equal(asked.status, "waiting_approval", "the interrupted box was repeated rather than asked about");
+  assert.match(asked.question ?? "", /"Middle" was still running/);
+
+  const after = await app.flows.graphs.resume(started.runId, definition, { source: "owner", interrupted: "past" });
+  const box = after.nodes.filter((node) => node.nodeId === "b");
+  assert.equal(box.length, 1, "the box the owner said had already happened was started a second time");
+  assert.equal(box[0].status, "skipped", "the box was not written off as already done");
+  assert.ok(after.nodes.some((node) => node.nodeId === "c"), "the flow never reached the box after it");
+});
 
 test("G7 every box reports itself down the run socket, in order", async (t) => {
   const { app, root } = await fixture(t, ["one", "two"]);

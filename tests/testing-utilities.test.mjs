@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, ScriptedProvider, ScriptedTools, say, callTool } from "../dist/index.js";
 
 test("a scripted model answers by what it was asked, not by how often it has been called", async () => {
@@ -36,7 +37,7 @@ test("a scripted model can ask for a tool, and scripted tools record what they w
     ["greet Ada", [callTool("notes.add", { name: "Ada" }), say("I have greeted Ada.")]],
   ]);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const doubles = new ScriptedTools().reply("notes.add", { greeted: "Ada" });
   doubles.register(app.registry, ["notes.add"], "memory.write");
   const run = await app.runtime.run({ prompt: "Please greet Ada for me.", permissions: ["memory.write"] });

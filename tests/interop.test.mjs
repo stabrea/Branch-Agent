@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, promptFrom } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -25,7 +26,7 @@ async function fixture(t, dataDir) {
   const provider = scripted();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: dataDir ?? join(root, "data"), provider });
   const server = await startServer(app, { dataDir: dataDir ?? join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const headers = (extra = {}) => ({ authorization: "Bearer " + server.token, origin: server.url, "content-type": "application/json", ...extra });
   const api = async (path, body, extra) => {
     const response = await fetch(server.url + path, { method: body === undefined ? "GET" : "POST", headers: headers(extra), ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });

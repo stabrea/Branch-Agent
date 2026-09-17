@@ -1,5 +1,22 @@
+# One line ending everywhere. Two machines build this repository now, a Windows PC and a Mac, and
+# without this each checkout imposes its own: a file written on one side arrives on the other with
+# every line changed, so a one-line edit becomes a whole-file conflict.
 * text=auto eol=lf
+
+# Windows needs its own endings to run these at all.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.vbs text eol=crlf
+
+# Not text, so nothing goes near their bytes.
 *.png binary
+*.jpg binary
 *.ico binary
-*.zip binary
+*.woff binary
 *.woff2 binary
+*.zip binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary

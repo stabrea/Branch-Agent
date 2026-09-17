@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, saveLanguageServerSettings, saveDebugSettings, savePolicy, NetworkPolicy, GitHubAccess, GitLabAccess, registerGitLab, exportAgent, openAgent, importAgent } from "../dist/index.js";
 import { registerGitHubProject } from "../dist/integrations/git-tools.js";
 import { GitRunner, locateGit } from "../dist/integrations/git-run.js";
@@ -22,7 +23,7 @@ export async function fixture(t, options = {}) {
   const workspace = join(root, "workspace"), dataDir = join(root, "private");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, workspace, root };
 }
 export const put = async (workspace, path, content) => {

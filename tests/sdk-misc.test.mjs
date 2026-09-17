@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch,
   auditCsv,
@@ -48,7 +49,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-sdkmisc-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }
 async function served(t, steps, options = {}) {

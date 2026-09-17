@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, bindInputs, substitute } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -18,7 +19,7 @@ async function fixture(t, steps = [say("ok")]) {
   const root = await mkdtemp(join(tmpdir(), "branch-recipes-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, context: app.runtime.context() };
 }
 

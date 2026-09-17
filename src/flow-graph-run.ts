@@ -305,10 +305,55 @@ export class FlowGraphRunner {
       remember ?? asked.remember);
     this.save(runId, { approval: null, question: null });
   }
+  /**
+   * A box that was still running when the app stopped. Its row says "running" and no later row
+   * replaced it, so the work may or may not have happened — from here the two are identical.
+   *
+   * Carrying on regardless would silently do it a second time, which for a box that sends something
+   * or spends something is the wrong guess to make on the owner's behalf. The flow stops and asks
+   * instead, exactly as it does for any other thing it is not allowed to decide alone.
+   */
+  private interrupted(runId: string, compiled: CompiledGraph): { seq: number; name: string; nodeId: string } | null {
+    const row = this.store.sqlite.prepare(
+      `SELECT seq, node_id, name, status FROM flow_graph_nodes WHERE run_id=? ORDER BY seq DESC LIMIT 1`).get(runId);
+    if (!row || String(row.status) !== "running") return null;
+    // A box that only reads the state and works something out from it — a choice, or joining a list
+    // together — gives the same answer every time and costs nothing, so it is simply done again and
+    // the owner is never troubled. Every other kind can reach outside: a prompt box runs a whole
+    // task that may use tools, and map and subflow run more boxes still.
+    const kind = compiled.nodes.get(String(row.node_id))?.kind;
+    if (kind === "condition" || kind === "gather") return null;
+    return { seq: Number(row.seq), name: String(row.name), nodeId: String(row.node_id) };
+  }
+  /** Puts that question to the owner and stops, rather than guessing. */
+  private askAboutInterrupted(runId: string, box: { seq: number; name: string; nodeId: string }): GraphRunView {
+    const question = `The box "${box.name}" was still running when Branch stopped, so I cannot tell whether `
+      + `it finished. Say whether to do it again or to carry on past it.`;
+    this.save(runId, { status: "waiting_approval", next_node: box.nodeId, question, approval: null });
+    this.store.event(runId, "flow.node.interrupted", { node: box.nodeId, name: box.name, seq: box.seq });
+    this.store.finish(runId, "needs_input", question);
+    return this.view(runId);
+  }
   /** Carries a checkpointed run on from the box after the last one that finished. */
-  async resume(runId: string, flow: unknown, options: { source?: RunSource; approve?: boolean } = {}): Promise<GraphRunView> {
+  async resume(runId: string, flow: unknown,
+    options: { source?: RunSource; approve?: boolean; interrupted?: "again" | "past" } = {}): Promise<GraphRunView> {
     const current = this.view(runId);
     if (current.status === "completed") throw new Error("That flow has already finished");
+    const graph = compileGraph(flow);
+    const half = this.interrupted(runId, graph);
+    if (half && !options.interrupted) return this.askAboutInterrupted(runId, half);
+    if (half) {
+      // "again" leaves the row to be written over by the fresh attempt; "past" writes it off as done
+      // and moves to whatever follows, so the box is never run a second time behind the owner's back.
+      this.writeNode(runId, half.seq, { id: half.nodeId, name: half.name } as GraphNode,
+        options.interrupted === "past" ? "skipped" : "running", "");
+      if (options.interrupted === "past") {
+        const out = graph.next.get(half.nodeId) ?? [];
+        const onward = out.find((edge) => edge.when === "always") ?? out[0];
+        const after = onward?.to ?? null;
+        this.save(runId, { next_node: after, question: null });
+      }
+    }
     if (options.approve) this.approve(runId);
     const compiled = compileGraph(flow);
     this.save(runId, { status: "running", error: null });

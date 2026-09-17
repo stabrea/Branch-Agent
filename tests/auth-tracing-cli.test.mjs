@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   CliAgentProvider,
   CommandSecrets,
@@ -59,7 +60,7 @@ async function fixture(t, provider = scripted(), options = {}) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider,
     web: { allowPrivateAddresses: true }, ...options,
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, dataDir: join(root, "data") };
 }
 
@@ -481,7 +482,7 @@ test("S6 a household profile needs its PIN, and a run of wrong ones is made to w
 
 test("C1 every command Branch knows has help of its own, and asking never does the work", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-help-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const env = {
     ...process.env, BRANCH_PROVIDER: "demo",
     BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_DATA_DIR: join(root, "data"),
@@ -506,7 +507,7 @@ test("C2 the packed tarball installs a working `branch` command", async (t) => {
   t.after(async () => {
     const fs = await import("node:fs/promises");
     await fs.unlink(join(out, "package", "node_modules")).catch(() => undefined);
-    await rm(out, { recursive: true, force: true });
+    await discardTemp(out);
   });
   const packed = await run(process.execPath, ["scripts/pack-cli.mjs", out], { maxBuffer: 1024 * 1024 * 32 });
   const tarball = packed.stdout.split(/\r?\n/)[0].trim();

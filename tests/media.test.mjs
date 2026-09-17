@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -32,7 +33,7 @@ async function fixture(t, options = {}) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...options });
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root, workspace: join(root, "workspace") };
 }

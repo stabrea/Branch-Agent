@@ -9,6 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 
 const say = (content) => ({ content, toolCalls: [] });
@@ -20,7 +21,7 @@ async function fixture(t, reply = () => say("done"), options = {}) {
   t.after(async () => {
     await app.processes.stopAll().catch(() => undefined);
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root };
 }
@@ -497,7 +498,7 @@ test("a service turned into tools comes back after a restart, without fetching a
   const open = [];
   t.after(async () => {
     for (const app of open) await app.close().catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const first = await createBranch({ ...where, provider });
   open.push(first);
@@ -747,7 +748,7 @@ test("an older database whose record has only the one column is brought forward 
 
   // Opening it with this release adds the column without touching a single row that is already there.
   const db = new DatabaseSync(file);
-  t.after(async () => { db.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { db.close(); await discardTemp(root); });
   const log = new AuditLog(db);
   assert.ok(db.prepare("PRAGMA table_info(audit)").all().some((row) => String(row.name) === "origin"),
     "the column is added to a database that already has rows in it");

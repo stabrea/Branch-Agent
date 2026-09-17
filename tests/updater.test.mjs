@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { discardTemp } from "./temp-dir.mjs";
 import { Updater, compareVersions } from "../dist/desktop/updater.js";
 
 const run = promisify(execFile);
@@ -14,7 +15,7 @@ const windows = process.platform === "win32";
 
 async function releaseFixture(t, { tag = "v0.3.0", tamper = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-update-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const source = join(root, "Branch Agent-win32-x64");
   await mkdir(join(source, "resources"), { recursive: true });
   await writeFile(join(source, "Branch Agent Test.exe"), "new executable");

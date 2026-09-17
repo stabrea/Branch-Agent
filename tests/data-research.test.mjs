@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { Budget } from "../dist/contracts.js";
@@ -22,7 +23,7 @@ async function fixture(t, options = {}) {
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-data-research-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace: join(root, "workspace") };
 }
 const context = (app, runId = "datarun", budget) =>

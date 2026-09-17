@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, SessionLock, SecretScrubber, WindowsJobObjects, applyPiiGuard, detectPii, collectReferences, classifyToolEvent } from "../dist/index.js";
 import { BranchShell, registerShell } from "../dist/integrations/shell.js";
@@ -19,7 +20,7 @@ async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-guard4-"));
   const provider = scripted();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 async function withShell(t, app, config = {}) {
@@ -207,7 +208,7 @@ test("a Windows job stops a runaway command through the system, not through samp
   const job = await new WindowsJobObjects().create({ maxMemoryMb: 256, maxCpuSeconds: 1 });
   if (!job) { t.diagnostic("job objects are not available on this computer"); return; }
   const root = await mkdtemp(join(tmpdir(), "branch-job-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   // Sampling is pushed a minute out, so anything that stops this spinner is the job object itself.
   const spinner = new ShellProcess({ executable: process.execPath, args: ["-e", "const end = Date.now() + 40000; while (Date.now() < end) {}"],
     cwd: root, env: { SystemRoot: process.env.SystemRoot ?? "", PATH: "" }, signal: new AbortController().signal,

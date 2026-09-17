@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { NetworkPolicy, httpTwin } from "../dist/network-policy.js";
 import { acceptKey, frame, readFrame, binaryFrame, serveRunSocket } from "../dist/ws.js";
@@ -68,7 +69,7 @@ async function fakeSocketService(t, onMessage) {
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-live-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return app;
 }
 /** A connection that the catalog says can hold a live conversation, pointed at a fake service. */
@@ -598,7 +599,7 @@ test("closing the app ends a live conversation and the socket it holds", async (
     for (const socket of upgraded) socket.destroy();
     await new Promise((done) => server.close(done));
     await app.close().catch(() => undefined);
-    await rm(root, { recursive: true, force: true }).catch(() => undefined);
+    await discardTemp(root).catch(() => undefined);
   }
 });
 
@@ -739,7 +740,7 @@ test("the Talk live button appears only on a connection that can hold a live con
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close(); await server.close(); await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   // Nothing may reach for the microphone until the person presses the button, so it is counted

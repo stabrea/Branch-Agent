@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-knowledge-"));
@@ -12,7 +13,7 @@ async function fixture(t) {
   });
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return app;
 }

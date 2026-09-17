@@ -132,6 +132,12 @@ export class ToolLoader {
   /** What history said to load before the first round, and why. */
   preloadedFromHistory(): PreloadedTool[] { return [...this.preloaded]; }
   /**
+   * The toolboxes the assistant opened for itself in this task, as opposed to the ones that are
+   * always open or were guessed from the words of the request. These are the ones worth carrying
+   * into the next task in the same conversation: an explicit ask is not a guess.
+   */
+  openedToolboxes(): string[] { return [...this.openedGroups]; }
+  /**
    * Takes in tools that arrived while the task was working — a server that has just connected, a
    * plugin the owner switched on — so they are searchable from the next round. Everything the task
    * has already opened, found or used is kept.

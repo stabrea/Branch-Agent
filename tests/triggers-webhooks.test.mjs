@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, backoffMs } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -41,7 +42,7 @@ async function fixture(t, { allowLocal = true } = {}) {
   app.webhooks.retryDelays = [1, 1]; // three attempts, no real waiting
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root, provider, context: app.runtime.context() };
 }

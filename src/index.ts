@@ -17,6 +17,7 @@ import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
+import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -109,6 +110,9 @@ import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
 import { KnowledgeBases } from "./knowledge-bases.js";
+import { chooseVectorStore } from "./vector-store-file.js";
+import { ContextProviders, providerFrom, RepositoryContextProvider,
+  repositoryContextSettings } from "./context-providers.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
 import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
 // Batch 20 (wave 8): writing Office files, a map of what a knowledge base mentions, summaries,
@@ -360,6 +364,7 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
   // that sorts a request to the one specialist it belongs to.
   registerOrchestrationModes(registry, runtime, knowledge);
+  registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -602,6 +607,8 @@ export async function createBranch(options: {
   registerRemoteAgents(registry, remoteAgents);
   // Documents and saved facts are both asked the same way, and the best answer is put first.
   const retrieval = new Retrieval(store, runtime.owner, runtime.models);
+  // What is put in front of a task, in order: see src/context-providers.ts.
+  const contextProviders = new ContextProviders();
   retrieval.add(new DocumentRetriever(documents));
   retrieval.add(new MemoryRetriever(memory.retrieval));
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
@@ -616,6 +623,13 @@ export async function createBranch(options: {
   const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
     { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) }, undefined, guardedFetch);
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // Wave 9: the vectors go wherever the owner asked. A file that cannot be opened is one sentence on
+  // the Documents panel and Branch's own database carries on holding them, so nothing is ever lost.
+  {
+    const chosen = chooseVectorStore(knowledgeBases.vectorStoreSettings(runtime.owner), knowledgeBases.vectors);
+    knowledgeBases.vectors = chosen.backend;
+    knowledgeBases.backendNote = chosen.note;
+  }
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
   // What was said in a conversation, written up as fact cards the owner can accept into a
   // knowledge base. Accepting one indexes it exactly like a passage from a file.
@@ -657,13 +671,19 @@ export async function createBranch(options: {
   // suggests; every suggestion carries what it was learned from, and turning one down is final.
   const learning = new MemoryLearning(store);
   const documentContext = documents;
-  // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
-  // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
+  // A knowledge base the owner ticked is put in front of a task first; documents follow, and the
+  // files of the project last when the owner asked for them. They are stages of one list now rather
+  // than one expression, so a fourth can be added without editing this line. Turning "Use my
+  // documents when answering" off deliberately turns all of them off, so one switch means one thing.
+  contextProviders.add(providerFrom("knowledge", "Your knowledge bases",
+    (owner, prompt, signal) => knowledgeBases.contextFor(owner, prompt, signal)));
+  contextProviders.add(providerFrom("documents", "Your documents",
+    (owner, prompt, signal) => documentContext.contextFor(owner, prompt, signal)));
+  contextProviders.add(new RepositoryContextProvider(projectMap, (owner) => repositoryContextSettings(store, owner)));
   runtime.documents = {
     contextFor: async (owner, prompt, signal) => {
       if (documentContext.settings(owner).useDocuments === false) return null;
-      return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
-        ?? documentContext.contextFor(owner, prompt, signal);
+      return contextProviders.contextFor(owner, prompt, signal);
     },
   };
   // Finding a tool by meaning, through the same reader and the same store of already-read
@@ -742,6 +762,8 @@ export async function createBranch(options: {
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
     retrieval,
+    /** What is put in front of a task before the model reads it, in order. */
+    contextProviders,
     /** Named sets of folders and files, read into passages and searched by words and by meaning. */
     knowledgeBases,
     /** Writing conversations up as fact cards, and the refresh that shows its cost before it runs. */
@@ -929,6 +951,8 @@ export async function createBranch(options: {
       // Wave 8: a connection that stays open must not outlive the app either.
       live.closeAll("Branch closed");
       plugins.stop();
+      // A file of the owner's own holding the vectors is let go of; the app's own database is not.
+      knowledgeBases.vectors.close?.();
       skillPackages.stop();
       mcpServer.close();
       await mcpConnections.closeAll();
@@ -1007,6 +1031,7 @@ export * from "./channels/ws-client.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
 export * from "./orchestration.js";
+export * from "./plan-act.js";
 export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";
@@ -1075,6 +1100,11 @@ export * from "./channels/docs-table.js";
 export * from "./json-template.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
+// Bucket 8 (wave 9): long jobs that survive being interrupted.
+export * from "./session-carry.js";
+export * from "./shell-session.js";
+export * from "./headless.js";
+export * from "./dispatch-fallback.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";
@@ -1104,6 +1134,10 @@ export * from "./memory-hygiene.js";
 export * from "./memory-consolidate.js";
 export * from "./embeddings.js";
 export * from "./vector-store.js";
+export * from "./vector-store-file.js";
+export * from "./retrieval-filters.js";
+export * from "./retrieval-pipeline.js";
+export * from "./context-providers.js";
 export * from "./chunking.js";
 export * from "./bm25.js";
 export * from "./knowledge-bases.js";
@@ -1132,6 +1166,8 @@ export * from "./os-permissions.js";
 export * from "./profile-roles.js";
 export * from "./replay.js";
 export * from "./orchestration-modes.js";
+export * from "./answer-shape.js";
+export * from "./second-opinion.js";
 export * from "./flows.js";
 export * from "./flow-graph.js";
 export * from "./flow-graph-run.js";

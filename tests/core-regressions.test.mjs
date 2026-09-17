@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -17,7 +18,7 @@ async function fixture(t, provider) {
   const app = await createBranch(options);
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, options };
 }
