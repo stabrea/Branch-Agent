@@ -12,6 +12,7 @@ import { available, commandMode, commandsFor } from "./commands/settings.js";
 import { executeCommand } from "./commands/execute.js";
 import { commandHost } from "./commands/host.js";
 import type { CommandHost } from "./commands/handlers.js";
+import { savedLine } from "./commands/saved.js";
 
 /**
  * Every slash command the terminal view understands, as one table: its name, other names, what it
@@ -187,6 +188,10 @@ export function helpLines(words: Words, mode: FeatureMode = "off"): string[] {
 export async function runCommand(context: CommandContext, text: string): Promise<void> {
   const [name = "", ...rest] = text.trim().split(/\s+/);
   const found = findCommand(name, modeOf(context));
+  // ---- bucket 12: one of the owner's saved commands is sent as the message it stands for ----
+  const saved = found ? null : savedLine(context.runtime.store, context.runtime.owner, text);
+  if (saved) return "problem" in saved ? context.say("warn", saved.problem) : context.conversation.send(saved.text);
+  // ---- end of the bucket 12 hook ----
   if (!found) return context.say("warn", `I do not know ${name}. Type /help for the list.`);
   try {
     // Wave mac3 (commands): settings and permissions stay with the owner's own profile, as in the window.

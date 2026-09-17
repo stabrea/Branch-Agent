@@ -103,6 +103,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("whoami", ["id"], "", "what you may do from here", ALL, "look"),
   entry("version", ["about"], "", "which Branch this is", ALL, "look"),
   entry("health", ["doctor"], "", "a quick check of the database, models, chat apps and schedules", [...W, "terminal", "dashboard"], "look"),
+  // bucket 12: the owner's saved prompts and procedures; their own commands are laid over this table in saved.ts
+  entry("prompts", ["procedures", "workflows"], "[name]", "your saved prompts and procedures; with a name, one of them in the message box", ALL, "look"),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

@@ -11,6 +11,7 @@ import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 import { commandMode } from "../commands/settings.js";
+import { savedLine } from "../commands/saved.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -449,6 +450,14 @@ export class ChannelRouter {
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
+    // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
+    const saved = this.switches().commands === "off" || message.voice ? null : savedLine(this.store, this.runtime.owner, message.text);
+    if (saved && "problem" in saved) {
+      await this.deliver(message.channel, message.chatId, saved.problem, `saved:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "replied";
+    }
+    if (saved) message = { ...message, text: saved.text };
+    // ---- end of the bucket 12 hook ----
     const command = this.commandIn(message);
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than

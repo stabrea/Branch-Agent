@@ -5,6 +5,7 @@ import type { Readable, Writable } from "node:stream";
 import type { Event, Run } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
 import { executeCommand } from "./commands/execute.js";
+import { savedLine } from "./commands/saved.js";
 import { commandHost } from "./commands/host.js";
 import { commandMode } from "./commands/settings.js";
 
@@ -70,6 +71,11 @@ class TerminalConversation {
       return;
     }
     if (text === "/cancel") { this.interrupt(); return; }
+    // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
+    const saved = text.startsWith("/") ? savedLine(this.runtime.store, this.runtime.owner, text) : null;
+    if (saved && "problem" in saved) { this.write(`${saved.problem}\n`); this.prompt(); return; }
+    if (saved) { this.receive(saved.text); return; }
+    // ---- end of the bucket 12 hook ----
     if (text.startsWith("/") && text !== "/new") {
       this.command(text);
       this.prompt();
