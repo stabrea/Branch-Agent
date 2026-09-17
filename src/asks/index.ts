@@ -71,7 +71,8 @@ export class Asks {
     // Asked again by itself, so held exactly as unattended work is: only what the rules allow outright.
     this.surfaces = new LiveSurfaces(store, owner, (name, args, id) =>
       runtime.executeTool(name, args, { mode: "policy", source: "schedule", approvalKey: `surface:${id}` }));
-    this.surfaces.start();
+    // The beat that asks live pages again runs only while that part is not off.
+    if (askMode(store, owner, "live-surfaces") !== "off") this.surfaces.start();
     this.registrars = {
       nodes: () => registerNodes(registry, this.nodes),
       "source-sync": () => registerSourceSync(registry, this.sources),
@@ -104,6 +105,7 @@ export class Asks {
     const mode = saveAskMode(this.deps.runtime.store, this.deps.runtime.owner, part, input);
     this.sync(part);
     if (part === "runtimes") this.runtimes.follow(mode !== "off");
+    if (part === "live-surfaces") { if (mode === "off") this.surfaces.stop(); else this.surfaces.start(); }
     this.analytics.track("feature.switched");
     return mode;
   }

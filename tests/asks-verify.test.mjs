@@ -6,6 +6,10 @@
  * in its database, so a conversation is listed, and continues with what was said, after the app is
  * closed and opened again. The restart is done here on the engine the desktop runs, never through
  * Electron.
+ *
+ * A2043 (computer use on a Mac): the shared computer.look / computer.press / computer.type tools reach
+ * a window through the screen layer, and on a Mac that layer is one fixed JXA script run by osascript.
+ * The osascript here is a stand-in that records what it was asked; the Stop notice is a stand-in too.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +17,12 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch } from "../dist/index.js";
+import { Budget, createBranch, ToolRegistry } from "../dist/index.js";
+import { Store } from "../dist/store.js";
+import { registerComputer } from "../dist/integrations/computer.js";
+import { DesktopControl } from "../dist/integrations/desktop.js";
+import { DesktopScriptRunner } from "../dist/integrations/desktop-script.js";
+import { saveDesktopSettings } from "../dist/integrations/desktop-config.js";
 import { startServer } from "../dist/server.js";
 
 function remembering() {
@@ -56,4 +65,37 @@ test("A0464 a desktop conversation is still listed after the app is closed, and 
   assert.ok(sessions.some((session) => session.sessionId === run.sessionId), "the conversation is listed after the restart");
   const next = await second.api("/api/run", { prompt: "and the acorn", sessionId: run.sessionId });
   assert.equal(next.output, "You have said: remember the oak / and the acorn", "the earlier message came back with it");
+});
+
+test("A2043 computer.look, computer.press and computer.type reach a Mac window through the one osascript script", async (t) => {
+  const calls = [];
+  const exec = async (executable, args) => {
+    calls.push({ executable, verb: args[3] });
+    const result = args[3] === "windows"
+      ? { windows: [{ handle: "501:1", title: "Notes", program: "Notes", processId: 501, minimised: false, width: 800, height: 600 }] }
+      : args[3] === "read" ? { nodes: [{ role: "AXButton", name: "Save" }], more: false } : { clicked: "Save", how: "keys", into: "", value: "" };
+    return { status: "completed", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" };
+  };
+  const store = new Store(":memory:");
+  const runner = new DesktopScriptRunner(undefined, { enabled: true, platform: "darwin", exec });
+  const banner = { visible: true, show: async () => undefined, hide: async () => undefined };
+  t.after(async () => { await runner.close(); store.close(); });
+  const desktop = new DesktopControl(store, { runner, banner });
+  const registry = new ToolRegistry();
+  registerComputer(registry, { window: desktop });
+  const run = store.createRun("local", "look at Notes");
+  const context = { owner: "local", workspace: ".", runId: run.id, signal: new AbortController().signal, budget: new Budget(),
+    permissions: new Set(["browser.read", "browser.interact", "desktop.view", "desktop.control"]), depth: 0 };
+
+  await assert.rejects(registry.execute("computer.look", { at: "window", window: "Notes" }, context), /turn|switch|off/i,
+    "nothing reaches the screen while the owner's switch is off");
+  assert.equal(calls.length, 0);
+  saveDesktopSettings(store, "local", { enabled: true });
+  const looked = await registry.execute("computer.look", { at: "window", window: "Notes" }, context);
+  assert.equal(looked.at, "window");
+  assert.equal(looked.parts[0].name, "Save");
+  await registry.execute("computer.press", { at: "window", window: "Notes", name: "Save" }, context);
+  await registry.execute("computer.type", { at: "window", window: "Notes", name: "Body", text: "hello" }, context);
+  assert.ok(calls.length >= 6 && calls.every((call) => call.executable === "/usr/bin/osascript"), "every step went through osascript");
+  assert.deepEqual([...new Set(calls.map((call) => call.verb))].sort(), ["click", "read", "type", "windows"]);
 });

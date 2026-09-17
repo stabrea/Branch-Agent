@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -95,6 +96,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
+  ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
 ];
 
 /**

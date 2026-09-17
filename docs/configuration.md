@@ -6341,7 +6341,8 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
   `tests/long-jobs.test.mjs`).
 - **A2043** (computer use) — verified: on a Mac every screen action goes through one fixed JXA script
   run by `osascript`, on Linux through `xdotool` (`src/integrations/desktop-script-posix.ts`,
-  `src/integrations/computer.ts`, `tests/posix-desktop-script.test.mjs`).
+  `src/integrations/computer.ts`; `tests/asks-verify.test.mjs` drives `computer.look`, `computer.press`
+  and `computer.type` to a stand-in `osascript`, `tests/posix-desktop-script.test.mjs` the script itself).
 - **research-pipeline** (STORM-style articles) — built: personas, sources read per persona, an outline,
   sections written from the notes with sources, a lead and a tidy (`src/asks/article-writer.ts`,
   `tests/asks.test.mjs` "research-pipeline").
@@ -6367,7 +6368,9 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 ## The smaller asks
 
 Thirteen small parts, each with the owner's three-way switch (off, on, only when it is needed), all
-off at first. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
+off at first. "On" loads a part's tools into every task from the start; "only when it is needed"
+lists them for the assistant to load; "off" leaves them out, and the timer that refreshes live pages
+does not run. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
 some of them and change none (`tests/short-lived-key-routes.mjs`). A tool of these parts pressed in the
 window goes through the one tool gate (`src/tool-gate.ts`), and work that runs by itself (live pages)
 is held to what the rules allow outright.

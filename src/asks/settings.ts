@@ -60,6 +60,11 @@ export const askTools: Record<AskPart, readonly string[]> = {
   runtimes: [],
 };
 
+/** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
+export const askToolFeatures: readonly (readonly [string, string, readonly string[]])[] = askParts
+  .filter((part) => askTools[part].length > 0)
+  .map((part) => [askKey(part), `${askLabels[part].charAt(0).toLowerCase()}${askLabels[part].slice(1)} is switched on`, askTools[part]] as const);
+
 export function askMode(store: Pick<Store, "get">, owner: string, part: AskPart): AskMode {
   const saved = RecordSchema.safeParse(store.get("settings", owner, askKey(part))?.data ?? {});
   return saved.success ? saved.data.mode : "off";

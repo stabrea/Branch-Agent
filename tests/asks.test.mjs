@@ -16,6 +16,7 @@ import { AnswerEngine } from "../dist/asks/answer-engine.js";
 import { byModel, byPhrase, byWords, PipelineSchema, routedPrompt } from "../dist/asks/intent-pipeline.js";
 import { dropRepeats } from "../dist/asks/article-writer.js";
 import { askParts, askTools } from "../dist/asks/settings.js";
+import { switchedToolTiers } from "../dist/feature-switches.js";
 
 /** A model that answers by what it is asked to do, and remembers what it was shown. */
 function scripted() {
@@ -84,6 +85,29 @@ test("every smaller ask ships off: no tools in the catalog, and a plain refusal"
   assert.ok(app.registry.names().includes("project.board"));
   await api("/api/asks/switch", { part: "project-board", mode: "off" });
   assert.equal(app.registry.names().includes("project.board"), false);
+});
+
+test("the three positions differ: on loads a part's tools from the start, when needed only lists them, off hides them", async (t) => {
+  const { app, api } = await fixture(t);
+  const owner = app.runtime.owner;
+  const tiers = () => switchedToolTiers(app.store, owner, app.registry.names());
+  // Off, the tools are not even registered; were a copy of the name present, it would be hidden too.
+  assert.equal(app.registry.names().includes("project.board"), false);
+  assert.ok(switchedToolTiers(app.store, owner, askTools["project-board"]).hidden.includes("project.board"), "off: not advertised");
+  await api("/api/asks/switch", { part: "project-board", mode: "when-needed" });
+  assert.equal(tiers().preload.some((tool) => tool.name === "project.board"), false, "when needed: listed, not loaded");
+  assert.equal(tiers().hidden.includes("project.board"), false);
+  await api("/api/asks/switch", { part: "project-board", mode: "on" });
+  const loaded = tiers().preload.find((tool) => tool.name === "project.board");
+  assert.ok(loaded, "on: loaded from the start");
+  assert.match(loaded.reason, /switched on/);
+
+  // The beat that refreshes live pages runs only while that part is not off.
+  assert.equal(app.asks.surfaces.running, false, "a fresh install schedules nothing");
+  await api("/api/asks/switch", { part: "live-surfaces", mode: "when-needed" });
+  assert.equal(app.asks.surfaces.running, true);
+  await api("/api/asks/switch", { part: "live-surfaces", mode: "off" });
+  assert.equal(app.asks.surfaces.running, false);
 });
 
 test("A0794 a project's board holds the triggers and schedules put under it, and its own tasks", async (t) => {

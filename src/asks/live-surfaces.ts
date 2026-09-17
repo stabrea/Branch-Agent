@@ -101,6 +101,8 @@ export class LiveSurfaces {
     this.timer.unref();
   }
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = undefined; }
+  /** Whether the beat is running, for the owner's screen and the tests. */
+  get running(): boolean { return this.timer !== undefined; }
 
   /** The sealed page for a frame, answered before the session key is asked for. */
   serve(request: IncomingMessage, response: ServerResponse, path: string): boolean {
