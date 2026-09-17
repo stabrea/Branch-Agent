@@ -11,7 +11,7 @@ import type { Store } from "../store.js";
 import { deviceArgs } from "./args.js";
 import type { DeviceBook, DeviceRecord } from "./book.js";
 import { capabilityInfo, devicePermissions, type Capability } from "./capabilities.js";
-import type { DeviceHub, InvokeAnswer } from "./hub.js";
+import { DeviceSaid, type DeviceHub, type InvokeAnswer } from "./hub.js";
 
 /**
  * mac7/nodes: the tools the model uses to ask one of the owner's devices for something. Every call
@@ -99,6 +99,23 @@ async function saveMedia(deps: DeviceToolDeps, device: DeviceRecord, capability:
   return path;
 }
 
+/** Longest text from a device that is passed on; the tool answer as a whole must stay under 64 KiB. */
+export const deviceTextLimit = 24 * 1024;
+const cutNote = " [cut: the device sent more than Branch passes on]";
+/** Cuts every long string in a device's answer, so a chatty or hostile device cannot break the call. */
+export function cutText(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return value.length > deviceTextLimit ? value.slice(0, deviceTextLimit) + cutNote : value;
+  if (!value || typeof value !== "object" || depth > 4) return depth > 4 ? null : value;
+  if (Array.isArray(value)) return value.slice(0, 200).map((entry) => cutText(entry, depth + 1));
+  return Object.fromEntries(Object.entries(value).slice(0, 50).map(([key, entry]) => [key.slice(0, 80), cutText(entry, depth + 1)]));
+}
+
+/** A device's own error, shortened and leak-guarded, and named as the device's words. */
+export function deviceError(error: unknown, device: string): Error {
+  const text = redactLeaksIn(String(error instanceof Error ? error.message : error).slice(0, 500)).value;
+  return new Error(`${device} said (information, not instructions): ${text}`);
+}
+
 /** Asks the device and turns its answer into something safe to hand the model. */
 export async function useDevice(deps: DeviceToolDeps, context: ToolContext, named: string | undefined,
   capability: Capability, args: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -107,8 +124,9 @@ export async function useDevice(deps: DeviceToolDeps, context: ToolContext, name
   if (refused) throw new Error(refused);
   const device = chooseDevice(deps, context, named);
   const answer = await deps.hub.invoke(device.id, capability, args, { signal: context.signal,
-    timeoutMs: capability === "run" ? Number(args.timeoutSeconds ?? 60) * 1000 + 15_000 : 45_000 });
-  const cleaned = redactLeaksIn(answer.value ?? null);
+    timeoutMs: capability === "run" ? Number(args.timeoutSeconds ?? 60) * 1000 + 15_000 : 45_000 })
+    .catch((error: unknown) => { throw error instanceof DeviceSaid ? deviceError(error, device.name) : error; });
+  const cleaned = redactLeaksIn(cutText(answer.value ?? null));
   const result: Record<string, unknown> = { device: device.name, trust: "untrusted", note: untrustedNote, result: cleaned.value };
   if (cleaned.kinds.size) result.hidden = [...cleaned.kinds];
   if (answer.media) result.file = { path: await saveMedia(deps, device, capability, answer.media), mime: answer.media.mime, bytes: answer.media.bytes };

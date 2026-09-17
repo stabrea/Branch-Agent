@@ -30,6 +30,8 @@ const helloWaitMs = 10_000;
 const textLimit = 256 * 1024;
 const badRequest = "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n";
 
+/** An error in the device's own words, as opposed to Branch's; the tools mark and guard it. */
+export class DeviceSaid extends Error {}
 export interface MediaResult { mime: string; bytes: number; name?: string; data: Buffer }
 export interface InvokeAnswer { value: unknown; media?: MediaResult }
 interface Waiting {
@@ -181,7 +183,7 @@ export class DeviceHub {
   private onResult(link: Link, result: { id: string; ok: boolean; value?: unknown; error?: string | undefined; media?: { mime: string; bytes: number; name?: string | undefined } | undefined }): void {
     const waiting = link.waiting.get(result.id);
     if (!waiting || waiting.media) return;
-    if (!result.ok) { this.settle(link, result.id); waiting.reject(new Error(result.error ?? "The device could not do it.")); return; }
+    if (!result.ok) { this.settle(link, result.id); waiting.reject(new DeviceSaid(result.error ?? "The device could not do it.")); return; }
     if (!result.media) { this.settle(link, result.id); waiting.resolve({ value: result.value }); return; }
     if (result.media.bytes > mediaLimitBytes) {
       this.settle(link, result.id);
