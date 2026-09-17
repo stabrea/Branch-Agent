@@ -14,7 +14,7 @@ import { OpenAIResponsesProvider } from "./providers/openai-responses.js";
 import { PerplexityAgentProvider } from "./providers/perplexity-agent.js";
 import { AnthropicVertexProvider } from "./providers/anthropic-vertex.js";
 import { RetiredProvider } from "./providers/retired.js";
-import { connectionCheck, guardedFetch } from "./local-connection-policy.js";
+import { connectionFetch } from "./local-connection-policy.js";
 
 /**
  * Turning one line of the catalog into a working connection. There is one adapter per wire shape,
@@ -59,7 +59,7 @@ export function buildConnection(input: ConnectionInput): BuiltConnection {
   if (!model) throw new Error(`${entry.name} needs the name of a model`);
   // A local program from the catalog may be reached on its own address only; see local-connection-policy.ts.
   const call = input.policy
-    ? guardedFetch(connectionCheck(input.policy, entry, baseUrl), input.fetchImpl ?? globalThis.fetch) : input.fetchImpl;
+    ? connectionFetch(input.policy, entry, baseUrl, input.fetchImpl ?? globalThis.fetch) : input.fetchImpl;
   return { entry, model, baseUrl, provider: adapterFor(entry, baseUrl, model, input.key, extras, call, input.now) };
 }
 
