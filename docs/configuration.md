@@ -403,7 +403,10 @@ reading, and refuses by name when there is no such reading.
 
 **What a site skill may not do.** It is data and only data: selectors, a wait, a pause and named
 readings. There is deliberately nowhere to put a piece of script, because a skill can arrive from
-anybody and a script in one would run inside the page. And it can never widen anything: it cannot
+anybody and a script in one would run inside the page. The selectors it will press are named in the
+card you read before installing the skill — "presses #cookie-notice .accept when a page opens" —
+because a cookie notice and a confirm-delete button look the same until somebody writes them down.
+And it can never widen anything: it cannot
 add a website to `allowedOrigins`, and a bank, broker, password manager or mailbox is refused as a
 site skill outright, in the same words the browser refuses one everywhere else. A skill that is
 installed but switched off brings no quirks, in the same way it brings no instructions. Site skills
