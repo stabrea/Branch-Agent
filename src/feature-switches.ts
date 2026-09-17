@@ -8,6 +8,7 @@ import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
 import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
 import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
 import { personalToolFeatures } from "./personal/settings.js"; // R17-C
+import { learningToolFeatures } from "./learning-more/settings.js"; // R17-F
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -118,6 +119,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
   ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── R17-F: learning, deeper (src/learning-more/settings.ts keeps these lists). ──
+  ...learningToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──
