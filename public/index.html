@@ -1047,7 +1047,7 @@
             <h2 data-t="settings.card.voice">Voice</h2>
             <p>Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
             <label class="check-row">
-              <input id="auto-read-aloud" type="checkbox" /> Read replies aloud automatically
+              <input id="auto-read-aloud" type="checkbox" /> <span data-t="comfort.read-aloud">Read replies aloud automatically</span>
             </label>
             <label for="voice-select" data-t="field.voice">Voice</label>
             <select id="voice-select">
@@ -1856,6 +1856,8 @@
     <!-- R17-E: models, cheaper and smarter; and the per-round chart beside the meter -->
     <script src="/model-savings.js" type="module"></script>
     <script src="/round-chart.js" type="module"></script>
+    <!-- R17-S-C: shortcuts, vim keys, status line, message times, notifications, voice keys, browser care, proxy -->
+    <script src="/comfort.js" type="module"></script>
     <script src="/never-break.js" type="module"></script>
     <script src="/telegram-setup.js" type="module"></script>
     <script src="/channel-setup.js" type="module"></script><!-- mac7/connect -->

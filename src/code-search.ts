@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, matchesGlob } from "node:path";
 import { z } from "zod";
-import { ignoreMatcher } from "./ignore.js";
+import { ignoreRulesFor, type IgnoreChoice } from "./comfort/ignore-files.js"; // R17-S20
 import { isSecretEntry, type WorkspaceFiles } from "./files.js";
 import type { ToolRegistry } from "./registry.js";
 
@@ -34,17 +34,13 @@ export class WorkspaceSearch {
   private readonly symbolCache = new Map<string, { key: string; symbols: string[] }>();
   /** How many files the last `map` answered from the cache instead of reading again. */
   cacheHits = 0;
+  /** R17-S20: the owner's ignore-file choice, read fresh each walk; unset keeps the defaults. */
+  ignoreChoice: (() => IgnoreChoice) | undefined;
   constructor(private readonly files: WorkspaceFiles) {}
 
-  /** The ignore rules in effect: `.branchignore` if there is one, otherwise `.gitignore`. */
-  private async ignoreRules(): Promise<(path: string, isDirectory?: boolean) => boolean> {
-    for (const name of [".branchignore", ".gitignore"]) {
-      try {
-        const text = await readFile(join(this.files.base, name), "utf8");
-        return ignoreMatcher(text).ignores;
-      } catch { /* No ignore file of that name. */ }
-    }
-    return () => false;
+  /** The ignore rules in effect: `.branchignore` if there is one, otherwise `.gitignore` (src/comfort/ignore-files.ts). */
+  private ignoreRules(): Promise<(path: string, isDirectory?: boolean) => boolean> {
+    return ignoreRulesFor(this.files.base, this.ignoreChoice?.());
   }
 
   /** Every readable file under `path`, as workspace-relative paths, bounded and ignore-aware. */

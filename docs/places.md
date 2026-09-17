@@ -147,6 +147,13 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Coding polish (`mac7/r17-d`): its switches, formatters, shell snapshot, copies, rules, checks and CI lines | `settings:advanced`, one card beside the developer tools |
 | A task's checklist (`mac7/r17-d`) | The side pane's Plan tab, under the to-do list |
 | The `@` picker (`mac7/r17-d`) | The message box, the same menu as `/`, because it changes the next message |
+| Keyboard shortcuts and vim keys, files searches skip (R17-S-C) | `settings:general` |
+| The status line and a time on each message (R17-S-C) | `settings:appearance`; the line itself sits in the composer's foot row |
+| Where you are told and the sound (R17-S-C) | `settings:notifications` |
+| Updating by itself (R17-S-C) | `settings:about` |
+| The push-to-talk key and the longest recording (R17-S-C) | `settings:voice` |
+| How carefully the browser acts, the proxy and trusted certificates (R17-S-C) | `settings:computer` |
+| How long a tool server may take to start (R17-S-C) | `customize:connections` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.
