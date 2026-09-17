@@ -4,6 +4,7 @@ import type { createBranch } from "./index.js";
 import { FeatureModeSchema } from "./feature-switches.js";
 import { PackageInstallSchema } from "./skill-packages.js";
 import { agentSkillPackage, readAgentSkill, writeAgentSkill } from "./agent-skills.js";
+import { describeFindings, scanSkill } from "./skill-scan.js";
 
 /**
  * Bucket 12 (A2374, A0776): installing and removing a skill while Branch runs, with a written
@@ -108,8 +109,11 @@ async function install(app: Branch, input: InstallRequest, note: (text: string) 
     return done;
   }
   note("Read the pasted instructions.");
-  const done = app.store.skills.install(app.runtime.owner, { document: input.document });
-  name(done.name);
+  const installed = app.store.skills.install(app.runtime.owner, { document: input.document });
+  name(installed.name);
+  // Integrator (bucket 12): pasted instructions arrive switched off, like a package or a registry skill.
+  if (installed.activeVersion !== null) app.store.skills.disable(app.runtime.owner, installed.id, { expectedRevision: installed.revision });
+  const done = app.store.skills.view(app.runtime.owner, installed.id);
   describeInstalled(note, done as unknown as View);
   return done;
 }
@@ -131,7 +135,11 @@ function exportSkill(app: Branch, url: URL) {
   const id = z.string().uuid().parse(url.searchParams.get("skill"));
   const view = app.store.skills.view(app.runtime.owner, id);
   const saved = app.store.get("settings", app.runtime.owner, `skill-package:${id}`)?.data as { files?: Record<string, string> } | undefined;
-  return writeAgentSkill(view.document, saved?.files ?? {});
+  const files = saved?.files ?? {};
+  // Integrator (bucket 12): a skill that carries a key is not written out; the rest is masked as a last guard.
+  const keys = [view.document, ...Object.values(files)].flatMap((text) => scanSkill(text).filter((found) => found.kind === "secret"));
+  if (keys.length) throw new Error(`This skill was not saved as a folder because it ${describeFindings(keys)}. Take the key out first.`);
+  return writeAgentSkill(app.runtime.hideSecrets(view.document), app.runtime.hideSecrets(files));
 }
 
 async function change(app: Branch, path: string, body: unknown): Promise<unknown> {

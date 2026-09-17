@@ -319,3 +319,65 @@ function addExamplesAndConfig(store, owner) {
   on(store, owner);
   return addExamples(store, owner, takenByCatalog).mcp;
 }
+
+// ---- integrator adversarial pass (bucket 12) ------------------------------------------------------
+
+test("integrator: what fills a blank can never turn a saved prompt into another command", async (t) => {
+  assert.throws(() => fillPrompt("{{input}} please", {}, "/stop"), /read as a command/);
+  assert.throws(() => fillPrompt("{{topic}}", { topic: "/exit" }), /read as a command/);
+  assert.throws(() => fillPrompt("{{topic}}", { topic: "​ /exit" }), /read as a command/);
+  assert.throws(() => fillPrompt("{{topic}}", { topic: "／exit" }), /read as a command/);
+  assert.equal(fillPrompt("Look at {{topic}}", { topic: "/etc/hosts" }), "Look at /etc/hosts", "a slash inside the text is fine");
+
+  const { app, store, owner, model } = await fixture(t);
+  on(store, owner);
+  savePrompt(store, owner, { title: "Echo", body: "{{input}}", command: "echo" }, takenByCatalog);
+  const expanded = savedLine(store, owner, "/echo /stop");
+  assert.ok("problem" in expanded, "the filled text is refused, not sent");
+
+  // A paired chat sender cannot reach a shipped command through the owner's saved one.
+  const replies = [];
+  const adapter = { id: "chat", kind: "fake", botName: () => "Branch", async start() {}, async stop() {},
+    async send(_chatId, text) { replies.push(text); return String(replies.length); } };
+  app.channels.mergeWindowMs = 0;
+  await app.channels.attach(adapter, { activation: "always", pairing: true, allowlist: ["owner"] });
+  app.channels.setSwitches({ liveStatus: "off", commands: "on", steering: "off", splitting: "off" });
+  await app.channels.handle({ channel: "chat", chatId: "c9", chatKind: "direct", senderId: "owner", senderName: "Sam",
+    text: "/echo /new", addressed: true, messageId: "x1" });
+  assert.match(replies.at(-1), /read as a command/);
+  assert.equal(model.seen.length, 0);
+
+  // The terminal conversation stays open when the filled text would have said /exit.
+  const input = new PassThrough(), output = new PassThrough();
+  let written = "";
+  output.on("data", (chunk) => { written += chunk; });
+  const done = startTerminal(app.runtime, { input, output, signals: new EventEmitter(), terminal: false, pollIntervalMs: 5 });
+  input.write("/echo /exit\n");
+  for (let i = 0; i < 100 && !/read as a command/.test(written); i++) await delay(10);
+  assert.match(written, /read as a command/);
+  input.end();
+  await done;
+});
+
+test("integrator: a library file with prototype keys or oversized fields is refused whole", async (t) => {
+  const { store, owner } = await fixture(t);
+  on(store, owner);
+  const polluted = JSON.parse('{"format":"branch-prompt-library","version":1,"prompts":[{"title":"A","body":"B","__proto__":{"polluted":true}}]}');
+  assert.throws(() => importPrompts(store, owner, polluted, takenByCatalog));
+  const outer = JSON.parse('{"format":"branch-prompt-library","version":1,"prompts":[],"__proto__":{"polluted":true}}');
+  assert.throws(() => importPrompts(store, owner, outer, takenByCatalog));
+  assert.equal({}.polluted, undefined);
+  const huge = { format: "branch-prompt-library", version: 1, prompts: [{ title: "x".repeat(100_000), body: "Hello" }] };
+  assert.throws(() => importPrompts(store, owner, huge, takenByCatalog));
+  assert.equal(listPrompts(store, owner).length, 0);
+});
+
+test("integrator: a try is refused once the monthly budget is spent", async (t) => {
+  const { store, owner, json, model } = await fixture(t);
+  on(store, owner);
+  store.save("settings", owner, "usage_budget", { maxMonthlyTokens: 0, pauseAtBudget: true });
+  const tried = await json("/api/prompts/try", { body: "Say hello" });
+  assert.notEqual(tried.status, 200);
+  assert.match(tried.body.error, /budget/i);
+  assert.equal(model.seen.length, 0);
+});

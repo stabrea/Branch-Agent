@@ -144,3 +144,67 @@ test("A2374: a Branch package goes through the same record, and a short-lived ke
     assert.equal((await json(path, {}, key)).status, 401, path);
   }
 });
+
+// ---- integrator adversarial pass (bucket 12) ------------------------------------------------------
+
+import { deflateRawSync } from "node:zlib";
+/** Sets the Unix mode a zip entry claims in its central directory (e.g. a symbolic link). */
+function withMode(bytes, entryName, mode) {
+  const copy = Buffer.from(bytes);
+  for (let at = 0; at + 46 <= copy.length; at++) {
+    if (copy.readUInt32LE(at) !== 0x02014b50) continue;
+    const name = copy.toString("utf8", at + 46, at + 46 + copy.readUInt16LE(at + 28));
+    if (name === entryName) { copy.writeUInt16LE(0x0314, at + 4); copy.writeUInt32LE(mode * 0x10000, at + 38); }
+  }
+  return copy;
+}
+
+test("integrator: a zip entry that inflates past what it declares is stopped before it fills memory", () => {
+  const bomb = Buffer.alloc(8 * 1024 * 1024);
+  // Swap the tiny reference's data for 8 MB of zeros, while the directory still says it is 1 byte.
+  const packed = deflateRawSync(bomb);
+  let offset = 0;
+  const entries = [["tidy-summary/SKILL.md", Buffer.from(skill("tidy-summary"))], ["tidy-summary/references/big.md", null]];
+  const locals = [], central = [];
+  for (const [name, data] of entries) {
+    const label = Buffer.from(name), body = data ? deflateRawSync(data) : packed, size = data ? data.length : 1;
+    const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(body.length, 18); local.writeUInt32LE(size, 22); local.writeUInt16LE(label.length, 26);
+    const dir = Buffer.alloc(46); dir.writeUInt32LE(0x02014b50, 0); dir.writeUInt16LE(8, 10);
+    dir.writeUInt32LE(body.length, 20); dir.writeUInt32LE(size, 24); dir.writeUInt16LE(label.length, 28); dir.writeUInt32LE(offset, 42);
+    locals.push(local, label, body); central.push(dir, label); offset += 30 + label.length + body.length;
+  }
+  const directory = Buffer.concat(central), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(2, 8); end.writeUInt16LE(2, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  assert.throws(() => readAgentSkill(Buffer.concat([...locals, directory, end])), /more data than allowed/);
+});
+
+test("integrator: a symbolic link inside a skill folder is refused, not read as text", () => {
+  const zip = withMode(folder("tidy-summary", [["tidy-summary/references/link.md", "/etc/passwd"]]), "tidy-summary/references/link.md", 0o120777);
+  assert.throws(() => readAgentSkill(zip), /link/);
+  const plain = withMode(folder(), "tidy-summary/references/style guide.md", 0o100644);
+  assert.equal(readAgentSkill(plain).name, "tidy-summary", "an ordinary file with a Unix mode still reads");
+});
+
+test("integrator: pasted instructions arrive switched off, and an export never carries a key", async (t) => {
+  const { app, json } = await fixture(t);
+  const owner = app.runtime.owner;
+  await json("/api/skill-installs/settings", { mode: "on" });
+  const pasted = await json("/api/skill-installs/install", { kind: "document", document: skill("pasted-one") });
+  assert.equal(pasted.body.record.ok, true);
+  assert.match(pasted.body.record.steps.join(" "), /switched off until you turn it on/);
+  assert.equal(app.store.skills.list(owner).find((entry) => entry.name === "pasted-one").activeVersion, null);
+
+  // A reference too long to add to the instructions is kept with the package without being scanned.
+  const long = `${"Background. ".repeat(1600)}\napi_key=abcdefghijklmnopqrstuvwx1234\n`;
+  const leaky = await json("/api/skill-installs/install", { kind: "agent-skill", approve: true,
+    file: file(zipWrite([["leaky-one/SKILL.md", skill("leaky-one")], ["leaky-one/references/notes.md", long]])) });
+  assert.equal(leaky.body.record.ok, true);
+  assert.match(leaky.body.record.steps.join(" "), /too long to add/);
+  const id = app.store.skills.list(owner).find((entry) => entry.name === "leaky-one").id;
+  const exported = await json(`/api/skill-installs/export?skill=${id}`);
+  assert.notEqual(exported.status, 200);
+  assert.doesNotMatch(JSON.stringify(exported.body), /abcdefghijklmnopqrstuvwx1234/);
+  assert.match(exported.body.error, /key|secret/i);
+});

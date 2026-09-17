@@ -28,6 +28,8 @@ const maxVersions = 10;
 /** A command a saved prompt answers to: lowercase letters, digits and dashes, starting with a letter. */
 export const promptCommandPattern = /^[a-z][a-z0-9-]{0,31}$/;
 const blankPattern = /\{\{\s*([a-z][a-z0-9_]{0,39})\s*\}\}/g;
+/** A finished message that would be read as a command: a slash first, past spaces and invisible characters. */
+const readsAsCommand = /^[\s\u200B-\u200D\u2060\uFEFF]*[/\uFF0F]/;
 /** Blanks Branch fills in by itself. `{{input}}` is whatever follows the command. */
 export const builtInBlanks = ["today", "input"] as const;
 
@@ -186,6 +188,8 @@ export function fillPrompt(body: string, values: Record<string, string>, rest = 
   const extra = rest && !usesInput && !blanks.some((name) => filled[name] === rest) ? `\n\n${rest}` : "";
   const message = (text + extra).trim();
   if (message.length > 16000) throw new Error("The filled-in prompt is longer than a message may be.");
+  // Integrator (bucket 12): what fills a blank never turns the prompt into another command.
+  if (readsAsCommand.test(message)) throw new Error("The filled-in prompt starts with /, so it would be read as a command; it was not sent.");
   return message;
 }
 
@@ -195,8 +199,8 @@ export const PromptLibraryFileSchema = z.object({
   format: z.literal("branch-prompt-library"),
   version: z.literal(1),
   prompts: z.array(z.object({
-    title: z.string(), body: z.string(), group: z.string().optional(),
-    description: z.string().optional(), command: z.string().optional(),
+    title: z.string().max(200), body: z.string().max(16000), group: z.string().max(100).optional(),
+    description: z.string().max(400).optional(), command: z.string().max(64).optional(),
   }).strict()).max(maxPrompts),
 }).strict();
 

@@ -58,7 +58,9 @@ async function tryPrompt(app: Branch, input: unknown) {
     const answers = [];
     for (const id of models) {
       const started = Date.now();
-      const run = await runtime.run({ prompt: message, temporary: true, permissions: [], ...(id ? { model: id } : {}), onTextDelta: () => undefined });
+      // Integrator (bucket 12): no tools, one answer, a bounded spend; the monthly budget is checked by run().
+      const run = await runtime.run({ prompt: message, temporary: true, permissions: [], budget: { maxSteps: 2, maxTokens: 32000 },
+        ...(id ? { model: id } : {}), onTextDelta: () => undefined });
       answers.push({ model: id || null, status: run.status, output: runtime.hideSecrets(run.output), milliseconds: Date.now() - started });
     }
     return { message, answers };
