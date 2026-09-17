@@ -17,15 +17,8 @@ async function call(path, body) {
   if (!response.ok) throw new Error(data.error || say("dashboard.failed", "That did not work."));
   return data;
 }
-/** A key that may only look cannot send, so a command that only looks is asked for with GET. */
-async function run(line) {
-  try {
-    return await call("commands/run", { surface: "dashboard", line });
-  } catch (error) {
-    if (!/only look/i.test(error.message)) throw error;
-    return call(`commands/run?${new URLSearchParams({ surface: "dashboard", line })}`);
-  }
-}
+/** Every key sends with POST, so what was typed never lands in an address; the server says what the key may do. */
+const run = (line) => call("commands/run", { surface: "dashboard", line });
 
 function build(list) {
   const box = card("db-commands-card", ["commands.dashboard.title", "Commands"],

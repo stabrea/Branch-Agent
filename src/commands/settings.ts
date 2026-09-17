@@ -20,6 +20,11 @@ export const CommandSettingsSchema = z.object({ mode: FeatureModeSchema.default(
 export type CommandSettings = z.infer<typeof CommandSettingsSchema>;
 const settingKey = "command-catalog";
 
+/** What `POST /api/commands/run` takes: the page it was typed on, the line, and the conversation it is for. */
+export const CommandRunSchema = z.object({
+  surface: z.enum(["window", "phone", "dashboard"]), line: z.string().trim().min(1).max(16000), sessionId: z.string().uuid().optional(),
+}).strict();
+
 type Reader = Pick<Store, "get">;
 export function commandSettings(store: Reader, owner: string): CommandSettings {
   const saved = CommandSettingsSchema.safeParse(store.get("settings", owner, settingKey)?.data ?? {});

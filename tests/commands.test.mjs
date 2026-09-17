@@ -54,7 +54,10 @@ test("the table has one entry per name, and no name or other name is used twice"
     }
     assert.ok(command.surfaces.length, command.name);
     for (const place of command.legacy) assert.ok(command.surfaces.includes(place), `${command.name} was on ${place} but is not listed there`);
-    for (const alias of command.newAliases ?? []) assert.ok(command.aliases.includes(alias), `${command.name}: ${alias}`);
+    for (const [place, names] of Object.entries(command.newAliases ?? {})) {
+      assert.ok(command.legacy.includes(place), `${command.name}: new names on ${place}, which never had it`);
+      for (const alias of names) assert.ok(command.aliases.includes(alias), `${command.name}: ${alias}`);
+    }
     assert.equal(command.key, `commands.${command.name}`);
   }
   assert.deepEqual(surfaces, ["window", "phone", "terminal", "chat", "dashboard"]);
@@ -208,7 +211,7 @@ test("the switch ships off: the window keeps /model and /help, and anything else
 
 test("changing the switch needs the key of this computer", async (t) => {
   const f = await fixture(t);
-  assert.equal((await f.call("/api/commands/settings", f.keys.run, { mode: "on" })).status, 403);
+  assert.equal((await f.call("/api/commands/settings", f.keys.run, { mode: "on" })).status, 401, "off limits to short-lived keys");
   assert.equal((await f.call("/api/commands/settings", f.keys.read, { mode: "on" })).status, 401);
   assert.equal(commandSettings(f.app.store, f.owner).mode, "off");
   assert.deepEqual(await (await f.call("/api/commands/settings", f.keys.read)).json(), { mode: "off", access: "read" });
@@ -221,16 +224,13 @@ test("changing the switch needs the key of this computer", async (t) => {
 test("each key does what its route would let it do, and no more", async (t) => {
   const f = await fixture(t);
   on(f.app);
-  const run = (key, line, body = true) => body
-    ? f.call("/api/commands/run", key, { surface: "phone", line })
-    : f.call(`/api/commands/run?${new URLSearchParams({ surface: "phone", line })}`, key);
-  /* A key that may only look: GET, and only for commands that look. */
-  assert.equal((await run(f.keys.read, "/status")).status, 401);
-  const status = await (await run(f.keys.read, "/status", false)).json();
+  const run = (key, line) => f.call("/api/commands/run", key, { surface: "phone", line });
+  /* A key that may only look: POST like every key (integration review), and only commands that look. */
+  const status = await (await run(f.keys.read, "/status")).json();
   assert.match(status.text, /Nothing is working right now/);
-  assert.equal((await run(f.keys.read, "/lockdown on", false)).status, 405);
-  assert.match((await (await run(f.keys.read, "/lockdown", false)).json()).text, /Lockdown is off/);
-  assert.match((await (await run(f.keys.read, "/whoami", false)).json()).text, /may only look/);
+  assert.equal((await (await run(f.keys.read, "/lockdown on")).json()).refused, true);
+  assert.match((await (await run(f.keys.read, "/lockdown")).json()).text, /Lockdown is off/);
+  assert.match((await (await run(f.keys.read, "/whoami")).json()).text, /may only look/);
   /* A key that may run tasks cannot change settings or permissions. */
   const refused = await (await run(f.keys.run, "/lockdown on")).json();
   assert.equal(refused.refused, true);

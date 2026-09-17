@@ -36,7 +36,7 @@ export function refusalFor(level: Level, access: Access, surface: Surface): stri
 /** The command a line is for this surface, or null when the surface should treat it as before. */
 export function commandFor(host: CommandHost, surface: Surface, line: string): { command: CatalogCommand; argument: string } | null {
   const mode = commandMode(host.runtime.store, host.runtime.owner);
-  const parsed = parseLine(line, mode === "off");
+  const parsed = parseLine(line, mode === "off", surface);
   if (!parsed || !available(parsed.command, surface, mode) || !HANDLERS[parsed.command.name]) return null;
   return parsed;
 }

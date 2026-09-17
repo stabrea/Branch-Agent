@@ -497,8 +497,10 @@ export class ChannelRouter {
   private async command(message: InboundMessage, command: ChatCommand): Promise<Outcome> {
     const { channel, chatId } = message;
     const turn = this.turns.get(chatKey(message));
-    // A side question and folding both ask the model, so they count against the chats working at once.
-    const asks = command.name === "btw" || command.name === "compact";
+    // A side question, folding and a question for the handbook all ask the model, so they count
+    // against the chats working at once (`/help` and `/help all` only list).
+    const question = command.name === "help" && !["", "all"].includes(command.argument.trim().toLowerCase());
+    const asks = command.name === "btw" || command.name === "compact" || question;
     const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
       sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(),

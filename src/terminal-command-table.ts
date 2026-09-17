@@ -7,7 +7,7 @@ import {
   choosePreset, exportConversation, historyLines, presetLines, readAttachment,
 } from "./terminal-commands.js";
 import type { FeatureMode } from "./feature-switches.js";
-import { levelFor, lookup, type CatalogCommand } from "./commands/catalog.js";
+import { aliasesOn, levelFor, lookup, type CatalogCommand } from "./commands/catalog.js";
 import { available, commandMode, commandsFor } from "./commands/settings.js";
 import { executeCommand } from "./commands/execute.js";
 import { commandHost } from "./commands/host.js";
@@ -158,21 +158,21 @@ function shared(name: string): TerminalCommand["run"] {
     for (const line of outcome.text.split("\n")) context.say(outcome.refused ? "warn" : "note", line);
   };
 }
-const fromCatalog = (entry: CatalogCommand): TerminalCommand => ({
-  name: entry.name, aliases: [...entry.aliases], key: entry.key, english: entry.english, args: entry.args,
+const fromCatalog = (entry: CatalogCommand, mode: FeatureMode = "on"): TerminalCommand => ({
+  name: entry.name, aliases: [...aliasesOn(entry, "terminal", mode === "off")], key: entry.key, english: entry.english, args: entry.args,
   run: RUNNERS[entry.name] ?? shared(entry.name),
 });
 /** Every command the terminal can take with the switch where it is; `all` adds what "when needed" keeps out of lists. */
 export function terminalCommands(mode: FeatureMode, all = false): TerminalCommand[] {
-  return commandsFor("terminal", mode, all).map(fromCatalog);
+  return commandsFor("terminal", mode, all).map((entry) => fromCatalog(entry, mode));
 }
 /** The terminal's list with the switch off, which is the list it has always had. */
 export const TERMINAL_COMMANDS: TerminalCommand[] = terminalCommands("off");
 
 /** The terminal command a typed name stands for, with the switch where it is (off when not given). */
 export function findCommand(name: string, mode: FeatureMode = "off"): TerminalCommand | undefined {
-  const found = lookup(name, mode === "off");
-  return found && available(found, "terminal", mode) ? fromCatalog(found) : undefined;
+  const found = lookup(name, mode === "off", "terminal");
+  return found && available(found, "terminal", mode) ? fromCatalog(found, mode) : undefined;
 }
 /** The help list: the keys in one line, then one line per command. */
 export function helpLines(words: Words, mode: FeatureMode = "off"): string[] {

@@ -3,7 +3,7 @@ import { compactionSplit } from "../runtime.js";
 import { parseSessionSummary, summaryText } from "../session-summary.js";
 import { usageLine } from "../terminal-tui.js";
 import type { FeatureMode } from "../feature-switches.js";
-import { lookup, parseLine, type CatalogCommand } from "../commands/catalog.js";
+import { aliasesOn, lookup, parseLine, type CatalogCommand } from "../commands/catalog.js";
 import { available, commandMode, commandsFor } from "../commands/settings.js";
 import { executeCommand } from "../commands/execute.js";
 import { commandHost } from "../commands/host.js";
@@ -77,7 +77,7 @@ export const chatCommandSpec = (name: ChatCommandName): ChatCommandSpec => {
  */
 export function parseChatCommand(text: string, mode: FeatureMode = "off"): ChatCommand | null {
   if (!/^\/[a-z?]/i.test(text.trim())) return null;
-  const parsed = parseLine(text, mode === "off");
+  const parsed = parseLine(text, mode === "off", "chat");
   if (!parsed || !available(parsed.command, "chat", mode)) return null;
   return { name: parsed.command.name, argument: parsed.argument };
 }
@@ -85,7 +85,7 @@ export function parseChatCommand(text: string, mode: FeatureMode = "off"): ChatC
 /** The list a person gets for /help, written from the table. */
 export function chatCommandHelp(mode: FeatureMode = "off"): string {
   const lines = chatCommandsFor(mode).map((command) => {
-    const shown = mode === "off" ? command.aliases.filter((alias) => !lookup(command.name)?.newAliases?.includes(alias)) : command.aliases;
+    const shown = aliasesOn(lookup(command.name)!, "chat", mode === "off");
     const also = shown.length ? ` (or ${shown.map((alias) => `/${alias}`).join(", ")})` : "";
     return `/${command.name}${command.args ? ` ${command.args}` : ""}${also} - ${command.description}`;
   });

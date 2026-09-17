@@ -41,11 +41,17 @@ export interface CatalogCommand {
   whileWorking?: boolean;
   /** What the command asks of the key once something follows it (`/help <question>` asks the model). */
   withArgument?: Level;
-  /** Other names this table added to a command that already existed; they follow the switch. */
-  newAliases?: readonly string[];
+  /**
+   * Other names this table added to a command a surface already had, per surface (the terminal had
+   * `/clear` and `/?` long before the chat apps did); on that surface they follow the switch.
+   */
+  newAliases?: Partial<Record<Surface, readonly string[]>>;
 }
 
 const W: Surface[] = ["window", "phone"];
+/** The same added names on each of the given surfaces. */
+const added = (names: string[], ...where: Surface[]): Partial<Record<Surface, readonly string[]>> =>
+  Object.fromEntries(where.map((surface) => [surface, names]));
 const ALL: Surface[] = ["window", "phone", "terminal", "chat", "dashboard"];
 type Extra = Partial<Pick<CatalogCommand, "bareLooks" | "route" | "whileWorking" | "legacy" | "newAliases" | "withArgument">>;
 const entry = (name: string, aliases: string[], args: string, english: string, where: Surface[], level: Level, extra: Extra = {}): CatalogCommand =>
@@ -58,10 +64,10 @@ const was = (...where: Surface[]): Extra => ({ legacy: where });
  * this table added follow.
  */
 export const COMMANDS: readonly CatalogCommand[] = [
-  entry("help", ["?"], "[question]", "the commands you can use here; with a question, an answer from Branch's handbook", ALL, "look", { ...was("window", "phone", "terminal", "chat"), whileWorking: true, newAliases: ["?"], withArgument: "run" }),
-  entry("model", ["models"], "[id]", "which model answers; /model on its own lists them", ["window", "phone", "terminal", "chat"], "run", { ...was("window", "phone", "terminal"), bareLooks: true, route: { method: "POST", path: "/api/models/switch" } }),
+  entry("help", ["?"], "[question]", "the commands you can use here; with a question, an answer from Branch's handbook", ALL, "look", { ...was("window", "phone", "terminal", "chat"), whileWorking: true, newAliases: added(["?"], "window", "phone", "chat"), withArgument: "run" }),
+  entry("model", ["models"], "[id]", "which model answers; /model on its own lists them", ["window", "phone", "terminal", "chat"], "run", { ...was("window", "phone", "terminal"), bareLooks: true, route: { method: "POST", path: "/api/models/switch" }, newAliases: added(["models"], "window", "phone") }),
   entry("think", ["reasoning"], "<low|medium|high|default>", "how hard the model thinks in this conversation", ["window", "phone", "terminal", "chat"], "run", was("terminal")),
-  entry("preset", ["permissions", "approvals"], "[name]", "when Branch checks with you before doing something", [...W, "terminal"], "owner", { ...was("terminal"), bareLooks: true, route: { method: "POST", path: "/api/policy" }, newAliases: ["approvals"] }),
+  entry("preset", ["permissions", "approvals"], "[name]", "when Branch checks with you before doing something", [...W, "terminal"], "owner", { ...was("terminal"), bareLooks: true, route: { method: "POST", path: "/api/policy" }, newAliases: added(["approvals"], "terminal") }),
   entry("memory", [], "[words]", "facts it has saved", [...W, "terminal"], "look", was("terminal")),
   entry("skills", [], "", "skills installed here", [...W, "terminal"], "look", was("terminal")),
   entry("plan", [], "[on|off]", "turn a short plan first on or off", [...W, "terminal"], "look", was("terminal")),
@@ -71,7 +77,7 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("attach", ["image"], "<file>", "send a file or picture with your next message", [...W, "terminal"], "look", was("terminal")),
   entry("history", [], "", "this conversation so far", ["terminal", "chat"], "look", was("terminal")),
   entry("export", ["save"], "[file]", "save this conversation as a Markdown file", [...W, "terminal"], "look", was("terminal")),
-  entry("new", ["clear", "reset"], "", "start a fresh conversation", ["window", "phone", "terminal", "chat"], "look", { ...was("terminal", "chat"), newAliases: ["clear"] }),
+  entry("new", ["clear", "reset"], "", "start a fresh conversation", ["window", "phone", "terminal", "chat"], "look", { ...was("terminal", "chat"), newAliases: added(["clear"], "chat") }),
   entry("sessions", ["resume"], "[id]", "earlier conversations; with a number, carry one on", [...W, "terminal"], "look", was("terminal")),
   entry("go", ["open"], "<place>", "open a place or a Settings page by name: /go inbox finished", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("inbox", [], "[tab]", "what needs you, what finished, and the history", [...W, "terminal", "dashboard"], "look", was("terminal")),
@@ -80,18 +86,18 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("customize", ["tools"], "[tab]", "skills, specialists, plugins, connections and channels", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("settings", ["config"], "[page]", "the twelve Settings pages, by name", [...W, "terminal", "dashboard"], "look", was("terminal")),
   entry("theme", ["skin"], "[name|light|dark|follow|list]", "the theme, shared with the window", [...W, "terminal"], "look", was("terminal")),
-  entry("default", [], "<id>", "the model every new conversation starts with", [...W, "terminal"], "owner", was("terminal")),
+  entry("default", [], "<id>", "the model every new conversation starts with", [...W, "terminal"], "owner", { ...was("terminal"), route: { method: "POST", path: "/api/models" } }),
   entry("switch", [], "<mouse|sidePane|oak> [on|off|when-needed]", "the terminal's own switches, which all start off", ["terminal"], "owner", was("terminal")),
   entry("pane", ["details"], "[activity|plan|files|memory]", "show or hide the side pane", [...W, "terminal"], "look", was("terminal")),
   entry("lockdown", ["pause"], "[on|off]", "the one switch that makes everything wait for your yes", [...W, "terminal", "dashboard"], "owner", { ...was("terminal"), bareLooks: true, route: { method: "POST", path: "/api/lockdown" } }),
-  entry("keys", ["shortcuts"], "", "every key the view answers to", ["terminal"], "look", { ...was("terminal"), newAliases: ["shortcuts"] }),
+  entry("keys", ["shortcuts"], "", "every key the view answers to", ["terminal"], "look", { ...was("terminal"), newAliases: added(["shortcuts"], "terminal") }),
   entry("exit", ["quit"], "", "leave", ["terminal"], "look", was("terminal")),
   // ---- added with this table ----
   entry("stop", ["cancel"], "[task]", "stop what is working now", ["window", "phone", "terminal", "chat", "dashboard"], "run", { ...was("chat"), whileWorking: true }),
   entry("status", [], "", "what is working right now, and with which model", ALL, "look", { ...was("chat"), whileWorking: true }),
-  entry("compact", ["compress", "fold"], "", "fold the earlier part of this conversation into a summary", ["window", "phone", "terminal", "chat"], "run", { ...was("chat"), newAliases: ["compress", "fold"] }),
-  entry("usage", ["cost"], "[on|off]", "tokens and cost so far; in a chat app, on or off adds a line to each reply", ALL, "look", { ...was("chat"), newAliases: ["cost"] }),
-  entry("btw", ["side"], "<question>", "a quick question on the side; it does not join the task", ["window", "phone", "terminal", "chat"], "run", { ...was("chat"), whileWorking: true, newAliases: ["side"] }),
+  entry("compact", ["compress", "fold"], "", "fold the earlier part of this conversation into a summary", ["window", "phone", "terminal", "chat"], "run", { ...was("chat"), newAliases: added(["compress", "fold"], "chat") }),
+  entry("usage", ["cost"], "[on|off]", "tokens and cost so far; in a chat app, on or off adds a line to each reply", ALL, "look", { ...was("chat"), newAliases: added(["cost"], "chat") }),
+  entry("btw", ["side"], "<question>", "a quick question on the side; it does not join the task", ["window", "phone", "terminal", "chat"], "run", { ...was("chat"), whileWorking: true, newAliases: added(["side"], "chat") }),
   entry("tokens", ["context"], "", "what fills the next request: instructions, tools, the conversation, and what it costs", ["window", "phone", "terminal", "chat"], "look"),
   entry("goal", [], "<what should be true> [--max rounds]", "keep working until a goal is met, paused or out of rounds", [...W, "terminal"], "run", { ...was("window", "phone"), route: { method: "POST", path: "/api/goals" } }),
   entry("whoami", ["id"], "", "what you may do from here", ALL, "look"),
@@ -101,19 +107,28 @@ export const COMMANDS: readonly CatalogCommand[] = [
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();
 /**
- * The command a typed name stands for (`/model`, `model`, `/cancel`, `/stop@BranchBot`). With
- * `oldNamesOnly`, the other names this table added are not read (the switch is off).
+ * The other names a command answers to on a surface: with `oldNamesOnly`, only those it had there
+ * before. With no surface named, a name this table added anywhere is left out.
  */
-export function lookup(name: string, oldNamesOnly = false): CatalogCommand | undefined {
+export function aliasesOn(command: CatalogCommand, surface: Surface | undefined, oldNamesOnly: boolean): readonly string[] {
+  if (!oldNamesOnly) return command.aliases;
+  const fresh = surface ? command.newAliases?.[surface] ?? [] : Object.values(command.newAliases ?? {}).flat();
+  return command.aliases.filter((alias) => !fresh.includes(alias));
+}
+/**
+ * The command a typed name stands for (`/model`, `model`, `/cancel`, `/stop@BranchBot`). With
+ * `oldNamesOnly` (the switch is off), the other names this table added on `surface` are not read.
+ */
+export function lookup(name: string, oldNamesOnly = false, surface?: Surface): CatalogCommand | undefined {
   const wanted = bare(name);
   return COMMANDS.find((command) => command.name === wanted
-    || (command.aliases.includes(wanted) && !(oldNamesOnly && command.newAliases?.includes(wanted))));
+    || aliasesOn(command, surface, oldNamesOnly).includes(wanted));
 }
 /** Splits a typed line into the command and what follows it; null when it is not a known command. */
-export function parseLine(text: string, oldNamesOnly = false): { command: CatalogCommand; argument: string } | null {
+export function parseLine(text: string, oldNamesOnly = false, surface?: Surface): { command: CatalogCommand; argument: string } | null {
   const match = /^\/([a-z?][\w?-]*)(?:@[\w.-]+)?(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!match) return null;
-  const command = lookup(match[1]!, oldNamesOnly);
+  const command = lookup(match[1]!, oldNamesOnly, surface);
   return command ? { command, argument: (match[2] ?? "").trim() } : null;
 }
 /** What a command asks of the key once its argument is known. */

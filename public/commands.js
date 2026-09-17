@@ -66,16 +66,8 @@ const CLIENT = {
   help: () => undefined,
 };
 
-/** A key that may only look cannot send, so a command that only looks is asked for with GET. */
-async function send(line, sessionId) {
-  try {
-    return await api("commands/run", { surface: surface(), line, ...(sessionId ? { sessionId } : {}) });
-  } catch (error) {
-    if (!/only look/i.test(error.message)) throw error;
-    const query = new URLSearchParams({ surface: surface(), line, ...(sessionId ? { session: sessionId } : {}) });
-    return api(`commands/run?${query}`);
-  }
-}
+/** Every key sends with POST, so what was typed never lands in an address; the server says what the key may do. */
+const send = (line, sessionId) => api("commands/run", { surface: surface(), line, ...(sessionId ? { sessionId } : {}) });
 globalThis.branchCatalogCommand = async function branchCatalogCommand(typed, sessionId) {
   try {
     const outcome = await send(typed, sessionId);

@@ -2348,7 +2348,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
       }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
-        ?? app.sessionTokens.check(app.runtime.owner, supplied, {
+        ?? app.sessionTokens.check(app.runtime.owner, supplied, commandLook(app, request, path, supplied) ?? {
           method: request.method ?? "GET", executes: isExecution(request, path),
         }));
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
@@ -2375,24 +2375,25 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         return;
       }
       // ---- end of the dashboard block ----
-      // ---- Wave mac3 (commands): the one slash-command table, for the window, the phone and the
-      // dashboard (src/commands/api.ts). What the key may do is read the way the dashboard reads it. ----
-      if (handlesCommandsPath(path)) {
-        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
-        const answer = await commandsApi(app, path, {
-          method: request.method ?? "GET", url: new URL(request.url ?? "/", "http://local"), access, readBody: () => readBody(request),
-        }).catch((error: unknown) => {
-          throw error instanceof CommandApiError ? new HttpError(error.status, error.message) : error;
-        });
-        send(response, 200, answer);
-        return;
-      }
-      // ---- end of the commands block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
         throw new HttpError(429, "Too many active executions");
       try {
+        // ---- Wave mac3 (commands): the one slash-command table, for the window, the phone and the
+        // dashboard (src/commands/api.ts). What the key may do is read the way the dashboard reads it,
+        // and checked command by command; running one takes a place like any other task. ----
+        if (handlesCommandsPath(path)) {
+          const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+          const answer = await commandsApi(app, path, {
+            method: request.method ?? "GET", url: new URL(request.url ?? "/", "http://local"), access, readBody: () => readBody(request),
+          }).catch((error: unknown) => {
+            throw error instanceof CommandApiError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the commands block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -2826,8 +2827,23 @@ function voiceDeps(app: Branch) {
  * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
  * two are the owner's own step, in the app window, with the master key.
  */
+/**
+ * Wave mac3 (commands, integration review): a key that may only look sends its commands with POST
+ * too, so what it typed never lands in an address or a log. For that one route its POST counts as
+ * looking; `src/commands/api.ts` then lets it carry out only the commands that look.
+ */
+function commandLook(app: Branch, request: IncomingMessage, path: string, supplied: string): { method: string; executes: boolean } | null {
+  if (request.method !== "POST" || path !== "/api/commands/run") return null;
+  return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
+}
+
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
+  // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
+  // conversation starts with (and the model services behind it), and which commands are offered
+  // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
+  if (path === "/api/policy" || path === "/api/models" || path === "/api/commands/settings")
+    return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
@@ -2871,7 +2887,7 @@ async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
   );

@@ -5,6 +5,7 @@ import { RunInputSchema } from "./contracts.js";
 import { PolicyInputSchema } from "./policy.js";
 import { WorkflowSchema } from "./workflows.js";
 import { ProjectSchema } from "./projects.js";
+import { CommandRunSchema, CommandSettingsSchema } from "./commands/settings.js";
 
 /**
  * Branch's own web API, described the way every other program expects to be told: an OpenAPI 3
@@ -63,6 +64,17 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "post", path: "/api/policy", summary: "Change the approval settings.", tag: "settings", body: PolicyInputSchema },
   { method: "get", path: "/api/lockdown", summary: "Whether Lockdown is on.", tag: "settings" },
   { method: "post", path: "/api/lockdown", summary: "Turn Lockdown on or off.", tag: "settings", bodyNote: "{ on: true } or { on: false }." },
+  // Wave mac3 (commands, integration review): the one table of typed commands, and the dashboard.
+  { method: "get", path: "/api/commands", summary: "The typed commands one page offers; add ?surface=window, phone or dashboard.", tag: "commands" },
+  { method: "get", path: "/api/commands/table", summary: "Every typed command on every surface, and how each compares with other assistants.", tag: "commands" },
+  { method: "post", path: "/api/commands/run", summary: "Carry out one typed command; a key that may only look may send only commands that look.", tag: "commands", body: CommandRunSchema },
+  { method: "get", path: "/api/commands/settings", summary: "The off, on and when-needed switch for the commands the table added.", tag: "commands" },
+  { method: "post", path: "/api/commands/settings", summary: "Change that switch (the key of this computer only).", tag: "commands", body: CommandSettingsSchema },
+  { method: "get", path: "/api/dashboard", summary: "The browser dashboard in one answer: what is happening now, health, spending and recent activity (the dashboard must be switched on).", tag: "dashboard" },
+  { method: "get", path: "/api/dashboard/settings", summary: "The dashboard's switch, and what this key may do there.", tag: "dashboard" },
+  { method: "post", path: "/api/dashboard/settings", summary: "Switch the dashboard (the key of this computer only).", tag: "dashboard", bodyNote: "{ mode: \"off\" | \"on\" | \"when-needed\" }" },
+  { method: "post", path: "/api/dashboard/automations", summary: "Pause every schedule and trigger, or resume the ones that were paused (the key of this computer only).", tag: "dashboard", bodyNote: "{ paused: true } or { paused: false }" },
+  { method: "post", path: "/api/dashboard/restart", summary: "Restart Branch, where the computer's own service will start it again (the key of this computer only).", tag: "dashboard", bodyNote: "{}" },
   { method: "post", path: "/v1/chat/completions", summary: "The OpenAI-shaped way in, for tools that already speak it.", tag: "compatibility" },
   { method: "get", path: "/v1/models", summary: "The model connections, in the OpenAI shape.", tag: "compatibility" },
 ];
