@@ -197,12 +197,21 @@ function section(key, items, emptyKey) {
   return [keyed("h3", key), ...(items.length ? items : [keyed("p", emptyKey, "empty-state")])];
 }
 
+/* Draws can overlap (coming into view, the switch saving, a language change). Only the newest one
+   is drawn, so a view read before the switch moved never puts the old position back. */
+let drawing = 0;
+
 /** Draws the whole one-click block from one request. */
 export async function drawOneClick() {
   const host = $("local-oneclick");
   if (!host) return;
+  const turn = ++drawing;
   let view;
-  try { view = await api("local-models"); } catch (error) { host.replaceChildren(el("p", error.message, "subtle")); return; }
+  try { view = await api("local-models"); } catch (error) {
+    if (turn === drawing) host.replaceChildren(el("p", error.message, "subtle"));
+    return;
+  }
+  if (turn !== drawing) return;
   const nodes = [...switchRow(view.mode)];
   if (view.mode === "off" || !view.oneClick) {
     host.replaceChildren(...nodes, keyed("p", "local.oneclick.off", "subtle"));
@@ -217,6 +226,7 @@ export async function drawOneClick() {
   if (current.installed) nodes.push(...section("local.section.offers", offers.map((offer) => offerItem(offer, current.id)), "local.offers.empty"), searchBlock(current.id));
   nodes.push(...section("local.section.loaded", one.loaded.map(loadedItem), "local.loaded.empty"));
   nodes.push(...section("local.section.disk", one.onDisk.map(diskItem), "local.disk.empty"));
+  if (turn !== drawing) return;
   host.replaceChildren(...nodes);
   const busy = one.setups.some((job) => !job.finishedAt);
   if (busy && !polling) polling = setInterval(() => void drawOneClick(), 2000);

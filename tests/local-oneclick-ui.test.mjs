@@ -68,8 +68,13 @@ test("U2 at 400 px nothing scrolls sideways, and every word has a key and French
   await page.locator("#local-models-runtime").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false);
-  const box = await page.locator("#local-models-runtime").boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400);
+  // Measured inside the page in one step: the block redraws itself, and a box asked for in two steps
+  // (find the element, then measure it) can land on one that was just replaced (null on Linux CI).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#local-models-runtime")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the program choice fits inside 400 px");
   const raw = await page.evaluate(() => document.querySelector("#local-oneclick").innerText.match(/\{[a-z]+\}/g));
   assert.equal(raw, null, "no {placeholder} is ever shown");
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#local-oneclick p, #local-oneclick label, #local-oneclick option, #local-oneclick button, #local-oneclick a, #local-oneclick span")]
