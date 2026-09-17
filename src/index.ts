@@ -149,6 +149,7 @@ import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
+import { redactLeaksIn } from "./leak-guard.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -438,7 +439,8 @@ export async function createBranch(options: {
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
   runtime.hideSecrets = (value) => {
-    const scrubbed = store.secrets.scrubber.deep(value);
+    // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
+    const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
     // The privacy settings live in the database; a failure reported while the app is closing
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }

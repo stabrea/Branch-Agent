@@ -2,6 +2,11 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const lock = JSON.parse(await readFile("package-lock.json", "utf8"));
+// Notices for source code adapted from other projects are written by hand at the end of the file
+// and carried over each time it is regenerated.
+const adaptedHeading = "## Source code adapted from other projects";
+const previous = await readFile("THIRD_PARTY_NOTICES.md", "utf8").catch(() => "");
+const adapted = previous.includes(adaptedHeading) ? previous.slice(previous.indexOf(adaptedHeading)).trimEnd() : "";
 const sections = [
   "# Third-party notices",
   "",
@@ -34,5 +39,6 @@ for (const [path, entry] of Object.entries(lock.packages)) {
       "",
     );
 }
+if (adapted) sections.push(adapted, "");
 await writeFile("THIRD_PARTY_NOTICES.md", sections.join("\n").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, ""));
 console.log("Collected notices from locked runtime dependencies.");

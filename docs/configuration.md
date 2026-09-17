@@ -584,6 +584,16 @@ Every value that has ever been looked up is remembered by **one scrubber** for a
 
 **Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
 
+### Keys Branch never looked up
+
+The scrubber above only knows the secrets Branch took out of the locker itself. A second check looks for anything **shaped** like a key, wherever it came from: a key a command printed, one sitting in a file, one pasted into a message. It knows the shapes of OpenAI, Anthropic, OpenRouter, AWS, GitHub, Slack, Google and Stripe keys, sign-in tokens, private key blocks, the value after `password:` or `Authorization:`, and a password written into an address (`postgres://me:…@host`). Every tool's answer is checked before the model reads it, and every request is checked before it goes to a model service; a match is replaced with a note such as `[hidden key-like value: OpenAI key]`, and the task's record gets one plain line saying a key-like value was hidden, never the value. Ordinary text is left alone: hashes, commit ids, ids, version numbers and code such as `password: z.string()` pass untouched.
+
+A web address that carries a key or password itself (`?api_key=`, `?token=`, `?password=`, `user:pass@`) is not fetched until you say yes, even where your rules would allow the website. The yes is for that exact address in that conversation only.
+
+The file tools also refuse more places keys live, as they already refused `.env` and `.ssh`: `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, the `.docker`, `.kube`, `.gnupg`, `.azure` and `.gcloud` folders, the GitHub command line's `gh/hosts.yml`, `.vault-token`, and shell history files (`.bash_history`, `.zsh_history`, `fish_history`, PowerShell's `ConsoleHost_history.txt`). File search skips them too.
+
+**macOS and Linux.** The check is the same on every computer. The refused names cover what those systems keep in your home folder — the `.zsh_history` a Mac's Terminal writes, `.bash_history` on Linux, `~/.config/gh/hosts.yml` — so a workspace that is, or contains, a home folder never hands them to the assistant.
+
 ## Locking the app
 
 The lock in the header now has a matching setting: after a number of quiet minutes Branch Agent locks itself, and while it is locked it will not take a saved password or key out of the locker for a new task. It keeps answering from what it already knows; only the locker is shut. Anything you do in your own app counts as activity and starts the quiet period again.
