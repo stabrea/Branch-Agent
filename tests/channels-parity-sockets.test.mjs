@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createServer as createSocketServer, connect as tcpConnect } from "node:net";
-import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk, socketService } from "./channels-parity-kit.mjs";
+import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk, socketService, setSwitch } from "./channels-parity-kit.mjs";
 import { buildParityChannel } from "../dist/channels/parity-config.js";
 import { XmppChannel } from "../dist/channels/xmpp.js";
 import { SimplexChannel } from "../dist/channels/simplex.js";
 import { connectWebSocket } from "../dist/channels/ws-client.js";
 import { DeltaChatChannel } from "../dist/channels/deltachat.js";
+import { NostrChannel } from "../dist/channels/nostr.js";
 import { KeybaseChannel } from "../dist/channels/keybase.js";
 import { MqttChannel, encodeLength, replyTopicFor } from "../dist/channels/mqtt.js";
 import { XmlStreamReader, decodeEntities, escapeAttr, escapeText } from "../dist/channels/xmpp-xml.js";
@@ -23,6 +24,7 @@ import {
  */
 const XMPP_PASSWORD = "SECRET-XMPP-PASSWORD-11";
 const MQTT_PASSWORD = "SECRET-MQTT-PASSWORD-12";
+const NOSTR_KEY = "5ec2e7a1b0c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8";
 
 const blocked = { assertAllowed: async (url) => { throw new Error(`Not allowed: ${url.hostname}`); }, guard: (f) => f };
 const policy = { activation: "mention", pairing: true, allowlist: [] };
@@ -815,4 +817,121 @@ test("Delta Chat settings: only full paths, and building runs nothing", async ()
   const channel = await buildParityChannel({ type: "deltachat", id: "d", path: "/usr/bin/deltachat-rpc-server", accountId: 2, ...policy }, { credential: async () => "x", policy: blocked });
   assert.equal(channel.kind, "deltachat");
   await channel.stop();
+});
+
+// ---------------------------------------------------------------- Nostr
+
+/** A stand-in relay: records subscriptions and published events, and says OK to each event. */
+function nostrRelay(connection) {
+  connection.published = [];
+  connection.onMessage = (frame) => {
+    if (frame[0] === "REQ") connection.filter = frame[2];
+    if (frame[0] === "EVENT") { connection.published.push(frame[1]); connection.send(["OK", frame[1].id, true, ""]); }
+  };
+}
+const STRANGER = Buffer.alloc(32, 0x11);
+const STRANGER_PUB = publicKeyOf(STRANGER).toString("hex");
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+function directMessage(from, toPublicKey, text, { createdAt = nowSeconds(), tagged = toPublicKey } = {}) {
+  return signEvent({ created_at: createdAt, kind: 4, tags: [["p", tagged]], content: nip04Encrypt(from, toPublicKey, text) }, from);
+}
+
+/** What the assistant published, checked and opened the way the stranger's own client would. */
+function repliesTo(relay, assistantPub, secret = STRANGER, publicKey = STRANGER_PUB) {
+  return relay.published.map((event) => {
+    assert.equal(verifyEvent(event), true, "every reply is correctly signed");
+    assert.equal(event.pubkey, assistantPub);
+    assert.equal(event.kind, 4);
+    assert.deepEqual(event.tags[0], ["p", publicKey], "addressed to the person who wrote");
+    return nip04Decrypt(secret, assistantPub, event.content);
+  });
+}
+
+async function nostrSetup(t, context, attachPolicy) {
+  const relayA = await socketService(t, nostrRelay);
+  const relayB = await socketService(t, nostrRelay);
+  const channel = await buildParityChannel({ type: "nostr", id: "nostr", relays: [relayA.url, relayB.url], ...attachPolicy },
+    { credential: async (name) => { assert.equal(name, "NOSTR_PRIVATE_KEY"); return NOSTR_KEY; },
+      store: context.app.store, owner: context.app.runtime.owner, connectWs: connectWebSocket });
+  setSwitch(context.app, "nostr", "on");
+  await context.app.channels.attach(channel, attachPolicy);
+  t.after(() => channel.stop());
+  const a = await until(() => relayA.connections[0]?.filter && relayA.connections[0], "relay A asked");
+  const b = await until(() => relayB.connections[0]?.filter && relayB.connections[0], "relay B asked");
+  return { channel, a, b, relayA, relayB };
+}
+
+test("Nostr: a stranger's encrypted DM is paired, then answered with an encrypted, correctly signed reply", async (t) => {
+  const context = await fixture(t);
+  const assistantPub = publicKeyOf(Buffer.from(NOSTR_KEY, "hex")).toString("hex");
+  const before = nowSeconds();
+  const { a, b } = await nostrSetup(t, context, policy);
+  assert.deepEqual(a.filter.kinds, [4]);
+  assert.deepEqual(a.filter["#p"], [assistantPub]);
+  assert.ok(a.filter.since >= before && a.filter.since <= nowSeconds(), "only messages from now on are asked for");
+
+  // Stored events a relay replays: older than the start, forged, not for us, or from itself.
+  a.send(["EVENT", "branch-dm", directMessage(STRANGER, assistantPub, "an old message", { createdAt: before - 600 })]);
+  const forged = directMessage(STRANGER, assistantPub, "forged");
+  a.send(["EVENT", "branch-dm", { ...forged, sig: directMessage(STRANGER, assistantPub, "other").sig }]);
+  a.send(["EVENT", "branch-dm", { ...forged, content: nip04Encrypt(STRANGER, assistantPub, "tampered") }]);
+  a.send(["EVENT", "branch-dm", directMessage(STRANGER, assistantPub, "for someone else", { tagged: STRANGER_PUB })]);
+  a.send(["EVENT", "branch-dm", directMessage(Buffer.from(NOSTR_KEY, "hex"), assistantPub, "from myself")]);
+  a.send(["EVENT", "branch-dm", { ...directMessage(STRANGER, assistantPub, "x"), kind: 1 }]);
+  a.send("not json");
+  await delay(400);
+  assert.equal(context.provider.requests.length, 0);
+  assert.equal(a.published.length, 0, "none of them got an answer");
+
+  // Every message arrives from both relays, and is handled once.
+  const say = async (text) => {
+    const event = directMessage(STRANGER, assistantPub, text);
+    a.send(["EVENT", "branch-dm", event]);
+    b.send(["EVENT", "branch-dm", event]);
+  };
+  const sent = () => repliesTo(a, assistantPub);
+  await pairingWalk(context, { label: "Nostr", say, sent });
+  await delay(200);
+  assert.equal(a.published.length, 2, "one pairing offer and one answer, not one per relay");
+  assert.deepEqual(b.published.map((e) => e.id), a.published.map((e) => e.id), "each reply goes to every relay");
+  assert.ok(context.app.channels.summary().approved.some((p) => p.senderId === STRANGER_PUB), "the sender is their public key");
+  const answer = a.published.at(-1);
+  assert.ok(answer.tags.some((tag) => tag[0] === "e"), "the answer points at the message it answers");
+  assert.ok(!answer.content.includes("what is the time"), "the reply travels encrypted");
+
+  // Its own reply, echoed by a relay, is never answered.
+  const asked = context.provider.requests.length;
+  a.send(["EVENT", "branch-dm", answer]);
+  await delay(200);
+  assert.equal(context.provider.requests.length, asked);
+  await assertNoSecret(context, [NOSTR_KEY]);
+});
+
+test("Nostr: a stranger is refused when pairing is off, and a lost relay is reconnected", async (t) => {
+  const context = await fixture(t);
+  const assistantPub = publicKeyOf(Buffer.from(NOSTR_KEY, "hex")).toString("hex");
+  const refusing = { activation: "mention", pairing: false, allowlist: [] };
+  const { a, relayA } = await nostrSetup(t, context, refusing);
+  await refusalWalk(context, { label: "Nostr", sent: () => repliesTo(a, assistantPub),
+    say: async (text) => a.send(["EVENT", "branch-dm", directMessage(STRANGER, assistantPub, text)]) });
+  a.socket.destroy();
+  await until(() => relayA.connections[1]?.filter, "asked again after reconnecting");
+  await assertNoSecret(context, [NOSTR_KEY]);
+});
+
+test("Nostr settings: every relay is checked, the key is a secret name, and a bad key is refused without showing it", async () => {
+  await assert.rejects(() => buildParityChannel({ type: "nostr", id: "n", relays: ["wss://relay.example.org"], ...policy },
+    { credential: async () => NOSTR_KEY, policy: blocked }), /Not allowed: relay.example.org/);
+  await assert.rejects(() => buildParityChannel({ type: "nostr", id: "n", relays: ["wss://relay.example.org"], privateKey: NOSTR_KEY, ...policy },
+    { credential: async () => NOSTR_KEY }), /privateKey|Unrecognized/);
+  await assert.rejects(() => buildParityChannel({ type: "nostr", id: "n", relays: ["wss://relay.example.org"], ...policy },
+    { credential: async () => "not-a-key-SECRETVALUE" }), (error) => /NOSTR_PRIVATE_KEY is not a usable/.test(error.message) && !error.message.includes("SECRETVALUE"));
+  const nsec = await buildParityChannel({ type: "nostr", id: "n", relays: ["wss://relay.example.org"], privateKeySecret: "MY_NSEC", ...policy },
+    { credential: async (name) => (name === "MY_NSEC" ? "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5" : "") });
+  assert.equal(nsec.kind, "nostr");
+  await nsec.stop();
+  const direct = new NostrChannel({ id: "n", relays: [], secretKey: Buffer.from(NOSTR_KEY, "hex"), connect: connectWebSocket });
+  await assert.rejects(() => direct.send("npub-not-hex", "x"), /not a Nostr public key/);
+  await assert.rejects(() => direct.send(STRANGER_PUB, "x"), /No Nostr relay is connected/);
 });
