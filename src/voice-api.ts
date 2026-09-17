@@ -7,7 +7,7 @@ import { audioPricedAt, sttPricesPerMinute } from "./voice-stt.js";
 import { speechPricedAt, ttsPricesPerThousand } from "./voice-tts.js";
 import { realtimeNote } from "./voice-talk.js";
 import { livePlanFor, liveDollarsPerMinute, livePricedAt } from "./realtime-voice.js";
-import type { VoiceService } from "./voice-service.js";
+import { systemVoiceWords, type VoiceService } from "./voice-service.js";
 import { listModels, switchModel } from "./model-switch.js";
 import { profileSettings, routeByProfile, saveProfileSettings, taskKinds } from "./model-profiles.js";
 import { probeAll, probeProvider } from "./provider-probe.js";
@@ -40,7 +40,7 @@ export async function voiceApi(
   const { store, models, owner, voice } = deps;
   if (method === "GET" && path === "/api/voice/plan") return voicePlan(deps);
   if (method === "POST" && path === "/api/voice/settings") return saveVoiceSettings(store, owner, await body());
-  if (method === "GET" && path === "/api/voice/voices") return { windows: await voice.speech.windowsVoices() };
+  if (method === "GET" && path === "/api/voice/voices") return systemVoices(voice, owner);
   // Wave 8: a live conversation hangs off a task like everything else, so the browser is given one
   // to open a socket on. Nothing reaches outside this computer until the browser says "start" on
   // that socket, and a connection that cannot hold a live conversation is refused here in words.
@@ -88,8 +88,11 @@ export function voicePlan(deps: VoiceApiDeps) {
   return {
     settings: plan.settings,
     speechToText: { route: plan.stt.kind, reason: plan.stt.reason, ready: plan.stt.kind === "local" || plan.stt.provider !== null },
-    readAloud: { route: plan.tts.kind, reason: plan.tts.reason, ready: plan.tts.kind === "windows" || plan.tts.provider !== null },
-    whereAudioGoes: whereAudioGoes(plan.stt.kind, plan.tts.kind),
+    readAloud: { route: plan.tts.kind, reason: plan.tts.reason,
+      ready: plan.tts.kind === "windows" ? plan.settings.systemVoice !== "off" : plan.tts.provider !== null },
+    whereAudioGoes: whereAudioGoes(plan.stt.kind, plan.tts.kind, deps.voice.platform),
+    // mac2/desktop-ui: the words this computer uses, without asking it for its voices.
+    systemVoice: systemVoiceLabels(deps.voice.platform),
     prices: { perMinute: sttPricesPerMinute, perThousandCharacters: ttsPricesPerThousand, transcriptionPricedAt: audioPricedAt, speechPricedAt },
     realtimeNote,
     // Wave 8: whether a live conversation is possible on the connection chosen right now, and the
@@ -98,16 +101,44 @@ export function voicePlan(deps: VoiceApiDeps) {
   };
 }
 
+/**
+ * The voices already on this computer, for the list in Settings → Voice. `windows` is the name older
+ * screens ask for and is kept; `system` is the same list under a name that fits every computer.
+ */
+export async function systemVoices(voice: VoiceService, owner: string) {
+  const names = await voice.systemVoiceNames(owner);
+  return { windows: names, system: names, mode: voice.settings(owner).systemVoice, ...systemVoiceLabels(voice.platform) };
+}
+
+/** The name of the system voice in the route list, and where to allow the microphone. */
+export function systemVoiceLabels(platform: string): { platform: string; label: string; microphoneHelp: string } {
+  return {
+    platform,
+    label: platform === "win32" ? "The voice that comes with Windows (free, works offline)" : "Your computer's own voice (free, works offline)",
+    microphoneHelp: microphoneHelp(platform),
+  };
+}
+
+/** Where to allow the microphone, in the words of this kind of computer. */
+export function microphoneHelp(platform: string): string {
+  if (platform === "darwin") return "The microphone is not available. Allow it for Branch Agent in System Settings, Privacy & Security, Microphone, and try again.";
+  if (platform === "linux") return "The microphone is not available. Check your desktop's sound settings and that the microphone is not muted, and try again.";
+  return "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.";
+}
+
 /** One sentence about where recordings and spoken replies travel, in the owner's own terms. */
-export function whereAudioGoes(stt: string, tts: string): string {
+export function whereAudioGoes(stt: string, tts: string, platform: string = process.platform): string {
+  const isWindows = platform === "win32";
   const both = stt === "local" && tts === "windows";
-  if (both) return "Nothing leaves this computer: recordings are written out here, and replies are read aloud by a voice that comes with Windows.";
+  if (both) return isWindows
+    ? "Nothing leaves this computer: recordings are written out here, and replies are read aloud by a voice that comes with Windows."
+    : "Nothing leaves this computer: recordings are written out here, and replies are read aloud by your computer's own voice.";
   const parts: string[] = [];
   parts.push(stt === "local"
     ? "Your recordings are written out on this computer."
     : "Your recordings are sent to your model provider to be written out, and you are charged for the minutes.");
   parts.push(tts === "windows"
-    ? "Replies are read aloud by a voice that comes with Windows, which costs nothing."
+    ? (isWindows ? "Replies are read aloud by a voice that comes with Windows, which costs nothing." : `Replies are read aloud by ${systemVoiceWords(platform).chosen}, which costs nothing.`)
     : "The words of a reply are sent to your model provider to be read aloud, and you are charged for the characters.");
   return parts.join(" ");
 }

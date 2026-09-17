@@ -6,6 +6,7 @@ import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 import { mapStrings, type ReferenceFiller, type SecretScrubber } from "./vault.js";
 import type { CliOutcome, CliRunner } from "./credential-cli.js";
+import { FeatureModeSchema, sentFields, settleSwitch } from "./feature-switches.js";
 
 export type { CliOutcome, CliRunner };
 
@@ -224,6 +225,8 @@ export type KeychainEntry = z.infer<typeof KeychainEntrySchema>;
 export const KeychainSettingsSchema = z.object({
   /** "Let Branch read passwords I listed from my Mac's Keychain". Off until the owner turns it on. */
   enabled: z.boolean().default(false),
+  /** mac2: off / when needed / on. Reading has no tools of its own, so "on" and "when needed" both read only when a task uses a reference. */
+  mode: FeatureModeSchema.optional(),
   entries: z.array(KeychainEntrySchema).max(20).default([]),
   timeoutMs: z.number().int().min(500).max(30000).default(10000),
 }).strict();
@@ -232,10 +235,13 @@ const keychainKey = "keychain-entries";
 
 export function readKeychainSettings(store: Store, owner: string): KeychainSettings {
   const saved = KeychainSettingsSchema.safeParse(store.get("settings", owner, keychainKey)?.data ?? {});
-  return saved.success ? saved.data : KeychainSettingsSchema.parse({});
+  const settings = saved.success ? saved.data : KeychainSettingsSchema.parse({});
+  return { ...settings, ...settleSwitch(settings, {}) };
 }
 export function saveKeychainSettings(store: Store, owner: string, input: unknown): KeychainSettings {
-  const next = KeychainSettingsSchema.parse({ ...readKeychainSettings(store, owner), ...(input as object ?? {}) });
+  const current = readKeychainSettings(store, owner);
+  const value = sentFields(KeychainSettingsSchema.partial().parse(input ?? {}), input);
+  const next = KeychainSettingsSchema.parse({ ...current, ...value, ...settleSwitch(current, value) });
   if (new Set(next.entries.map((one) => one.name)).size !== next.entries.length)
     throw new Error("Two of those Keychain entries have the same name");
   store.save("settings", owner, keychainKey, next);

@@ -110,6 +110,8 @@ const noteKeys = {
   carried: ["settings.file.carried", "{name}, {size} kB, read at the start of every task."],
   announced: ["settings.file.announced", "{name}, {size} kB. Your assistant knows it is there and reads it if the work calls for it."],
   "no room": ["settings.file.no-room", "{name}, {size} kB. Switched on, but the others filled the room, so it is named to your assistant instead."],
+  // Wave mac2 (guards): the workspace folder is not trusted, so its file is not read.
+  "not trusted": ["settings.file.not-trusted", "Not read: this workspace folder is not trusted. Trust it under Permissions to have it read."],
 };
 function noteFor(report) {
   const [key] = noteKeys[report?.outcome ?? "missing"] ?? noteKeys.missing;
