@@ -40,13 +40,8 @@ export const repeatsNeeded = 3;
 /** Openings that mark a person putting the assistant right. */
 const correctionOpenings =
   /^(?:no[,.!\s]|not quite|actually[,\s]|that(?:'s| is) (?:wrong|not right|incorrect)|i meant|i said|wrong[,.!\s]|correction[:,\s])/i;
-/** Words that start a sentence and so tell us nothing by being capitalised. */
-const commonOpeners = new Set([
-  "The", "A", "An", "I", "My", "We", "You", "It", "This", "That", "Please", "Can", "Could", "Would",
-  "What", "When", "Where", "Which", "Who", "Why", "How", "Is", "Are", "Do", "Does", "Make", "Write",
-  "Find", "Show", "Tell", "Give", "Add", "Put", "Set", "Let", "Read", "Open", "Send", "Look", "Help",
-  "There", "Then", "But", "And", "If", "For", "So", "Now", "Here", "All", "Some", "Every", "Branch",
-]);
+/** Capitals that are never a name however they are placed: the word for oneself, and this app. */
+const neverNames = new Set(["I", "Branch"]);
 
 const fingerprintOf = (signal: string, text: string): string =>
   createHash("sha256").update(`${signal}:${text.toLowerCase().replace(/\s+/g, " ").trim()}`).digest("hex").slice(0, 24);
@@ -173,8 +168,20 @@ export class MemoryLearning {
   }
 }
 
-/** Capitalised words that are not simply the start of a sentence, trimmed of punctuation. */
+/**
+ * The names in a request: people, projects, places. A capital at the start of a sentence is there
+ * because the sentence started, not because the word is a name — and a request is usually an
+ * instruction, so its opening word is nearly always a verb. The first word of each sentence is
+ * therefore dropped before anything is matched, which is what stops "Tidy up the figures" turning
+ * into a note telling the owner that "Tidy" keeps coming up.
+ */
 export function namesIn(prompt: string): string[] {
-  const words = prompt.slice(0, 600).match(/\b[A-Z][\p{L}]{2,29}\b/gu) ?? [];
-  return words.filter((word) => !commonOpeners.has(word)).slice(0, 12);
+  const found: string[] = [];
+  for (const sentence of prompt.slice(0, 600).split(/[.!?;\n]+/)) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    const opener = trimmed.split(/\s+/)[0] ?? "";
+    found.push(...(trimmed.slice(opener.length).match(/\b[A-Z][\p{L}]{2,29}\b/gu) ?? []));
+  }
+  return [...new Set(found)].filter((word) => !neverNames.has(word)).slice(0, 12);
 }

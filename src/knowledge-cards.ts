@@ -155,7 +155,7 @@ export interface RefreshCost {
 }
 export const refreshSummary = (cost: Omit<RefreshCost, "summary">): string =>
   cost.conversations === 0
-    ? "There is nothing new to read: no conversation has finished since the last refresh."
+    ? "There is nothing to read: none of your recent conversations has anything in it yet."
     : `This would read ${cost.conversations} recent conversation${cost.conversations === 1 ? "" : "s"} `
       + `(${cost.turns} turns, about ${cost.units.toLocaleString("en-US")} units of text) and send them to your `
       + "model service to be written up. Nothing is added to your knowledge base: you accept each card yourself.";

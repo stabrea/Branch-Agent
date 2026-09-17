@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 import { namesIn, repeatsNeeded } from "../dist/memory-learning.js";
 import { refreshSummary } from "../dist/knowledge-cards.js";
 
@@ -92,20 +93,24 @@ test("S3 the other two habits: names that keep turning up, and corrections", asy
   assert.equal(facts(app).length, 0, "and still nothing is saved");
   assert.deepEqual(namesIn("The boiler at Dane Heating needs a service"), ["Dane", "Heating"],
     "a sentence opener is not mistaken for a name");
+  assert.deepEqual(namesIn("Tidy up the quarterly figures"), [],
+    "an instruction's opening verb is never offered as a name");
+  assert.equal(app.learning.notice("local").some((entry) => /^Send comes up/.test(entry.text)), false);
 });
 
-test("S4 a fact accepted in one conversation is cited, with its knowledge base named, in a later one", async (t) => {
-  const { app, provider } = await fixture(t);
-  /* Conversation one: something said in passing is written up and the owner accepts it. */
+test("S4 a fact learned in one conversation is cited, with its knowledge base named, in a later one", async (t) => {
+  const { app, provider } = await fixture(t, scripted(JSON.stringify({
+    cards: [{ title: "Boiler service", body: "Dane Heating services the boiler every March.",
+      sourceTurn: "Dane Heating, every March.", confidence: 0.9 }],
+  })));
+  /* Conversation one: something said in passing is written up by the assistant itself. */
   const first = app.store.createSession("local");
   app.store.message(first, { role: "user", content: "Who services the boiler?" });
   app.store.message(first, { role: "assistant", content: "Dane Heating, every March." });
   const base = app.knowledgeBases.create("local", { name: "Around the house", sources: [] });
-  const proposal = app.store.review.propose("local", {
-    kind: "knowledge-card", source: "Suggested after a conversation",
-    card: { title: "Boiler service", body: "Dane Heating services the boiler every March.",
-      collection: base.id, sourceTurn: "Dane Heating, every March.", confidence: 0.9 },
-  });
+  const written = await app.knowledgeCards.propose("local", { sessionId: first, collection: base.id });
+  assert.equal(written.staged.length, 1, "the conversation produced one card to consider");
+  const proposal = written.staged[0];
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 0, "nothing is in the collection yet");
   app.store.review.decide("local", proposal.id, true);
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 1, "accepting folds the card into the collection");
@@ -132,7 +137,7 @@ test("S5 the refresh says what it would cost before it reads anything", async (t
   const base = app.knowledgeBases.create("local", { name: "House", sources: [] });
   const quiet = app.knowledgeCards.cost("local");
   assert.equal(quiet.conversations, 0);
-  assert.match(quiet.summary, /nothing new to read/i);
+  assert.match(quiet.summary, /nothing to read/i);
 
   const session = app.store.createSession("local");
   app.store.message(session, { role: "user", content: "When do the bins go out?" });
@@ -166,4 +171,24 @@ test("S6 nothing the assistant notices is ever written without the owner, and or
   app.learning.propose("local");
   assert.equal(facts(app).length, 0, "the whole pass wrote nothing at all");
   assert.ok(pending(app).length, "everything it found is waiting for the owner instead");
+});
+
+test("S7 the two Memory cards' routes answer, and looking sends nothing anywhere", async (t) => {
+  const { app, root, provider } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const get = async (path) => {
+    const response = await fetch(`${server.url}${path}`, { headers: { authorization: `Bearer ${server.token}` } });
+    assert.equal(response.status, 200, `${path} answered ${response.status}`);
+    return response.json();
+  };
+  for (let at = 0; at < repeatsNeeded; at += 1) finishedTask(app, `Look over the accounts ${at}`, ["money/accounts.md"]);
+  provider.requests.length = 0;
+  const noticed = await get("/api/memory/learned");
+  assert.ok(noticed.noticed.some((entry) => /money\/accounts\.md/.test(entry.text)));
+  const cost = await get("/api/memory/refresh");
+  assert.equal(typeof cost.summary, "string");
+  assert.equal(typeof cost.units, "number");
+  assert.equal(provider.requests.length, 0, "neither card's first button reaches a model");
+  assert.equal(facts(app).length, 0, "and neither writes a fact");
 });
