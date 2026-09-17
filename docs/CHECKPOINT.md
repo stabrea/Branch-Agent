@@ -36,10 +36,23 @@ Two things that will waste an afternoon otherwise:
   entirely. Two older Mac keys sit in the user file having no effect at all. Adding a key to the
   administrators file needs elevation and the strict ACL (`icacls … /inheritance:r /grant
   Administrators:F /grant SYSTEM:F`), or sshd silently refuses it.
-- **Do not close or interrupt the Claude Code session on that machine**, and never run
-  `tests/desktop*.test.mjs` or `tests/screen-control.test.mjs` over SSH — they open a window on the
-  owner's screen. `docs/agents/scripts/verify.sh` leaves both out, which is why it is the thing to
-  run.
+**Windows too, not just commands.** An SSH login lands in session 0, which has no desktop, so
+anything that draws cannot draw there. `docs/agents/scripts/desktop-bridge.ps1` closes that gap: a
+scheduled task against the owner's own interactive logon, triggered from the SSH session, so the
+command runs in session 1 on the real screen with full rights and no prompt.
+
+    powershell -NoProfile -File docs/agents/scripts/desktop-bridge.ps1 -Run 'notepad.exe'
+    powershell -NoProfile -File docs/agents/scripts/desktop-bridge.ps1 -Run 'npm run package:desktop' -Wait
+
+Installed and proved on 2026-09-17: the bridge reports `SessionId 1`,
+`UserInteractive True`, and opened a real window (handle read back, then closed). Installing it
+needs the admin rights an SSH session has and a local unelevated shell does not, so install it over
+SSH: `desktop-bridge.ps1 -Install`.
+
+- **Do not close or interrupt the Claude Code session on that machine.** The desktop and
+  screen-control tests can now genuinely be run through the bridge — but they put a window on the
+  owner's screen while they run, so ask first. `docs/agents/scripts/verify.sh` leaves both out,
+  which is why it is the thing to run unattended.
 
 ## Where the work stands
 
