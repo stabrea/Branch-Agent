@@ -47,12 +47,18 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+// Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
+import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+// Wave mac3 (channels-parity).
+import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import type { ChannelAdapter } from "./channels/router.js";
+import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
 import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
   webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
@@ -92,6 +98,9 @@ import type { createBranch } from "./index.js";
 import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+// mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
+import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
+import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
 import { lookApi } from "./terminal-theme.js";
 // Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
 import {
@@ -345,6 +354,10 @@ async function staticFile(
     "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
     "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
+    "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
+    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
+    "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -359,6 +372,8 @@ async function staticFile(
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
+    "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
@@ -1586,6 +1601,8 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
+  if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
   if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
@@ -1594,6 +1611,17 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   limiter.succeed(from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
+  return true;
+}
+/** Wave mac3 (channels-parity): hands the exact bytes to a service that checks its own signature. */
+async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const result = await adapter.receivePost(raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  send(response, 200, result.reply ?? { accepted: result.accepted });
   return true;
 }
 /** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
@@ -1744,6 +1772,9 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
+  // Wave mac3 (channels-parity): the list of added chat services and their off / on / when-needed switches.
+  if (path === "/api/channels/parity")
+    return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
@@ -1782,7 +1813,7 @@ function channelAddresses(app: Branch, owner: string): {
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter)
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
@@ -2346,6 +2377,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (executes && !place)
         throw new HttpError(429, "Too many active executions");
       try {
+        // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
+        if (handlesInteropPath(path)) {
+          app.store.profiles.requireOwner("Working with other agents");
+          await handleInterop({
+            interop: app.interop, store: app.store, owner: app.runtime.owner, runtime: app.runtime, flows: app.flows,
+            fleet: { runtime: app.runtime, knowledge: app.knowledge, teams: app.teams, remoteAgents: app.remoteAgents, clients: app.interop.clients },
+            readBody: () => readBody(request, 131072), baseUrl: remote.status().url ?? url,
+            requireOwner: (what) => app.store.profiles.requireOwner(what),
+          }, request, response, path);
+          return;
+        }
+        // ---- end of the bucket-20 block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
@@ -2382,6 +2425,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   server.on("upgrade", (request, socket) => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
+      if (path === clientToolsPath) {
+        // Integration review: "a program on this computer" — the paired address never lends tools.
+        const sameHost = hostAllowed(request.headers.host, request.headers.origin, url);
+        if (!sameHost || !tokenFromProtocol(request, token) || !app.interop.clients.enabled()) {
+          socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          return;
+        }
+        serveClientToolSocket(app.interop.clients, request, socket);
+        return;
+      }
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
       const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
@@ -2395,6 +2449,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     })().catch(() => socket.destroy());
   });
   configureLimits(server);
+  startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 3210, "127.0.0.1", () => {
@@ -2435,6 +2490,13 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // ---- bucket 13 (mac4): recordings of a task, the path it took, the run monitor and the event-loop
+  // watch (src/run-recording-api.ts). It answers errors itself. ----
+  if (handlesRecordingPath(path)) {
+    await recordingApi(app, request, response, path, { readBody: () => readBody(request) });
+    return true;
+  }
+  // ---- end of the bucket 13 block ----
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
@@ -2780,7 +2842,14 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
   if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
     return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
-  return null;
+  // mac3/channels-parity (integration review): switching a chat app on lets outsiders reach the assistant.
+  if (path === "/api/channels/parity") return "A short-lived key cannot switch chat apps on or off. Do that in the app window.";
+  // mac4/bucket-13 (integration review): the recordings switch (and whether saved pages carry
+  // pictures) and the event-loop watch are the owner's settings.
+  if (path === "/api/recordings" || path === "/api/event-loop")
+    return "A short-lived key cannot change task recordings or the check on whether Branch is keeping up. Do that in the app window.";
+  // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
+  return interopOffLimits(method, path);
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
 async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
@@ -2791,6 +2860,8 @@ async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
     request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
+    || (request.method !== "GET" && handlesInteropPath(path))
   );
 }
 function configureLimits(server: Server): void {

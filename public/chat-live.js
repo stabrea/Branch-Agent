@@ -34,3 +34,7 @@ async function save(event) {
 $("chat-live-form")?.addEventListener("submit", save);
 /* Settings that will not load leave the card showing "off", which is what a fresh install has. */
 load().catch(() => {});
+/* On a fresh window the key is not there yet, so the card loads again once the owner is in. */
+const signedIn = document.getElementById("workspace");
+if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) load().catch(() => {}); })
+  .observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
