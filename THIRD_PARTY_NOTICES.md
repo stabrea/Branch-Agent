@@ -3207,17 +3207,38 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+## Source code adapted from other projects
 
-## Designs adapted from other open-source agents
+Written by hand. `scripts/dependency-notices.mjs` keeps this section, from its heading to the end of the file, when it regenerates the notices above; add new entries below it.
 
-No code from these projects is copied into Branch Agent. The behaviour below was written afresh after
-studying them, and they are named here in keeping with their licences.
+### IronClaw (NEAR AI), MIT OR Apache-2.0
 
-- **OpenFang** (https://github.com/RightNow-AI/openfang), Copyright (c) 2024 OpenFang Contributors,
-  MIT or Apache-2.0: the graduated warn / refuse / stop loop guard with result-aware counting,
-  back-and-forth detection and gentler limits for polled tools (`crates/openfang-runtime/src/loop_guard.rs`),
-  adapted in `src/loop-guard.ts`.
-- **Gemini CLI** (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, Apache-2.0:
-  loop detection (`loopDetectionService.ts`), and trusted folders with a read-only listing before
-  trust (`utils/trust.ts`, `FolderTrustDiscoveryService.ts`), adapted in `src/loop-guard.ts` and
-  `src/folder-trust.ts`.
+`src/leak-guard.ts` and the refused file names in `src/files.ts` follow the key shapes and sensitive paths in IronClaw's `ironclaw_safety` crate (https://github.com/nearai/ironclaw). Used under the MIT licence:
+
+Copyright (c) 2026 NEAR AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### OpenFang, MIT OR Apache-2.0
+
+The list of address parameters that mark a web fetch as carrying a credential in `src/leak-guard.ts` follows OpenFang's `check_taint_net_fetch` (https://github.com/RightNow-AI/openfang). Used under the MIT licence:
+
+Copyright (c) 2024 OpenFang Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### OpenFang loop guard, MIT OR Apache-2.0
+
+The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — counting identical calls and identical results, noticing calls that go back and forth, and gentler limits for tools meant to be polled — follows OpenFang's `crates/openfang-runtime/src/loop_guard.rs` (https://github.com/RightNow-AI/openfang). It was written afresh; no code was copied. Used under the MIT licence quoted above for OpenFang.
+
+### Gemini CLI (Google), Apache-2.0
+
+The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, follow Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
