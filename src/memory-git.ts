@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FeatureModeSchema } from "./feature-switches.js";
 import { factKinds, type FactKind } from "./memory-layers.js";
 import { noteFor, type MemoryMirror } from "./memory-mirror.js";
+import { redactLeaks } from "./leak-guard.js";
 import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
@@ -22,16 +23,20 @@ import type { Store } from "./store.js";
  * sends it with this computer's own sign-in. What went wrong the last time is kept and shown.
  */
 const remoteAddress = z.string().max(300).refine((value) => {
-  if (/^git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+$/.test(value)) return true;
+  if (/^git@[A-Za-z0-9.][A-Za-z0-9.-]*:[A-Za-z0-9._/-]+$/.test(value)) return true;
   try {
     const url = new URL(value);
-    return (url.protocol === "https:" || url.protocol === "ssh:") && !url.password && (url.protocol === "ssh:" || !url.username);
+    // A host starting with "-" would read as an option to ssh.
+    return (url.protocol === "https:" || url.protocol === "ssh:") && !url.password && (url.protocol === "ssh:" || !url.username)
+      && !url.hostname.startsWith("-") && !url.username.startsWith("-");
   } catch { return false; }
 }, "Use an https or ssh address without a password in it");
 export const MemoryHistorySettingsSchema = z.object({
   mode: FeatureModeSchema.default("off"),
   remote: remoteAddress.optional(),
 }).strict();
+/** What the screen sends: the same, where a remote of null means "no copy anywhere". */
+const MemoryHistoryInputSchema = z.object({ mode: FeatureModeSchema.optional(), remote: remoteAddress.nullable().optional() }).strict();
 export type MemoryHistorySettings = z.infer<typeof MemoryHistorySettingsSchema>;
 export interface MemoryHistoryVersion { commit: string; at: string; message: string; files: number }
 export interface MemoryHistoryStatus { lastRecorded?: string; lastProblem?: string }
@@ -54,8 +59,10 @@ export class MemoryHistory {
   }
   settings(owner: string): MemoryHistorySettings { return memoryHistorySettings(this.store, owner); }
   configure(owner: string, input: unknown): MemoryHistorySettings {
-    const value = MemoryHistorySettingsSchema.parse({ ...this.settings(owner), ...(input as object) });
-    if (value.remote === undefined) delete value.remote;
+    const change = MemoryHistoryInputSchema.parse(input ?? {});
+    const merged = { ...this.settings(owner), ...change };
+    if (merged.remote == null) delete merged.remote;
+    const value = MemoryHistorySettingsSchema.parse(merged);
     this.store.save("settings", owner, SETTINGS, value);
     return value;
   }
@@ -112,7 +119,8 @@ export class MemoryHistory {
       const path = join(this.folder, `${kind}.md`);
       const records = grouped.get(kind) ?? [];
       counts.set(kind, records.length);
-      if (records.length) await writeFile(path, noteFor(kind, records), { mode: 0o600 });
+      // Integration review: a key or password someone asked to be remembered is never committed or sent.
+      if (records.length) await writeFile(path, redactLeaks(noteFor(kind, records)).text, { mode: 0o600 });
       else await rm(path, { force: true });
     }
     return counts;

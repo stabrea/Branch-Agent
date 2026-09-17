@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch, locateGit, NetworkPolicy } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { MemoryHistory, describeMemoryChange, MemoryHistorySettingsSchema } from "../dist/memory-git.js";
+import { MemoryHistory, describeMemoryChange, MemoryHistorySettingsSchema, readNote } from "../dist/memory-git.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 /* bucket-18 (A2317): what is remembered, versioned with Git in the data folder. Real Git, temp folders only. */
@@ -105,4 +105,23 @@ test("A2317 a copy goes only where the owner and the network rules allow, and a 
 test("A2317 the change message counts lines and facts", () => {
   const counts = new Map([["preference", 2], ["project-note", 1]]);
   assert.equal(describeMemoryChange("2\t1\tpreference.md\n1\t0\tproject-note.md\n", counts), "Remembered 3 facts: 3 lines added, 1 removed, in 2 notes");
+});
+
+test("A2317 review: a key someone asked to be remembered is never committed, and a copy can be switched off again", { skip }, async (t) => {
+  const { app, owner } = await fixture(t);
+  app.memoryHistory.configure(owner, { mode: "on", remote: "git@github.com:me/memory.git" });
+  const secret = `ghp_${"A1b2C3d4E5".repeat(4)}`;
+  app.store.save("memory", owner, "fact-key", { text: `The deploy token is ${secret}`, source: "a test", kind: "preference" });
+  app.memoryHistory.configure(owner, { remote: null });
+  assert.equal(app.memoryHistory.settings(owner).remote, undefined, "null clears the copy");
+  await app.memoryHistory.record(owner);
+  const [version] = await app.memoryHistory.versions();
+  assert.ok(version, "a version was recorded");
+  const note = await readNote(app.memoryHistory, "preference");
+  assert.match(note, /The deploy token is/);
+  assert.equal(note.includes(secret), false, "the key itself is not in the note");
+  const then = await app.runtime.executeTool("memory.version_note", { version: version.commit, kind: "preference" });
+  assert.equal(then.text.includes(secret), false, "nor in the history");
+  for (const remote of ["ssh://-oProxyCommand=touch%20x/y", "git@-oProxyCommand:x"])
+    assert.equal(MemoryHistorySettingsSchema.safeParse({ remote }).success, false, remote);
 });
