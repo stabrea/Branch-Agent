@@ -301,14 +301,19 @@ test("A2144: the extension asks for exactly its permissions, runs a service work
   assert.equal(manifest.host_permissions, undefined, "no website is granted up front");
   assert.deepEqual(manifest.background, { service_worker: "background.js", type: "module" });
   assert.deepEqual(manifest.content_scripts.map((entry) => entry.js), [["content.js"]]);
-  /* No file in the extension ever *reads* a field's value: what the owner types into the extension's
-     own boxes is read through the form (popup.js and sidepanel.js both use `typed`), and a page's own
-     fields are never asked for their value at all. Writing into one of the extension's own boxes
-     (clearing the message after it is sent) is not reading, so an assignment is allowed. */
+  /* A page's own fields are never asked for their value, and never written to either: the two files
+     that run against the page keep the flat ban. The extension's own boxes are read through the form
+     (popup.js and sidepanel.js both use `typed`), so nothing reads a value anywhere; writing into one
+     of the extension's own boxes - clearing the message once it is sent - is not a read, and is all
+     the looser rule allows. */
+  const ONLY_THE_EXTENSIONS_OWN = /\.value\b(?!\s*=[^=])|\[["']value["']\]/;
+  const NEVER = /\.value\b|\[["']value["']\]/;
+  const touchesThePage = (name) => name === "content.js" || name === "background.js";
   const files = (await readdir(EXTENSION)).filter((name) => /\.(js|html)$/.test(name));
+  assert.ok(files.filter(touchesThePage).length === 2, "the two files that run against the page are still there");
   for (const name of files) {
     const source = await readFile(new URL(name, EXTENSION), "utf8");
-    assert.doesNotMatch(source, /\.value\b(?!\s*=[^=])|\[["']value["']\]/, `${name} reads a value`);
+    assert.doesNotMatch(source, touchesThePage(name) ? NEVER : ONLY_THE_EXTENSIONS_OWN, `${name} reads a value`);
   }
   const readme = await readFile(new URL("README.md", EXTENSION), "utf8");
   for (const permission of [...manifest.permissions, "optional_host_permissions", "content_scripts", "background.service_worker"])
