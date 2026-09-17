@@ -13,6 +13,9 @@ const TABS = {
   schedules: ["automations", "schedules"],
 };
 
+/** The window is rebuilt by the last script on the page, which can still be loading when the workspace appears. */
+const ready = (page) => page.locator("body.lx-ready").waitFor({ state: "attached" });
+
 /** On a narrow window the sidebar is folded away, so it is slid open before anything in it is used. */
 async function railControl(page, selector) {
   const control = page.locator(selector);
@@ -25,6 +28,7 @@ async function railControl(page, selector) {
  * ("customize:plugins", "settings:models").
  */
 export async function openPlace(page, view) {
+  await ready(page);
   if (view === "chat") {
     await closeSettings(page);
     const back = page.locator(".lx-back");
@@ -43,6 +47,7 @@ export async function openPlace(page, view) {
 
 /** Opens the Settings window, on a page when one is named. */
 export async function openSettings(page, name) {
+  await ready(page);
   if (!(await page.locator("#settings-window").isVisible())) await (await railControl(page, ".lx-gear")).click();
   if (name) await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
 }
@@ -53,6 +58,7 @@ export async function closeSettings(page) {
 
 /** Opens whichever Settings page (and Models tab) holds this element, by clicking through to it. */
 export async function openSettingFor(page, selector) {
+  await ready(page);
   const where = await page.evaluate((css) => {
     const node = document.querySelector(css);
     return { page: node?.closest(".lx-page")?.dataset.page, sub: node?.closest(".lx-subpanel")?.dataset.sub };
