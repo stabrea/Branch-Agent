@@ -93,6 +93,13 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
 | Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
+| Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
+| Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
+| Making videos (`mac7/r17-i`) | `settings:models:media` |
+| The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
+| Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
+| Notes with rewriting (`mac7/r17-i`) | `library:documents` |
+| Model arena (`mac7/r17-i`) | `settings:models:second` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
 | Cheaper and faster model routing | `settings:models:defaults` |
@@ -135,6 +142,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
 | A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
 | `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
+| Safety extras: tool scripts, WebAssembly add-ons, authenticator codes, the emergency stop by level, command checks, the progress check, the tamper-evident record, history repair (`mac7/r17-g`) | `settings:permissions`; the emergency stop sits beside Lockdown's rules there, and a question that needs a code is still answered in `inbox:needs` |
 | The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
 | Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
 | Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |

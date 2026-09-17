@@ -4,7 +4,7 @@
  * translated file never leaves a blank on the screen.
  *
  * Markup carries its words in `data-t` (text) and `data-t-label`, `data-t-placeholder`,
- * `data-t-title` (attributes), so applying a language is one pass over the page.
+ * `data-t-title`, `data-t-aria-description` (attributes), so applying a language is one pass over the page.
  */
 const STORAGE = "branch-language";
 export const LANGUAGES = [
@@ -37,7 +37,8 @@ export const formatDate = (value, options = { dateStyle: "medium", timeStyle: "s
 /** Writes every marked string on the page (or inside one node) in the language now chosen. */
 export function applyLanguage(root = document) {
   for (const node of root.querySelectorAll("[data-t]")) node.textContent = t(node.dataset.t);
-  const attributes = { tLabel: "aria-label", tPlaceholder: "placeholder", tTitle: "title" };
+  // mac7/r17-g integration review: descriptions read aloud (aria-description) follow the language too.
+  const attributes = { tLabel: "aria-label", tPlaceholder: "placeholder", tTitle: "title", tAriaDescription: "aria-description" };
   for (const [dataKey, attribute] of Object.entries(attributes))
     for (const node of root.querySelectorAll(`[data-${dataKey.replace(/([A-Z])/g, "-$1").toLowerCase()}]`))
       node.setAttribute(attribute, t(node.dataset[dataKey]));

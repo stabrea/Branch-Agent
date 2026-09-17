@@ -113,6 +113,11 @@ import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
+import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
+import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
+import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
+import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
@@ -447,6 +452,8 @@ async function staticFile(
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
+    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
+    "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
@@ -660,8 +667,8 @@ async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unkno
 
 function providerFailureReason(error: unknown): string {
   const text = errorText(error);
-  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
-  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/\b(401|403)\b|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/\b404\b|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
   if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
   if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
   return "The provider answered with an error: " + text.slice(0, 160);
@@ -934,6 +941,10 @@ async function api(
         "security-check": (patch) => app.security.configure(patch),
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+        // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
+        ...Object.fromEntries(reachParts.map((part) => [reachKey(part), (patch: Record<string, unknown>) => {
+          void app.reachParts.setMode(part, patch).catch(() => undefined); // the record is saved before the first await
+        }])),
       },
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),
@@ -1291,7 +1302,9 @@ async function api(
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
       remember: PolicyRememberSchema.default("session"),
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
-      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+      // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
+      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1301,6 +1314,9 @@ async function api(
     const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
     const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
     if (keyRefusal) throw new HttpError(401, keyRefusal);
+    // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
+    if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
+      throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -1678,6 +1694,8 @@ async function secretsApi(app: Branch, request: IncomingMessage, path: string): 
   }
   const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
   if (action && request.method === "POST") {
+    // mac7/r17-g integration review: Branch's own locker projects are never changed from the secrets card.
+    if (reservedProjectId(action[1]!)) throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
     if (action[3] === "remove") {
       z.object({}).strict().parse(await readBody(request));
       return { removed: secrets.remove(owner, action[1]!, action[2]!) };
@@ -2795,6 +2813,33 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-C block ----
+        // ---- r17-i: reach and platform under /api/reach; the owner's alone (one peer route: src/reach/api.ts). ----
+        if (handlesReachPath(path)) {
+          app.store.profiles.requireOwner("Reach and platform");
+          const answer = await reachApi({
+            reach: app.reachParts, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 262144),
+          }, path).catch((error: unknown) => {
+            throw error instanceof ReachHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-i block ----
+        // ---- mac7/r17-g: the safety extras under /api/safety-extras (src/safety-extras/api.ts); the owner's alone. ----
+        if (handlesSafetyPath(path)) {
+          app.store.profiles.requireOwner("The safety extras");
+          const answer = await safetyApi({
+            extras: app.safetyExtras, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, // Only an add-on install carries a WebAssembly file; everything else keeps the usual small limit.
+            readBody: () => readBody(request, path === "/api/safety-extras/wasm" ? 11_000_000 : 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof SafetyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the mac7/r17-g block ----
         // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
         if (handlesFlowsBoardsPath(path)) {
           app.store.profiles.requireOwner("Flows and boards");
@@ -3396,6 +3441,10 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesCodingPath(path))
     // R17-C: every change under /api/personal may reach an outside service or start a program.
     || (request.method !== "GET" && handlesPersonalPath(path))
+    // r17-i: every change under /api/reach may start work (a task elsewhere, a video, a send, an import).
+    || (request.method !== "GET" && handlesReachPath(path))
+    // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
+    || (request.method !== "GET" && handlesSafetyPath(path))
     // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
     || (request.method !== "GET" && handlesFlowsBoardsPath(path))
     // R17-F: every change under /api/learning-more may ask a model or an outside service.

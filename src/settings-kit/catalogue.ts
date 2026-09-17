@@ -1,3 +1,4 @@
+import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
@@ -9,6 +10,7 @@ import { saveKeychainSettings } from "../vault-sources.js";
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
+import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 
@@ -79,6 +81,13 @@ const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
   ({ field, label, t, kind: { type: "switch" }, initial: "off", guard });
 const yesNo = (field: string, label: string, t: string, guard: Guard, initial = false): FieldSpec =>
   ({ field, label, t, kind: { type: "yes-no" }, initial, guard });
+/** Where each reach card lives (docs/places.md). */
+const reachHomes: Record<ReachPart, string> = {
+  machines: "settings:computer", "remote-trunks": "customize:specialists", "background-screen": "settings:computer",
+  video: "settings:models:media", relay: "customize:channels", send: "customize:channels", "platform-pause": "customize:channels",
+  "agent-git": "customize:skills", "skill-bundles": "customize:skills", usb: "settings:computer", notes: "library:documents",
+  arena: "settings:models:second",
+};
 const one = (key: string, name: string, t: string, home: string, guard: Guard, extra: Partial<SettingSpec> = {}): SettingSpec =>
   ({ key, name, t, home, fields: [sw("mode", "Switch", "settings-kit.field.switch", guard)], ...extra });
 /** r17-h integration review: a flows-and-boards switch, written through the running copy so its tools follow. */
@@ -90,6 +99,11 @@ const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): 
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `The wall around programs: ${next.mode}, reach ${next.network}`,
     reason: "Changed from Settings: presets, reset or a settings file", outcome: "saved" });
 };
+
+/** mac7/r17-g: a safety extra's switch, saved through the app so its tools come and go with it. */
+const safetyPart = (part: SafetyPart, name: string, guard: Guard): SettingSpec =>
+  one(`safety-${part}`, name, `settings-kit.name.safety-${part}`, "settings:permissions", guard,
+    { write: (store, owner, patch) => { saveSafetySwitch(store, owner, part, patch); } });
 
 const safety: SettingSpec[] = [
   {
@@ -124,6 +138,11 @@ const safety: SettingSpec[] = [
     write: saveWall,
     read: (store, owner) => ({ ...wallSettings(store, owner) }),
   },
+  // mac7/r17-g integration review: the checks that only tighten are guards. Authenticator codes and the
+  // emergency stop are never reached from here (see neverTouched): each needs the owner at its own card.
+  safetyPart("command-scan", "Checking commands for tricks", "guard"),
+  safetyPart("progress-judge", "Asking whether a long task is getting anywhere", "guard"),
+  safetyPart("activity-chain", "A tamper-evident record", "guard"),
 ];
 
 const reach: SettingSpec[] = [
@@ -150,6 +169,11 @@ const reach: SettingSpec[] = [
   one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
   one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
+  // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
+  // src/server.ts saves them through Reach, so the tools and the relay follow the switch at once.
+  ...reachParts.map((part) => one(reachKey(part), reachLabels[part], `reach.part.${part}`, reachHomes[part], "reach")),
+  safetyPart("tool-scripts", "Scripts that call several tools at once", "reach"),
+  safetyPart("wasm-add-ons", "Add-ons in a sealed WebAssembly box", "reach"),
   // r17-h: checks run tools and scripts, widgets ask tools on a timer, and requests reach the package lists.
   board("recipe-checks", "Checks for saved procedures", "automations:procedures", "reach"),
   board("widgets", "Widgets the assistant builds", "library:made", "reach"),
@@ -166,6 +190,7 @@ const comfort: SettingSpec[] = [
   one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain"),
   one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain"),
   one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
+  safetyPart("history-repair", "Tidying a conversation before it is sent", "guard"), // "repair" reads as safety-shaped (pair), so it is a guard
   // r17-h: going back in a flow, the shared board, the waiting line and focus view only rearrange the owner's own work.
   board("time-travel", "Going back in a flow", "automations:procedures", "plain"),
   board("kanban", "The shared board", "automations:scheduled", "plain"),
@@ -235,6 +260,8 @@ export const neverTouched: readonly RegExp[] = [
   // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
   // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
+  // mac7/r17-g integration review: authenticator codes (loosening them needs a code) and the emergency stop.
+  /^safety-code-approvals/, /^safety-emergency-stop/,
   // R17-S-C integration review: the proxy and certificates, the browser's care, and updating by itself.
   /^comfort-(network|browser|update)/,
   // mac7/lockdown-fix: the limit a task put on a flow run it started is never loosened from here.

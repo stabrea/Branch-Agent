@@ -120,6 +120,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   // ---- end r17-b ----
   // mac7/r17-d: the project's instruction file, written by the model (src/coding/init.ts); follows that part's switch
   entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
+  // r17-i: pausing a chat app; from a chat app it is taken only from the owner's own account (src/reach/platform.ts)
+  entry("platform", [], "[status | pause <chat app> | resume <chat app>]", "pause a chat app so its messages are let go, or turn it back on", [...W, "terminal"], "owner", { bareLooks: true }),
   // ---- r17-h: the waiting line, typing while it works, focus view, asking for packages (src/flows-boards/commands.ts) ----
   entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "owner", { bareLooks: true, whileWorking: true }), // integration review: rewording is the owner's
   entry("busy", [], "[queue|steer|interrupt]", "what happens when you type while a task works: wait, pass it on, or stop and go next", [...W, "terminal"], "owner", { bareLooks: true }),

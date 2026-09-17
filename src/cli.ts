@@ -41,6 +41,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+import { activityCommand } from "./safety-extras/cli.js"; // mac7/r17-g
 // mac3/security-check: the security self-check on the command line.
 import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
@@ -56,6 +57,7 @@ import { selfTestCommand } from "./never-break/self-test.js";
 import { manageCommand } from "./install/manage-cli.js";
 import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
+import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -177,6 +179,7 @@ async function main(): Promise<void> {
     return;
   }
   // --- end mac7/connect ---
+  if (command === "send") return sendCommand(process.argv.slice(3), dataDir); // r17-i
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
     return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });
@@ -259,6 +262,8 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
+    if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;

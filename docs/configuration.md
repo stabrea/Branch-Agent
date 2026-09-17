@@ -3038,7 +3038,7 @@ The assistant has these tools, each of which asks first whether the connected pr
 - `media.trim` — cut a stretch of sound, between two times in seconds, out of a **WAV** file. This is done here in plain JavaScript; MP3, M4A, OGG and other squeezed formats need a converter, which is not part of this app, and are turned down in plain words.
 - `media.info` — how long an MP4 video or a WAV sound file runs, what kind it is and how many tracks it carries, read from the file's own headers.
 
-**What is deliberately not here.** The assistant does not make videos, and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
+**What is deliberately not here.** On its own the assistant does not make videos (switch on *Making videos* under *Reach and platform* to use OpenAI's or Google's video service with your own key), and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
 
 Reading a file is `media.read` and counts as looking, not changing; making a picture, speaking and trimming are `media.write` and are held to your approval rules like any other change. Each of those tools tells the approval rules the workspace path it would write (`media/poster.png`), so a rule about that folder fires on the path the file really gets rather than the bare name that was asked for. Every result is signed by the ordinary tool receipt, so what was made and where it was saved can be checked afterwards. A practice run reports what it would have made without calling the provider.
 
@@ -6999,6 +6999,73 @@ through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
 
+## Reach and platform (r17-i)
+
+Twelve parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/reach/`, owner only; a short-lived key can read some
+of them and change none, except that another of your computers may hand a Trunk here a message with the
+"run" key you gave it (`POST /api/reach/trunks/inbox`, classified in `src/short-lived-keys.ts`). With a
+part off, nothing of it runs: no polling, no watching, no connection, and its tools are not offered.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Other computers side by side | Settings → Computer | The computers added under "Other computers running Branch" (bucket 23), each shown in its own column: health, what is working, conversations; start or stop a task there (`machines.list`, `machines.look`). This computer fills in the other computer's key at the moment of the call; the window never holds it. Only fixed read routes and `/api/run` and `/cancel` are asked for, which a "run" key allows, so nothing here can change another computer's settings |
+| Trunks on other computers | Customize → Specialists | Each computer shares only the names and titles of its Trunks; a Trunk over there is `@name-computer`, and a Trunk here can message it with a receipt and at most one retry (`trunks.remote.roster`, `trunks.remote.message`). An arriving message is taken only from a computer you added, quoted as that computer's text, capped at 4,000 characters and 30 an hour. Wired to R17-A's Trunks through `TrunkRoster` (`src/reach/trunk-roster.ts`): only Trunks that are not hidden, only while Trunks and their messages are on here, and an arriving message starts a turn marked as another assistant's task, with narrowed permissions |
+| Using apps in the background | Settings → Computer | Lists windows and their named controls, presses a control or sets a field's text through the accessibility tree, without moving the pointer or the focus (`screen.background`). Mac: one fixed JavaScript for Automation script that never brings an app forward. Linux: one fixed Python script over AT-SPI, and `xdotool type --window` |
+| Making videos | Settings → Models → Media | A 4, 8 or 12 second video from a description, through OpenAI (`/v1/videos`) or Google's Gemini API (Veo, `predictLongRunning`), with a key kept in Secrets; saved under `made/videos/` (`video.generate`). Each video costs money at that service |
+| A relay that holds your chat app accounts | Customize → Channels | Branch polls a relay you run over https; every message is sealed with AES-256-GCM under a key derived from a pairing secret in Secrets, bound to both ends' ids and the time. A message not addressed to this computer, not from the paired relay, older than five minutes, repeated, or from a chat app you did not allow is dropped. Branch only answers chats that wrote to it through the relay first and never passes a message on, so it cannot be used as an open relay. Arriving messages go through the ordinary sender list and pairing |
+| Sending from a script | Customize → Channels | `branch send <chat app> <chat> [words]`, or pipe the words in. Only to a chat that has already talked to Branch, through the ordinary delivery and outbound check |
+| Pausing a chat app | Customize → Channels | A paused chat app's messages are let go without an answer. Pause in the window, with `/platform pause <chat app>` in the window or terminal, or from a chat app with `/platform pause`, `resume` or `status`, which is taken only from a direct chat with one of the accounts you list as your own (chat app and exact sender id). Switching the part off puts every chat app back |
+| Sharing the assistant through git | Customize → Skills | Writes specialists, procedures and skills (never rules, model choices, memory or secrets) into a workspace folder for you to commit; follows an https repository with a shallow clone that runs no hooks, follows no redirects and asks for no password. Imports follow the market's rules (`bringInShareable`): fingerprints checked, nothing of yours rewritten, new skills off. Updating replaces only what arrived from that repository and is unchanged since |
+| Skill bundles | Customize → Skills | Several skills in one `.branch-skills` file with a fingerprint each; looking installs nothing, bringing in uses the market's rules (`skills.bundle.preview`) |
+| USB devices | Settings → Computer | A task starts when a device you named (vendor and product id, and serial when given) is plugged in; each device starts off and is switched on by you. Read once a minute from `/sys/bus/usb/devices` on Linux or `ioreg -p IOUSB` on a Mac; nothing starts under Lockdown, at most once every ten minutes per device, and the task is held by your approval rules like a trigger's (`usb.devices`) |
+| Notes | Library → Documents | Short notes kept in Branch's database; "Suggest a rewrite" (clearer, shorter, fix, list, formal) returns a suggestion that changes the note only if you keep it (`notes.list`, `notes.rewrite`) |
+| Model arena | Settings → Models → Second opinion | Two connections chosen at random answer the same question as A and B; your pick moves their Elo ratings (1000 to start, K 32) and only then are the names shown. "Both bad" changes nothing |
+
+The relay's settings (`/api/reach/relay/settings`) are `address` (https only), `relayId` (the relay's
+own id), `secret` (the name of the pairing secret in Secrets), `platforms` (the chat apps it may bring)
+and `machineId` (this computer's id at the relay, made once and not secret). Video settings are
+`service` (`openai` or `google`), `secret` (empty means `OPENAI_API_KEY` or `GEMINI_API_KEY`), `model`
+and `perDay` (at most this many videos a day, 3 at first); the chat pause keeps `owners` (your own
+accounts) and `paused` (the chat apps paused).
+
+**Who can use these (integration review).** Every reach tool is the owner's alone: a household
+profile, a signed-in person, a short-lived key, and work another assistant or program started
+(including a Trunk message from another computer) are refused before the tool does anything. Another
+computer's key only travels over https, or plain http on this computer or your Tailscale network.
+Using apps in the background keeps the ordinary screen rules: it only works while "Allow the
+assistant to use my screen and keyboard" is on (so Lockdown stops it), it has the same allowance of
+actions per task, password and sign-in windows are marked off limits and never looked into, pressed or
+typed into, and a saved-password placeholder is never typed. A practice run of `video.generate` spends
+nothing. Changing a USB rule's device or task switches it off again. While Lockdown is on, every change
+under `/api/reach/` is refused except switching a part off, the relay is neither asked nor sent to,
+`branch send` sends nothing, and no USB task starts. Lockdown also answers "off" for the parts that reach
+past this computer (other computers, Trunks elsewhere, background apps, videos, the relay, sending,
+git sharing, bundles, USB) whatever was saved, refuses their tools in the approval check, and stops a
+Trunk message from another computer that is already working. Notes, the arena and pausing a chat app
+are left alone. The twelve switches are in the
+settings catalogue as settings that reach further when raised.
+
+The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were
+written from the idea, and no code or wording was taken. The other parts follow ideas from Hermes Agent
+and PicoClaw (MIT; see `THIRD_PARTY_NOTICES.md`), written afresh.
+
+**Termux, Nix and a container image.** `src/install/container-files.ts` writes
+`packaging/docker/Dockerfile` (with `.dockerignore`), `flake.nix` and
+`packaging/termux/install-branch-termux.sh`; a test keeps the files in the repository equal to it.
+Nothing is built or run here. The image runs `node dist/cli.js start` as a user without rights, keeps
+data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside only
+listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
+window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
+hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
+`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
+removes it. Browser tools and the desktop app are not available on Android.
+
+**macOS and Linux.** Background app use, the USB reader and the `ioreg`/`/sys` readers are the only
+parts that differ by system; each takes its program runner as a parameter and is tested with fakes, so
+no test asks macOS for a permission. On Windows, background app use and the USB trigger say plainly that
+they are not available. Everything else is plain Node and behaves the same on all three systems.
+
 ## Flows and boards (r17-h)
 
 Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
@@ -7827,6 +7894,135 @@ safely; nothing here ever listens by itself.
 so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
 path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.
 
+## Safety extras (mac7/r17-g)
+
+**Settings → Permissions** has five cards for the extra checks and limits of re-audit bucket R17-G. Every part has
+the three-way switch and ships **off**, the scans that can only tighten included: no owner design asks for them to
+start on, so a fresh install behaves exactly as before. The emergency stop has no switch; it is a button and starts
+unpressed. API: `GET /api/safety-extras` (the switches, the stop, the code setup without its key, the record's
+length and latest fingerprint, the WebAssembly add-ons) and `POST /api/safety-extras/switch {part, mode}` with
+`part` one of `tool-scripts`, `wasm-add-ons`, `code-approvals`, `command-scan`, `progress-judge`, `activity-chain`,
+`history-repair`. Only the owner changes these. A short-lived key may read them, check the record
+(`/activity/verify`), try the command check (`/scan`), press the emergency stop (`/stop`, never let it go) and type
+an authenticator code for a question it may answer (`/codes/confirm`); everything else is refused
+(`src/short-lived-keys.ts`). The code is in `src/safety-extras/`; each place the rest of Branch calls in is one line
+marked `mac7/r17-g` (`src/runtime.ts`, `src/server.ts`, `src/index.ts`, `src/network-policy.ts`, `src/audit.ts`,
+`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`). In *Settings → presets, reset and a settings
+file* the command check, the progress check, the record and history repair count as guards, scripts and WebAssembly
+add-ons as reach; authenticator codes and the emergency stop are never reached from there.
+
+**Scripts that call several tools (R17-061).** With the switch not off, the model has `tools.script`
+(`{ source, tools, timeoutMs }`): one JavaScript module that calls `await branch.call("files.read", { path })` as
+often as it needs, and `export default`s its answer (a value, or an async function taking `branch`). The script runs
+as its own program behind the wall (`/usr/bin/sandbox-exec` on macOS, bubblewrap on Linux) with no network at all,
+no keys and no environment of Branch's; Branch's data folder and your unreadable places are closed to it, and it
+writes only in its throwaway folder. Every call goes through the one gate (`src/tool-gate.ts`) with the calling
+task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
+sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
+called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
+wall, so scripts are refused there. Each call a script makes also passes the task's repeated-call guard, is written
+to the never-break journal before it runs (under a `branch-script:` id), and hands back its result with keys hidden
+before the script can reshape it. After a restart in the middle of a script, the script and the call that was in
+flight are put to you; nothing is run again by itself. A script gets no network and no key sites even when the task's
+own wall has them, and Branch's data folder stays unreadable to it.
+
+**WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
+run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,
+`branch.read_input(ptr)`, `branch.write_output(ptr, len)` and `branch.log(ptr, len)`, and must export `run()`
+(0 means success) and either import its memory or export it as `memory` with a declared maximum. It gets no files, no
+network, no clock and no randomness; it runs in a worker thread with a small heap, its memory ceiling (1–256 MB,
+16 by default) and a time limit (0.1–30 s, 5 by default; there is no fuel counter in Node, so time stands in for
+it). Install: `POST /api/safety-extras/wasm { name, description, wasm (base64), maxMemoryMb, timeoutMs }`; the file is
+kept in `<data>/wasm-add-ons/` with its SHA-256, which is also kept in the database, and a file that no longer
+matches both is refused. At most two add-ons run at once. Remove: `POST …/wasm/remove {name}`.
+The model runs one with `wasm.run { name, input }`; the owner presses one with `POST …/wasm/run`.
+
+**Authenticator codes and the emergency stop (R17-063).** *Set up an app* (`POST …/codes/begin`) makes a 20-byte key,
+keeps it only in the locker (project `branch-safety`, name `APPROVAL_CODE_KEY`) and shows it once as an
+`otpauth://` link; nothing is held until the first good code is typed back (`POST …/codes/finish {code}`). The codes
+are RFC 6238 (SHA-1, six digits, 30 seconds, one step of clock drift) built on Node's crypto, and a code is taken
+once. `POST …/codes { tools, releaseNeedsCode }` lists the tools whose yes needs a code (names or `payments.*`
+patterns; `shell.execute`, `payments.*`, `email.send`, `channels.send` by default). With the switch **on**, those
+tools always ask, even where a rule allows them; **when needed**, only for work you did not start at the window
+(schedules, triggers, other AI tools). A yes needs a code typed with it (`code` on `POST /api/policy/approve`, or
+`POST …/codes/confirm { sessionId, fingerprint, code }` first); it counts only for those exact bytes and never
+becomes a standing rule. A tool on the list pressed by hand in the app window is refused (a pressed tool cannot ask
+for a code); use *Try a tool* or a conversation. Five wrong codes in a row rest every code for five minutes. While
+codes are on, switching them down, *Remove the app*, setting up a new app and changing the list each need a code too
+(`code` in the body). *Remove the app* forgets the key. The locker projects Branch keeps for itself
+(`branch-safety`, `model-connections`, `acct-…`) cannot be made into projects or changed from the secrets card.
+The **emergency stop** (`POST …/stop { everything, network, sites, tools }`) adds levels to whatever is stopped:
+*every tool*; *everything that reaches past this computer* (web, browser, messages, other AI tools, and programs and
+scripts, which can open connections of their own; your network rules refuse every address too); named *sites*
+(in tools and in the network rules); named *tools*. It refuses outright, for tasks and hand-pressed tools alike,
+before any rule or earlier yes. Pressing it and letting it go (`POST …/stop/release { code? }`) are both written in
+the record of what the assistant was allowed to do; letting it go needs a code when you ticked that.
+
+**Checking commands (R17-064).** Plugged into the approval check for command tools (`shell.execute`, the
+`shell.`/`terminal.` tools, `remote.run`), reading the whole command: a control character, an escape code, a
+right-to-left or invisible mark is **refused** (what you would read is not what would run); a word that mixes
+alphabets, full-width letters, a punycode or non-ASCII address, and a download handed straight to a program that
+runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`, and the same with a decoder such
+as `base64 -d` in place of the download) are **asked about**, with the reason on the question card. The command is
+read the way a shell joins its words (`c''url`, `s\h`, `$IFS`), a shell named by its path or `$SHELL` counts,
+look-alike letters are found by Unicode's compatibility folding, and a program name must be plain ASCII. A question
+it raises is answered only by a yes for those exact bytes. It can only tighten. **On** checks every command; **when needed** only the commands
+your rules would have run without asking. *Check a command* on the card (`POST …/scan {command}`) runs nothing.
+
+**Is this getting anywhere? (R17-065).** Reusing the loop guard (`src/loop-guard.ts`), the same answer three
+times ends the task, and so does one passage written over and over (a 50-character window seen ten times, on
+average within 250 characters; code and table rules are not counted). Every few rounds of a long task the model is
+asked, with no tools, whether the work is moving; only a confident "stuck" (0.9 or more) ends it, and a check that
+fails is ignored. **On** asks from the third round every third round; **when needed** from the sixth round every
+fourth. The task ends with one plain sentence, like the loop guard's.
+
+**Tamper-evident record (R17-066).** With the switch not off, each entry of the record of what the assistant was
+allowed to do, and each refusal and question, is also written to a hash-linked chain (`activity_chain` in the
+database, SHA-256 over the entry and the previous hash, and two database rules that refuse edits and removals).
+**On** adds every tool that started, finished or failed. Entries carry names, a short label and a fingerprint of the
+rest, never arguments or file contents. *Check the record* (`POST …/activity/verify { tip? }`, or on the command line
+`branch activity verify [--tip <hash>] [--json]`, exit code 0 unbroken, 1 broken) walks the whole chain and names
+the first entry that is missing, out of order or changed. Someone who can rewrite the whole database can rebuild the
+chain, so write the latest fingerprint down somewhere else and pass it as `tip`: the check then also proves it is
+still there. The latest entry's number and hash are also written to `<data>/activity-chain.anchor`, outside the
+database, and the check holds the chain to it: entries cut off the end, a record rebuilt from the start, or a missing
+note are reported. `GET …/activity?limit=` lists the newest entries.
+
+**History repair (R17-067).** With the switch not off, the copy of a conversation sent to a model service is tidied
+first; the kept conversation never changes. **When needed** fixes what services refuse: a result with no call
+before it, or a second result for one call, is dropped; a call repeated under one id keeps its first copy; a call
+with no result gets a stand-in saying the outcome is unknown; a note that landed between two results is moved after
+them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
+task (`history.repaired`).
+
+### Credential vault (R17-068): awaiting owner
+
+Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
+password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
+fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
+receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
+before asking the password manager, show the owner which login is about to be used, and record the moment in the
+record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
+value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+
+### macOS and Linux
+
+Tool scripts run behind `/usr/bin/sandbox-exec` on macOS and bubblewrap on Linux, exactly as walled add-ons do,
+always with no network; where the wall cannot be built the script is not run and the reason is given. WebAssembly
+add-ons, codes, the emergency stop, the command check, the progress check, the record and history repair are plain
+Node and behave the same on macOS, Linux and Windows. On Windows tool scripts are refused, and nothing a Windows
+user already had changes.
+
+### Where each audit row stands
+
+- **R17-061** built: `src/safety-extras/tool-scripts.ts`, `script-host.ts`; `tests/safety-extras-scripts.test.mjs`.
+- **R17-062** built: `src/safety-extras/wasm-add-ons.ts`, `wasm-check.ts`; `tests/safety-extras-wasm.test.mjs`.
+- **R17-063** built: `src/safety-extras/totp.ts`, `code-approvals.ts`, `emergency-stop.ts`; `tests/safety-extras-codes.test.mjs`.
+- **R17-064** built: `src/safety-extras/command-scan.ts`, `hooks.ts`; `tests/safety-extras-scan.test.mjs`.
+- **R17-065** built: `src/safety-extras/progress-judge.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-066** built: `src/safety-extras/activity-chain.ts`, `cli.ts`; `tests/safety-extras-chain.test.mjs`.
+- **R17-067** built: `src/safety-extras/history-repair.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-068** awaiting owner: design note above; nothing built.
 ## Comfort: shortcuts, status line, notifications, voice keys, the browser's care, proxy and certificates (R17-S-C)
 
 Every setting here ships as Branch has always behaved; nothing changes until you change it. The values live in the

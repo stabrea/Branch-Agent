@@ -44,7 +44,11 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   // Batch 20 (wave 8): short-lived keys, schedules over the running engine, and one task's trace.
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },
+  // r17-i: a script's words into a chat that already talks to Branch (src/reach/send-cli.ts).
+  { name: "send", summary: "Send words, or what is piped in, to a chat: send <chat app> <chat> [words]", options: ["--json"] },
   { name: "trace", summary: "The trace number for one task, and whether it was sent anywhere", options: ["--json"] },
+  // mac7/r17-g: the tamper-evident activity chain.
+  { name: "activity", summary: "Check that the tamper-evident activity record is unbroken: activity verify", options: ["--tip"] },
   // mac3/security-check: the security self-check.
   { name: "security", summary: "Check this computer's Branch setup for security problems: security audit", options: ["--fix", "--json"] },
   // mac7/connect: getting a chat app, making its bot and saving its token (src/channel-setup/).

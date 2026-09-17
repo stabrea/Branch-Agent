@@ -87,6 +87,9 @@ export function lockdownActive(store: Reader, owner: string): boolean {
  */
 const coveredSettings: readonly RegExp[] = [
   /^desktop-control$/, /^browser-attach$/, /^code-run$/, /^autonomy-/, /^trunks-routines$/, /^devices-book$/, /^personal-/,
+  // r17-i integration: the reach parts that reach past this computer (src/reach/settings.ts). Notes, the
+  // arena and pausing a chat app stay: they are local, or only ever tighten.
+  /^reach-(machines|remote-trunks|background-screen|video|relay|send|agent-git|skill-bundles|usb)$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */
@@ -102,7 +105,9 @@ const refusedPermissions: readonly string[] = [
   // something to another app (Slack, Notion, Telegram...), reach past this computer on their own.
   "nodes.run", "blocks.run",
 ];
-const refusedTools: readonly string[] = ["browser.borrow"];
+const refusedTools: readonly string[] = ["browser.borrow",
+  // r17-i integration: another computer, a Trunk over there, a paid video, a bundle fetched from an address.
+  "machines.list", "machines.look", "trunks.remote.roster", "trunks.remote.message", "video.generate", "skills.bundle.preview"];
 /** Tools that only lower the risk (stopping a program), so Lockdown never stands in their way. */
 const stillAllowedTools: readonly string[] = ["process.stop"];
 export const lowersRiskOnly = (tool: string): boolean => stillAllowedTools.includes(tool);

@@ -98,8 +98,11 @@ export class NetworkPolicy {
   }
   configure(input: unknown): NetworkPolicyConfig { return (this.config = NetworkPolicySchema.parse(input)); }
   settings(): NetworkPolicyConfig { return this.config; }
+  /** mac7/r17-g: the emergency stop's own check, set by the app; it can only refuse. */
+  emergencyStop: (target: URL) => void = () => undefined;
   /** Throws a plain reason when an address may not be reached; call it for every hop of every request. */
   async assertAllowed(target: URL, what = "address"): Promise<void> {
+    this.emergencyStop(target); // mac7/r17-g
     if (!["http:", "https:"].includes(target.protocol)) throw new Error(`Only http and https ${what}es can be reached`);
     if (target.username || target.password) throw new Error("Addresses with embedded credentials are refused");
     const host = target.hostname.replace(/^\[|\]$/g, "").toLowerCase(), pathname = target.pathname || "/";

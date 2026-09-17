@@ -13,6 +13,7 @@ import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from ".
 import { commandMode } from "../commands/settings.js";
 import { savedLine } from "../commands/saved.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
+import { platformGate } from "../reach/platform.js"; // r17-i
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -380,6 +381,13 @@ export class ChannelRouter {
     if (!entry) return "ignored";
     const { adapter, policy } = entry;
     if (message.chatKind === "group" && policy.activation === "mention" && !message.addressed) return "ignored";
+    // ---- r17-i: a chat app the owner paused, and /platform from the owner's own account (src/reach/platform.ts) ----
+    const held = platformGate(this.store, this.runtime.owner, message);
+    if (held) {
+      if (held.reply) await adapter.send(message.chatId, held.reply, message.messageId).catch(() => undefined);
+      return "ignored";
+    }
+    // ---- end r17-i ----
     const access = this.access(message, policy);
     if (access !== "allowed") {
       if (message.caughtUp) return "ignored"; // mac6/bucket-16 integration

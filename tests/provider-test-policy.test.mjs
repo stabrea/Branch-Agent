@@ -11,12 +11,12 @@ import { startServer } from "../dist/server.js";
 /* mac5/key-sweep: "Test this connection" sends the typed key to the typed address, so the app's
    network rules are asked first, with the same allowance a catalogue connection on this computer has. */
 
-async function fakeService(t) {
+async function fakeService(t, status = 200) {
   const seen = [];
   const service = createServer((request, response) => {
     seen.push(`${request.method} ${request.url} ${request.headers.authorization ?? ""}`);
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "OK" } }] }));
+    response.writeHead(status, { "content-type": "application/json" });
+    response.end(JSON.stringify(status === 200 ? { choices: [{ message: { role: "assistant", content: "OK" } }] } : { error: { message: "nope" } }));
   });
   await new Promise((resolve) => service.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => service.close(resolve)));
@@ -50,4 +50,15 @@ test("a catalogue service on this computer is still reached at its own address",
   const answer = await check({ preset: "vllm", endpoint: service.base, model: "m", apiKey: "local-key" });
   assert.equal(answer.ok, true, JSON.stringify(answer));
   assert.equal(service.seen.length, 1);
+});
+
+/* A backspace byte once stood where the pattern's \b was meant, so a refused key read as "an error". */
+test("a refused key and a missing model are named in plain words", async (t) => {
+  const { test: check } = await served(t);
+  for (const [status, reason] of [[401, /key was not accepted/], [403, /key was not accepted/], [404, /model name was not found/]]) {
+    const service = await fakeService(t, status);
+    const answer = await check({ preset: "vllm", endpoint: service.base, model: "m", apiKey: "local-key" });
+    assert.equal(answer.ok, false);
+    assert.match(answer.reason, reason, `${status}: ${answer.reason}`);
+  }
 });
