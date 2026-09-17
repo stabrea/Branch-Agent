@@ -82,6 +82,8 @@ import { liveScores, liveScoreSummary, liveScoringSettings, saveLiveScoringSetti
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
+// Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
+import { localKitFor, startLocalModels } from "./local-kit.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
@@ -438,6 +440,9 @@ export async function createBranch(options: {
   await restoreConnections({
     models: runtime.models, locker: store.locker, owner: runtime.owner, policy: web.policy, store,
   });
+  // ---- Wave mac5 (local models) hook: off by default; see src/local-kit.ts. ----
+  await startLocalModels({ store, owner: runtime.owner, models: runtime.models, policy: web.policy, dataDir });
+  // ---- end wave mac5 hook ----
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
@@ -1111,6 +1116,7 @@ async function closeBranch(
   const schedulingStopped = scheduler.stop();
   await runtime.shutdown();
   await schedulingStopped;
+  localKitFor(store)?.close(); // Wave mac5 (local models): stop what Branch started, keep setups resumable.
   store.close();
 }
 export * from "./contracts.js";

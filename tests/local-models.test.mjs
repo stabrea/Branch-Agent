@@ -12,7 +12,8 @@ import {
   localModelSupportsImages,
 } from "../dist/local-models.js";
 import { LocalRuntimes } from "../dist/local-runtimes.js";
-import { describeHardware, gb, parseLspci, parseMacDisplays, parseNvidiaSmi, readGraphicsCard, recommendModels, useGraphicsReader } from "../dist/local-hardware.js";
+import { describeHardware, gb, parseLspci, parseMacDisplays, parseNvidiaSmi, parseRocmSmi, readGraphicsCard, recommendModels, useGraphicsReader } from "../dist/local-hardware.js";
+import { useMemoryReaders } from "../dist/local-fit.js";
 import { chooseRoute, classifyTask, looksPersonal, routeForTask, routingSettings, saveRoutingSettings } from "../dist/local-routing.js";
 import { ModelRouter } from "../dist/models.js";
 import { Store } from "../dist/store.js";
@@ -136,23 +137,62 @@ test("L1 an address that is not on this computer is refused before any request",
   assert.equal(assertOnThisComputer("http://localhost:11434").hostname, "localhost");
 });
 
-test("L1 LM Studio is listed and asked to load a model", async (t) => {
+test("L1 LM Studio is listed, loaded and unloaded through its version 1 routes", async (t) => {
   const seen = [];
   const server = createServer((request, response) => {
-    seen.push(request.url);
-    response.writeHead(200, { "content-type": "application/json" });
-    if (request.url === "/api/v0/models")
-      return response.end(JSON.stringify({ data: [{ id: "qwen2.5-7b", state: "loaded", max_context_length: 32768 }] }));
-    response.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null;
+      seen.push({ path: request.url, body });
+      response.writeHead(200, { "content-type": "application/json" });
+      if (request.url === "/api/v1/models") return response.end(JSON.stringify({ models: [
+        { type: "llm", key: "qwen/qwen3-8b", size_bytes: 5_000_000_000, max_context_length: 40960, quantization: { name: "Q4_K_M" },
+          capabilities: { vision: false, trained_for_tool_use: true }, loaded_instances: [{ id: "qwen/qwen3-8b", config: { context_length: 16384 } }] },
+        { type: "embedding", key: "nomic-embed", loaded_instances: [] },
+      ] }));
+      if (request.url === "/api/v1/models/load") return response.end(JSON.stringify({ type: "llm", instance_id: "qwen/qwen3-8b", status: "loaded", load_config: { context_length: 16384 } }));
+      if (request.url === "/api/v1/models/unload") return response.end(JSON.stringify({ instance_id: body.instance_id }));
+      if (request.url === "/api/v1/models/download") return response.end(JSON.stringify({ job_id: "job_1", status: "downloading", total_size_bytes: 100 }));
+      if (request.url === "/api/v1/models/download/status/job_1") return response.end(JSON.stringify({ job_id: "job_1", status: "completed", total_size_bytes: 100, downloaded_bytes: 100 }));
+      response.writeHead(404).end("{}");
+    });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   closer(t, server);
   const client = new LmStudioClient(`http://127.0.0.1:${server.address().port}`);
   const listed = await client.list();
   assert.equal(listed.running, true);
-  assert.deepEqual(listed.models, [{ name: "qwen2.5-7b", loaded: true, contextLength: 32768 }]);
-  assert.deepEqual(await client.load("qwen2.5-7b"), { loaded: "qwen2.5-7b" });
-  assert.ok(seen.includes("/v1/chat/completions"));
+  assert.equal(listed.models.length, 1, "embedding models are not offered as a chat model");
+  assert.equal(listed.models[0].loaded, true);
+  assert.equal(listed.models[0].canUseTools, true);
+  assert.deepEqual(listed.models[0].instances, [{ id: "qwen/qwen3-8b", contextLength: 16384 }]);
+  assert.deepEqual(await client.load("qwen/qwen3-8b", 16384), { loaded: "qwen/qwen3-8b", instanceId: "qwen/qwen3-8b", contextLength: 16384 });
+  assert.deepEqual(seen.find((call) => call.path === "/api/v1/models/load").body, { model: "qwen/qwen3-8b", context_length: 16384 });
+  assert.deepEqual(await client.unload("qwen/qwen3-8b"), { unloaded: "qwen/qwen3-8b" });
+  assert.deepEqual(seen.find((call) => call.path === "/api/v1/models/unload").body, { instance_id: "qwen/qwen3-8b" });
+  const job = await client.download("https://huggingface.co/unsloth/Qwen3-4B-GGUF", "Q4_K_M");
+  assert.deepEqual(job, { jobId: "job_1", status: "downloading", totalBytes: 100, downloadedBytes: 0 });
+  assert.deepEqual(seen.find((call) => call.path === "/api/v1/models/download").body, { model: "https://huggingface.co/unsloth/Qwen3-4B-GGUF", quantization: "Q4_K_M" });
+  assert.equal((await client.downloadStatus("job_1")).status, "completed");
+  assert.ok(!seen.some((call) => call.path === "/v1/chat/completions"), "no one-word question is used to load a model any more");
+  await assert.rejects(() => client.downloadStatus("../../etc"), /Invalid|match/i);
+});
+
+test("L1 an older LM Studio without the version 1 routes is still listed", async (t) => {
+  const server = createServer((request, response) => {
+    if (request.url === "/api/v0/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      return response.end(JSON.stringify({ data: [{ id: "qwen2.5-7b", state: "loaded", max_context_length: 32768 }] }));
+    }
+    response.writeHead(404).end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  closer(t, server);
+  const listed = await new LmStudioClient(`http://127.0.0.1:${server.address().port}`).list();
+  assert.equal(listed.running, true);
+  assert.equal(listed.models[0].name, "qwen2.5-7b");
+  assert.equal(listed.models[0].loaded, true);
 });
 
 // ---------------------------------------------------- L2: recommendations from the hardware
@@ -184,6 +224,45 @@ test("L2 asking Windows for the graphics card never throws, whatever comes back"
   assert.equal(await readGraphicsCard(async () => { throw new Error("powershell is not here"); }, "win32"), null);
   assert.equal(await readGraphicsCard(async () => ({ stdout: "not json" }), "win32"), null);
   assert.equal(await readGraphicsCard(async () => ({ stdout: "{}" }), "sunos"), null, "nothing is asked where there is no known way");
+});
+
+test("L2 Windows reads real video memory, not the 4 GB-capped WMI figure", async () => {
+  const asked = [];
+  // No NVIDIA driver: WMI gives the name and a capped figure, the registry the real 16 GB.
+  const amd = await readGraphicsCard(async (file, args) => {
+    asked.push([file, ...args]);
+    if (file === "nvidia-smi.exe") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    if (args.at(-1).startsWith("Get-CimInstance")) return { stdout: '{"Name":"AMD Radeon RX 7800 XT","AdapterRAM":4293918720}' };
+    return { stdout: "17163091968\r\n" };
+  }, "win32");
+  assert.deepEqual(amd, { name: "AMD Radeon RX 7800 XT", memoryBytes: 17163091968 });
+  assert.deepEqual(asked[0], ["nvidia-smi.exe", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
+  assert.match(asked[2].at(-1), /HardwareInformation\.qwMemorySize/);
+  // With NVIDIA's tool present, its figure is used and nothing else is asked.
+  const nvidia = await readGraphicsCard(async () => ({ stdout: "NVIDIA GeForce RTX 4090, 24564" }), "win32");
+  assert.deepEqual(nvidia, { name: "NVIDIA GeForce RTX 4090", memoryBytes: 24564 * 1024 ** 2 });
+  // A registry with nothing useful leaves the WMI figure as it was.
+  const plain = await readGraphicsCard(async (file, args) => {
+    if (file === "nvidia-smi.exe") throw new Error("no");
+    return args.at(-1).startsWith("Get-CimInstance") ? { stdout: '{"Name":"Intel Iris Xe","AdapterRAM":1073741824}' } : { stdout: "" };
+  }, "win32");
+  assert.deepEqual(plain, { name: "Intel Iris Xe", memoryBytes: 1073741824 });
+});
+
+test("L2 Linux reads an AMD card's memory from rocm-smi, then from the driver's own file", async () => {
+  const amdLine = "03:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 21 [Radeon RX 6800] (rev c1)";
+  const noNvidia = (rocm) => async (file, args) => {
+    if (file === "nvidia-smi") throw new Error("ENOENT");
+    if (file === "lspci") return { stdout: amdLine };
+    if (file === "rocm-smi") { assert.deepEqual(args, ["--showmeminfo", "vram", "--json"]); if (rocm) return { stdout: rocm }; throw new Error("ENOENT"); }
+    throw new Error(`unexpected ${file}`);
+  };
+  const viaRocm = await readGraphicsCard(noNvidia(JSON.stringify({ card0: { "VRAM Total Memory (B)": "17163091968", "VRAM Total Used Memory (B)": "1" } })), "linux");
+  assert.equal(viaRocm.memoryBytes, 17163091968);
+  const sysfs = { list: async () => ["card0", "card0-DP-1", "renderD128"], read: async (path) => { assert.equal(path, "/sys/class/drm/card0/device/mem_info_vram_total"); return "8573157376\n"; } };
+  const viaSysfs = await readGraphicsCard(noNvidia(null), "linux", sysfs);
+  assert.equal(viaSysfs.memoryBytes, 8573157376);
+  assert.equal(parseRocmSmi("not json"), null);
 });
 
 // Captured on the owner's Mac mini (Apple M4) with `system_profiler SPDisplaysDataType -json`,
@@ -377,7 +456,9 @@ test("L5 the routes answer: what is here, and a preview of which model would tak
   // The route asks for the graphics card; a stand-in answers so no real system_profiler, nvidia-smi or lspci runs.
   const asked = [];
   useGraphicsReader(async () => { asked.push("graphics"); return { name: "Stand-in card", memoryBytes: 4 * 1024 ** 3 }; });
-  t.after(() => useGraphicsReader(() => readGraphicsCard()));
+  // Free memory too, so no vm_stat or sysctl runs for the one-click part of the same answer.
+  useMemoryReaders({ platform: "win32", free: () => 2 * 1024 ** 3, run: async () => { throw new Error("no programs in tests"); } });
+  t.after(() => { useGraphicsReader(() => readGraphicsCard()); useMemoryReaders(null); });
   const root = await scratch("local-routes");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });

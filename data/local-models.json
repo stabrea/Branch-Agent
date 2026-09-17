@@ -1,0 +1,564 @@
+{
+ "$comment": "Models offered in Settings > Models > On this computer. Sizes and hashes were read from registry.ollama.ai and huggingface.co on 2026-09-17. Architecture figures (layers, key/value heads, head size) are each model's published configuration and feed the memory estimate in src/local-fit.ts. Data, not code: correct it and move on.",
+ "checked": "2026-09-17",
+ "models": [
+  {
+   "id": "llama3.2-3b",
+   "name": "Llama 3.2 3B",
+   "params": "3B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 131072,
+   "arch": {
+    "layers": 28,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "Small and quick: notes, tidying text and short answers.",
+    "fr": "Petit et rapide : notes, mise au propre de textes et réponses courtes."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "llama3.2:3b-instruct-q4_K_M",
+      "bytes": 2019377376
+     },
+     "gguf": {
+      "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+      "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "bytes": 2019377696,
+      "sha256": "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff"
+     },
+     "mlx": {
+      "repo": "mlx-community/Llama-3.2-3B-Instruct-4bit",
+      "bytes": 1824825759
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "llama3.2:3b-instruct-q8_0",
+      "bytes": 3421898976
+     },
+     "gguf": {
+      "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+      "file": "Llama-3.2-3B-Instruct-Q8_0.gguf",
+      "bytes": 3421899296,
+      "sha256": "b5607b5090a8280063fff2d706bb3408ca6542341b06aab39c3eca0a28575921"
+     },
+     "mlx": {
+      "repo": "mlx-community/Llama-3.2-3B-Instruct-8bit",
+      "bytes": 3422988832
+     }
+    },
+    {
+     "quant": "F16",
+     "label": "full",
+     "ollama": {
+      "tag": "llama3.2:3b-instruct-fp16",
+      "bytes": 6433687776
+     },
+     "gguf": {
+      "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+      "file": "Llama-3.2-3B-Instruct-f16.gguf",
+      "bytes": 6433687840,
+      "sha256": "b5ebe8fbb5ab5f05aaa056948668c5f7443df9d0883497f1d9c05f57fb8ea6cd"
+     }
+    }
+   ]
+  },
+  {
+   "id": "qwen3-4b",
+   "name": "Qwen3 4B",
+   "params": "4B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 40960,
+   "arch": {
+    "layers": 36,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "Small, and good at using tools for its size.",
+    "fr": "Petit, et doué pour utiliser des outils vu sa taille."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "qwen3:4b-q4_K_M",
+      "bytes": 2620774592
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-4B-GGUF",
+      "file": "Qwen3-4B-Q4_K_M.gguf",
+      "bytes": 2497281312,
+      "sha256": "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-4B-4bit",
+      "bytes": 2278972183
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "qwen3:4b-q8_0",
+      "bytes": 4368878272
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-4B-GGUF",
+      "file": "Qwen3-4B-Q8_0.gguf",
+      "bytes": 4280405792,
+      "sha256": "eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-4B-8bit",
+      "bytes": 4290108641
+     }
+    },
+    {
+     "quant": "F16",
+     "label": "full",
+     "ollama": {
+      "tag": "qwen3:4b-fp16",
+      "bytes": 8051284672
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-4B-GGUF",
+      "file": "Qwen3-4B-BF16.gguf",
+      "bytes": 8051285536,
+      "sha256": "f59dbdf0a0131f4bafe257e5eaf25137a88c89c7a009e9418b0e447accda58a8"
+     }
+    }
+   ]
+  },
+  {
+   "id": "gemma3-4b",
+   "name": "Gemma 3 4B",
+   "params": "4B",
+   "tools": false,
+   "vision": true,
+   "maxContext": 131072,
+   "arch": {
+    "layers": 34,
+    "kvHeads": 4,
+    "headDim": 256
+   },
+   "summary": {
+    "en": "Small, and can be shown a picture. It cannot use tools.",
+    "fr": "Petit, et on peut lui montrer une image. Il ne sait pas utiliser d'outils."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "gemma3:4b-it-q4_K_M",
+      "bytes": 3338792448
+     },
+     "gguf": {
+      "repo": "unsloth/gemma-3-4b-it-GGUF",
+      "file": "gemma-3-4b-it-Q4_K_M.gguf",
+      "bytes": 2489894016,
+      "sha256": "04a43a22e8d2003deda5acc262f68ec1005fa76c735a9962a8c77042a74a7d19"
+     },
+     "mlx": {
+      "repo": "mlx-community/gemma-3-4b-it-4bit",
+      "bytes": 3439897526
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "gemma3:4b-it-q8_0",
+      "bytes": 4979936768
+     },
+     "gguf": {
+      "repo": "unsloth/gemma-3-4b-it-GGUF",
+      "file": "gemma-3-4b-it-Q8_0.gguf",
+      "bytes": 4130402176,
+      "sha256": "81bf0583ab5bad155a5a3b15d155a880a1a1e4f7de2de5c06f10f64ac49f8336"
+     }
+    }
+   ]
+  },
+  {
+   "id": "llama3.1-8b",
+   "name": "Llama 3.1 8B",
+   "params": "8B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 131072,
+   "arch": {
+    "layers": 32,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "A steady all-rounder for everyday questions and short documents.",
+    "fr": "Un polyvalent solide pour les questions de tous les jours et les documents courts."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "llama3.1:8b-instruct-q4_K_M",
+      "bytes": 4920738944
+     },
+     "gguf": {
+      "repo": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+      "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+      "bytes": 4920739232,
+      "sha256": "7b064f5842bf9532c91456deda288a1b672397a54fa729aa665952863033557c"
+     },
+     "mlx": {
+      "repo": "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
+      "bytes": 4526698444
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "llama3.1:8b-instruct-q8_0",
+      "bytes": 8540775552
+     },
+     "gguf": {
+      "repo": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+      "file": "Meta-Llama-3.1-8B-Instruct-Q8_0.gguf",
+      "bytes": 8540775840,
+      "sha256": "9da71c45c90a821809821244d4971e5e5dfad7eb091f0b8ff0546392393b6283"
+     },
+     "mlx": {
+      "repo": "mlx-community/Meta-Llama-3.1-8B-Instruct-8bit",
+      "bytes": 8541707303
+     }
+    }
+   ]
+  },
+  {
+   "id": "qwen3-8b",
+   "name": "Qwen3 8B",
+   "params": "8B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 40960,
+   "arch": {
+    "layers": 36,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "A capable helper that uses tools well; a good first choice with 16 GB.",
+    "fr": "Un assistant capable qui utilise bien les outils ; un bon premier choix avec 16 Go."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "qwen3:8b-q4_K_M",
+      "bytes": 5225374496
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-8B-GGUF",
+      "file": "Qwen3-8B-Q4_K_M.gguf",
+      "bytes": 5027784512,
+      "sha256": "120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-8B-4bit",
+      "bytes": 4623784971
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "qwen3:8b-q8_0",
+      "bytes": 8851075872
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-8B-GGUF",
+      "file": "Qwen3-8B-Q8_0.gguf",
+      "bytes": 8709519168,
+      "sha256": "0cfbf745760f07a76ddeb358dd025a27f2e11d1ca9c9a4169a373d52990fe86e"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-8B-8bit",
+      "bytes": 8719012398
+     }
+    },
+    {
+     "quant": "F16",
+     "label": "full",
+     "gguf": {
+      "repo": "unsloth/Qwen3-8B-GGUF",
+      "file": "Qwen3-8B-BF16.gguf",
+      "bytes": 16388044384,
+      "sha256": "5e416a2020fe63e76ea13c8979be35fc6070aaf3578f7876400c55c2f5c3eb30"
+     }
+    }
+   ]
+  },
+  {
+   "id": "qwen3-14b",
+   "name": "Qwen3 14B",
+   "params": "14B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 40960,
+   "arch": {
+    "layers": 40,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "Slower, but much better at reasoning and longer work.",
+    "fr": "Plus lent, mais bien meilleur pour raisonner et pour les travaux longs."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "qwen3:14b-q4_K_M",
+      "bytes": 9276184896
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-14B-GGUF",
+      "file": "Qwen3-14B-Q4_K_M.gguf",
+      "bytes": 9001753984,
+      "sha256": "5eaa0870bd81ed3b58a630a271234cfa604e43ffb3a19cd68e54a80dd9d52a66"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-14B-4bit",
+      "bytes": 8323870520
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "qwen3:14b-q8_0",
+      "bytes": 15895141696
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-14B-GGUF",
+      "file": "Qwen3-14B-Q8_0.gguf",
+      "bytes": 15698534784,
+      "sha256": "90224247d4a8076c0a689e833910f4291bce05dec81f472ebcba321607168ea1"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-14B-8bit",
+      "bytes": 15707811961
+     }
+    }
+   ]
+  },
+  {
+   "id": "qwen2.5-14b",
+   "name": "Qwen2.5 14B",
+   "params": "14B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 32768,
+   "arch": {
+    "layers": 48,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "An older, well-tested model for reasoning and longer documents.",
+    "fr": "Un modèle plus ancien et éprouvé pour raisonner et lire des documents longs."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "qwen2.5:14b-instruct-q4_K_M",
+      "bytes": 8988110688
+     },
+     "gguf": {
+      "repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+      "bytes": 8988110976,
+      "sha256": "e47ad95dad6ff848b431053b375adb5d39321290ea2c638682577dafca87c008"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen2.5-14B-Instruct-4bit",
+      "bytes": 8321093500
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "qwen2.5:14b-instruct-q8_0",
+      "bytes": 15701598048
+     },
+     "gguf": {
+      "repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "file": "Qwen2.5-14B-Instruct-Q8_0.gguf",
+      "bytes": 15701598336,
+      "sha256": "23ca481b8226b2492ba8f3eb7af41e0f99d8605c16fb6dec7bc5cf6716b673cf"
+     }
+    }
+   ]
+  },
+  {
+   "id": "gpt-oss-20b",
+   "name": "gpt-oss 20B",
+   "params": "20B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 131072,
+   "arch": {
+    "layers": 24,
+    "kvHeads": 8,
+    "headDim": 64
+   },
+   "summary": {
+    "en": "OpenAI's open model: strong reasoning, and it uses tools well.",
+    "fr": "Le modèle ouvert d'OpenAI : bon raisonnement, et il utilise bien les outils."
+   },
+   "variants": [
+    {
+     "quant": "MXFP4",
+     "label": "balanced",
+     "ollama": {
+      "tag": "gpt-oss:20b",
+      "bytes": 13793422144
+     },
+     "gguf": {
+      "repo": "unsloth/gpt-oss-20b-GGUF",
+      "file": "gpt-oss-20b-F16.gguf",
+      "bytes": 13792639168,
+      "sha256": "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66"
+     },
+     "mlx": {
+      "repo": "mlx-community/gpt-oss-20b-MXFP4-Q8",
+      "bytes": 12104218243
+     }
+    }
+   ]
+  },
+  {
+   "id": "mistral-small3.2-24b",
+   "name": "Mistral Small 3.2 24B",
+   "params": "24B",
+   "tools": true,
+   "vision": true,
+   "maxContext": 131072,
+   "arch": {
+    "layers": 40,
+    "kvHeads": 8,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "Large: careful answers, tools and pictures. Needs a well-equipped computer.",
+    "fr": "Grand : réponses soignées, outils et images. Demande un ordinateur bien équipé."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "mistral-small3.2:24b-instruct-2506-q4_K_M",
+      "bytes": 15177369888
+     },
+     "gguf": {
+      "repo": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+      "file": "Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf",
+      "bytes": 14333922848,
+      "sha256": "a3cc56310807ed0d145eaf9f018ccda9ae7ad8edb41ec870aa2454b0d4700b3c"
+     },
+     "mlx": {
+      "repo": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit",
+      "bytes": 13277587940
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "mistral-small3.2:24b-instruct-2506-q8_0",
+      "bytes": 25909741856
+     },
+     "gguf": {
+      "repo": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+      "file": "Mistral-Small-3.2-24B-Instruct-2506-Q8_0.gguf",
+      "bytes": 25054793248,
+      "sha256": "b2a40e5ef4eab8837d0462c303e8147ec754e2963e41916b551107d2b0ca6527"
+     }
+    }
+   ]
+  },
+  {
+   "id": "qwen3-30b-a3b",
+   "name": "Qwen3 30B A3B",
+   "params": "30B",
+   "tools": true,
+   "vision": false,
+   "maxContext": 40960,
+   "arch": {
+    "layers": 48,
+    "kvHeads": 4,
+    "headDim": 128
+   },
+   "summary": {
+    "en": "Large but quick for its size, because only part of it works on each word.",
+    "fr": "Grand mais rapide pour sa taille, car seule une partie travaille sur chaque mot."
+   },
+   "variants": [
+    {
+     "quant": "Q4_K_M",
+     "label": "small",
+     "ollama": {
+      "tag": "qwen3:30b-a3b-q4_K_M",
+      "bytes": 18622549504
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-30B-A3B-GGUF",
+      "file": "Qwen3-30B-A3B-Q4_K_M.gguf",
+      "bytes": 18556686912,
+      "sha256": "9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-30B-A3B-4bit",
+      "bytes": 17190786248
+     }
+    },
+    {
+     "quant": "Q8_0",
+     "label": "balanced",
+     "ollama": {
+      "tag": "qwen3:30b-a3b-q8_0",
+      "bytes": 32531117568
+     },
+     "gguf": {
+      "repo": "unsloth/Qwen3-30B-A3B-GGUF",
+      "file": "Qwen3-30B-A3B-Q8_0.gguf",
+      "bytes": 32483932736,
+      "sha256": "a68fe7343b0c64567bde18e9292f05e9dc47f6cc4afb2225acbe74c220ff022a"
+     },
+     "mlx": {
+      "repo": "mlx-community/Qwen3-30B-A3B-8bit",
+      "bytes": 32456742179
+     }
+    }
+   ]
+  }
+ ]
+}

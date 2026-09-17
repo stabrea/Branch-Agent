@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { offers, searchHuggingFace, lookUpOllama, searchQuery } from "./local-catalogue.js";
+import { savedLocalConnections } from "./local-connections.js";
+import { assertLocalModelsOn, localModelsMode, saveLocalModelsMode } from "./local-jobs.js";
+import type { LocalKit } from "./local-kit.js";
+import { runtimeIds, runtimeInfo, type RuntimeId } from "./local-launch.js";
+import { RuntimeSchema } from "./local-manage.js";
 import { localModelName } from "./local-models.js";
 import { classifyTask, routeForTask, routingSettings, saveRoutingSettings } from "./local-routing.js";
 import type { LocalRuntimes } from "./local-runtimes.js";
@@ -7,8 +13,9 @@ import type { Store } from "./store.js";
 
 /**
  * The `/api/local-models/*` family: what is on this computer, what this computer could run,
- * downloading and removing a model, and the per-task routing rules. Kept out of src/server.ts so
- * the route table there stays one short block.
+ * the one-click setup (wave mac5), managing what is loaded and downloaded, and the per-task
+ * routing rules. Kept out of src/server.ts so the route table there stays one short block.
+ * Everything that changes something refuses while the switch is off.
  */
 const modelBody = z.object({ model: localModelName }).strict();
 const previewBody = z.object({
@@ -16,12 +23,18 @@ const previewBody = z.object({
   toolCount: z.number().int().min(0).max(500).default(0),
   localUp: z.boolean().default(true),
 }).strict();
+const runtimeEnum = z.enum(runtimeIds as [RuntimeId, ...RuntimeId[]]);
+const searchBody = z.object({ runtime: runtimeEnum, query: searchQuery }).strict();
+const idBody = z.object({ id: z.string().uuid() }).strict();
+const offersBody = z.object({ runtime: runtimeEnum }).strict();
 
 export interface LocalModelsDeps {
   runtimes: LocalRuntimes;
   store: Store;
   models: ModelRouter;
   owner: string;
+  /** The one-click pieces; absent in a launch that did not set them up. */
+  kit?: LocalKit | undefined;
 }
 
 export async function localModelsApi(
@@ -37,17 +50,48 @@ export async function localModelsApi(
     const shape = classifyTask(input.prompt, input.toolCount);
     return { shape, choice: routeForTask(store, models, owner, input) };
   }
-  if (method === "POST" && path === "/api/local-models/pull")
-    return runtimes.start(modelBody.parse(await body()).model);
-  if (method === "POST" && path === "/api/local-models/stop")
-    return runtimes.stop(modelBody.parse(await body()).model);
-  if (method === "POST" && path === "/api/local-models/remove")
-    return runtimes.remove(modelBody.parse(await body()).model);
+  if (method === "POST" && path === "/api/local-models/switch") return saveLocalModelsMode(store, owner, await body());
   if (method === "POST" && path === "/api/local-models/details")
     return runtimes.details(modelBody.parse(await body()).model);
-  if (method === "POST" && path === "/api/local-models/load")
-    return runtimes.lmStudio.load(modelBody.parse(await body()).model);
+  if (method === "POST" && path.startsWith("/api/local-models/")) return changes(deps, path, await body());
   throw new Error("That is not something Branch can do with models on this computer");
+}
+
+/** Every route that changes something: checked, then refused while the switch is off. */
+async function changes(deps: LocalModelsDeps, path: string, input: unknown): Promise<unknown> {
+  const { runtimes, store, owner } = deps;
+  const simple: Record<string, (model: string) => unknown> = {
+    "/api/local-models/pull": (model) => runtimes.start(model),
+    "/api/local-models/stop": (model) => runtimes.stop(model),
+    "/api/local-models/remove": (model) => runtimes.remove(model),
+    "/api/local-models/load": (model) => runtimes.lmStudio.load(model),
+  };
+  const direct = simple[path];
+  if (direct) {
+    const { model } = modelBody.parse(input);
+    assertLocalModelsOn(store, owner);
+    return direct(model);
+  }
+  const kit = deps.kit;
+  if (!kit) throw new Error("One-click models are not set up in this launch of Branch");
+  if (path === "/api/local-models/offers") return { offers: offers(await kit.room(), offersBody.parse(input).runtime) };
+  assertLocalModelsOn(store, owner);
+  if (path === "/api/local-models/search") return search(kit, input);
+  switch (path) {
+    case "/api/local-models/setup": return kit.oneClick.begin(input);
+    case "/api/local-models/setup/stop": return kit.oneClick.stop(idBody.parse(input).id);
+    case "/api/local-models/unload": return kit.manager.unload(input);
+    case "/api/local-models/delete": return kit.manager.remove(input);
+    case "/api/local-models/runtime/stop": return kit.manager.stop(input);
+    case "/api/local-models/runtime/start": return kit.launcher.start(RuntimeSchema.parse(input).runtime);
+  }
+  throw new Error("That is not something Branch can do with models on this computer");
+}
+
+async function search(kit: LocalKit, input: unknown): Promise<unknown> {
+  const { runtime, query } = searchBody.parse(input);
+  if (runtime === "ollama") return { hits: await lookUpOllama(query.replace(/\s+/g, ""), kit.library), exactOnly: true };
+  return { hits: await searchHuggingFace(query, runtime, kit.library), exactOnly: false };
 }
 
 /** Everything the "Models on this computer" card shows in one request. */
@@ -61,5 +105,26 @@ async function overview(deps: LocalModelsDeps) {
     downloads: deps.runtimes.progress(),
     routing: routingSettings(deps.store, deps.owner),
     lastError: deps.runtimes.lastError,
+    mode: localModelsMode(deps.store, deps.owner),
+    oneClick: deps.kit ? await oneClickView(deps, deps.kit) : null,
+  };
+}
+
+async function oneClickView(deps: LocalModelsDeps, kit: LocalKit) {
+  const room = await kit.room();
+  const installed = await kit.launcher.installed();
+  const on = localModelsMode(deps.store, deps.owner) !== "off";
+  const runtimes = runtimeIds
+    .filter((id) => id !== "mlx" || (kit.launcher.at.platform === "darwin" && kit.launcher.at.arch === "arm64"))
+    .map((id) => ({ ...runtimeInfo[id], installed: installed[id] !== null, startedByBranch: kit.launcher.owns(id) }));
+  const chosen = runtimes.find((one) => one.installed)?.id ?? "ollama";
+  return {
+    room: { freeMemoryBytes: room.freeMemoryBytes, totalMemoryBytes: room.totalMemoryBytes, graphicsLimitBytes: room.graphicsLimitBytes },
+    runtimes, chosen,
+    offers: offers(room, chosen),
+    setups: kit.oneClick.jobs.all().slice(0, 10),
+    loaded: on ? await kit.manager.loaded() : [],
+    onDisk: on ? (await kit.manager.onDisk()).filter((model) => !/-branch\d+k$/.test(model.name)) : [],
+    connections: savedLocalConnections(deps.store, deps.owner),
   };
 }

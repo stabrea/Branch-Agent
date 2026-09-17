@@ -3324,3 +3324,19 @@ Copyright 2024 Block, Inc.
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+### Ollama, MIT
+
+The free-memory sum on a Mac in `src/local-fit.ts` (`parseVmStat`: active, inactive, speculative, wired and compressor pages, less purgeable and file-backed ones) follows `getFreeMemory` in Ollama's `discover/gpu_info_darwin.m`, and the default models folder in `src/local-files.ts` follows `envconfig.Models()` (https://github.com/ollama/ollama, commit 5ed8dde). Used under the MIT licence:
+
+Copyright (c) Ollama
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### GPT4All (Nomic, Inc.) and LM Studio CLI, MIT
+
+The resumable download in `src/local-files.ts` (the unfinished file reopened for appending, `Range: bytes=N-` for the rest, and a published hash checked before the file is used) follows `gpt4all-chat/src/download.cpp` in GPT4All (https://github.com/nomic-ai/gpt4all, commit b666d16, Copyright (c) 2023 Nomic, Inc.). The fields of `data/local-models.json` follow the shape of its `models3.json`; the entries themselves were written for Branch from the Ollama registry and Hugging Face. The LM Studio commands in `src/local-launch.ts` (`lms daemon up`, `lms server start`) follow LM Studio's command line (https://github.com/lmstudio-ai/lms, Copyright (c) 2024 LM Studio). No code was copied from either; both are under the MIT licence, whose text is given under Ollama above.

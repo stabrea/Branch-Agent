@@ -38,6 +38,8 @@ import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
+// Wave mac5 (local models): the one-click pieces kept beside this app's store.
+import { localKitFor } from "./local-kit.js";
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
@@ -316,6 +318,8 @@ async function staticFile(
     "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
+    // Wave mac5 (local models): the one-click block inside the same card.
+    "/local-oneclick.js": ["local-oneclick.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
@@ -827,7 +831,7 @@ async function api(
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
-      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner },
+      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
       request.method ?? "GET", path, () => readBody(request),
     );
   if (request.method === "POST" && path === "/api/onboarding") {

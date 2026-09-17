@@ -89,6 +89,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Evaluation and studies | `settings:advanced` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
 import { cpus, totalmem } from "node:os";
 import { promisify } from "node:util";
 import { z } from "zod";
@@ -33,37 +34,88 @@ export const gb = (bytes: number): number => Math.round((bytes / gigabyte) * 10)
 
 type Exec = (file: string, args: string[], options: { timeout: number; windowsHide: boolean }) => Promise<{ stdout: string }>;
 const run = promisify(execFile);
+/** Reads the small text files Linux keeps about a graphics card; tests hand in their own. */
+export interface SysfsReader { list(dir: string): Promise<string[]>; read(path: string): Promise<string> }
+const realSysfs: SysfsReader = { list: (dir) => readdir(dir), read: (path) => readFile(path, "utf8") };
 /** Asks this computer for its graphics card once; anything unexpected simply means "no card reported". */
-export async function readGraphicsCard(exec: Exec = run, platform: string = process.platform): Promise<GraphicsCard | null> {
+export async function readGraphicsCard(exec: Exec = run, platform: string = process.platform, sysfs: SysfsReader = realSysfs): Promise<GraphicsCard | null> {
   const options = { timeout: 10000, windowsHide: true };
   try {
     if (platform === "win32") return await windowsGraphicsCard(exec, options);
     if (platform === "darwin")
       return parseMacDisplays((await exec("/usr/sbin/system_profiler", ["SPDisplaysDataType", "-json"], options)).stdout);
-    if (platform === "linux") return await linuxGraphicsCard(exec, options);
+    if (platform === "linux") return await linuxGraphicsCard(exec, options, sysfs);
     return null;
   } catch {
     return null;
   }
 }
 
+/**
+ * Wave mac5 (local models): Windows' `AdapterRAM` is a 32-bit figure, so any card with more than
+ * 4 GB was reported as 4 GB or less. NVIDIA's own tool is asked first, as on Linux; otherwise the
+ * name still comes from WMI as before, and the memory from the driver's 64-bit registry value
+ * (`HardwareInformation.qwMemorySize`) when it is there, falling back to `AdapterRAM` when it is not.
+ */
 async function windowsGraphicsCard(exec: Exec, options: { timeout: number; windowsHide: boolean }): Promise<GraphicsCard | null> {
+  const nvidia = await exec("nvidia-smi.exe", nvidiaQuery, options).then((out) => parseNvidiaSmi(out.stdout), () => null);
+  if (nvidia) return nvidia;
   const script = "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress";
   const { stdout } = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], options);
   const parsed = JSON.parse(stdout.trim() || "null") as { Name?: unknown; AdapterRAM?: unknown } | null;
   if (!parsed || typeof parsed.Name !== "string" || !parsed.Name.trim()) return null;
   const ram = typeof parsed.AdapterRAM === "number" && parsed.AdapterRAM > 0 ? parsed.AdapterRAM : null;
-  return { name: parsed.Name.trim().slice(0, 120), memoryBytes: ram };
+  const wide = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsRegistryScript], options)
+    .then((out) => parseWindowsRegistryMemory(out.stdout), () => null);
+  return { name: parsed.Name.trim().slice(0, 120), memoryBytes: wide && wide > (ram ?? 0) ? wide : ram };
 }
 
-/** NVIDIA's own tool first, because it knows the video memory; `lspci` at least knows the name. */
-async function linuxGraphicsCard(exec: Exec, options: { timeout: number; windowsHide: boolean }): Promise<GraphicsCard | null> {
+const nvidiaQuery = ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"];
+/** The display adapters' class key; each driver writes its real memory size under it as a 64-bit number. */
+export const windowsRegistryScript = "Get-ItemProperty -Path 'HKLM:\\SYSTEM\\ControlSet001\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue"
+  + " | ForEach-Object { $_.'HardwareInformation.qwMemorySize' } | Where-Object { $_ } | ForEach-Object { [uint64]$_ }"
+  + " | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum";
+/** The largest figure the registry script printed, or null. */
+export function parseWindowsRegistryMemory(output: string): number | null {
+  const value = Number(output.trim().split(/\r?\n/).pop() ?? "");
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * NVIDIA's own tool first, because it knows the video memory; `lspci` at least knows the name.
+ * For an AMD card, `rocm-smi` and then the driver's own file under /sys give the memory.
+ */
+async function linuxGraphicsCard(exec: Exec, options: { timeout: number; windowsHide: boolean }, sysfs: SysfsReader): Promise<GraphicsCard | null> {
   try {
-    const { stdout } = await exec("nvidia-smi", ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"], options);
+    const { stdout } = await exec("nvidia-smi", nvidiaQuery, options);
     const card = parseNvidiaSmi(stdout);
     if (card) return card;
   } catch { /* no NVIDIA driver here: ask lspci instead */ }
-  return parseLspci((await exec("lspci", [], options)).stdout);
+  const card = parseLspci((await exec("lspci", [], options)).stdout);
+  if (!card || !/\b(AMD|ATI|Radeon)\b/i.test(card.name)) return card;
+  const rocm = await exec("rocm-smi", ["--showmeminfo", "vram", "--json"], options)
+    .then((out) => parseRocmSmi(out.stdout), () => null);
+  return { ...card, memoryBytes: rocm ?? await amdSysfsMemory(sysfs) };
+}
+
+/** `rocm-smi --showmeminfo vram --json`: the largest "VRAM Total Memory (B)" of any card. */
+export function parseRocmSmi(output: string): number | null {
+  try {
+    const cards = Object.values(JSON.parse(output) as Record<string, Record<string, unknown>>);
+    const sizes = cards.map((card) => Number(card?.["VRAM Total Memory (B)"])).filter((n) => Number.isFinite(n) && n > 0);
+    return sizes.length ? Math.max(...sizes) : null;
+  } catch { return null; }
+}
+
+/** The amdgpu driver's `mem_info_vram_total`, in bytes, for the biggest card. */
+async function amdSysfsMemory(sysfs: SysfsReader): Promise<number | null> {
+  const cards = (await sysfs.list("/sys/class/drm").catch(() => [] as string[])).filter((name) => /^card\d+$/.test(name));
+  let best: number | null = null;
+  for (const name of cards) {
+    const value = Number((await sysfs.read(`/sys/class/drm/${name}/device/mem_info_vram_total`).catch(() => "")).trim());
+    if (Number.isFinite(value) && value > 0 && value > (best ?? 0)) best = value;
+  }
+  return best;
 }
 
 /** The first line of `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits`. */
