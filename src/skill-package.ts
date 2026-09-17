@@ -68,8 +68,14 @@ export function requestedPermissions(files: Record<string, string>): { permissio
   // A site block asks for nothing extra — it is selectors and nothing else — but the owner should
   // still read which websites a skill claims to know before they install it.
   const siteFile = files[siteSkillEntry];
-  if (siteFile) asked.push({ permission: "skills.read",
-    why: `Know the quirks of ${declaredSites(files).join(", ")} — selectors only, and no website is added to the allowed list` });
+  if (siteFile) {
+    const { site } = SiteSkillFileSchema.parse(JSON.parse(siteFile));
+    // What it presses is named, not only which websites it knows: a selector that dismisses a
+    // cookie notice and one that confirms a deletion read the same until the owner sees it.
+    const presses = site.dismiss.length ? `presses ${site.dismiss.join(", ")} when a page opens` : "presses nothing";
+    asked.push({ permission: "skills.read",
+      why: `Know the quirks of ${site.hosts.join(", ")}: ${presses}. Selectors only, and no website is added to the allowed list.` });
+  }
   if (hooksFile) {
     const { hooks } = SkillHooksSchema.parse(JSON.parse(hooksFile));
     asked.push({ permission: "procedures.use", why: hooks.map((hook) => `Run your recipe "${hook.recipe}" when ${hook.event.replace(/[._]/g, " ")}`).join("; ") });

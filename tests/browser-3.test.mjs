@@ -62,16 +62,37 @@ const routes = {
       +'<tr class="line"><td class="name">Mug</td><td class="price">8</td></tr></table>'},80)</script>`),
 };
 
+/** A one-pixel PNG, so a picture the page asks for is a real answer rather than a guess. */
+const pixel = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64');
+
+/**
+ * Two pictures from the same fixture server under its two names. Nothing asked the browser to open
+ * either of them; they are the requests the *page itself* makes, which is the thing being checked.
+ */
+const imagesPage = origin => page(`<img src="${origin}/pixel.png" onload="done('control','loaded')" onerror="done('control','refused')">
+  <img src="${origin.replace('127.0.0.1', 'localhost')}/pixel.png" onload="done('guarded','loaded')" onerror="done('guarded','refused')">
+  <p id="hit">nothing</p>
+  <script>const seen={};function done(which,how){seen[which]=how;
+    if(seen.control&&seen.guarded)document.getElementById('hit').textContent=seen.control+'/'+seen.guarded}</script>`);
+
 async function fixture() {
+  let origin = '';
   const server = createServer((request, response) => {
     const path = new URL(request.url, 'http://fixture').pathname;
+    if (path === '/pixel.png') {
+      response.writeHead(200, {'content-type': 'image/png'});
+      response.end(pixel);
+      return;
+    }
     response.writeHead(200, {'content-type': 'text/html; charset=utf-8'});
-    response.end(routes[path] ?? routes['/']);
+    response.end(path === '/images' ? imagesPage(origin) : routes[path] ?? routes['/']);
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  return {origin: `http://127.0.0.1:${server.address().port}`,
-    stop: async () => { server.close(); await once(server, 'close'); }};
+  origin = `http://127.0.0.1:${server.address().port}`;
+  return {origin, stop: async () => { server.close(); await once(server, 'close'); }};
 }
 
 async function harness(label, config = {}, extraOrigins = []) {
@@ -80,7 +101,10 @@ async function harness(label, config = {}, extraOrigins = []) {
   await mkdir(workspace, {recursive: true});
   await mkdir(data, {recursive: true});
   const {origin, stop} = await fixture();
-  const browser = new BranchBrowser({allowedOrigins: [origin, ...extraOrigins], ...config});
+  // The very same fixture server under its other name is allowed too, so when one of the two
+  // is refused below it can only be the borrowing guard that refused it.
+  const browser = new BranchBrowser({
+    allowedOrigins: [origin, origin.replace('127.0.0.1', 'localhost'), ...extraOrigins], ...config});
   browser.artifacts = new RunArtifacts(join(data, 'artifacts'));
   browser.files = new WorkspaceFiles(workspace);
   const registry = new ToolRegistry();
@@ -240,7 +264,7 @@ test('a site block rides inside a skill package and is checked when the package 
   assert.deepEqual(opened.manifest.permissions, ['skills.read']);
   assert.deepEqual(declaredSites(opened.files), ['shop.example.com']);
   assert.match(requestedPermissions(opened.files).map(asked => asked.why).join(' '),
-    /Know the quirks of shop\.example\.com/);
+    /Know the quirks of shop\.example\.com: presses #accept when a page opens/);
   assert.throws(() => packSkill({files: {'SKILL.md': document, 'site.json': '{"site":{"hosts":["chase.com"],"run":"x"}}'},
     author: 'Branch', packageVersion: '1.0.0'}), /[Uu]nrecognized|[Uu]nexpected/);
   assert.throws(() => packSkill({files: {'SKILL.md': document, 'quirks.js': 'x'},
@@ -313,4 +337,27 @@ test('quirks that do not apply are simply not applied, and never fail the page',
     assert.equal(entry.site.settleMs, 0);
     await h.registry.finishRun(context);
   } finally { await h.close(); }
+});
+
+test('the refusal applies to every request the page makes, not only the address it was given', async () => {
+  const h = await harness('browser3-subrequest');
+  const port = 9415;
+  const owned = await chromium.launchPersistentContext('', {headless: true, args: [`--remote-debugging-port=${port}`]});
+  try {
+    // The owner has added one of the fixture server's two names to their own refused list. Both
+    // names answer, and both are on the allowed-website list, so the only thing that can tell them
+    // apart is the check Branch puts on every request its borrowed tab makes.
+    h.browser.store = {get: () => ({data: {enabled: true, port, runId: 'run-sub',
+      grantedAt: new Date().toISOString(), extraRefusedHosts: ['localhost']}}), save: () => undefined};
+    const context = runContext('run-sub');
+    ok(await h.registry.execute('browser.borrow', {action: 'borrow'}, context));
+    ok(await h.registry.execute('browser.navigate', {url: `${h.origin}/images`}, context));
+    ok(await h.registry.execute('browser.wait', {text: 'loaded/refused', timeoutMs: 8000}, context));
+    assert.equal(await hitText(h, context), 'loaded/refused',
+      'the picture from the allowed name loaded; the one from the refused name never left the browser');
+    // Asking for the refused name outright is refused in the same words.
+    await refusal(h.registry.execute('browser.navigate',
+      {url: `${h.origin.replace('127.0.0.1', 'localhost')}/`}, context), /money or passwords/);
+    ok(await h.registry.execute('browser.borrow', {action: 'give back'}, context));
+  } finally { await owned.close(); await h.close(); }
 });
