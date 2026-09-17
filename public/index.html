@@ -1040,6 +1040,11 @@
             <label for="chat-permissions-allow" data-t="field.chat-permissions-allow">What they may also do</label>
             <input id="chat-permissions-allow" type="text" maxlength="400" aria-describedby="chat-permissions-allow-note" />
             <p id="chat-permissions-allow-note" class="field-note" data-t="settings.chat-permissions.allow-note">Names separated by commas, such as files.write. Commands on this computer, your other devices, your mail, calendar and house, and writing to other chats are never allowed from here.</p>
+            <label class="check-row" for="chat-permissions-approvals">
+              <input type="checkbox" id="chat-permissions-approvals" aria-describedby="chat-permissions-approvals-note" />
+              <span data-t="field.chat-permissions-approvals">They may also say yes in the chat to what this line allows</span>
+            </label>
+            <p id="chat-permissions-approvals-note" class="field-note" data-t="settings.chat-permissions.approvals-note">Off, and a question about what this line allows is shown in the chat with No only, saying the yes has to be given here in the window. On, and this person on this app can answer yes from the chat, but only to what this same line allows. Name the app and the person for it to do anything: a line written with * for either keeps the tick and no more. Be sure before you turn it on: a chat app cannot prove who is typing, so anyone who gets into that chat account, or who manages to pass themselves off as it, can approve those changes from their own phone. They still cannot say yes to everything from now on, and never to anything this line does not allow.</p>
             <label for="chat-permissions-note" data-t="field.chat-permissions-note">Who this is</label>
             <input id="chat-permissions-note" type="text" maxlength="200" aria-describedby="chat-permissions-note-note" />
             <p id="chat-permissions-note-note" class="field-note" data-t="settings.chat-permissions.note-note">Your own words, so the line still means something a year from now.</p>

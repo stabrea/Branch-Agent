@@ -47,7 +47,41 @@ test("the card is under Customize, Chat apps, starts off, and saves one line", a
   await page.locator("#chat-permissions-state", { hasText: "Saved." }).waitFor();
   const saved = app.channels.permissionSettings();
   assert.equal(saved.extras, true);
-  assert.deepEqual(saved.rules, [{ channel: "telegram", sender: "4242", allow: ["files.write", "shell.execute"], note: "my own phone" }]);
+  // mac7/chat-approvals: the box for saying yes from the chat was not ticked, so the line is saved
+  // with it off — which is what a line written without a thought for it has to mean.
+  assert.deepEqual(saved.rules, [{ channel: "telegram", sender: "4242", allow: ["files.write", "shell.execute"],
+    note: "my own phone", approvals: false }]);
+  assert.deepEqual(errors, []);
+});
+
+test("mac7/chat-approvals: the box for saying yes from the chat starts clear, says what it costs, and saves", async (t) => {
+  const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
+  await openPlace(page, "customize:channels");
+  const card = page.locator("#chat-permissions-form");
+  await card.waitFor({ state: "visible" });
+  const box = page.getByLabel("They may also say yes in the chat to what this line allows", { exact: true });
+  assert.equal(await box.isChecked(), false, "the box starts ticked");
+
+  /* The card says in its own words what turning it on gives away, without being asked to. */
+  const warning = await page.locator("#chat-permissions-approvals-note").innerText();
+  assert.match(warning, /cannot prove who is typing/i, "the card does not say a chat cannot prove who is typing");
+  assert.match(warning, /gets into that chat account/i, "the card does not say who else could then approve");
+  assert.match(warning, /pass themselves off/i, "the card does not say the account can be spoofed");
+
+  await page.getByLabel("Use my list of what chats may also do", { exact: true }).check();
+  await page.getByLabel("Which chat app", { exact: true }).fill("telegram");
+  await page.getByLabel("Which person", { exact: true }).fill("4242");
+  await page.getByLabel("What they may also do", { exact: true }).fill("files.write");
+  await box.check();
+  await page.getByLabel("Who this is", { exact: true }).fill("my own phone");
+  await card.getByRole("button", { name: "Save what chats may do", exact: true }).click();
+  await page.locator("#chat-permissions-state", { hasText: "Saved." }).waitFor();
+  assert.deepEqual(app.channels.permissionSettings().rules,
+    [{ channel: "telegram", sender: "4242", allow: ["files.write"], note: "my own phone", approvals: true }]);
+
+  /* The saved line says so where the owner reads the list, and the box clears for the next line. */
+  await page.locator("#chat-permissions-list", { hasText: "may say yes in the chat" }).waitFor();
+  assert.equal(await box.isChecked(), false, "the box stayed ticked for whatever line is written next");
   assert.deepEqual(errors, []);
 });
 
