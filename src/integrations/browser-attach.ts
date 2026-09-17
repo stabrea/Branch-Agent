@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Store } from '../store.js';
 import { hostRefusalFor, refusalFor } from './desktop-config.js';
 import { optionalFields } from '../feature-switches.js';
+import { lockdownOverrides } from '../lockdown.js'; // mac7/lockdown-fix
 
 /**
  * Letting Branch borrow the browser the owner already has open, so a website that already knows
@@ -37,7 +38,9 @@ export const attachGraceMs = 15 * 60 * 1000;
 
 export function readAttachSettings(store: Store, owner: string): AttachSettings {
   const saved = AttachSettingsSchema.safeParse(store.get('settings', owner, settingsKey)?.data ?? {});
-  return saved.success ? saved.data : AttachSettingsSchema.parse({});
+  const settings = saved.success ? saved.data : AttachSettingsSchema.parse({});
+  // mac7/lockdown-fix: a permission saved while Lockdown is on does not count until it is off.
+  return lockdownOverrides(store, owner, settingsKey) ? { ...settings, enabled: false } : settings;
 }
 export function saveAttachSettings(store: Store, owner: string, input: unknown): AttachSettings {
   const value = AttachSettingsInputSchema.parse(input ?? {});

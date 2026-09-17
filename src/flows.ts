@@ -210,7 +210,7 @@ export class Flows {
    * assistant never sets it, so a flow waiting on the owner stays waiting until they answer.
    */
   resumeGraph(id: string,
-    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past" } = {}): GraphRunStart {
+    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
     const pick = options.runId ?? this.graphs.resumable(id)?.runId;
     if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
@@ -218,7 +218,8 @@ export class Flows {
     if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
     this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true,
-      ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }) }));
+      ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }),
+      ...(options.within ? { within: options.within } : {}) })); // mac7/lockdown-fix: a task carrying it on keeps to its tools
     return { runId: pick, flowId: id, status: "running", name: definition.name };
   }
   /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */

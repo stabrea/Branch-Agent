@@ -256,6 +256,11 @@ export interface ToolContext {
    * bubblewrap), set by the runtime from the owner's settings. Never set from a tool's arguments.
    */
   osSandbox?: WallContext;
+  /**
+   * mac7/lockdown-fix: set on a Trunk's turn (and carried into its sub-tasks and side jobs): the keys
+   * it may use. A sign-in account never answers for it (src/accounts/trunk-guard.ts).
+   */
+  trunkKeys?: { copyFromOwner: boolean; accounts: Record<string, string> };
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

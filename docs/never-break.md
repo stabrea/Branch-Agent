@@ -77,7 +77,7 @@ Results are from the Mac on 17 September (quick chaos set, 3–6 seeds); the Lin
 own calls. `Runtime.executeTool` (a tool pressed by hand in the app window, `/api/action`, the code
 editor's save, a saved workflow's step, a flow box, a live voice call, the pull-request hook), "Try a
 tool", another AI tool over MCP, a saved procedure's steps and a step redone after a restart all go
-through `Runtime.checkPolicy`, so this refusal comes first for every one of them. The shared gate is
+through `Runtime.checkPolicy`, so this refusal comes first for every one of them. Lockdown's refusals for commands, programs, the screen and the borrowed browser sit right after it in the same place, ahead of any rule or saved switch (mac7/lockdown-fix). The shared gate is
 `src/tool-gate.ts`; tests in `tests/manual-actions-gate.test.mjs` and `tests/mcp-server.test.mjs`.
 
 ## What the refusal cannot see (honest limits)
