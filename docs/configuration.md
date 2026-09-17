@@ -180,6 +180,8 @@ A download takes minutes, far longer than one web request may last, so `pull` st
 
 **Recommendations by hardware.** Memory and processor cores come from Node; on Windows the graphics card is read once with `powershell Get-CimInstance Win32_VideoController` and remembered until restart. Three sizes are offered — small (about 2 GB, fast, good for notes), medium (about 5 GB, a steady all-rounder) and large (about 9 GB, slower but better at reasoning) — each marked as fitting this computer or not, with a plain reason.
 
+**macOS and Linux.** On a Mac the graphics are read once from `system_profiler SPDisplaysDataType -json`. A Mac with Apple silicon has no separate video memory: its graphics share the computer's own memory, and the summary says so ("Apple M4 graphics, which share that memory"), so a model that fits in memory is described as quick rather than as running on the processor. An Intel Mac with its own card reports that card's memory. On Linux `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits` is asked first; without it, `lspci` gives the card's name but no memory figure. Anything unexpected simply means "no card reported".
+
 **Routing rules** (`settings/routing`, off by default): `enabled`, `localForPrivate` (a task mentioning personal details stays here), `cloudForHard` (long or tool-heavy tasks go to the cloud model), `costCeilingDollars` (a simple task that would cost more than this in the cloud uses the free local model instead), and optional `localPreset` / `cloudPreset`. What you explicitly choose for a run or a conversation always wins; when routing does pick, the run records a `model.routed` event with the reason. The rule itself also has a "local server is not answering, use the cloud one" branch, but nothing probes the local server before a run yet: a task sent to a local model that does not answer falls back the ordinary way, through the connection's configured fallbacks and the provider cooldown. `POST /api/local-models/routing/preview` is the one caller that can set `localUp` today.
 
 **Reading passages by meaning.** When the connected model is Ollama on this computer, document and memory search use Ollama's own `/api/embeddings` instead of the OpenAI-shaped route, one passage per request, and `text-embedding-3-small` is swapped for `nomic-embed-text`, which is what exists here.
@@ -536,6 +538,8 @@ Costs are estimated the same honest way as everything else: published per-minute
 
 Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
 
+**macOS and Linux.** "The voice that comes with your computer" keeps its saved name (`windows`) but means the system voice wherever Branch runs. On a Mac that is `say`, started with a list of arguments, the words read from a file (`-f`) and the sound written to a WAV file (`--file-format=WAVE --data-format=LEI16@22050 -o …`); the voice list comes from `say -v ?`. On Linux it is `espeak-ng` (`-w <file> -s <words a minute> -f <file>`, voices from `espeak-ng --voices`) when it is installed. `spd-say` can only speak through the loudspeaker and cannot make a sound file, so a computer that has only `spd-say` is told to install `espeak-ng`; with neither, reading aloud says "there is no system voice on this computer" and the voice list is empty. A voice name that starts with a dash is refused. These flags follow each program's own documentation; the tests use stand-ins, so no sound is ever played.
+
 ### Live conversation (wave 8)
 
 A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
@@ -583,6 +587,8 @@ Every value that has ever been looked up is remembered by **one scrubber** for a
 **Replacing a secret and being reminded.** `POST /api/secrets/:project/:NAME/rotate` with `{ "value": "the new one" }` writes the new value and records the day it happened; the reminder rhythm is kept, so a secret you set to be replaced every 90 days is due again 90 days later. Set `expiresInDays` when you save or replace a secret (0 means never remind). Anything due within a week, or overdue, appears as `secretReminders` in the app's state and under `reminders` in the audit.
 
 **Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
+
+**macOS and Linux.** `secret://bitwarden/...` and `secret://1password/...` work the same way on a Mac and on Linux: `bw` and `op` are looked for by their bare names on the search path. On a Mac there is one more source, **the Keychain**: `secret://keychain/<name>` names one of the entries you listed (setting `keychain-entries`: `enabled`, off by default, and `entries`, each `{ name, service, account? }`), and Branch runs `/usr/bin/security find-generic-password -s <service> [-a <account>] -w` at the moment the value is needed. Only listed entries can be read, so a tool call cannot go looking through the rest of your Keychain; it waits for the same unlock as the locker, the value is scrubbed like every other, and each read is written into the audit by name only. If the Keychain is locked, or you turn down your Mac's question about the item, Branch says so in one sentence. There is no settings route for these entries yet. On any other computer a Keychain reference is refused plainly.
 
 ### Keys Branch never looked up
 
@@ -1085,7 +1091,14 @@ in the line and what would let it start sooner), moved to another model because 
 no longer set up, or refused because something it needs is not on this computer — each with the next
 best thing you can actually do about it.
 
-**Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+**Completion.** `branch completion bash`, `branch completion zsh`, `branch completion fish` and `branch completion powershell` print a completion script. Nothing is installed for you and the script never runs a Branch command to work out its suggestions. The first lines of each script say how to load it in every new terminal:
+
+| Shell | Install |
+| --- | --- |
+| bash | `branch completion bash > ~/.branch-completion.bash`, then add `source ~/.branch-completion.bash` to `~/.bashrc` |
+| zsh (the Mac's own shell) | `mkdir -p ~/.zfunc && branch completion zsh > ~/.zfunc/_branch`, then add `fpath=(~/.zfunc $fpath); autoload -Uz compinit; compinit` to `~/.zshrc` |
+| fish | `branch completion fish > ~/.config/fish/completions/branch.fish` |
+| PowerShell | `branch completion powershell >> $PROFILE` |
 
 ## A queue service, and why there is not one
 
@@ -2031,6 +2044,18 @@ layer first — a button is pressed by its name, text is placed into a box direc
 to a real mouse click or key press only when the program offers nothing better. The script runs
 through the same bounded runner the host-command tool uses, so it is stopped by time, by output
 size, or the moment the task is cancelled. No new dependency; nothing is installed.
+**macOS and Linux.** The commands are built and tested for both, and switched off on both for now.
+On a Mac every action would go through one fixed JavaScript for Automation script run by
+`osascript -l JavaScript <script> <action> <request as JSON>`, so what was asked for is only ever a
+separate argument read as data; pictures through `screencapture -x`, programs and files through
+`open`, and "ctrl" in a key chord means Command. On Linux the same actions are `xdotool` argument
+lists (typed words after `--`), on an X11 session only; Wayland, no session, or no `xdotool` is one
+plain sentence. Reading a window's contents, pictures, the clipboard and starting a program by name
+are not built for Linux yet. The reason both are off: the notice with its **Stop** button is still a
+Windows program, and screen control does not run anywhere without a way to stop it. Until that
+notice works there, every screen tool on a Mac or Linux answers "not available on this computer
+yet". A refusal from macOS names the page to change (Automation, Accessibility, or Screen & System
+Audio Recording).
 While any of this is happening a small notice sits on top of everything with a **Stop** button on
 it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
 the action in flight is cut off and every later one in the same task is refused. `POST
@@ -3244,8 +3269,9 @@ Branch Agent is one person's assistant on one Windows computer. A number of thin
 for belong to a hosted product with many customers, or to another operating system, and they are not
 going to be built. They are written down here so nobody goes looking for them.
 
-- **No macOS screen control.** The screen and keyboard tools drive Windows windows through UI
-  Automation; there is no macOS accessibility equivalent, and this app only ships for Windows.
+- **No macOS screen control yet.** The screen and keyboard tools drive Windows windows through UI
+  Automation. The macOS and Linux commands are built but switched off until the Stop notice works
+  there; see "Using this computer's screen and keyboard".
 - **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
   to the room waiting for its name, because that means a microphone open all day.
 - **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
@@ -3331,6 +3357,16 @@ sentence naming the page that turns it on (`ms-settings:privacy-microphone`,
 Only an outright "no" stops anything: a computer that keeps no such setting answers "nothing to say"
 and Branch carries on exactly as before. New route: `GET /api/os-permissions`. Branch never asks
 Windows to grant a permission — only you can do that.
+
+**macOS and Linux.** Merely asking a Mac about one of these switches can put a question on the
+screen, so on a Mac nothing is asked. The permissions route lists four switches — Microphone,
+Camera, Screen & System Audio Recording, and Accessibility (pressing keys and clicking in other
+apps) — each with an `explanation` in plain words and a `settingsLink` that opens its page
+(`x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`, `?Privacy_Camera`,
+`?Privacy_ScreenCapture`, `?Privacy_Accessibility`). Every entry now carries `explanation`, on
+Windows too. On Linux the desktop session is what decides: with an X11 session screen control can
+work (with `xdotool`); on Wayland, or with no desktop session at all, the screen is reported as
+unavailable with the reason, and the microphone and camera are explained as having no single switch.
 
 ## Commands nobody has ruled on (batch 26, wave 8)
 

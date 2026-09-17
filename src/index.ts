@@ -67,7 +67,7 @@ import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { SessionTokens } from "./session-tokens.js";
-import { CommandSecrets } from "./vault-sources.js";
+import { CommandSecrets, KeychainSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
@@ -324,6 +324,10 @@ export async function createBranch(options: {
   const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
   commandSecrets.gate = () => sessionLock.require();
   store.secrets.sources.push(commandSecrets);
+  // Wave mac1: the Keychain on a Mac, for the entries the owner listed, behind the same lock.
+  const keychainSecrets = new KeychainSecrets(store, runtime.owner, store.secrets.scrubber);
+  keychainSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(keychainSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {

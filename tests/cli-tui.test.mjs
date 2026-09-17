@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn, execFile } from "node:child_process";
+import { spawn, spawnSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  completionScript, cliCommands, usageText,
+  completionScript, completionInstallHint, completionShells, cliCommands, usageText,
 } from "../dist/cli-completion.js";
 import { exitCodeFor, parseRunArgs } from "../dist/cli-run.js";
 import { resolveStyle, stripAnsi, wrap } from "../dist/terminal-style.js";
@@ -242,7 +242,7 @@ test("status, logs and approve give scripts the same picture the app shows", asy
   assert.match(refused.stderr, /No task with that id/);
 });
 
-test("completion writes a script for bash and for PowerShell and refuses anything else", async (t) => {
+test("completion writes a script for bash, zsh, fish and PowerShell and refuses anything else", async (t) => {
   const { env } = await workspace(t);
   const bash = await branch(env, ["completion", "bash"]);
   assert.equal(bash.code, 0);
@@ -252,12 +252,63 @@ test("completion writes a script for bash and for PowerShell and refuses anythin
   assert.equal(powershell.code, 0);
   assert.match(powershell.stdout, /Register-ArgumentCompleter -Native -CommandName branch/);
   assert.match(powershell.stdout, /'run' = @\('--json'/);
-  const wrong = await branch(env, ["completion", "fish"]);
+  const zsh = await branch(env, ["completion", "zsh"]);
+  assert.equal(zsh.code, 0);
+  assert.match(zsh.stdout, /^#compdef branch/);
+  assert.match(zsh.stdout, /compdef _branch branch/);
+  const fish = await branch(env, ["completion", "fish"]);
+  assert.equal(fish.code, 0);
+  assert.match(fish.stdout, /complete -c branch -n "__fish_seen_subcommand_from run" -l json/);
+  const wrong = await branch(env, ["completion", "tcsh"]);
   assert.equal(wrong.code, 1);
-  assert.match(wrong.stderr, /Completion is available for: bash, powershell/);
-  for (const command of cliCommands) assert.match(bash.stdout, new RegExp(`\\b${command.name}\\b`));
+  assert.match(wrong.stderr, /Completion is available for: bash, zsh, fish, powershell/);
+  for (const shell of completionShells) {
+    const script = completionScript(shell);
+    for (const command of cliCommands) assert.match(script, new RegExp(`\\b${command.name}\\b`), `${shell} offers ${command.name}`);
+    for (const option of new Set(cliCommands.flatMap((command) => command.options)))
+      assert.ok(script.includes(shell === "fish" ? `-l ${option.slice(2)}` : option), `${shell} offers ${option}`);
+    assert.match(script, /To load it in every new terminal: /, `${shell} says how to install it`);
+    assert.match(completionInstallHint(shell), new RegExp(`branch completion ${shell}`));
+  }
   assert.ok(usageText().includes("Exit codes for scripts"));
-  assert.throws(() => completionScript("zsh"), /bash, powershell/);
+  assert.throws(() => completionScript("tcsh"), /bash, zsh, fish, powershell/);
+});
+
+const hasShell = (name) => spawnSync("sh", ["-c", `command -v ${name}`]).status === 0;
+
+test("the bash script suggests commands and only that command's options", { skip: !hasShell("bash") }, () => {
+  const probe = `${completionScript("bash")}
+COMP_WORDS=(branch ru); COMP_CWORD=1; _branch_complete; echo "one:\${COMPREPLY[*]}"
+COMP_WORDS=(branch run --ve); COMP_CWORD=2; _branch_complete; echo "two:\${COMPREPLY[*]}"
+COMP_WORDS=(branch completion f); COMP_CWORD=2; _branch_complete; echo "three:\${COMPREPLY[*]}"`;
+  const out = spawnSync("bash", ["--norc", "--noprofile", "-c", probe], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^one:run$/m);
+  assert.match(out.stdout, /^two:--verify$/m);
+  assert.match(out.stdout, /^three:fish$/m);
+});
+
+test("the zsh script suggests commands and only that command's options", { skip: !hasShell("zsh") }, () => {
+  // compadd and _files are zsh's own completion helpers; stand-ins print what would be offered.
+  const probe = `compadd() { local a; if [[ $1 == -a ]]; then a=(\${(P)2}); else a=("$@"); fi; print -r -- "offer:\${a[*]}"; }
+_files() { print -r -- "offer:files"; }
+compdef() { print -r -- "registered:$*"; }
+${completionScript("zsh")}
+words=(branch ""); CURRENT=2; PREFIX=""; _branch
+words=(branch run --); CURRENT=3; PREFIX="--"; _branch
+words=(branch completion ""); CURRENT=3; PREFIX=""; _branch`;
+  const out = spawnSync("zsh", ["-f", "-c", probe], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^registered:_branch branch$/m);
+  assert.match(out.stdout, new RegExp(`^offer:${cliCommands.map((c) => c.name).join(" ")}$`, "m"));
+  assert.match(out.stdout, /^offer:--json --attach --plan .*--fork$/m);
+  assert.match(out.stdout, /^offer:bash zsh fish powershell$/m);
+});
+
+test("the fish script loads in fish", { skip: !hasShell("fish") }, () => {
+  const out = spawnSync("fish", ["--no-config", "-c", `${completionScript("fish")}\ncomplete -C "branch ru"`], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^run\t/m);
 });
 
 test("the flag reader, the exit code table and the wrapper behave on their own", () => {
