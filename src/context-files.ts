@@ -51,6 +51,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 
@@ -97,9 +98,12 @@ export const slots = [
 export type SlotKey = (typeof slots)[number]["key"];
 export const slotKeys = slots.map((slot) => slot.key) as [SlotKey, ...SlotKey[]];
 
-/** Off, carried every turn, or announced in one line and fetched if the work calls for it. */
-export const ContextSwitchSchema = z.enum(["off", "on", "when-needed"]);
-export type ContextSwitch = z.infer<typeof ContextSwitchSchema>;
+/**
+ * Off, carried every turn, or announced in one line and fetched if the work calls for it. The same
+ * three-way switch every feature has (src/feature-switches.ts), so there is one list of positions.
+ */
+export const ContextSwitchSchema = FeatureModeSchema;
+export type ContextSwitch = FeatureMode;
 
 const switches = Object.fromEntries(slotKeys.map((key) => [key, ContextSwitchSchema.optional()])) as
   Record<SlotKey, z.ZodOptional<typeof ContextSwitchSchema>>;
