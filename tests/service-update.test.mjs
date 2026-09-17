@@ -229,7 +229,9 @@ test("the Mac hand-over waits, ends a stuck app, keeps the previous bundle and r
   assert.match(text, /wait_for "\$PID" app\nwait_for 777 "background engine"\n/);
   assert.ok(text.indexOf("wait_for 777") < text.indexOf('mv "$TARGET" "$PREVIOUS"'), "both are gone before anything moves");
   assert.match(text, /\/usr\/bin\/open -n -W "\$TARGET" >\/dev\/null 2>&1 &\nSTARTED=\$!/);
-  assert.match(text, /new version did not start; restoring previous"\n[\s\S]*cp -Rp "\$PREVIOUS" "\$TARGET"\n\/usr\/bin\/open -n "\$TARGET"/);
+  assert.match(text, /new version did not start; restoring previous"\n[\s\S]*\/usr\/bin\/ditto "\$PREVIOUS" "\$TARGET"\n\/usr\/bin\/open -n "\$TARGET"/);
+  assert.match(text, /^\/usr\/bin\/ditto "\$STAGED" "\$INCOMING" \|\|/m, "the bundle is copied with ditto");
+  assert.match(text, /^sleep 20$/m, "the new version has twenty seconds to prove it stays up");
   assert.ok(!/osascript|Terminal|schtasks|wscript|cmd\.exe/.test(text), "no terminal window and nothing from Windows");
   assert.ok(!posixHandOverScript(plan()).includes("background engine"), "no second wait without an engine");
 });
@@ -238,9 +240,10 @@ test("the Linux hand-over starts the program file inside the swapped folder", ()
   const text = posixHandOverScript(plan({ platform: "linux", target: "/home/pat/Apps/Branch-Agent-linux-x64" }));
   assert.match(text, /^"\$TARGET"\/'branch-agent' >\/dev\/null 2>&1 &$/m);
   assert.ok(!text.includes("/usr/bin/open"));
+  assert.match(text, /^cp -Rp "\$STAGED" "\$INCOMING" \|\|/m);
 });
 
-async function fakeInstall(root, exeBody) {
+async function fakeInstall(root, exeBody, settleSeconds = 20) {
   const target = join(root, "Apps", "Branch-Agent-linux-x64");
   const staged = join(root, "scratch", "unpacked", "Branch-Agent-linux-x64");
   for (const [dir, body, marker] of [[target, exeBody.old, "old"], [staged, exeBody.new, "new"]]) {
@@ -251,7 +254,7 @@ async function fakeInstall(root, exeBody) {
   }
   const script = join(root, "scratch", "apply-update.sh");
   const log = join(root, "scratch", "apply-update.log");
-  await writeFile(script, posixHandOverScript({ platform: "linux", target, staged, log, executableName: "branch-agent", daemonPid: null }));
+  await writeFile(script, posixHandOverScript({ platform: "linux", target, staged, log, executableName: "branch-agent", daemonPid: null, settleSeconds }));
   return { target, script, log };
 }
 const runScript = (script, args) => new Promise((resolve) => {
@@ -280,7 +283,7 @@ test("sh puts the previous version back when the new one does not stay up", { sk
   const { target, script, log } = await fakeInstall(root, {
     old: `#!/bin/sh\necho old >> '${started}'\n`,
     new: `#!/bin/sh\necho new >> '${started}'\nexit 3\n`,
-  });
+  }, 1);
   const code = await runScript(script, ["999999"]);
   assert.equal(code, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "old", "the previous version is back");

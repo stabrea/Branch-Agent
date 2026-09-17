@@ -67,6 +67,8 @@ export interface PosixHandOverPlan {
   executableName: string;
   /** The engine working in the background, waited for as well when there is one. */
   daemonPid: number | null;
+  /** How long the new version must stay up before the update counts as done (20 seconds). */
+  settleSeconds?: number;
 }
 
 /** Quotes one word for sh; nothing inside single quotes is interpreted. */
@@ -86,6 +88,11 @@ const posixWait = [
   '  log "$2 closed"',
   "}",
 ];
+
+/** macOS copies a bundle with ditto, which keeps everything a signed app needs; Linux uses cp. */
+function posixCopy(plan: PosixHandOverPlan, from: string, to: string): string {
+  return plan.platform === "darwin" ? `/usr/bin/ditto "${from}" "${to}"` : `cp -Rp "${from}" "${to}"`;
+}
 
 function posixLaunch(plan: PosixHandOverPlan, watch: boolean): string {
   if (plan.platform === "darwin") return `/usr/bin/open -n${watch ? " -W" : ""} "$TARGET" >/dev/null 2>&1 &`;
@@ -110,14 +117,14 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
     ...(plan.daemonPid ? [`wait_for ${plan.daemonPid} "background engine"`] : []),
     'log "copying new version beside the old one"',
     'rm -rf "$INCOMING"',
-    'cp -Rp "$STAGED" "$INCOMING" || { log "copy failed; nothing was changed"; rm -rf "$INCOMING"; exit 1; }',
+    `${posixCopy(plan, "$STAGED", "$INCOMING")} || { log "copy failed; nothing was changed"; rm -rf "$INCOMING"; exit 1; }`,
     'log "keeping previous version"', 'rm -rf "$PREVIOUS"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$PREVIOUS"; then log "old version could not be moved; nothing was changed"; rm -rf "$INCOMING"; exit 1; fi',
     'if ! mv "$INCOMING" "$TARGET"; then log "new version could not be moved in; restoring previous"; mv "$PREVIOUS" "$TARGET"; exit 1; fi',
     'if [ "$2" = stay ]; then exit 0; fi',
-    'log "starting new version"', posixLaunch(plan, true), "STARTED=$!", "sleep 20",
+    'log "starting new version"', posixLaunch(plan, true), "STARTED=$!", `sleep ${plan.settleSeconds ?? 20}`,
     'if kill -0 "$STARTED" 2>/dev/null; then log "new version is running"; exit 0; fi',
     'log "new version did not start; restoring previous"',
-    'rm -rf "$TARGET"', 'cp -Rp "$PREVIOUS" "$TARGET"', posixLaunch(plan, false), "exit 1", "",
+    'rm -rf "$TARGET"', posixCopy(plan, "$PREVIOUS", "$TARGET"), posixLaunch(plan, false), "exit 1", "",
   ].join("\n");
 }
