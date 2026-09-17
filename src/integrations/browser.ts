@@ -18,6 +18,7 @@ import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
 import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
+import type { BrowserSandbox } from './browser-container.js'; // w911 (A2019) hook: import
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -96,6 +97,8 @@ export class BranchBrowser {
   store: Store | undefined;
   /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
   connect: typeof attach = attach;
+  /** w911 (A2019) hook: the browser sandbox (Docker or a remote Playwright server); unset means this computer only. */
+  sandbox: BrowserSandbox | undefined;
   /**
    * The site skills this owner has installed: the quirks of particular websites, kept in the skill
    * that knows about the site rather than in this tool. Left unset, no site has any quirks.
@@ -137,7 +140,8 @@ export class BranchBrowser {
     const key = this.key(context), existing = this.sessions.get(key);
     if (existing) return existing;
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
-    const session = new BrowserSession(() => this.starting ??= this.launch(), route => this.route(route));
+    // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
+    const session: BrowserSession = new BrowserSession(() => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()), route => this.route(route));
     session.options.saveDownload = download => this.saveDownload(download);
     session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
@@ -519,6 +523,7 @@ export class BranchBrowser {
     const pending = [...this.sessions.values()].map(entry => { entry.detach(); return entry.session.close(); });
     const results = await Promise.allSettled(pending);
     await this.starting?.catch(() => undefined);
+    await this.sandbox?.close(); // w911 (A2019) hook: closes the sandbox browser and stops its container
     await this.browser?.close();
     this.sessions.clear();
     const failures = results.filter(result => result.status === 'rejected');

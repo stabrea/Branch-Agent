@@ -72,6 +72,7 @@ export const ROUTES = {
   "/api/browser": "prefix",
   "/api/browser/": "prefix",
   "/api/browser/attach": "owner POST",
+  "/api/browser/container": "owner POST", // w911 (A2019): where the browser runs, and the sandbox token
   "/api/browser/profiles": "owner POST",
   "/api/browser/profiles/remove": "owner POST",
   "/api/browser/signin": "owner POST",

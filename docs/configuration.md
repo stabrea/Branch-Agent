@@ -598,20 +598,60 @@ no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Not built, and what stands in for it
+### Browser sandbox (w911, A2019)
 
-Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer.
+The browser tools can drive a Chromium that runs somewhere other than this computer's own session.
+The setting is `browser-container` (`GET`/`POST /api/browser/container`, the owner's alone; a
+short-lived key is refused). It is **off** by default, and off means exactly what it always did:
+Branch launches headless Chromium on this computer. The settings are read the first time a task
+opens a page, not when Branch starts, so a setting that cannot work never stops Branch starting —
+the first browser step says, in one sentence, why the sandbox cannot be used.
 
-**Three audit rows describe one thing under three project names.** `A2172` (browser-use
-automation), `A2042` (browser-use integration) and `A2019` (browser/computer-use tools) all ask for
-the same capability: an assistant that looks at a page, points at a thing on it and acts. That is
-built, and it is what this whole section describes — `src/integrations/browser.ts` with
-`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts`, asserted in
-`tests/browser-2.test.mjs` and `tests/browser-3.test.mjs`. What is **not** built, and deliberately
-so, is the Python `browser-use` runtime those rows name, and the hosted sandbox backend `A2019`
-names: Branch is TypeScript and drives the browser on this computer, the same reason the
-`hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
-One implementation satisfies all three rows; none of them needs building again.
+- `mode`: `off`, `when-needed` or `on`. **When needed** means: a task that uses one of your saved
+  sign-ins stays on this computer, so those cookies never leave it, and every other task goes to the
+  sandbox. **On** sends every task that opens a browser to the sandbox, saved sign-ins included.
+  Borrowing your own browser window never starts a browser, so it is unaffected either way.
+- `where: "docker"` (the default): Branch runs `docker image inspect` for
+  `mcr.microsoft.com/playwright:v<installed Playwright version>-noble` first. If the image is not
+  there it refuses and names the `docker pull …` line for you to run; Branch never pulls it. Then it
+  runs `docker run -d --rm --init --pull=never --cap-drop ALL --security-opt no-new-privileges
+  --memory 2g --cpus 2 --shm-size 1g -p 127.0.0.1:<free port>:3000 --user pwuser` with no folder
+  shared, waits up to 90 seconds for the Playwright server inside to answer, and stops the container
+  by its id when the browser tool closes. The container fetches the matching `playwright` package
+  from npm when it starts (`npx -y playwright@<version> run-server`, as Playwright's own Docker guide
+  does, since the image carries the browsers but not the package), so it needs internet access. No
+  container has been started by the tests: the Docker steps are proven against a fake runner.
+- `where: "endpoint"` with `endpoint: "ws://…"` or `"wss://…"`: a Playwright server you run
+  elsewhere (your NAS or a cloud machine). An address with a name, password or `?key` in it is
+  refused. The token goes in the token box (`"token"` in the POST body, `null` removes it); it is kept
+  in the secrets locker as `default/BROWSER_CONTAINER_TOKEN`, never in the settings, and is sent as
+  an `Authorization: Bearer` header. Settings only ever show `tokenSaved`. After connecting, Branch
+  asks the browser its version and refuses if it does not answer. Refusals are written by Branch and
+  name only the server's address, never the token or what the other side said.
+
+**The same rules apply wherever the browser runs.** Each task gets its own browser context on the
+connected browser, and the website list is applied to every request of that context from Branch's
+side (`context.route`), so a page in the sandbox cannot reach a site the list does not allow.
+Limits: the private-address check on addresses you ask to open is made by this computer, while the
+pages themselves are fetched by the sandbox's network; a `ws://` address sends the token unencrypted,
+so use `wss://` for any server that is not on your own network; changing the setting takes effect for the
+next browser Branch starts (after the current sandbox browser is closed or Branch restarts).
+Code: `src/integrations/browser-container.ts`, `src/browser-container-api.ts`; tests in
+`tests/browser-container.test.mjs` (Docker is only ever a fake runner there; the "remote" server
+is Playwright's own `launchServer` on this computer).
+
+### The browser-use rows (A2172, A2042) — covered by the Playwright runtime
+
+`A2172` (browser-use automation) and `A2042` (browser-use integration) name the Python `browser-use`
+library. Branch does not use that library; the equivalent is Branch's own TypeScript Playwright
+runtime, which does the same job — look at a page, number the things on it, act on one, pull data out
+in a named shape — with the network policy applied per task context:
+`src/integrations/browser.ts` with `browser-session.ts`, `browser-marks.ts`, `browser-schema.ts`,
+`browser-heal.ts` and `browser-sites.ts`, asserted in `tests/browser-2.test.mjs` and
+`tests/browser-3.test.mjs`. The per-context policy on a connected browser is proven in
+`tests/browser-container.test.mjs` by "A2172/A2042: through the endpoint path, a real connected
+Chromium loads an allowed page and refuses every other host" and "A2172/A2042: two tasks on one
+connected browser get two separate contexts, each under the network policy".
 
 **`A0743` and `A1452` (reading a whole page, and following one site's links) — built, switched
 off until you turn them on.** The switch is the `web-pages` setting (`GET`/`POST /api/web-pages`,
