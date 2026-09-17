@@ -3,6 +3,7 @@ import { launchHandOver } from "./hand-over.js";
 import { dirname, join } from "node:path";
 import { Updater } from "./updater.js";
 import { appEntryName, installTarget, releaseAssetName } from "./release-assets.js";
+import { macSettingsLinks } from "../os-permissions.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
@@ -19,6 +20,8 @@ const platformSource = {
 };
 const signInPlace = process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "your Mac" : "this computer";
 const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent"];
+// mac2/desktop-ui: the four System Settings pages the permissions card offers, matched exactly.
+const settingsPages = new Set<string>(process.platform === "darwin" ? Object.values(macSettingsLinks) : []);
 
 /**
  * What this launch can do before an update: take the safety copy, and close the engine that keeps
@@ -71,7 +74,7 @@ export function registerUpdaterIpc(
   });
   ipcMain.handle("branch:open-external", async (event, url: unknown) => {
     authorized(event);
-    if (typeof url !== "string" || !externalAllowed.some((prefix) => url.startsWith(prefix)))
+    if (typeof url !== "string" || !(externalAllowed.some((prefix) => url.startsWith(prefix)) || settingsPages.has(url)))
       throw new Error("That link cannot be opened from here");
     await shell.openExternal(url);
     return true;

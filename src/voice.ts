@@ -16,7 +16,7 @@ export const VoiceSettingsSchema = z
     // deliberate choice by the owner and is never quietly swapped for something else.
     /** Where recordings are written out: the connected model, Gemini, or a program on this computer. */
     sttRoute: z.enum(["auto", "openai", "gemini", "local"]).default("auto"),
-    /** Which service reads replies aloud. "windows" is the voice that comes with Windows. */
+    /** Which service reads replies aloud. "windows" is the computer's own voice (the name is kept for saved settings). */
     ttsRoute: z.enum(["auto", "openai", "gemini", "windows"]).default("auto"),
     /** The transcription model to ask for; empty means each route's usual one. */
     sttModel: z.string().trim().max(200).default(""),
