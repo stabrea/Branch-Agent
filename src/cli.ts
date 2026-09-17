@@ -58,6 +58,7 @@ import { manageCommand } from "./install/manage-cli.js";
 import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
 import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
+import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -264,6 +265,8 @@ async function main(): Promise<void> {
     if (command === "trace") { traceCommand(app); return; }
     // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
     if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
+    // w911 (A1753) hook: `branch qa list` and `branch qa run <id>`.
+    if (command === "qa") { process.exitCode = await qaCommand(qaDeps(app), process.argv.slice(3), (line) => console.log(line)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;

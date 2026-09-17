@@ -732,6 +732,11 @@ export const ROUTES = {
   "/api/providers/local": "look",
   "/api/providers/plugins": "owner POST",
   "/api/providers/test": "owner POST",
+  "/api/qa/scenarios": "other POST", // w911 (A1753) hook: page test scenarios.
+  "/api/qa/scenarios/:id/accept": "other POST",
+  "/api/qa/scenarios/:id/reject": "other POST",
+  "/api/qa/scenarios/:id/run": "task POST",
+  "/api/qa/settings": "owner POST",
   "/api/queue": "task POST",
   "/api/queue/:id/cancel": "task POST",
   "/api/queue/settings": "owner POST",
@@ -912,6 +917,7 @@ export const ROUTES = {
   "/api/triggers/:id/log": "look",
   "/api/triggers/:id/remove": "owner POST,DELETE",
   "/api/triggers/:id/rotate-secret": "owner POST",
+  "/api/troubleshoot": "owner POST", // w911 (A0374) hook.
   "/api/usage": "look",
   "/api/usage/budget": "owner POST",
   "/api/usage/counters": "owner POST",

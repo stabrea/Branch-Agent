@@ -117,6 +117,7 @@ import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpi
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
 import { switchedToolTiers } from "./feature-switches.js";
+import { troubleshootInTask } from "./troubleshoot.js"; // w911 (A0374) hook: the debugging loop.
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
@@ -2443,6 +2444,9 @@ ${run.output.slice(0, 6000)}`;
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       // A command that ran but came back with a complaint is still a command that did not work.
       this.noteCommandFailure(call, context, args, result);
+      // w911 (A0374) hook: with "fixing failed commands" on, a failed command is diagnosed, fixed and tried again.
+      const mended = await troubleshootInTask(this, context, call, args, result, (fix) => this.callTool(fix, context), () => this.failedCommands.delete(this.sessionOf(context)));
+      if (mended) { span?.end("ok"); return mended; }
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
       if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
       span?.end("ok");

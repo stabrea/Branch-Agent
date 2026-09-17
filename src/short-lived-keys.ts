@@ -94,6 +94,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/safety-extras/scan", "checks one command for hidden codes and look-alike letters, which only reads"),
   post("/api/safety-extras/stop", "presses the emergency stop, which only stops things; letting it go is the owner's"),
   post("/api/safety-extras/codes/confirm", "types an authenticator code for a question it may answer"),
+  // w911 (A1753) hook: an accepted page test scenario, run through the suite runner.
+  post(new RegExp(`^/api/qa/scenarios/${id}/run$`), "runs a page test the owner already accepted"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */

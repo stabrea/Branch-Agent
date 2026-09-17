@@ -2193,20 +2193,38 @@ Agent runs on your computer and cannot make or roll back one, so a number from i
 what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
 what each would need, rather than half-supported.
 
-Two more things in this area are deliberately not built, for the same reason and written down here
-so nobody has to guess:
+One more thing in this area is deliberately not built, for the same reason, and one is built in a
+limited form; both are written down here so nobody has to guess:
 
 - **A live browser-benchmark environment.** MiniWoB, WebArena and WorkArena are not datasets; they
   are servers that have to be running, whose pages change as the agent works and whose scoring reads
   the server's own state. Branch Agent downloads nothing and starts no server, so what it can do
   honestly is the `web-tasks` adapter: the same task shapes run against pages you have saved to
   disk. A task that points at a live site is refused by name.
-- **Generating tests for you.** Branch Agent runs tests; it does not write your test suite for you
-  and then claim the result. What exists is the execution half: `data/tool-evaluations/*.json` is a
-  set of tool checks kept as plain data that anyone can read and add to, run with `POST
-  /api/evaluation/tools`, and suites in `data/evaluation/*.json` are the same idea one level up.
-  Asking the assistant to draft a test is an ordinary task like any other, and its output is yours
-  to read before it becomes a check.
+- **Page tests written from plain words** (w911, A1753; `src/qa-scenarios.ts`, `src/qa-api.ts`).
+  A three-way switch, off by default (settings key `qa-scenarios`, `GET`/`POST /api/qa/settings`;
+  "when needed" and "on" behave the same here, since there is no tool to load). You write a scenario:
+  a `name`, a `target` (an `.html` file in the workspace, or an `http(s)` address the network rules
+  allow) and `steps`, each starting with Given, When, Then, And or But. `POST /api/qa/scenarios` asks
+  the model in use, with no tools, to turn it into one evaluation-suite task. The reply is checked
+  against the real suite task schema and must decide the result with scorers only (no rubric grader,
+  no completion checks); for a workspace file at least one `html` scorer must read that very file.
+  A reply that fails any of this is refused with the scenario's name and the reason, and nothing is
+  kept. A draft that passes is kept **as a draft** and cannot run. `POST /api/qa/scenarios/:id/accept`
+  saves it as one of your own suites (`qa-` plus eight characters), so the ordinary suite runner
+  (`POST /api/evaluation/run`, or `branch eval --suite qa-…`) can run it;
+  `POST /api/qa/scenarios/:id/run` runs it the same way. `POST /api/qa/scenarios/:id/reject` deletes
+  the scenario, and its suite if it had been accepted. `GET /api/qa/scenarios` lists them. From the
+  terminal: `branch qa list`, and `branch qa run <id>`, which exits with 1 when the page test fails.
+  While the switch is off every scenario route and the command refuse in one sentence. A short-lived
+  key may look and may run an accepted test, but cannot draft, accept, reject or change the switch.
+
+  Limits: only a local `.html` file is tested end to end (the html scorer reads the file itself).
+  For a web address, the draft must use `html` scorers that read the assistant's answer, so the
+  result depends on the assistant opening the page with the browser tools and replying with its
+  markup; that path is checked for the address (network rules) and the draft's shape only, and has
+  no end-to-end test (PARTIAL). The model writes the draft and can write a weak one, which is why it
+  waits for you. Each draft is one model call (at most 20,000 tokens) and shows up as a task of its own.
 
 ### Studies
 
@@ -2327,9 +2345,35 @@ Around it: a task's own completion checks are retried a set number of times befo
 (`reliability`), a model call that goes quiet is stopped by the stall watchdog rather than hanging,
 a small script is checked before it runs, and a program can be run under a real debugger you
 already have (Settings → debug adapters) to stop it on a line and look at what every name holds.
-What Branch Agent does **not** have is a separate troubleshooting assistant that goes away and
-fixes a failing command on its own; asking it to look at the report and try again is an ordinary
-task, and you see each step.
+
+**Fixing a failed command** (w911, A0374; `src/troubleshoot.ts`). A three-way switch, off by
+default, kept under the settings key `troubleshoot` and changed with `GET`/`POST /api/troubleshoot`
+(`{ "mode": "off" | "when-needed" | "on", "maxTries": 1-5 }`, two tries by default; a short-lived key
+cannot change it). It looks at a `shell.execute` or `code.run` that came back with a non-zero exit
+code (or a script that timed out). The model is asked, with no tools, for JSON
+`{ "diagnosis", "fix": { "tool", "arguments" } | null }`; the reply is checked, and a fix may only be
+`files.write`, `files.edit` or `shell.execute`. The fix is checked against your approval rules
+first: a rule that refuses it, or one that says "ask first", stops the loop there, nothing is
+changed, and the task is not left waiting on a question it never asked. An allowed fix runs, then the
+original command runs again, both through the same path a task's own calls take (so each shows up
+as a call of its own in the record, with its receipt). This repeats until the command works, the
+limit is reached, the same fix is suggested twice, or no fix is suggested. Every try is written down
+as a `troubleshoot.attempt` event (the diagnosis, the fix, what became of it, the new exit code),
+the end as `troubleshoot.finished`, and a readable record of the whole thing is listed by
+`GET /api/troubleshoot`.
+
+- **on**: runs by itself right after a failed command inside a task (one marked hook in
+  `src/runtime.ts`). The model is handed the latest result of the command plus a short account of
+  what was tried.
+- **when needed**: nothing runs by itself. The assistant can call the `troubleshoot.run` tool with
+  the command; the tool runs it once through the approval rules (as a hand-run tool,
+  `src/tool-gate.ts`), and only a failure goes on to the loop.
+- **off**: nothing happens, `troubleshoot.run` is not offered, and calling it anyway is refused.
+
+Limits: a command that could not be started at all (an unknown program name, say) is an error
+rather than an exit code, and is not looked at automatically. The fix list is deliberately short;
+anything else the model suggests is treated as no fix. Each diagnosis is a model call and costs
+tokens (at most 8,000 each).
 
 **Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
 by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and

@@ -167,6 +167,8 @@ import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 // Bucket 17.
 import { bucket17Api, handlesBucket17, readMediaBody } from "./media-understand-api.js";
+import { troubleshootApi } from "./troubleshoot.js"; // w911 (A0374) hook.
+import { handlesQa, qaApi, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1093,6 +1095,10 @@ async function api(
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
   if (request.method === "POST" && path === "/api/media/settings")
     return { settings: saveMediaSettings(app.store, app.runtime.owner, await readBody(request)) };
+  // w911 (A1753) hook: plain-language page test scenarios, drafted, accepted and run as suites.
+  if (handlesQa(path)) return qaApi(qaDeps(app), request.method ?? "GET", path, () => readBody(request));
+  // w911 (A0374) hook: the switch and limit for fixing failed commands, and what it did.
+  if (path === "/api/troubleshoot") return troubleshootApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   // Bucket 17 hook: watching videos, where ffmpeg and yt-dlp are, and speech plug-ins.
   if (handlesBucket17(path))
     return bucket17Api(

@@ -108,6 +108,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
   // Bucket 17 hook.
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
+  // w911 (A0374) hook: fixing a failed command (src/troubleshoot.ts; the name is written here to avoid an import loop).
+  { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "troubleshoot") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
