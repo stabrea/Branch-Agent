@@ -324,6 +324,8 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     // Wave 9: the advisor switch and the two debate bounds.
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
+    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
@@ -1652,6 +1654,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
+  // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
+  if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);

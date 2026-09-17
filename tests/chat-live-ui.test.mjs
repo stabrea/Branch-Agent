@@ -1,0 +1,58 @@
+/**
+ * The chat-app card, reached the way a person reaches it: Customize, then Chat apps. It changes
+ * the four switches, says so, and fits a 400-pixel window. Headless browser only; no window opens.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { openPlace } from "./places.mjs";
+
+async function fixture(t, viewport) {
+  const root = await mkdtemp(join(tmpdir(), "branch-chat-live-ui-"));
+  const provider = { name: "chat-live-ui", complete: async () => ({ content: "Done", toolCalls: [] }) };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  return { app, page, errors };
+}
+
+test("the chat-app card is under Customize, Chat apps, starts off, and saves a change", async (t) => {
+  const { app, page, errors } = await fixture(t, { width: 1280, height: 900 });
+  await openPlace(page, "customize:channels");
+  const card = page.locator("#chat-live-form");
+  await card.waitFor({ state: "visible" });
+  const steering = page.getByLabel("Pass later messages to the task", { exact: true });
+  assert.equal(await steering.inputValue(), "off", "a fresh install shows everything off");
+  await steering.selectOption("when-needed");
+  await card.getByRole("button", { name: "Save chat settings", exact: true }).click();
+  await page.locator("#chat-live-state", { hasText: "Saved." }).waitFor();
+  assert.equal(app.channels.switches().steering, "when-needed");
+  assert.equal(app.channels.switches().commands, "off");
+  assert.deepEqual(errors, []);
+});
+
+test("the chat-app card fits a 400-pixel window without sideways scrolling", async (t) => {
+  const { page, errors } = await fixture(t, { width: 400, height: 900 });
+  await openPlace(page, "customize:channels");
+  const card = page.locator("#chat-live-form");
+  await card.waitFor({ state: "visible" });
+  const box = await card.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `the card spans ${box?.x}..${(box?.x ?? 0) + (box?.width ?? 0)}`);
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(sideways, false);
+  assert.deepEqual(errors, []);
+});
