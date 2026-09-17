@@ -124,12 +124,20 @@ test("integrator: a playlist dressed as a video cannot make the real ffmpeg read
   t.after(() => discardTemp(root));
   await mkdir(join(root, "private"));
   const secret = join(root, "private", "secret.mp4");
-  execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=duration=1", "-f", "mp4", secret]);
+  try {
+    execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=duration=1", "-f", "mp4", secret], { stdio: "ignore" });
+  } catch {
+    t.skip("this ffmpeg cannot make a test clip");
+    return;
+  }
   const playlist = join(root, "input.m3u8");
   await writeFile(playlist, `#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:1,\nfile://${secret}\n#EXT-X-ENDLIST\n`);
-  const plain = join(root, "plain.wav");
-  execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", playlist, "-vn", "-f", "wav", plain], { stdio: "ignore" });
-  assert.ok((await readFile(plain)).length > 100, "without the guard the playlist really does read the other file");
+  try {
+    execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", playlist, "-vn", "-f", "wav", join(root, "plain.wav")], { stdio: "ignore" });
+    t.diagnostic("without the guard this ffmpeg reads the other file through the playlist");
+  } catch {
+    t.diagnostic("this ffmpeg already refuses the playlist on its own");
+  }
   const out = join(root, "guarded.wav");
   assert.throws(() => execFileSync(ffmpeg, soundTrackArgs(playlist, out), { stdio: "pipe" }), /whitelist/i);
   assert.ok(!(await readdir(root)).includes("guarded.wav"));
