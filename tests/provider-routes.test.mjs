@@ -205,3 +205,22 @@ test("no route in the catalog signs in to Claude.ai, Gemini CLI or Copilot on Br
   for (const forbidden of ["Iv1.b507a08c87ecfe98", "Ov23li8tweQw6odWQebz", "vscode-chat", "claude.ai/oauth", "681255809395"])
     assert.ok(!text.includes(forbidden), `the catalog mentions ${forbidden}`);
 });
+
+test("the provider picker has a Terms line, in both languages, coloured only through tokens", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+  const [page, script, en, fr, css] = await Promise.all([
+    read("public/index.html"), read("public/providers.js"), read("public/locales/en.json"), read("public/locales/fr.json"), read("public/style.css"),
+  ]);
+  assert.match(page, /id="provider-terms"[^>]*hidden/);
+  assert.match(page, /id="chatgpt-terms"[\s\S]*learn\.chatgpt\.com\/docs\/auth/);
+  assert.match(script, /showTerms\(presets\.find/);
+  const english = JSON.parse(en), french = JSON.parse(fr);
+  for (const key of ["terms.label", "terms.read", "terms.standing.unofficial", "terms.standing.retired", "terms.standing.not-offered",
+    "terms.chatgpt.route", "terms.chatgpt.door", "terms.gemini.route"]) {
+    assert.ok(english[key], `${key} in English`);
+    assert.ok(french[key] && french[key] !== english[key], `${key} has real French`);
+  }
+  const block = css.slice(css.indexOf("mac5/providers"));
+  assert.doesNotMatch(block, /#[0-9a-f]{3,8}\b|rgba?\(/i, "no literal colour in the Terms style");
+});

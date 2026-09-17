@@ -4,6 +4,29 @@
 // Calls GET /api/providers/local to probe for local runtimes
 
 import { $, toast } from "./app.js";
+import { t } from "./i18n.js";
+
+const standingKeys = {
+  official: "terms.standing.official",
+  unofficial: "terms.standing.unofficial",
+  retired: "terms.standing.retired",
+  "not-offered": "terms.standing.not-offered",
+};
+
+/** The Terms line for one provider: the route used, its standing, any warning, and the terms link. */
+export function showTerms(preset) {
+  const line = $("provider-terms");
+  if (!line) return;
+  const terms = preset?.terms;
+  line.hidden = !terms;
+  if (!terms) return;
+  line.dataset.standing = terms.standing;
+  $("provider-terms-route").textContent = terms.route + ".";
+  $("provider-terms-standing").textContent = t(standingKeys[terms.standing] ?? standingKeys.official);
+  $("provider-terms-warning").textContent = terms.warning ?? "";
+  const link = $("provider-terms-link");
+  link.href = /^https:\/\//.test(terms.url) ? terms.url : "#";
+}
 
 export async function initProvidersUI() {
   const dropdown = $("provider-preset");
@@ -29,13 +52,16 @@ export async function initProvidersUI() {
   for (const preset of presets) {
     const opt = document.createElement("option");
     opt.value = preset.id;
-    opt.textContent = preset.displayName;
+    const standing = preset.terms?.standing;
+    opt.textContent = standing && standing !== "official"
+      ? `${preset.displayName} (${t(standingKeys[standing])})` : preset.displayName;
     dropdown.appendChild(opt);
   }
 
   // On preset selection, fill endpoint, show help, suggest models
   dropdown.addEventListener("change", () => {
     const presetId = dropdown.value;
+    showTerms(presets.find((p) => p.id === presetId));
     if (!presetId) {
       $("model-settings-note").textContent = "";
       $("provider-model-suggestions").innerHTML = "";
