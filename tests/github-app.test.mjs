@@ -22,7 +22,7 @@ test("A2227 the app token is RS256-signed with the app number and a nine-minute 
   const verifier = createVerify("sha256");
   verifier.update(`${header}.${payload}`);
   assert.ok(verifier.verify(publicPem, Buffer.from(signature, "base64url")));
-  assert.throws(() => signAppJwt("-----BEGIN PRIVATE KEY-----\nnot-a-key-SECRETBODY\n-----END PRIVATE KEY-----", "1", now),
+  assert.throws(() => signAppJwt("-----BEGIN PRIVATE KEY-----\nnot-a-key-SECRETBODY\n-----END PRIVATE KEY-----", "1", now), // not-a-real-secret
     (error) => /could not be read/.test(error.message) && !error.message.includes("SECRETBODY"));
 });
 

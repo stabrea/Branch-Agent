@@ -262,7 +262,7 @@ test("the owner's own press of an address carrying a key is not let past the lea
   const fetched = [];
   branch.registry.register({ name: "probe.fetch", permission: "web.read", description: "stand-in",
     parameters: z.object({ url: z.string() }), execute: async (args) => { fetched.push(args.url); return { ok: true }; } });
-  const leaky = { url: "https://example.com/data?api_key=sk-live-0123456789abcdefghijklmnop" };
+  const leaky = { url: "https://example.com/data?api_key=sk-live-0123456789abcdefghijklmnop" }; // not-a-real-secret
   await assert.rejects(branch.runtime.executeTool("probe.fetch", leaky, owner), /carries a key or password/);
   assert.deepEqual(fetched, [], "nothing was fetched");
   await branch.runtime.executeTool("probe.fetch", { url: "https://example.com/data" }, owner);

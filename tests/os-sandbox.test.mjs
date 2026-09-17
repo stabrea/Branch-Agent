@@ -811,7 +811,7 @@ test("W21 ffmpeg, yt-dlp and the reading-aloud program get a clean environment w
   const { cleanChildEnvironment } = await import("../dist/child-env.js");
   const { runProgram } = await import("../dist/voice-stt.js");
   const source = { PATH: "/usr/bin", HOME: "/home/o", LANG: "fr_FR.UTF-8", LC_ALL: "C", TMPDIR: "/tmp", SystemRoot: "C:\\Windows",
-    OPENAI_API_KEY: "sk-proj-abcdefghijklmnopqrstuvwxyz123", ANTHROPIC_API_KEY: "sk-ant-x", BW_SESSION: "vault", NODE_OPTIONS: "--require x",
+    OPENAI_API_KEY: "sk-proj-abcdefghijklmnopqrstuvwxyz123", ANTHROPIC_API_KEY: "sk-ant-x", BW_SESSION: "vault", NODE_OPTIONS: "--require x", // not-a-real-secret
     GITHUB_TOKEN: "ghp_x", BRANCH_TOKEN: "branch_x", AWS_SECRET_ACCESS_KEY: "y" };
   assert.deepEqual(cleanChildEnvironment(source),
     { PATH: "/usr/bin", HOME: "/home/o", LANG: "fr_FR.UTF-8", LC_ALL: "C", TMPDIR: "/tmp", SystemRoot: "C:\\Windows" });
