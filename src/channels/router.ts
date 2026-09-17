@@ -9,7 +9,7 @@ import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
-import { parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
+import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -416,7 +416,7 @@ export class ChannelRouter {
     if (!command || setting === "on") return command;
     // "When needed": only the commands for a task that is working, and only while one is.
     const busy = this.turns.has(chatKey(message));
-    return busy && ["stop", "status", "btw", "help"].includes(command.name) ? command : null;
+    return busy && chatCommandSpec(command.name).whileWorking ? command : null;
   }
   /** What a task started from a chat may use. See `answer` for why each one is left out. */
   private chatPermissions(): string[] {

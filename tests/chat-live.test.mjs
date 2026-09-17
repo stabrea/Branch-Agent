@@ -10,7 +10,7 @@ import { startServer } from "../dist/server.js";
 import { createBranch, TelegramAdapter, SlackAdapter, DiscordAdapter } from "../dist/index.js";
 import { chunkText, openFenceAt } from "../dist/channels/deliveries.js";
 import { LiveStatus, renderProgress, statusEmoji } from "../dist/channels/live-status.js";
-import { parseChatCommand, keepEnds } from "../dist/channels/chat-commands.js";
+import { parseChatCommand, keepEnds, chatCommands, chatCommandHelp } from "../dist/channels/chat-commands.js";
 
 // Wave mac2 (chat-live): seeing and steering Branch from a chat app. Every chat service here is a
 // stand-in; nothing leaves this computer.
@@ -244,6 +244,14 @@ test("commands are read only when they are commands", () => {
   assert.deepEqual(parseChatCommand("/usage@BranchBot on"), { name: "usage", argument: "on" });
   assert.equal(parseChatCommand("/deploy now"), null);
   assert.equal(parseChatCommand("please /stop"), null);
+  // The commands are a table: aliases resolve to their command, and /help is written from it.
+  assert.deepEqual(parseChatCommand("/cancel"), { name: "stop", argument: "" });
+  assert.deepEqual(parseChatCommand("/reset"), { name: "new", argument: "" });
+  for (const command of chatCommands) {
+    assert.ok(command.description && typeof command.run === "function", command.name);
+    assert.match(chatCommandHelp(), new RegExp(`^/${command.name}\\b`, "m"));
+  }
+  assert.deepEqual(chatCommands.filter((c) => c.whileWorking).map((c) => c.name).sort(), ["btw", "help", "status", "stop"]);
   assert.equal(keepEnds("abcdefghij".repeat(10), 60).length <= 60, true);
 });
 

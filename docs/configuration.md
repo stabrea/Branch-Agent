@@ -500,9 +500,9 @@ Messages you send within about a second of each other are answered as one. A mes
 
 | Send | What happens |
 |---|---|
-| `/stop` | Stops the task (or drops a message that has not started). |
+| `/stop` (or `/cancel`) | Stops the task (or drops a message that has not started). |
 | `/status` | How long it has worked, how many steps, and the latest one. |
-| `/new` | The next message starts a new conversation; the old one stays in the app. |
+| `/new` (or `/reset`) | The next message starts a new conversation; the old one stays in the app. |
 | `/compact` | Folds the earlier part of the conversation into a summary now; the latest messages and pinned ones stay. |
 | `/usage on` / `/usage off` | Adds a tokens-and-cost line to replies in this chat (estimates are called estimates). |
 | `/btw <question>` | A quick answer on the side, with no tools, in a throwaway conversation; it never joins the task. |

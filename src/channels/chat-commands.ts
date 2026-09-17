@@ -11,32 +11,57 @@ import { usageLine } from "../terminal-tui.js";
  *
  * The list follows OpenClaw's chat commands (MIT); the code is written for Branch.
  */
-export const chatCommandNames = ["help", "stop", "status", "new", "compact", "usage", "btw"] as const;
-export type ChatCommandName = typeof chatCommandNames[number];
+export type ChatCommandName = "help" | "stop" | "status" | "new" | "compact" | "usage" | "btw";
 export interface ChatCommand { name: ChatCommandName; argument: string }
+/**
+ * One chat command, as data: what it is called, other names it answers to, what it does in plain
+ * words, what may follow it, whether it is one of the few that matter while a task works (the
+ * "when needed" setting reads only those), and what it does. Kept as a table so the commands of
+ * every surface can later be gathered into one catalog.
+ */
+export interface ChatCommandSpec {
+  name: ChatCommandName;
+  aliases: readonly string[];
+  description: string;
+  args: string;
+  whileWorking: boolean;
+  run: (argument: string, context: CommandContext) => string | Promise<string>;
+}
+export const chatCommands: readonly ChatCommandSpec[] = [
+  { name: "stop", aliases: ["cancel"], description: "stop what I am doing", args: "", whileWorking: true, run: (_, c) => stop(c) },
+  { name: "status", aliases: [], description: "what I am doing right now", args: "", whileWorking: true, run: (_, c) => status(c) },
+  { name: "new", aliases: ["reset"], description: "start a fresh conversation (the old one stays in the app)", args: "", whileWorking: false, run: (_, c) => fresh(c) },
+  { name: "compact", aliases: [], description: "fold the earlier part of this conversation into a summary", args: "", whileWorking: false, run: (_, c) => compact(c) },
+  { name: "usage", aliases: [], description: "add a tokens-and-cost line to my replies", args: "on|off", whileWorking: false, run: (a, c) => usage(a, c) },
+  { name: "btw", aliases: [], description: "a quick question on the side; it does not join the task", args: "<question>", whileWorking: true, run: (a, c) => aside(a, c) },
+  { name: "help", aliases: [], description: "this list", args: "", whileWorking: true, run: () => chatCommandHelp() },
+];
+export const chatCommandNames = chatCommands.map((command) => command.name);
+const byName = (word: string): ChatCommandSpec | undefined =>
+  chatCommands.find((command) => command.name === word || command.aliases.includes(word));
+/** The table entry for a parsed command. */
+export const chatCommandSpec = (name: ChatCommandName): ChatCommandSpec => byName(name)!;
 
 /**
- * Reads "/stop", "/Stop", "/stop@BranchBot" (how Telegram addresses a command in a group) and so
- * on. Anything else, including an unknown "/word", is an ordinary message and returns null.
+ * Reads "/stop", "/Stop", "/stop@BranchBot" (how Telegram addresses a command in a group), an
+ * alias such as "/cancel", and so on. Anything else, including an unknown "/word", is an ordinary
+ * message and returns null.
  */
 export function parseChatCommand(text: string): ChatCommand | null {
   const match = /^\/([a-z]+)(?:@[\w.-]+)?(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!match) return null;
-  const name = match[1]!.toLowerCase();
-  if (!(chatCommandNames as readonly string[]).includes(name)) return null;
-  return { name: name as ChatCommandName, argument: (match[2] ?? "").trim() };
+  const spec = byName(match[1]!.toLowerCase());
+  return spec ? { name: spec.name, argument: (match[2] ?? "").trim() } : null;
 }
 
-export const chatCommandHelp = [
-  "Things you can send while I work:",
-  "/stop - stop what I am doing",
-  "/status - what I am doing right now",
-  "/new - start a fresh conversation (the old one stays in the app)",
-  "/compact - fold the earlier part of this conversation into a summary",
-  "/usage on|off - add a tokens-and-cost line to my replies",
-  "/btw <question> - a quick question on the side; it does not join the task",
-  "Any other message while I work is passed to the task as a note.",
-].join("\n");
+/** The list a person gets for /help, written from the table. */
+export function chatCommandHelp(): string {
+  const lines = chatCommands.map((command) => {
+    const also = command.aliases.length ? ` (or ${command.aliases.map((alias) => `/${alias}`).join(", ")})` : "";
+    return `/${command.name}${command.args ? ` ${command.args}` : ""}${also} - ${command.description}`;
+  });
+  return ["Things you can send while I work:", ...lines, "Any other message while I work is passed to the task as a note."].join("\n");
+}
 
 /** The task a chat has going, as the router keeps it. */
 export interface ChatTurn {
@@ -75,15 +100,7 @@ export function usageFooter(runtime: Runtime, runId: string): string | null {
 
 /** Carries out one command and returns the words to send back. */
 export async function runChatCommand(command: ChatCommand, context: CommandContext): Promise<string> {
-  switch (command.name) {
-    case "help": return chatCommandHelp;
-    case "stop": return stop(context);
-    case "status": return status(context);
-    case "new": return fresh(context);
-    case "compact": return compact(context);
-    case "usage": return usage(command.argument, context);
-    case "btw": return aside(command.argument, context);
-  }
+  return chatCommandSpec(command.name).run(command.argument, context);
 }
 
 function stop(context: CommandContext): string {
