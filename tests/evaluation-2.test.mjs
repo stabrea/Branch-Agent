@@ -189,9 +189,9 @@ test("a task's rounds are counted from its record, so a budget on rounds really 
 
 /* ------------------------------------------------------------ E2 adapters */
 
-test("there are six adapters that run and five benchmarks documented as not integrated", () => {
+test("there are seven adapters that run (A1726 added MiniWoB) and five benchmarks documented as not integrated", () => {
   assert.deepEqual(benchmarkAdapters.map((adapter) => adapter.id).sort(),
-    ["code-tasks", "gaia", "nexus", "swe-bench", "terminal-bench", "web-tasks"]);
+    ["code-tasks", "gaia", "miniwob", "nexus", "swe-bench", "terminal-bench", "web-tasks"]);
   assert.equal(notIntegratedBenchmarks.length, 5);
   for (const entry of notIntegratedBenchmarks) assert.ok(entry.needs.length > 40, `${entry.id} must say what it would need`);
   assert.throws(() => findBenchmarkAdapter("osworld"), /There is no benchmark called osworld/);
@@ -497,7 +497,7 @@ test("the benchmark and study routes are on the web front door", async (t) => {
     return json;
   };
   const benchmarks = await api("evaluation/benchmarks");
-  assert.equal(benchmarks.adapters.length, 6);
+  assert.equal(benchmarks.adapters.length, 7); // A1726: MiniWoB
   assert.equal(benchmarks.notIntegrated.length, 5);
   assert.ok(benchmarks.scorers.includes("rubric"));
   await api("studies", { id: "web", name: "From the web", source: { kind: "suite", suite: "cost" }, presets: ["default"] });

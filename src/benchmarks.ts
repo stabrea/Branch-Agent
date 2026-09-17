@@ -50,6 +50,30 @@ export interface BenchmarkAdapter {
   discover(directory: string): Promise<BenchmarkTask[]>;
   prepare(task: BenchmarkTask, into: string, directory: string): Promise<PreparedTask>;
   judge(task: BenchmarkTask, result: BenchmarkResult, directory: string): Promise<BenchmarkJudgement>;
+  /**
+   * w911 (A1726) hook, optional: a benchmark whose task lives in a browser page. Called once per
+   * attempt, after `prepare`; it opens the page in Branch's own browser, and the attempt it hands
+   * back replaces the prompt and the judge for that one run.
+   */
+  live?(task: BenchmarkTask, ready: PreparedTask, browser: BenchmarkBrowser, owner: string): Promise<LiveAttempt>;
+}
+
+/** w911 (A1726): Branch's own browser, as a benchmark sees it (src/integrations/browser.ts). */
+export interface BenchmarkBrowser {
+  benchmarkWindow(owner: string, url: string): Promise<{
+    evaluate<T>(script: string): Promise<T>;
+    handTo(runId: string): void;
+    close(): Promise<void>;
+  }>;
+}
+/** w911 (A1726): one go at a task that lives in a page which is already open. */
+export interface LiveAttempt {
+  prompt: string;
+  /** Told the task's id the moment it starts, before the assistant does anything. */
+  started(runId: string): void;
+  /** Decides from the page the assistant worked in, never from what the answer says. */
+  judge(answer: string): Promise<BenchmarkJudgement>;
+  close(): Promise<void>;
 }
 
 export const judgePass = (reason?: string): BenchmarkJudgement => ({ pass: true, score: 1, reasons: reason ? [reason] : [] });
@@ -117,5 +141,5 @@ export const notIntegratedBenchmarks: readonly { id: string; name: string; needs
   { id: "windows-agent-arena", name: "WindowsAgentArena", needs: "A throwaway Windows virtual machine per task, with the arena's own images and its checkpoint scorer running inside it. Driving the owner's own desktop instead would neither be safe nor comparable." },
   { id: "waa-checkpoints", name: "WindowsAgentArena checkpoint scoring", needs: "The same virtual machine as WindowsAgentArena: the checkpoint scorer reads the machine's state directly, not the assistant's answer." },
   { id: "androidworld", name: "AndroidWorld", needs: "An Android emulator with the benchmark's apps installed, driven over ADB. There is no emulator on this computer and no way to install one from here." },
-  { id: "browsergym-live", name: "BrowserGym live environments (WebArena, WorkArena)", needs: "WebArena and WorkArena are not datasets but servers that have to be running, whose pages change as the agent works and whose scoring reads the server's own state. Branch Agent downloads nothing and starts no server. MiniWoB++ is supported as local static HTML files (see the miniwob adapter); WebArena and WorkArena need those servers." },
+  { id: "browsergym-live", name: "BrowserGym live environments (WebArena, WorkArena)", needs: "WebArena and WorkArena are not datasets but servers that have to be running, whose pages change as the agent works and whose scoring reads the server's own state. Branch Agent downloads nothing and starts no server of theirs. WebArena needs its own self-hosted websites (a shop, a forum, a GitLab, a map and a content manager) running from its Docker images, reset before every task. WorkArena needs a ServiceNow developer instance of the owner's own, with the benchmark's data loaded into it. MiniWoB++ is different: its pages are plain files, and the miniwob adapter runs them." },
 ];

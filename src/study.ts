@@ -21,7 +21,7 @@ import { findSuite } from "./evaluation-suites.js";
 import { readTrajectory, runtimeJudge, scoreTrajectory } from "./evaluation-run.js";
 import type { ScoredTrajectory } from "./evaluation-scorers.js";
 import { findBenchmarkAdapter } from "./benchmark-adapters.js";
-import type { BenchmarkAdapter, BenchmarkTask } from "./benchmarks.js";
+import type { BenchmarkAdapter, BenchmarkBrowser, BenchmarkTask, LiveAttempt } from "./benchmarks.js";
 import { datasetVersionOf, journalEntry, journalReport, journalReplayPlan, type JournalEntry } from "./study-journal.js";
 
 export const StudySchema = z.object({
@@ -98,6 +98,8 @@ interface StudyTask {
   judge?: ((answer: string) => Promise<{ pass: boolean; reasons: string[] }>) | undefined;
   /** Why this task cannot be run on this computer. Set, it is failed without asking the model. */
   refusal?: string | undefined;
+  /** w911 (A1726): a task in a browser page, opened afresh for every attempt. */
+  live?: (() => Promise<LiveAttempt>) | undefined;
 }
 
 /** Where a benchmark's files may be read from, and what to say when a study points elsewhere. */
@@ -134,6 +136,8 @@ export class StudyRunner {
    * own and waits for one rather than pushing past the limit.
    */
   executions: ExecutionLimit | undefined;
+  /** w911 (A1726) hook: Branch's own browser, when the launch has one, for benchmarks that need a page. */
+  browser: BenchmarkBrowser | undefined;
   constructor(
     private readonly store: Store, private readonly runtime: Runtime,
     /** The version of Branch Agent that is running, written into every journal entry. */
@@ -270,8 +274,16 @@ export class StudyRunner {
     // A task that cannot be run here is failed straight away: asking the model to attempt it would
     // cost money and hide the reason behind whatever it happened to answer.
     if (task.refusal) return { passed: false, score: 0, ms: 0, tokens: 0, dollars: 0, runId: null, reasons: [task.refusal] };
+    // w911 (A1726) hook: a page opened for this attempt only, with its own prompt and judge.
+    const live = task.live ? await task.live() : null;
+    try { return await this.measured(study, live ? { ...task, prompt: live.prompt, judge: live.judge } : task, preset, live); }
+    finally { await live?.close(); }
+  }
+
+  private async measured(study: Study, task: StudyTask, preset: string, live: LiveAttempt | null): Promise<Omit<StudyCell, "taskId" | "preset" | "repeat" | "attempts">> {
     const began = Date.now();
     const run = await this.runtime.run({
+      ...(live ? { onStarted: (started: { id: string }) => live.started(started.id) } : {}),
       prompt: task.prompt, model: preset, budget: { maxSteps: study.maxSteps, maxTokens: study.maxTokens },
       traceAttributes: { "branch.study.id": study.id, "branch.benchmark.id": study.source.kind === "benchmark" ? study.source.benchmark : study.source.suite, "branch.study.task": task.id },
     });
@@ -334,11 +346,16 @@ export class StudyRunner {
       : null;
     const ready = blocked ? { workspace: into, prompt: task.prompt, files: [], refusal: blocked } : await adapter.prepare(task, into, directory);
     const where = join("benchmarks", study.id, task.id).replace(/\\/g, "/");
+    // w911 (A1726) hook: a benchmark that lives in a page needs Branch's own browser.
+    const browser = this.browser, live = adapter.live?.bind(adapter);
+    const refusal = ready.refusal ?? (live && !browser ? `${adapter.name} runs in Branch's own browser, and this launch has none. Set up the browser in the integrations file first.` : null);
+    const prompt = refusal ? ready.prompt : `${ready.prompt}\n\nWork in the folder ${where} of your workspace.`;
     return {
       id: task.id,
-      prompt: ready.refusal ? ready.prompt : `${ready.prompt}\n\nWork in the folder ${where} of your workspace.`,
+      prompt,
       expected: task.expected,
-      ...(ready.refusal ? { refusal: ready.refusal } : {}),
+      ...(refusal ? { refusal } : {}),
+      ...(live && browser ? { live: () => live(task, { ...ready, prompt }, browser, this.owner) } : {}),
       judge: async (answer: string) => {
         const judged = await adapter.judge(task, { answer, workspace: into }, directory);
         return { pass: judged.pass, reasons: judged.reasons };
