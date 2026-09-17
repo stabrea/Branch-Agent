@@ -60,12 +60,15 @@ async function fixture(t, script = echo, parts, options) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
   t.after(async () => { await app.close(); await discardTemp(root); });
   app.channels.mergeWindowMs = 0;
-  app.channels.liveTiming = fast;
+  // A quick answer must stay quick on a slow test machine: only tests that want a progress
+  // message ask for one soon (`showProgressSoon`).
+  app.channels.liveTiming = { ...fast, progressAfterMs: 60000 };
   app.channels.setSwitches(allOn);
   const chat = fakeChat("chat", parts, options);
   await app.channels.attach(chat.adapter, { activation: "always", pairing: true, allowlist: ["owner"] });
   return { app, model, chat, root };
 }
+const showProgressSoon = (app) => { app.channels.liveTiming = fast; };
 const allOn = { liveStatus: "on", commands: "on", steering: "on", splitting: "on" };
 let nextId = 1;
 const message = (text, extra = {}) => ({ channel: "chat", chatId: "c1", chatKind: "direct", senderId: "owner",
@@ -206,6 +209,7 @@ test("a slow task shows its steps and its reply lands in the progress message, w
     await self.hold(request.signal);
     return { content: "All tidy.", toolCalls: [] };
   });
+  showProgressSoon(app);
   const outcome = app.channels.handle(message("tidy up"));
   const progress = await until(() => chat.calls.find((c) => c.op === "send"), "progress message");
   assert.match(progress.text, /Looking through/);
@@ -490,6 +494,7 @@ test("Telegram end to end: a note sent while a task works reaches it, and the ch
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
+  showProgressSoon(app);
   const adapter = new TelegramAdapter({ id: "tg", token: "1:x", apiBase: `http://127.0.0.1:${server.address().port}`, pollTimeoutSeconds: 1 });
   await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["42"] });
   t.after(() => app.channels.detachAll());
@@ -560,6 +565,7 @@ test("when needed: commands only while a task works, steering without the wait, 
   assert.deepEqual(chat.calls.map((c) => c.op), ["send"]);
   assert.equal(chat.sent()[0], "Echo: /status");
   // Busy: /status is read, /new is not, and after a while the chat shows the work.
+  showProgressSoon(app);
   const slow = app.channels.handle(message("slow"));
   await until(() => model.requests.length === 2, "slow task started");
   await until(() => chat.calls.some((c) => c.op === "typing"), "typing once the task is slow");
