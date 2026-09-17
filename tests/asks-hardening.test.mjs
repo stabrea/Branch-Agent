@@ -101,6 +101,8 @@ test("the Obsidian plugin only talks to Branch on this computer", () => {
   const code = `(function (require, module, exports) {${readFileSync(source, "utf8")}\n})`;
   vm.runInThisContext(code)(() => ({ Plugin: class {}, PluginSettingTab: class {}, Modal: class {}, Setting: class {} }), module, module.exports);
   const { refusal } = module.exports.parts;
+  const manifest = JSON.parse(readFileSync(new URL("../extras/obsidian-plugin/manifest.json", import.meta.url), "utf8"));
+  assert.equal(manifest.isDesktopOnly, true, "on a phone this computer is the phone, where Branch does not run");
   for (const address of ["http://127.0.0.1:3210", "http://localhost:3210", "http://[::1]:3210", "http://127.0.0.2:9"])
     assert.equal(refusal({ address, key: "k" }), null, address);
   for (const address of ["http://192.168.1.5:3210", "https://branch.example", "http://127.0.0.1.evil.example:3210", "http://localhost.evil.example"])

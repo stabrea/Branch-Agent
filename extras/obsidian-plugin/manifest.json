@@ -5,5 +5,5 @@
   "minAppVersion": "1.4.0",
   "description": "Ask your own Branch Agent about the note you are writing, and put its answer in the note.",
   "author": "Branch Agent",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }
