@@ -27,15 +27,24 @@ const shapes = {
   "bedrock-converse": "Bedrock",
   "cohere-chat-v2": "Cohere v2",
   ollama: "Ollama",
+  "perplexity-agent": "Perplexity Agent",
+  "anthropic-vertex": "Anthropic on Vertex",
 };
+const standing = {
+  official: "",
+  unofficial: " (unofficial)",
+  retired: " (retired)",
+  "not-offered": " (not offered)",
+};
+const termsCell = (terms) => `[${escape(terms.route)}](${terms.url})${standing[terms.standing]}`;
 
 const escape = (text) => String(text).replace(/\|/g, "\\|");
 
 function table(catalog) {
   const rows = [...catalog.services].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const lines = [
-    "| Service | Where it runs | Speaks | What it can do | What you have to fill in |",
-    "| --- | --- | --- | --- | --- |",
+    "| Service | Where it runs | Speaks | What it can do | What you have to fill in | Route and terms |",
+    "| --- | --- | --- | --- | --- | --- |",
   ];
   for (const entry of rows) {
     const needs = (entry.extras ?? []).filter((extra) => extra.required).map((extra) => extra.label);
@@ -46,6 +55,7 @@ function table(catalog) {
       escape(shapes[entry.shape] ?? entry.shape),
       escape(entry.capabilities.map((c) => plain[c] ?? c).join(", ")),
       escape(needs.length ? needs.join("; ") : "just a key"),
+      termsCell(entry.terms),
       "",
     ].join(" | ").trim());
   }
@@ -54,9 +64,9 @@ function table(catalog) {
 
 function notes(catalog) {
   const rows = [...catalog.services]
-    .filter((entry) => (entry.extras ?? []).length || entry.modelsPath === null)
+    .filter((entry) => (entry.extras ?? []).length || entry.modelsPath === null || entry.terms.warning)
     .sort((a, b) => (a.name < b.name ? -1 : 1));
-  return rows.map((entry) => `- **${entry.name}** — ${entry.note}`).join("\n");
+  return rows.map((entry) => `- **${entry.name}** — ${entry.note}${entry.terms.warning ? ` ${entry.terms.warning}` : ""}`).join("\n");
 }
 
 const catalog = JSON.parse(await readFile(resolve("data/providers.json"), "utf8"));

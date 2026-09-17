@@ -4,10 +4,11 @@ import type { Locker } from "./locker.js";
 import type { ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
-import { catalogEntry, modelsAddress } from "./provider-catalog.js";
+import { catalogEntry, isRetired, modelsAddress } from "./provider-catalog.js";
 import { buildConnection } from "./provider-factory.js";
 import { countModels } from "./provider-probe.js";
 import { audit } from "./audit.js";
+import { migrateRecords } from "./provider-migrations.js";
 
 /**
  * Adding a model connection in plain language: pick a service, paste the key, answer whatever else
@@ -134,6 +135,7 @@ export async function forgetConnection(deps: FromPresetDeps, id: string): Promis
  */
 export async function restoreConnections(deps: FromPresetDeps): Promise<string[]> {
   if (!deps.store) return [];
+  migrateSavedConnections(deps.store, deps.owner);
   const back: string[] = [];
   for (const record of savedConnections(deps.store, deps.owner)) {
     try {
@@ -155,6 +157,19 @@ export async function restoreConnections(deps: FromPresetDeps): Promise<string[]
 }
 
 /**
+ * Moves written-down connections onto a service's new route (Perplexity's Agent API, a region
+ * choice) in place, so nothing is asked of the owner. Written back only when something changed.
+ */
+export function migrateSavedConnections(store: Store, owner: string): string[] {
+  const { records, changed } = migrateRecords(savedConnections(store, owner));
+  if (!changed.length) return [];
+  store.save("settings", owner, connectionsSetting, { connections: records });
+  audit(store, owner, { action: "connection.changed", actor: "branch", subject: changed.join(", "),
+    reason: "A model service moved to a new address or route, so the saved connection was moved with it", outcome: "moved" });
+  return changed;
+}
+
+/**
  * Checks a service is really reachable with this key, then remembers it. The order matters: a key
  * that does not work is never stored, so nothing accumulates that a person would later have to
  * clean up.
@@ -163,6 +178,7 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const asked = FromPresetSchema.parse(input);
   const entry = catalogEntry(asked.provider);
   if (!entry) throw new Error(`Branch does not know a model service called "${asked.provider}"`);
+  if (isRetired(entry)) throw new Error(entry.terms.warning ?? `${entry.name} can no longer be used.`);
   if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
     throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
   const call = deps.fetchImpl ?? globalThis.fetch;

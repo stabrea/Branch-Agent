@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { CatalogSchema, catalogEntries, catalogEntry, catalogPrices, providerCatalog, resolveBaseUrl, missingExtras, modelsAddress } from "../dist/provider-catalog.js";
 import { buildConnection, capabilityRefusal } from "../dist/provider-factory.js";
@@ -142,6 +143,23 @@ const shapeFakes = {
     stream: "ndjson",
   },
   "bedrock-converse": { path: "/converse", reply: () => ({}), stream: "aws" },
+  "perplexity-agent": {
+    path: "/agent",
+    reply: () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }], usage: { input_tokens: 3, output_tokens: 1 } }),
+    stream: [{ type: "response.output_text.delta", delta: "hi" }, { type: "response.completed", response: { usage: { input_tokens: 3, output_tokens: 1 } } }],
+  },
+  "anthropic-vertex": {
+    path: ":rawPredict",
+    reply: () => ({ content: [{ type: "text", text: "hi" }], usage: { input_tokens: 3, output_tokens: 1 } }),
+    stream: [
+      { type: "message_start", message: { usage: { input_tokens: 3, output_tokens: 0 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+      { type: "message_stop" },
+    ],
+  },
 };
 
 /** The answers a service needs, with the address pointed at the fake instead of the real thing. */
@@ -171,6 +189,7 @@ for (const entry of catalogEntries()) {
     const completion = await provider.complete(request);
     assert.equal(completion.content, "hi");
     assert.ok(seen[0].url.includes(shape.path.replace(":generateContent", "")), `${entry.id} asked for ${seen[0].url}`);
+    if (entry.shape === "perplexity-agent") assert.equal(seen[0].body.preset, entry.defaultModel);
     assert.equal(completion.usage.input, 3);
     assert.equal(completion.usage.output, 1);
   });
@@ -212,7 +231,7 @@ test("every entry that says it streams can stream, against a fake of its shape",
         ]));
       }
       if (shape.stream === null) return json(res, shape.reply());
-      sse(res, shape.stream, !["anthropic-messages", "gemini"].includes(shapeName));
+      sse(res, shape.stream, !["anthropic-messages", "anthropic-vertex", "gemini"].includes(shapeName));
     });
     const local = localised(entry, origin);
     const { provider } = buildConnectionAgainst(local, extrasFor(entry, origin));
@@ -642,7 +661,8 @@ test("the catalog supplies prices for models pricing.ts does not list, and never
 
 test("the documentation table regenerates to exactly what is checked in", () => {
   const before = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
-  execFileSync(process.execPath, ["scripts/docs-providers.mjs"], { cwd: new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1") });
+  // fileURLToPath, not .pathname: a checkout whose folder name has a space must still be found.
+  execFileSync(process.execPath, ["scripts/docs-providers.mjs"], { cwd: fileURLToPath(new URL("..", import.meta.url)) });
   const after = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
   assert.equal(after, before, "run `npm run docs:providers` and commit the result");
   assert.ok(before.includes("tested against a fake of the"), "the honest line about fakes is in the docs");

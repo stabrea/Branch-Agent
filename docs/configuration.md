@@ -81,68 +81,78 @@ by hand; edit the data file and run that command.
 
 <!-- providers:start -->
 
-Branch knows 38 model services. Every one of them has been tested against a fake of the
+Branch knows 42 model services. Every one of them has been tested against a fake of the
 service, not against the real one, so treat this as "Branch speaks the right language", not as
 "this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
 
-| Service | Where it runs | Speaks | What it can do | What you have to fill in |
-| --- | --- | --- | --- | --- |
-| AWS Bedrock | in the cloud | Bedrock | conversation, pictures in, tools, as it types | The AWS region your models are enabled in; Your AWS access key id |
-| Anthropic | in the cloud | Anthropic | conversation, pictures in, tools, as it types | just a key |
-| Azure OpenAI | in the cloud | Azure | conversation, pictures in, tools, fixed format, as it types, compare passages | Your Azure resource name; The name you gave the deployment |
-| Baidu Qianfan | in the cloud | OpenAI | conversation, tools, as it types, compare passages | just a key |
-| Cerebras | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
-| Cloudflare Workers AI | in the cloud | OpenAI | conversation, tools, as it types, compare passages, pictures out | Your Cloudflare account id |
-| Cohere | in the cloud | Cohere v2 | conversation, tools, fixed format, as it types, compare passages | just a key |
-| DeepSeek | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key |
-| Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key |
-| Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
-| GitHub Models | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key |
-| Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses |
-| Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key |
-| Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key |
-| Jan | on this computer | OpenAI | conversation, tools, as it types | just a key |
-| LM Studio | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| LiteLLM proxy | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| LocalAI | on this computer | OpenAI | conversation, tools, as it types, compare passages, speech, pictures out | just a key |
-| MiniMax | in the cloud | OpenAI | conversation, tools, as it types | just a key |
-| Mistral | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key |
-| Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
-| Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key |
-| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out, live conversation | just a key |
-| OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key |
-| OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
-| Perplexity | in the cloud | OpenAI | conversation, as it types | just a key |
-| Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key |
-| Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key |
-| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you |
-| Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key |
-| Voyage AI | in the cloud | OpenAI | compare passages | just a key |
-| Zhipu GLM | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key |
-| llama.cpp | on this computer | OpenAI | conversation, tools, fixed format, as it types, compare passages | just a key |
-| vLLM | on this computer | OpenAI | conversation, tools, as it types | just a key |
-| xAI (Grok) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, pictures out | just a key |
+| Service | Where it runs | Speaks | What it can do | What you have to fill in | Route and terms |
+| --- | --- | --- | --- | --- | --- |
+| AWS Bedrock | in the cloud | Bedrock | conversation, pictures in, tools, as it types | The AWS region your models are enabled in; Your AWS access key id | [Your own AWS keys](https://aws.amazon.com/service-terms/) |
+| Anthropic | in the cloud | Anthropic | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://www.anthropic.com/legal/commercial-terms) |
+| Azure OpenAI | in the cloud | Azure | conversation, pictures in, tools, fixed format, as it types, compare passages | Your Azure resource name; The name you gave the deployment | [Your Azure key, dated deployments route](https://azure.microsoft.com/support/legal/) |
+| Azure OpenAI (v1 address) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | Your Azure resource name | [Your Azure key, v1 route](https://azure.microsoft.com/support/legal/) |
+| Baidu Qianfan | in the cloud | OpenAI | conversation, tools, as it types, compare passages | just a key | [Your own API key](https://cloud.baidu.com/doc/Agreements/index.html) |
+| Cerebras | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key | [Your own API key](https://www.cerebras.ai/terms-of-service) |
+| Claude on Google Vertex AI | in the cloud | Anthropic on Vertex | conversation, pictures in, tools, as it types | Your Google Cloud project id; The region your project uses, or global | [Your own Google Cloud project and access token](https://cloud.google.com/terms/service-terms) |
+| Cloudflare Workers AI | in the cloud | OpenAI | conversation, tools, as it types, compare passages, pictures out | Your Cloudflare account id | [Your own API token](https://www.cloudflare.com/terms/) |
+| Cohere | in the cloud | Cohere v2 | conversation, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://cohere.com/terms-of-use) |
+| DeepSeek | in the cloud | OpenAI | conversation, tools, fixed format, as it types | just a key | [Your own API key](https://cdn.deepseek.com/policies/en-US/deepseek-open-platform-terms-of-service.html) |
+| Doubao (Volcengine Ark) | in the cloud | OpenAI | conversation, pictures in, tools, as it types, compare passages | just a key | [Your own API key](https://www.volcengine.com/docs/6256/64903) |
+| Fireworks AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://fireworks.ai/terms-of-service) |
+| GitHub Copilot (sign-in) | in the cloud | OpenAI |  | just a key | [None: Branch does not sign in to Copilot itself](https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/) (not offered) |
+| GitHub Models | in the cloud | OpenAI |  | just a key | [GitHub Models inference (ended)](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/) (retired) |
+| Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key | [Your own Google AI Studio key](https://ai.google.dev/gemini-api/terms) |
+| Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses | [Your own Google Cloud project and access token](https://cloud.google.com/terms/service-terms) |
+| Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key | [Your own API key](https://groq.com/terms-of-use) |
+| Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own access token](https://huggingface.co/terms-of-service) |
+| Jan | on this computer | OpenAI | conversation, tools, as it types | just a key | [Runs on this computer](https://jan.ai/) |
+| LM Studio | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Runs on this computer](https://lmstudio.ai/app-terms) |
+| LiteLLM proxy | on this computer | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [A proxy you run, with your own keys behind it](https://docs.litellm.ai/docs/) |
+| LocalAI | on this computer | OpenAI | conversation, tools, as it types, compare passages, speech, pictures out | just a key | [Runs on this computer](https://localai.io/) |
+| MiniMax | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own API key](https://platform.minimax.io/protocol/terms-of-service) |
+| Mistral | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://mistral.ai/terms) |
+| ModelScope | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own access token](https://www.modelscope.cn/) |
+| Moonshot (Kimi) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://platform.kimi.ai/docs/agreement/modeluse) |
+| Ollama | on this computer | Ollama | conversation, pictures in, tools, as it types, compare passages | just a key | [Runs on this computer](https://github.com/ollama/ollama/blob/main/LICENSE) |
+| OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out, live conversation | just a key | [Your own API key](https://openai.com/policies/services-agreement/) |
+| OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key (Responses route)](https://openai.com/policies/services-agreement/) |
+| OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://openrouter.ai/terms) |
+| Perplexity | in the cloud | Perplexity Agent | conversation, tools, as it types | just a key | [Your own API key, Agent API](https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service) |
+| Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://portkey.ai/terms) |
+| Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service) |
+| SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |
+| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) |
+| Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://www.together.ai/terms-of-service) |
+| Voyage AI | in the cloud | OpenAI | compare passages | just a key | [Your own API key](https://www.voyageai.com/tos) |
+| Z.ai (GLM) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://docs.z.ai/legal-agreement/terms-of-use) |
+| Zhipu GLM (China) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://open.bigmodel.cn/) |
+| llama.cpp | on this computer | OpenAI | conversation, tools, fixed format, as it types, compare passages | just a key | [Runs on this computer](https://github.com/ggml-org/llama.cpp/blob/master/LICENSE) |
+| vLLM | on this computer | OpenAI | conversation, tools, as it types | just a key | [Runs on this computer](https://docs.vllm.ai/) |
+| xAI (Grok) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, pictures out | just a key | [Your own API key](https://x.ai/legal) |
 
 Services that need something more than a key, or that do not publish a list of their models:
 
-- **AWS Bedrock** — Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above.
+- **AWS Bedrock** — Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above. Some regions want a cross-region name such as us.anthropic.claude-sonnet-5, and Anthropic models need AWS's first-use form.
 - **Azure OpenAI** — Needs your resource name and the name you gave the deployment; the model is chosen by the deployment, not by the model name.
+- **Azure OpenAI (v1 address)** — Azure's newer address with no dated version to keep up with. Put your deployment name where the model goes.
 - **Baidu Qianfan** — Baidu's Qianfan in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
+- **Claude on Google Vertex AI** — Claude billed through your own Google Cloud project. Needs a project id, a region and a sign-in token rather than an API key: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
 - **Cloudflare Workers AI** — Needs your Cloudflare account id as well as a token. Model names start with @cf/.
 - **Cohere** — Cohere speaks its own shape rather than OpenAI's. Nothing extra to fill in.
 - **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
+- **GitHub Copilot (sign-in)** — Not offered. Use the GitHub Copilot command line under coding assistants instead: it is GitHub's own program with your own sign-in. GitHub supports Copilot sign-in only in its own tools and in OpenCode, through OpenCode's own sign-in. Reusing another app's sign-in or posing as VS Code has led to abuse warnings, so Branch does neither. Use GitHub's Copilot command line instead.
+- **GitHub Models** — Retired by GitHub on 30 July 2026. A saved connection stays on the list with this note and is never used. GitHub retired GitHub Models on 30 July 2026 and its address now refuses every request. For a model catalogue GitHub points to Microsoft Foundry (use Azure OpenAI here); for GitHub work, use the GitHub Copilot command line under coding assistants.
 - **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
-- **MiniMax** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+- **MiniMax** — International keys use api.minimax.io (the usual choice); keys from the Chinese platform use api.minimax.cn. Branch keeps no price on file for it.
 - **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.
-- **Perplexity** — Answers questions with sources of its own. It does not publish a list of models, so Branch cannot check the key without using it.
+- **Moonshot (Kimi)** — Kimi models. International keys use api.moonshot.ai (the usual choice); keys from the Chinese platform use api.moonshot.cn. Branch keeps no price on file for it.
+- **Perplexity** — Answers questions with sources of its own, through Perplexity's Agent API. Pick a preset (fast, low, medium, high, xhigh) or a provider/model name. Older Sonar connections were moved over for you.
 - **Portkey** — A gateway that sits in front of other services and speaks OpenAI's shape. Which model answers depends on the configuration you set up there.
-- **Qwen (Alibaba DashScope)** — Alibaba's DashScope in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.
-- **Something else that speaks OpenAI's shape** — For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer.
+- **Qwen (Alibaba DashScope)** — Alibaba Model Studio in its OpenAI-compatible mode. International (Singapore) is the usual choice; the US and mainland China addresses are offered too. A workspace address works through "Something else". Branch keeps no price on file.
+- **Something else that speaks OpenAI's shape** — For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer. Branch cannot know this service's terms. Read them before you connect.
 - **Voyage AI** — Compares passages only; it does not hold conversations, so it cannot be a connection that answers you. Use it for searching your own documents.
-- **Zhipu GLM** — A Chinese service, billed in yuan. Branch keeps no price on file for it.
+- **Z.ai (GLM)** — Zhipu's GLM models for the rest of the world. Branch keeps no price on file for it.
+- **Zhipu GLM (China)** — Zhipu's platform in mainland China, billed in yuan. Outside China, use Z.ai instead. Branch keeps no price on file for it.
 
 <!-- providers:end -->
 
