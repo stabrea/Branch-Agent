@@ -91,6 +91,7 @@ import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
+import { prompts, promptGroups, savePrompt, removePrompt, renameGroup } from "./prompt-library.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -332,6 +333,7 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
@@ -720,6 +722,18 @@ async function api(
     };
   if (request.method === "POST" && path === "/api/context-files")
     return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  // The prompts the owner asks for often, and the groups they are filed under.
+  if (request.method === "GET" && path === "/api/prompts")
+    return { prompts: prompts(app.store, app.runtime.owner), groups: promptGroups(app.store, app.runtime.owner) };
+  if (request.method === "POST" && path === "/api/prompts/rename-group") {
+    const body = await readBody(request) as { from?: unknown; to?: unknown };
+    return renameGroup(app.store, app.runtime.owner, String(body.from ?? ""), String(body.to ?? ""));
+  }
+  if (request.method === "POST" && path.startsWith("/api/prompts/")) {
+    const id = decodeURIComponent(path.slice("/api/prompts/".length));
+    if (id.endsWith("/remove")) return removePrompt(app.store, app.runtime.owner, id.slice(0, -"/remove".length));
+    return savePrompt(app.store, app.runtime.owner, id, await readBody(request));
+  }
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));

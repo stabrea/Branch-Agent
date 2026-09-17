@@ -1475,6 +1475,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    globalThis.branchPromptLibraryReady?.();
   } catch (e) {
     toast(e.message);
   }
