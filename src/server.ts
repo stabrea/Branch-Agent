@@ -90,6 +90,7 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -328,6 +329,12 @@ async function staticFile(
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
+    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
+    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
+    "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
@@ -705,6 +712,14 @@ async function api(
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
+  // The owner's own instruction files: what each one is set to, and what that produced this time.
+  if (request.method === "GET" && path === "/api/context-files")
+    return {
+      settings: contextFileSettings(app.store, app.runtime.owner),
+      files: contextFileStatus(app.store, app.runtime.owner, app.runtime.workspace),
+    };
+  if (request.method === "POST" && path === "/api/context-files")
+    return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
@@ -927,6 +942,12 @@ async function api(
     if (!left || !right) throw new Error("One of those study results is not on file");
     const comparison = compareStudies(left, right);
     return { comparison, table: comparisonTable(comparison) };
+  }
+  // Wave 9: the same scorers held against the real work, so a quiet break shows up on ordinary
+  // tasks rather than only on the test set.
+  if (path === "/api/evaluation/live") {
+    if (request.method === "POST") return { settings: app.liveScoring.configure(await readBody(request)) };
+    return { settings: app.liveScoring.settings(), recent: app.liveScoring.recent(50), summary: app.liveScoring.summary(100) };
   }
   if (request.method === "POST" && path === "/api/evaluation/tools")
     // The checks really write files and really save facts, so they do it in a project and under a

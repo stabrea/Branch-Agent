@@ -1,4 +1,5 @@
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,7 +51,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
     await page.locator(".message.assistant").innerText(),
     /wrote, read, and verified/,
   );
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await openPlace(page, "memory");
   await page.getByLabel("Search past conversations", { exact: true }).fill("verified");
   await page.getByRole("button", { name: "Search conversations", exact: true }).click();
   await page.locator("#history-results").getByRole("button", { name: "Read message", exact: true }).first().click();

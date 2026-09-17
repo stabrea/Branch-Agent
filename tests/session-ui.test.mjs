@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,7 +42,7 @@ async function fixture(t, complete) {
   return { app, page, source, original, errors };
 }
 async function readCheckpoint(page, query = 'Juniper checkpoint') {
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await openPlace(page, 'memory');
   await page.getByLabel('Search past conversations', { exact: true }).fill(query);
   await page.getByRole('button', { name: 'Search conversations', exact: true }).click();
   await page.locator('#history-results').getByRole('button', { name: 'Read message', exact: true }).first().click();
@@ -106,7 +107,7 @@ test('pending chat disables branching and conversation switching until its respo
   for (const selector of ['#new-session', '#send', '#conversation .conversation-switch', '#session-context .conversation-switch'])
     assert.equal(await f.page.locator(selector).first().isDisabled(), true);
   await f.page.locator('#new-session').evaluate(button => button.click());
-  await f.page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await openPlace(f.page, 'memory');
   assert.equal(await f.page.locator('#history-message').getByRole('button', { name: 'Branch from here', exact: true }).isDisabled(), true);
   assert.equal(await f.page.locator('#history-message').getByRole('button', { name: 'Open conversation', exact: true }).isDisabled(), true);
   await f.page.locator('#chat-form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));

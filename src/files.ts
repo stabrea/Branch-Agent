@@ -190,10 +190,19 @@ export class WorkspaceFiles {
     return { matches };
   }
 }
+/**
+ * macOS and Linux ship root-owned links in ordinary paths (`/var` → `/private/var`, `/tmp`), and
+ * nobody but root can make one, so those are layout rather than a planted escape. Windows reports
+ * uid 0 for every file, so there every link is still refused.
+ */
+function isSystemLink(info: { uid: number }): boolean {
+  return process.platform !== "win32" && info.uid === 0;
+}
 async function checkWorkspaceAncestors(root: string): Promise<void> {
   let current = resolve(root);
   while (true) {
-    if ((await lstat(current)).isSymbolicLink())
+    const info = await lstat(current);
+    if (info.isSymbolicLink() && !isSystemLink(info))
       throw new Error("Workspace or ancestors contain a link");
     const parent = dirname(current);
     if (parent === current) return;

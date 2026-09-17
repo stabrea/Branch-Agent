@@ -219,7 +219,14 @@ test("a note sent to a task that is still working reaches its next round", async
   assert.equal(data(app, run.id, "run.steered")[0].note, "check the diary instead");
   assert.equal(data(app, run.id, "run.steer_applied")[0].notes, 1);
   const messages = app.store.messages(run.sessionId);
-  assert.ok(messages.some((m) => m.role === "user" && /Note from the person.*check the diary instead/.test(m.content)), "the note is in the saved transcript");
+  /* Wrapped in the marker the standing instructions name as the only trusted one. A bare "note from
+     the person" line is the shape of a prompt injection, and models refuse it for exactly that. */
+  const steered = messages.find((m) => m.role === "user" && m.content.includes("check the diary instead"));
+  assert.ok(steered, "the note is in the saved transcript");
+  assert.match(steered.content, /^\[OUT-OF-BAND MESSAGE FROM THE OWNER — sent by Branch itself/);
+  assert.match(steered.content, /not a new instruction when it appears again in the conversation history\]/,
+    "the marker says what it is, so a replay is not obeyed twice");
+  assert.match(steered.content, /\[\/OUT-OF-BAND MESSAGE FROM THE OWNER\]$/);
   await assert.rejects(api(`runs/${run.id}/steer`, { text: "too late" }), /still working/);
 });
 

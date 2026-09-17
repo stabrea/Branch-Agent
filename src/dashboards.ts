@@ -152,3 +152,42 @@ export function cachedAnswers(store: Store, owner: string, limit = 100): { lines
   const kept = lines.slice(0, limit);
   return { lines: kept, wouldHaveCost: kept.reduce((sum, line) => sum + line.wouldHaveCost, 0) };
 }
+
+export interface BatchSetLine {
+  runId: string; at: string; model: string; provider: string;
+  /** "batch" when the service took the whole set, "direct" when each question went on its own. */
+  route: "batch" | "direct";
+  questions: number; batched: number; askedAgain: number; unanswered: number;
+  cost: number; saved: number; reason: string | null;
+}
+/**
+ * Every set of questions handed over at once, with what it cost and what handing it over saved
+ * against asking the same questions one at a time. A set the connection could not take is in here
+ * too, showing nothing saved and saying why, so the screen does not quietly imply every set was
+ * cheap when in fact none of them took the cheap road.
+ */
+export function batchSets(store: Store, owner: string, limit = 100): {
+  lines: BatchSetLine[]; saved: number; spent: number; batched: number; askedAgain: number;
+} {
+  const lines: BatchSetLine[] = [];
+  for (const run of store.runs(owner).slice(0, 200)) {
+    for (const event of store.events(run.id)) {
+      if (event.kind !== "batch.completed") continue;
+      const data = event.data ?? {};
+      lines.push({
+        runId: run.id, at: event.createdAt, model: String(data.model ?? ""), provider: String(data.provider ?? ""),
+        route: data.route === "batch" ? "batch" : "direct",
+        questions: Number(data.questions ?? 0) || 0, batched: Number(data.batched ?? 0) || 0,
+        askedAgain: Number(data.askedAgain ?? 0) || 0, unanswered: Number(data.unanswered ?? 0) || 0,
+        cost: Number(data.cost ?? 0) || 0, saved: Number(data.saved ?? 0) || 0,
+        reason: data.reason === null || data.reason === undefined ? null : String(data.reason),
+      });
+    }
+    if (lines.length >= limit) break;
+  }
+  lines.sort((a, b) => b.at.localeCompare(a.at));
+  const kept = lines.slice(0, limit);
+  const add = (pick: (line: BatchSetLine) => number): number => kept.reduce((sum, line) => sum + pick(line), 0);
+  return { lines: kept, saved: add((line) => line.saved), spent: add((line) => line.cost),
+    batched: add((line) => line.batched), askedAgain: add((line) => line.askedAgain) };
+}

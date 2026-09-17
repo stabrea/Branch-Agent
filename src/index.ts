@@ -37,6 +37,7 @@ import { registerSessions } from "./sessions.js";
 import { SessionTree, registerSessionTree } from "./session-tree.js";
 import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
+import { registerContextFiles } from "./context-files.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
@@ -67,13 +68,14 @@ import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
 import { SessionTokens } from "./session-tokens.js";
-import { CommandSecrets } from "./vault-sources.js";
+import { CommandSecrets, KeychainSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
 import { StudyRunner } from "./study.js";
+import { liveScores, liveScoreSummary, liveScoringSettings, saveLiveScoringSettings, watchFinishedRuns } from "./evaluation-live.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
@@ -323,6 +325,10 @@ export async function createBranch(options: {
   const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
   commandSecrets.gate = () => sessionLock.require();
   store.secrets.sources.push(commandSecrets);
+  // Wave mac1: the Keychain on a Mac, for the entries the owner listed, behind the same lock.
+  const keychainSecrets = new KeychainSecrets(store, runtime.owner, store.secrets.scrubber);
+  keychainSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(keychainSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -347,6 +353,7 @@ export async function createBranch(options: {
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
+  registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
   runtime.documents = documents;
@@ -547,7 +554,10 @@ export async function createBranch(options: {
   scheduler.evaluations = evaluationSuites;
   // Wave 7: written-down experiments — a benchmark or suite across several model choices, run
   // several at a time, checkpointed so a stopped study carries on rather than starting again.
-  const studies = new StudyRunner(store, runtime);
+  const studies = new StudyRunner(store, runtime, version);
+  // Wave 9: the same scorers held against real work rather than a test set. Off until switched on,
+  // and never the scorer that asks a model, so ordinary tasks are never billed twice.
+  const stopLiveScoring = watchFinishedRuns(store, runtime.owner, () => runtime.workspace);
   // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
@@ -946,8 +956,16 @@ export async function createBranch(options: {
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
     sessionTokens,
+    /** Wave 9: scoring the real work as it finishes, and the recent verdicts. */
+    liveScoring: {
+      settings: () => liveScoringSettings(store, runtime.owner),
+      configure: (input: unknown) => saveLiveScoringSettings(store, runtime.owner, input),
+      recent: (limit?: number) => liveScores(store, runtime.owner, limit),
+      summary: (limit?: number) => liveScoreSummary(liveScores(store, runtime.owner, limit)),
+    },
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
+      stopLiveScoring();
       // Wave 8: a connection that stays open must not outlive the app either.
       live.closeAll("Branch closed");
       plugins.stop();
@@ -1005,6 +1023,7 @@ export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
+export * from "./context-files.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";
@@ -1088,7 +1107,16 @@ export * from "./benchmark-adapters.js";
 export * from "./benchmark-shell.js";
 export * from "./study.js";
 export * from "./tool-evaluations.js";
+export * from "./answer-metrics.js";
+export * from "./html-state.js";
+export * from "./trajectory-compare.js";
+export * from "./trajectory-report.js";
+export * from "./study-journal.js";
+export * from "./retrieval-metrics.js";
+export * from "./evaluation-live.js";
+export * from "./benchmark-nexus.js";
 export * from "./testing.js";
+export * from "./testing-doubles.js";
 export * from "./channels/deliveries.js";
 export * from "./channels/catalog.js";
 export * from "./channels/webhook-chat.js";
@@ -1248,6 +1276,7 @@ export * from "./api-openapi.js";
 export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
+export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
