@@ -67,9 +67,10 @@ function badge(health) {
   return made;
 }
 
-function checkInFields(settings, mode) {
+function checkInFields(settings, mode, file) {
   const fields = {
     mode: modeSelect("heartbeat-mode", mode),
+    file: modeSelect("heartbeat-file", file?.setting ?? "off"),
     every: control("heartbeat-every", "number", settings.everyMinutes),
     from: control("heartbeat-from", "time", settings.activeHours?.from ?? ""),
     to: control("heartbeat-to", "time", settings.activeHours?.to ?? ""),
@@ -96,17 +97,24 @@ function modeSelect(id, value) {
   return select;
 }
 
-/* automations:scheduled — the check-in itself. */
-function fillCheckIn(card, { settings, mode, state, health }, switches) {
-  const fields = checkInFields(settings, switches.checkIn ?? mode);
+/** Where the checklist comes from: HEARTBEAT.md in the workspace, or the list typed here. */
+function fileWords(file) {
+  if (!file || file.setting === "off") return t("schedules.checkin.file-off");
+  return file.name ? t("schedules.checkin.file-found", { name: file.name }) : t("schedules.checkin.file-missing");
+}
+/* automations:scheduled — the check-in itself, beside the HEARTBEAT.md switch it reads from. */
+function fillCheckIn(card, { settings, mode, state, health }, switches, file) {
+  const fields = checkInFields(settings, switches.checkIn ?? mode, file);
   card.replaceChildren(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
     field("schedules.switch.check-in", fields.mode), field("schedules.checkin.every", fields.every),
     field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
-    field("schedules.checkin.zone", fields.zone), field("schedules.checkin.list", fields.list),
+    field("schedules.checkin.zone", fields.zone), field("schedules.checkin.file", fields.file),
+    plain("p", fileWords(file), "subtle"), field("schedules.checkin.list", fields.list),
     badge(health), plain("p", lastWords(state), "subtle"));
   card.append(button("action.save-check-in", async () => {
     const hours = fields.from.value && fields.to.value ? { from: fields.from.value, to: fields.to.value } : null;
     await api("heartbeat/switches", { checkIn: fields.mode.value });
+    await api("context-files", { files: { heartbeat: fields.file.value } });
     await api("heartbeat", { ...settings, everyMinutes: Number(fields.every.value), activeHours: hours,
       timezone: fields.zone.value, checklist: fields.list.value });
     toast(t("schedules.checkin.saved"));
@@ -181,13 +189,14 @@ function homedCard(id, home) {
 }
 function render() {
   if (!latest) return;
-  const { switches, heartbeat, schedules } = latest;
-  fillCheckIn(homedCard("quiet-checkin", "automations:scheduled"), heartbeat, switches);
+  const { switches, heartbeat, schedules, file } = latest;
+  fillCheckIn(homedCard("quiet-checkin", "automations:scheduled"), heartbeat, switches, file);
   fillHealth(homedCard("quiet-health", "automations:scheduled"), schedules, switches);
   fillInterruptions(homedCard("quiet-interruptions", "settings:notifications"), heartbeat.settings, switches);
 }
 async function load() {
-  latest = await api("heartbeat");
+  const [overview, files] = await Promise.all([api("heartbeat"), api("context-files").catch(() => null)]);
+  latest = { ...overview, file: files?.files?.find((entry) => entry.key === "heartbeat") ?? null };
   render();
 }
 

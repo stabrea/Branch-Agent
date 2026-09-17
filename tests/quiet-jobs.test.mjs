@@ -8,11 +8,12 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, quietJobsApi, scheduleHealth, nothingNew } from "../dist/index.js";
+import { saveContextFileSettings } from "../dist/context-files.js";
 import { automationHealth, checklistIsEmpty, withinActiveHours, readVerdict, heartbeatInstructions, saveQuietSwitches, answerFromText } from "../dist/heartbeat.js";
 import {
   runGate, gateEnvironment, gateFingerprint, readGateAnswer, gateBackoffMinutes, afterGateFailure,
@@ -486,4 +487,20 @@ test("ordinary tasks do not carry heartbeat.respond; it waits in the schedules t
   assert.equal(app.registry.groupOf("heartbeat.respond"), "schedules");
   await app.runtime.run({ prompt: "tidy the desk" });
   assert.ok(!provider.requests[0].tools.map((tool) => tool.name ?? tool).includes("heartbeat.respond"));
+});
+
+test("with HEARTBEAT.md switched on, the workspace file is the checklist", async (t) => {
+  const { app, root, provider } = await fixture(t);
+  const heartbeat = app.scheduler.heartbeat;
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- the stored list" });
+  assert.equal(await heartbeat.checklist("local"), "- the stored list", "file switch off: the stored list");
+  saveContextFileSettings(app.store, "local", { files: { heartbeat: "on" } });
+  assert.equal(await heartbeat.checklist("local"), null, "switched on but no file: still runs");
+  await mkdir(join(root, "workspace"), { recursive: true });
+  await writeFile(join(root, "workspace", "HEARTBEAT.md"), "- look at the backups\n");
+  assert.match(await heartbeat.checklist("local"), /look at the backups/);
+  await writeFile(join(root, "workspace", "HEARTBEAT.md"), "# nothing yet\n");
+  switchOn(app, { checkIn: "on" });
+  assert.equal(await heartbeat.tick(noon), "skipped", "an empty file skips the model");
+  assert.equal(provider.requests.length, 0);
 });

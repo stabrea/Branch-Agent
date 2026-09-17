@@ -1378,8 +1378,9 @@ in now"). With `checkIn` on, every `everyMinutes` (30 by default, at least 5), i
 (`{ from, to }` in `timezone`, 08:00–22:00 by default, may run past midnight; `null` means any time),
 the assistant works through your `checklist`. With `checkIn` set to when needed, nothing runs on a timer.
 A check-in runs only when you press "Check in now" or something wakes it, and a wake still keeps to the
-hours. With `checkIn` off, "Check in now" is refused. The checklist is read through one provider. The
-default reads the text you keep here. If there is no checklist file, the check-in still runs. If the
+hours. With `checkIn` off, "Check in now" is refused. The checklist is read through one provider. When
+the `heartbeat` context file (HEARTBEAT.md in the workspace) is switched on or set to when needed, that
+file is the checklist; otherwise the text you keep here is used. Both switches sit on the same card. If there is no checklist file, the check-in still runs. If the
 checklist has only blank lines, headings, comments or empty boxes, the model is not asked at all. The
 assistant answers with the `heartbeat.respond` tool. That tool sits in the schedules toolbox, so ordinary
 tasks do not carry it, and a check-in is told to load it. `notify: false` sends nothing. `notify: true`

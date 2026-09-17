@@ -18,6 +18,7 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import { inQuietHours } from "./calendar.js";
+import { contextFileSettings, findFile, switchFor } from "./context-files.js";
 
 type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<unknown>;
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -142,8 +143,15 @@ export class Heartbeat {
   private readonly checking = new Set<string>();
   /** Replaced in tests; the default asks the connection the check-in used. */
   judge: Judge = (run, text, checklist) => this.askSecondOpinion(run, text, checklist);
-  /** The one way the checklist is read. */
-  checklist: ChecklistSource = async (owner) => this.settings(owner).checklist;
+  /**
+   * The one way the checklist is read. With the owner's HEARTBEAT.md switched on (or "when
+   * needed") the workspace file is the checklist, through the shared context-file reader, and a
+   * missing file still lets the check-in run; otherwise the text kept in Schedules is used.
+   */
+  checklist: ChecklistSource = async (owner) => {
+    if (switchFor(contextFileSettings(this.store, owner), "heartbeat") === "off") return this.settings(owner).checklist;
+    return findFile(this.runtime.workspace, "heartbeat")?.text ?? null;
+  };
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly deliver?: DeliveryHandler) {}
   settings(owner: string): HeartbeatSettings {
     return HeartbeatSettingsSchema.parse(this.store.get("settings", owner, "heartbeat")?.data ?? {});
