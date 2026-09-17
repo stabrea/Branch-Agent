@@ -80,11 +80,14 @@ async function attach(context: CommandContext, argument: string): Promise<void> 
   context.conversation.attachments.push(attachment);
   context.say("note", `[${attachment.name} goes with your next message]`);
 }
-function toggle(name: "plan" | "verify" | "dryRun"): TerminalCommand["run"] {
+function toggle(name: "plan" | "verify" | "dryRun" | "temporary"): TerminalCommand["run"] {
   return (context, argument) => {
     const conversation = context.conversation, on = onOff(argument, conversation[name]);
     conversation[name] = on;
-    const said = name === "plan" ? `a short plan first: ${on ? "on" : "off"}`
+    if (name === "temporary" && context.conversation.sessionId)
+      return context.say("warn", "[a conversation becomes temporary when it starts; /new, then /temporary]");
+    const said = name === "temporary" ? `temporary: ${on ? "on, nothing from this conversation is remembered" : "off"}`
+      : name === "plan" ? `a short plan first: ${on ? "on" : "off"}`
       : name === "verify" ? `a reviewer checks the answer: ${on ? "on" : "off"}` : `practice run: ${on ? "on, nothing is really changed" : "off"}`;
     context.say("note", `[${said}]`);
   };
@@ -103,6 +106,7 @@ export const TERMINAL_COMMANDS: TerminalCommand[] = [
   command("plan", [], "[on|off]", "turn a short plan first on or off", toggle("plan")),
   command("verify", [], "[on|off]", "turn a reviewer's check of the answer on or off", toggle("verify")),
   command("dry-run", ["practice"], "[on|off]", "turn practice mode on or off (nothing is really changed)", toggle("dryRun")),
+  command("temporary", ["incognito"], "[on|off]", "a conversation that is not remembered; set it before the first message", toggle("temporary")),
   command("attach", ["image"], "<file>", "send a file or picture with your next message", attach),
   command("history", [], "", "this conversation so far", (context) =>
     historyLines(context.runtime, context.conversation.sessionId).forEach((line) => context.say("note", line))),

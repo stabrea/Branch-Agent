@@ -28,6 +28,8 @@ export class Conversation {
   plan = false;
   verify = false;
   dryRun = false;
+  /** A temporary conversation keeps nothing in memory; it applies when the conversation starts. */
+  temporary = false;
   details = false;
   attachments: Attachment[] = [];
   awaiting: PendingApproval | undefined;
@@ -70,14 +72,16 @@ export class Conversation {
     return `${short(totals.input)} in / ${short(totals.output)} out · ${totals.cost}${flags ? ` · ${flags}` : ""}`;
   }
   /** The model chip and the other things the next message will carry, as the composer shows them. */
-  chips(): string[] {
+  chips(words?: Words): string[] {
+    const say = (key: string, english: string): string => words?.t(key, english) ?? english;
     const summary = this.runtime.models.summary(this.runtime.owner);
     const id = this.model ?? summary.activePreset ?? summary.defaultPreset;
     const preset = this.runtime.models.presets.get(id);
     const policy = readPolicy(this.runtime.store, this.runtime.owner).preset;
     const label = policyPresets().find((entry) => entry.id === policy)?.label ?? policy;
     return [preset?.name ?? id, label, ...this.attachments.map((file) => `+ ${file.name}`),
-      ...(this.dryRun ? ["practice"] : []), ...(this.plan ? ["plan"] : [])];
+      ...(this.temporary ? [say("composer.temporary", "Temporary")] : []),
+      ...(this.dryRun ? [say("terminal.chip.practice", "Practice run")] : []), ...(this.plan ? [say("terminal.chip.plan", "Plan first")] : [])];
   }
   modelName(): string { return this.chips()[0] ?? ""; }
 
@@ -129,6 +133,7 @@ export class Conversation {
         ...(this.sessionId ? { sessionId: this.sessionId } : {}), ...(this.model ? { model: this.model } : {}),
         ...(this.reasoning !== undefined ? { reasoning: this.reasoning } : {}), ...(images.length ? { images } : {}),
         ...(this.plan ? { plan: true } : {}), ...(this.verify ? { verify: true } : {}), ...(this.dryRun ? { dryRun: true } : {}),
+        ...(this.temporary && !this.sessionId ? { temporary: true } : {}),
         onStarted: (started) => { active.run = started; this.progress(active); },
         onTextDelta: (delta) => { this.progress(active); this.streamDelta(delta); },
       });

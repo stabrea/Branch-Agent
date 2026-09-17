@@ -180,7 +180,7 @@ export class Tui {
       transcript: partial ? [...this.conversation.transcript, { kind: "assistant", text: partial }] : this.conversation.transcript,
       composer: {
         text: this.focus === "ask" ? this.drafts.composer : this.editor.text, cursor: this.focus === "ask" ? 0 : this.editor.at,
-        chips: this.conversation.chips(), ...(this.conversation.awaiting ? { question: "y/n/a/s?" } : {}),
+        chips: this.conversation.chips(this.words), ...(this.conversation.awaiting ? { question: "y/n/a/s?" } : {}),
       },
       status: this.conversation.status(),
       pane: { open: this.pane.open, tab: this.pane.tab, rows: this.conversation.paneRows(this.pane.tab, this.words) },
