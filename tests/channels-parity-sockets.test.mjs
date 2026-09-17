@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createServer as createSocketServer, connect as tcpConnect } from "node:net";
 import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk } from "./channels-parity-kit.mjs";
 import { buildParityChannel } from "../dist/channels/parity-config.js";
 import { XmppChannel } from "../dist/channels/xmpp.js";
+import { KeybaseChannel } from "../dist/channels/keybase.js";
 import { MqttChannel, encodeLength, replyTopicFor } from "../dist/channels/mqtt.js";
 import { XmlStreamReader, decodeEntities, escapeAttr, escapeText } from "../dist/channels/xmpp-xml.js";
 import {
@@ -475,5 +478,120 @@ test("MQTT settings: the broker is checked before anything opens, and wildcards 
     { credential: async (name) => { asked.push(name); return MQTT_PASSWORD; } });
   assert.deepEqual(asked, ["MQTT_PASSWORD"]);
   assert.equal(channel.kind, "mqtt");
+  await channel.stop();
+});
+
+// ---------------------------------------------------------------- Local programs (Keybase, Delta Chat)
+
+/** A stand-in for a started program: its output is written by the test, its input is recorded. */
+function fakeProgram() {
+  const started = [];
+  const starter = (file, args, env) => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stdin = new PassThrough();
+    child.input = [];
+    let pending = "";
+    child.stdin.on("data", (chunk) => {
+      pending += chunk.toString();
+      let at;
+      while ((at = pending.indexOf("\n")) >= 0) { const line = pending.slice(0, at); pending = pending.slice(at + 1); child.input.push(JSON.parse(line)); child.onInput?.(JSON.parse(line)); }
+    });
+    child.killed = false;
+    child.kill = () => { child.killed = true; child.emit("exit", null); };
+    child.say = (value) => child.stdout.write(`${typeof value === "string" ? value : JSON.stringify(value)}\n`);
+    started.push({ file, args, env, child });
+    starter.onStart?.(child);
+    return child;
+  };
+  return { started, starter };
+}
+
+// ---------------------------------------------------------------- Keybase
+
+const KEYBASE = "/opt/keybase/bin/keybase";
+function fakeKeybase({ user = "branchbot" } = {}) {
+  const runs = [];
+  const run = async (file, args) => {
+    runs.push({ file, args });
+    if (args[0] === "whoami") return { stdout: user ? `${user}\n` : "", stderr: "" };
+    if (args[0] === "chat" && args[1] === "api") return { stdout: JSON.stringify({ result: { message: "message sent", id: 100 + runs.length } }), stderr: "" };
+    throw new Error("unexpected command");
+  };
+  const sent = () => runs.filter((r) => r.args[1] === "api").map((r) => JSON.parse(r.args[3]));
+  return { runs, run, sent };
+}
+let keybaseMessageId = 1;
+function keybaseMessage({ from = "alice", uid = "a1b2c3d4e5f60718293a4b5c6d7e8f90", conversation = "c0ffee".repeat(10) + "abcd", channel = { name: "alice,branchbot", members_type: "impteamnative" }, text }) {
+  return { type: "chat", source: "remote", msg: { id: keybaseMessageId++, conversation_id: conversation, channel, sender: { uid, username: from, device_name: "phone" },
+    sent_at: 1700000000, content: { type: "text", text: { body: text } }, unread: true } };
+}
+
+test("Keybase: checks the program, pairs a stranger from api-listen, answers through chat api arguments, and ignores itself", async (t) => {
+  const context = await fixture(t);
+  const keybase = fakeKeybase();
+  const program = fakeProgram();
+  const channel = new KeybaseChannel({ id: "keybase", path: KEYBASE, run: keybase.run, startProcess: program.starter, exists: async (path) => path === KEYBASE });
+  await context.app.channels.attach(channel, policy);
+  t.after(() => channel.stop());
+  await until(() => program.started.length === 1, "api-listen started");
+  assert.deepEqual(program.started[0].args, ["chat", "api-listen"]);
+  assert.equal(program.started[0].file, KEYBASE);
+  assert.deepEqual(keybase.runs[0], { file: KEYBASE, args: ["whoami"] });
+  assert.equal(channel.botName(), "branchbot");
+  const listen = program.started[0].child;
+  const texts = () => keybase.sent().map((request) => request.params.options.message.body);
+  await pairingWalk(context, { label: "Keybase", sent: texts, say: async (text) => listen.say(keybaseMessage({ text })) });
+  const last = keybase.sent().at(-1);
+  assert.deepEqual(Object.keys(last), ["method", "params"]);
+  assert.equal(last.method, "send");
+  assert.equal(last.params.options.conversation_id, "c0ffee".repeat(10) + "abcd", "answered in the conversation it came from");
+  assert.deepEqual(keybase.runs.at(-1).args.slice(0, 3), ["chat", "api", "-m"]);
+  assert.ok(context.app.channels.summary().approved.some((p) => p.senderId === "a1b2c3d4e5f60718293a4b5c6d7e8f90"), "the stable user id was approved");
+
+  const asked = context.provider.requests.length;
+  listen.say(keybaseMessage({ from: "branchbot", uid: "ffff", text: "my own reply" }));
+  listen.say("not json at all");
+  // A team channel is only answered when the assistant is mentioned.
+  const team = { name: "acme", members_type: "team", topic_name: "general" };
+  listen.say(keybaseMessage({ channel: team, conversation: "team-conv", text: "standup at ten" }));
+  await delay(120);
+  assert.equal(context.provider.requests.length, asked, "its own message, junk and unaddressed team talk are left alone");
+  listen.say(keybaseMessage({ channel: team, conversation: "team-conv", text: "@branchbot what is on today" }));
+  await until(() => keybase.sent().some((r) => r.params.options.conversation_id === "team-conv" && /Echo:.*what is on today/.test(r.params.options.message.body)), "answered in the team channel");
+
+  // A dropped listener is started again.
+  listen.emit("exit", 1);
+  await until(() => program.started.length === 2, "api-listen restarted", 400);
+});
+
+test("Keybase: a stranger is refused when pairing is off; a missing program or sign-in is said plainly", async (t) => {
+  const context = await fixture(t);
+  const keybase = fakeKeybase();
+  const program = fakeProgram();
+  const channel = new KeybaseChannel({ id: "keybase", path: KEYBASE, run: keybase.run, startProcess: program.starter, exists: async () => true });
+  await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
+  t.after(() => channel.stop());
+  await until(() => program.started.length === 1, "api-listen started");
+  await refusalWalk(context, { label: "Keybase", sent: () => keybase.sent().map((r) => r.params.options.message.body),
+    say: async (text) => program.started[0].child.say(keybaseMessage({ from: "mallory", uid: "0badc0de", text })) });
+
+  const missing = fakeProgram();
+  const absent = new KeybaseChannel({ id: "k2", path: "/nowhere/keybase", run: keybase.run, startProcess: missing.starter, exists: async () => false });
+  await assert.rejects(() => absent.start(async () => undefined), /nothing at \/nowhere\/keybase/);
+  assert.equal(absent.health().state, "needs attention");
+  assert.equal(missing.started.length, 0, "nothing was run");
+  const signedOut = new KeybaseChannel({ id: "k3", path: KEYBASE, run: fakeKeybase({ user: "" }).run, startProcess: missing.starter, exists: async () => true });
+  await assert.rejects(() => signedOut.start(async () => undefined), /not signed in/);
+  assert.match(signedOut.health().reason, /sign in/);
+  assert.equal(missing.started.length, 0);
+  await assertNoSecret(context, []);
+});
+
+test("Keybase settings: only a full program path, and building runs nothing", async () => {
+  await assert.rejects(() => buildParityChannel({ type: "keybase", id: "k", path: "keybase", ...policy }, { credential: async () => "x" }), /full path/);
+  await assert.rejects(() => buildParityChannel({ type: "keybase", id: "k", path: "/usr/local/bin/keybase", paperKey: "x", ...policy }, { credential: async () => "x" }), /paperKey|Unrecognized/);
+  const channel = await buildParityChannel({ type: "keybase", id: "k", path: "/usr/local/bin/keybase", ...policy }, { credential: async () => "x", policy: blocked });
+  assert.equal(channel.kind, "keybase");
   await channel.stop();
 });
