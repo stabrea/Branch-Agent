@@ -7,6 +7,12 @@ import type { ParityService } from "./parity-common.js";
 import { gotifyService } from "./gotify.js";
 import { ircService, twitchService } from "./irc.js";
 import { imessageService } from "./imessage.js";
+import { teamsBotService } from "./teams-bot.js";
+import { webexService } from "./webex.js";
+import { synologyChatService } from "./synology-chat.js";
+import { zaloService } from "./zalo.js";
+import { flockService } from "./flock.js";
+import { pumbleService } from "./pumble.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -182,4 +188,5 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
  */
 export const parityServices: ParityService[] = [
   ircService, twitchService, gotifyService, imessageService,
+  teamsBotService, webexService, synologyChatService, zaloService, flockService, pumbleService,
 ];
