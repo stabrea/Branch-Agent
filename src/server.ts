@@ -165,7 +165,9 @@ import { GatewayAuth } from "./remote/gateway-auth.js";
 // ---- mac7/nodes: the owner's devices (src/devices/) ----
 import type { Duplex } from "node:stream";
 import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
-import { refuseUpgrade } from "./devices/hub.js";
+import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
+import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
+import { remoteChannel } from "./remote/gateway-auth.js";
 import { socketPath as deviceSocketPath } from "./devices/protocol.js";
 // ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
@@ -2725,10 +2727,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         const hosts = remote.allowedHosts();
         const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
           hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
-        if (refused) { refuseUpgrade(socket); return; }
+        // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
+        // phone window's key and secret, which a device never holds; the device's own signature over a
+        // fresh challenge stands in for them. The door's one allowlist still holds: "never" wins.
+        const neverOnDoor = viaRemote && allowlistSays(readSenderAllowlist(app.store, app.runtime.owner), remoteChannel, claimedDevice(request)) === "block";
+        if (refused || neverOnDoor) { refuseUpgrade(socket); return; }
         app.devices.hub.attach(request, socket);
         return;
       }
+      // Integration review: the paired door serves the device socket and nothing else. It had no
+      // upgrade handler before this branch, and a task's socket stays on this computer's own door.
+      if (viaRemote) { refuseUpgrade(socket); return; }
       // ---- end mac7/nodes ----
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
@@ -2744,9 +2753,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
       const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
-      // mac7/nodes: on the paired door a task's socket also passes the door's own chain.
-      const doorRefused = viaRemote && gateway.check(request, true) !== null;
-      if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || doorRefused || !tokenFromProtocol(request, token)) {
+      if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
       }

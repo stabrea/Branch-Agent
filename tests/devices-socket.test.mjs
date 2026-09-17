@@ -191,7 +191,7 @@ test("the door refuses a wrong host, a foreign page, an unknown device, a wrong 
   assert.equal((await rawUpgrade(ctx.server.url, { "x-branch-node": id })).status, 401, "switched off, nothing opens");
 });
 
-test("the paired door now handles upgrades, with the same checks, and a task's socket there passes the door's chain", async (t) => {
+test("the paired door now handles upgrades, with the same checks, and never serves a task's socket", async (t) => {
   const ctx = await setup(t);
   await ctx.call("devices/mode", { mode: "on" });
   const { identity } = await pairedNode(ctx);
@@ -208,7 +208,7 @@ test("the paired door now handles upgrades, with the same checks, and a task's s
   open.socket.destroy();
   const run = ctx.app.store.createRun(ctx.app.runtime.owner, "socket");
   const task = await rawUpgrade(doorUrl, { host, "sec-websocket-protocol": `bearer, ${ctx.server.token}` }, `/api/runs/${run.id}/ws`);
-  assert.equal(task.status, 401, "no phone has been let in through the phone invitation, so the door's chain refuses");
+  assert.equal(task.status, 401, "a task's socket stays on this computer's own door");
   const loopback = await rawUpgrade(ctx.server.url, { "sec-websocket-protocol": `bearer, ${ctx.server.token}` }, `/api/runs/${run.id}/ws`);
   assert.equal(loopback.status, 101, "the same task socket on this computer's own door is unchanged");
   loopback.socket.write(maskedFrame(Buffer.alloc(0), 8));
