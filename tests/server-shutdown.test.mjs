@@ -16,6 +16,8 @@ test("shutdown closes browser preconnections after draining runtime work", async
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const socket = connect(Number(new URL(server.url).port), "127.0.0.1");
+  // Closing the server resets this idle connection; macOS and Linux report that as an error event.
+  socket.on("error", () => {});
   let timer;
   try {
     await once(socket, "connect");
