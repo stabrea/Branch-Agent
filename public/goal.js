@@ -1,7 +1,7 @@
 /**
  * Wave mac2: goal mode on the page. "/goal <what should be true> [--max n]" in the message box (or
- * the Goal button, which only fills in "/goal " for you) keeps the conversation working in rounds
- * until it is judged done. A strip above the box shows the round, the score from 0 to 1, what is
+ * the Goal button beside the conversation's plan, which only fills in "/goal " for you) keeps the
+ * conversation working in rounds until it is judged done. A strip with the plan shows the round, the score from 0 to 1, what is
  * still missing and how long it has worked, with Pause, Resume and Stop. Every word on screen comes
  * from public/locales through `t`.
  *
@@ -81,7 +81,11 @@ async function boot() {
   strip.id = "goal-strip";
   strip.hidden = true;
   strip.setAttribute("role", "status");
-  $("composer-dock")?.prepend(strip);
+  // The goal lives beside the conversation's plan ("Still to do"), which the redesigned window
+  // shows in the pane's Plan tab; the message box keeps only what changes the next message.
+  const planBlock = $("context-todos")?.closest(".context-block");
+  const home = planBlock ?? $("composer-dock");
+  home?.prepend(strip);
   const starter = el("button", t("goal.button"), "text-button");
   starter.type = "button";
   starter.id = "goal-start";
@@ -93,7 +97,7 @@ async function boot() {
     if (!box.value.trim().startsWith("/goal")) box.value = "/goal " + box.value.trim();
     box.focus();
   });
-  $("send")?.before(starter);
+  strip.after(starter);
   starter.hidden = true;
   const applySettings = (settings) => { starter.hidden = !showsGoalButton(settings); };
   app.api("goal-undo/settings").then(applySettings, () => undefined);
@@ -206,7 +210,8 @@ function settingsCard($, el, t, app, applied) {
       status.textContent = t("goalUndo.saved");
     } catch (error) { status.textContent = error.message; }
   });
-  const after = $("second-opinion-form");
+  // Beside "Workspace snapshots", which the redesigned window keeps under Settings → data.
+  const after = $("snapshots-card");
   if (after) after.after(form); else $("settings")?.append(form);
   app.api("goal-undo/settings").then(show, () => undefined);
 }
