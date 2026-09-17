@@ -198,6 +198,11 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
   });
 }
 
+import { vkService } from "./vk.js";
+import { qqBotService } from "./qq-bot.js";
+import { guildedService } from "./guilded.js";
+import { revoltService } from "./revolt.js";
+import { mumbleService } from "./mumble.js";
 /**
  * Wave mac3 (channels-parity): every chat service added to match the other assistants. Each is
  * written in the connections file as `{ "type": "<kind>", "id": ... }`, built by
@@ -210,4 +215,5 @@ export const parityServices: ParityService[] = [
   mastodonService, blueskyService, redditService, discourseService, xService, twistService,
   nextcloudTalkService, smsService, ntfyService, pushoverService, threemaService, homeassistantService,
   xmppService, mqttService, keybaseService, simplexService, deltachatService, nostrService,
+  vkService, qqBotService, guildedService, revoltService, mumbleService,
 ];
