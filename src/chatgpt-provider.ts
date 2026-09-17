@@ -8,6 +8,7 @@ import { chatgptAccountId, chatgptDefaults, type ChatGPTAuth } from "./chatgpt-a
 
 /** Models the ChatGPT subscription route serves; the first is the suggested default. */
 export const chatgptModels = [
+  { id: "gpt-5.6-sol", label: "GPT-5.6 Sol (light)", reasoning: "low" },
   { id: "gpt-5.5", label: "GPT-5.5", reasoning: "medium" },
   { id: "gpt-5.6", label: "GPT-5.6", reasoning: "medium" },
   { id: "gpt-5.4", label: "GPT-5.4", reasoning: "medium" },
