@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   // Branch command they mean; `version` needs nothing opened. See src/terminal-cli.ts.
   const inTerminal = looksInteractive(process.env, process.stdout.isTTY === true && process.stdin.isTTY === true);
   process.argv.splice(2, Infinity, ...terminalArgv(process.argv.slice(2), inTerminal));
-  if (process.argv[2] === "version") { console.log(versionText()); return; }
+  if (process.argv[2] === "version" && !asksForHelp(process.argv.slice(3))) { console.log(versionText()); return; }
   // ---- end of the terminal block
   const command = process.argv[2] ?? "start";
   // Batch 20 (wave 8): `branch <command> --help` says what that command does and stops. Asking must

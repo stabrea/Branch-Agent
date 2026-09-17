@@ -790,6 +790,7 @@ async function api(
     return onboardingState(app);
   }
   // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
+  if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
   if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
