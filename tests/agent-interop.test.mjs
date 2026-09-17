@@ -352,3 +352,25 @@ test("provider-actions (A2252) a service's own actions are tools, and every one 
   const policy = { preset: "ask-before-changes", rules: presetRules("ask-before-changes"), unmatchedCommands: "allow" };
   assert.equal(evaluatePolicy(policy, { tool: "api.notion.update_page", target: "api.notion.com", readOnly: false }).decision, "ask");
 });
+
+test("every row of bucket 20 has a verdict in docs/configuration.md, and every file it names exists", async () => {
+  const { existsSync } = await import("node:fs");
+  const root = join(import.meta.dirname, "..");
+  const text = await readFile(join(root, "docs", "configuration.md"), "utf8");
+  const heading = "## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)";
+  const start = text.indexOf(heading);
+  assert.ok(start >= 0, "the section is missing");
+  const next = text.indexOf("\n## ", start + heading.length);
+  const section = text.slice(start, next < 0 ? undefined : next);
+  const rows = ["agent-protocol", "client-tools", "A0429", "A1857", "provider-actions", "A0146", "A0319", "A0688", "A0428", "A1293", "A1327", "A0421"];
+  const items = section.split("\n- ").slice(1).map((item) => item.replace(/\s+/g, " "));
+  for (const id of rows) {
+    const item = items.find((entry) => entry.startsWith(`**${id}**`));
+    assert.ok(item, `${id} is not listed`);
+    assert.match(item, /— (verified|built|documented)\b/, `${id} has no verdict`);
+    assert.match(item, /`(src|public)\/[^`]+`/, `${id} names no source file`);
+    assert.match(item, /`tests\/[^`]+\.test\.mjs`/, `${id} names no test`);
+  }
+  for (const [, path] of section.matchAll(/`((?:src|tests|public|docs)\/[^`\s]+)`/g))
+    assert.ok(existsSync(join(root, path)), `${path} does not exist`);
+});
