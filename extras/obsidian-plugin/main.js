@@ -16,9 +16,17 @@ const obsidian = require("obsidian");
 const DEFAULTS = { address: "http://127.0.0.1:3210", key: "", conversations: {} };
 const MAX_NOTE = 12000;
 
+/** Branch on this computer: the only place the plugin sends a note, since its key sits in the vault. */
+function isThisComputer(address) {
+  let host;
+  try { host = new URL(address).hostname.toLowerCase(); } catch { return false; }
+  return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
 /** A reason not to send, in plain words, or null. */
 function refusal(settings) {
   if (!settings.address || !/^https?:\/\/[^\s/]+/i.test(settings.address)) return "Set your Branch address in the plugin's settings first.";
+  if (!isThisComputer(settings.address)) return "The plugin only talks to Branch on this computer (http://127.0.0.1 or localhost).";
   if (!settings.key) return "Paste a short-lived key from `branch token create --scope run` in the plugin's settings first.";
   return null;
 }
@@ -78,7 +86,7 @@ class BranchSettingTab extends obsidian.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new obsidian.Setting(containerEl).setName("Branch address")
-      .setDesc("Where your Branch listens: this computer's address, or your paired address from another device.")
+      .setDesc("Where Branch listens on this computer, such as http://127.0.0.1:3210. Other computers are refused.")
       .addText((text) => text.setValue(this.plugin.settings.address).onChange(async (value) => { this.plugin.settings.address = value.trim(); await this.plugin.saveSettings(); }));
     new obsidian.Setting(containerEl).setName("Short-lived key")
       .setDesc("From `branch token create --scope run`. It can start and read tasks and nothing else. Never paste the app window's own key here.")

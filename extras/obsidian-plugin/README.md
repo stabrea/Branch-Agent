@@ -14,11 +14,14 @@ Markdown files in your vault without Obsidian running. This plugin is for asking
    switch on **Branch Agent**.
 3. In a terminal, run `branch token create --scope run --minutes 43200 --name obsidian` and copy the key
    it prints. A key lasts at most thirty days; make a new one when Obsidian says it has run out.
-4. In **Settings → Branch Agent**, set the address (`http://127.0.0.1:3210` on the same computer,
-   or your paired address from another device) and paste the key.
+4. In **Settings → Branch Agent**, set the address Branch listens on this computer
+   (`http://127.0.0.1:3210` unless you changed it) and paste the key.
 
-The key can start and read tasks and nothing else. Never paste the key the Branch window itself
-uses.
+The plugin only talks to Branch on the same computer; any other address is refused. The key is
+kept in the plugin's own settings file inside your vault (`.obsidian/plugins/branch-agent/data.json`),
+so a vault you sync or share carries it too: that is why it is a short-lived key that can start and
+read tasks and nothing else, and why it is never sent off this computer. Never paste the key the
+Branch window itself uses.
 
 ## Using it
 

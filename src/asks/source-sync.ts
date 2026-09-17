@@ -44,6 +44,8 @@ export interface SyncDeps {
   imap: (server: MailServer) => { connect(): Promise<void>; sinceUid(uid: number, limit: number): Promise<(MailMessage & { uid: number })[]>; close(): Promise<void> };
   /** Whether Telegram is also connected as a chat channel. */
   telegramInUse: () => boolean;
+  /** The owner's network rules for a mail server, checked before a connection is opened. */
+  assertHost: (host: string, port: number) => Promise<void>;
 }
 
 async function json(deps: SyncDeps, url: string, headers: Record<string, string>): Promise<unknown> {
@@ -53,7 +55,9 @@ async function json(deps: SyncDeps, url: string, headers: Record<string, string>
 }
 
 export async function pullGithub(deps: SyncDeps, source: Source, cursor: string): Promise<Pulled> {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(source.target)) throw new Error("A GitHub source needs owner/repository");
+  // A part made only of dots would step out of /repos/ once the address is tidied up.
+  if (!/^[\w.-]+\/[\w.-]+$/.test(source.target) || source.target.split("/").some((part) => /^\.+$/.test(part)))
+    throw new Error("A GitHub source needs owner/repository");
   const query = new URLSearchParams({ state: "all", sort: "updated", direction: "asc", per_page: String(source.limit) });
   if (cursor) query.set("since", cursor);
   const headers: Record<string, string> = { accept: "application/vnd.github+json", "user-agent": "BranchAgent" };
@@ -87,6 +91,8 @@ export async function pullTelegram(deps: SyncDeps, source: Source, cursor: strin
 export async function pullImap(deps: SyncDeps, source: Source, cursor: string): Promise<Pulled> {
   const match = /^([^@\s]+@[^@\s:]+|[^@\s:]+)@([^@\s:]+):(\d+)$/.exec(source.target);
   if (!match) throw new Error("A mailbox source needs user@host:port, for example you@gmail.com@imap.gmail.com:993");
+  // A mailbox is a raw connection rather than a fetch, so the owner's network rules are asked here.
+  await deps.assertHost(match[2]!, Number(match[3]));
   const client = deps.imap({ user: match[1]!, host: match[2]!, port: Number(match[3]), password: await deps.secret(source.secret) });
   await client.connect();
   try {

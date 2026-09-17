@@ -6518,7 +6518,8 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
   and shown in the same sealed frame, reloading itself (`src/asks/live-surfaces.ts`,
   `tests/asks-surfaces.test.mjs` "A2240").
 - **A2133** (an Obsidian plugin) — built: `extras/obsidian-plugin/` asks Branch about a note with a
-  short-lived key (`tests/asks-surfaces.test.mjs` "A2133"); the notes-folder bridge (`src/obsidian.ts`) stays.
+  short-lived key, and only to Branch on the same computer (`tests/asks-surfaces.test.mjs` "A2133",
+  `tests/asks-hardening.test.mjs`); the notes-folder bridge (`src/obsidian.ts`) stays.
 - **A1932** (a browser extension) — verified: `extras/browser-extension/` is a Manifest V3 folder that
   refuses this computer's own address (`tests/embeds-watches.test.mjs` "E1", "E2").
 - **A1934** (a chat box for other websites) — verified: `public/widget.js` answers only on sites the
@@ -6534,7 +6535,11 @@ lists them for the assistant to load; "off" leaves them out, and the timer that 
 does not run. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
 some of them and change none (`tests/short-lived-key-routes.mjs`). A tool of these parts pressed in the
 window goes through the one tool gate (`src/tool-gate.ts`), and work that runs by itself (live pages)
-is held to what the rules allow outright.
+is held to what the rules allow outright. A live page whose tool fails or is held waits twice as long
+before the next try each time (up to 64 times its interval, at most a day), one refresh round never
+overlaps another, and pressing Refresh again within ten seconds asks nothing. A mailbox source checks
+the owner's network rules before it connects, like every other outgoing call here, so a mail server
+on the home network needs private addresses allowed.
 
 | Part | Where it lives | What it does |
 | --- | --- | --- |

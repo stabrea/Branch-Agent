@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { cleanChildEnvironment } from "../child-env.js";
 import { agentPromptFrom } from "../providers/cli-agent.js";
 
 /**
@@ -23,11 +24,13 @@ export interface AppServerChild {
 }
 export type StartAppServer = (command: string) => AppServerChild;
 
-const passedThrough = ["PATH", "PATHEXT", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "TEMP", "TMP", "CODEX_HOME"];
+/** Branch's short allowlist (src/child-env.ts), plus where Codex keeps its own sign-in when moved. */
+export function codexEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...cleanChildEnvironment(source), ...(source.CODEX_HOME ? { CODEX_HOME: source.CODEX_HOME } : {}) };
+}
 
 export const startCodexAppServer: StartAppServer = (command) => {
-  const env: NodeJS.ProcessEnv = {};
-  for (const name of passedThrough) if (process.env[name]) env[name] = process.env[name];
+  const env = codexEnvironment();
   const child = spawn(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], shell: false, windowsHide: true, env });
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const listeners: ((message: Record<string, unknown>) => void)[] = [];

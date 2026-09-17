@@ -33,6 +33,8 @@ export interface AsksDeps {
   secret: (name: string, purpose: string) => Promise<string>;
   /** Whether Telegram is connected as a chat channel right now. */
   telegramInUse: () => boolean;
+  /** The owner's network rules for an address that is not reached with `fetch` (a mail server). */
+  assertHost: (host: string, port: number) => Promise<void>;
   version: string;
 }
 
@@ -63,7 +65,7 @@ export class Asks {
     this.articles = new ArticleWriter({ store, owner, web: deps.web, files: deps.files, provider });
     this.sources = new SourceSync({ store, owner, files: deps.files, fetch: deps.fetch,
       secret: (name) => deps.secret(name, "bringing in new items"), imap: (server) => new ImapClient(server),
-      telegramInUse: deps.telegramInUse });
+      telegramInUse: deps.telegramInUse, assertHost: deps.assertHost });
     this.hindsight = new Hindsight(store, owner, deps.fetch, (name) => deps.secret(name, "the Hindsight memory server"));
     this.blocks = new AppBlocks(store, owner, deps.fetch, (name) => deps.secret(name, "a step for another app"));
     this.runtimes = new AgentRuntimes(store, owner, runtime.models, deps.version);

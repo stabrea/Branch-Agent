@@ -71,7 +71,7 @@ async function surfacesRoute(deps: AsksHttpDeps, path: string): Promise<unknown>
   if (!match || deps.method !== "POST") return undefined;
   if (match[2] === "remove") return surfaces.remove(match[1]!);
   requireAsk(deps.runtime.store, deps.runtime.owner, "live-surfaces");
-  await surfaces.refresh(match[1]!);
+  await surfaces.refresh(match[1]!, { manual: true });
   return { surface: surfaces.list().find((s) => s.id === match[1]) };
 }
 

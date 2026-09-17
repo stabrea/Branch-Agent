@@ -26,9 +26,15 @@ export const SurfaceSchema = z.object({
 
 export interface Surface extends z.infer<typeof SurfaceSchema> {
   id: string; page: string; html: string; updatedAt: string | null; error: string | null; dueAt: number;
+  /** Failed asks in a row, which stretch the wait before the next one; and when refresh was last pressed. */
+  failures: number; pressedAt: number;
 }
 const SavedSchema = z.object({ surfaces: z.array(z.object({ id: z.string(), page: z.string() }).merge(SurfaceSchema)).max(12).default([]) }).strict();
 const savedKey = "asks-live-surfaces-list";
+/** A failing page waits its interval times 2, 4, 8 … up to 64, and never more than a day. */
+const maxBackoff = 6, maxWaitMs = 86_400_000;
+/** Refresh pressed by hand again within this long of the last press asks nothing. */
+export const manualGapMs = 10_000;
 export const surfacePath = /^\/asks-surface\/([A-Za-z0-9_-]{32,48})$/;
 
 const escape = (value: string): string => value.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -44,23 +50,24 @@ export function surfaceHtml(result: unknown): string {
 export class LiveSurfaces {
   private readonly live = new Map<string, Surface>();
   private timer: NodeJS.Timeout | undefined;
+  private ticking = false;
   constructor(private readonly store: Store, private readonly owner: string,
     private readonly runTool: (name: string, args: unknown, surfaceId: string) => Promise<unknown>,
     private readonly now: () => number = Date.now) {
     for (const saved of partSettings(store, owner, savedKey, SavedSchema).surfaces)
-      this.live.set(saved.id, { ...saved, html: "", updatedAt: null, error: null, dueAt: 0 });
+      this.live.set(saved.id, { ...saved, html: "", updatedAt: null, error: null, dueAt: 0, failures: 0, pressedAt: -Infinity });
   }
   private persist(): void {
     this.store.save("settings", this.owner, savedKey, { surfaces: [...this.live.values()].map(({ id, page, title, tool, args, everySeconds }) => ({ id, page, title, tool, args, everySeconds })) });
   }
-  list(): Omit<Surface, "html" | "dueAt">[] {
-    return [...this.live.values()].map(({ html: _html, dueAt: _due, ...rest }) => rest);
+  list(): Omit<Surface, "html" | "dueAt" | "failures" | "pressedAt">[] {
+    return [...this.live.values()].map(({ html: _html, dueAt: _due, failures: _failures, pressedAt: _pressed, ...rest }) => rest);
   }
-  async add(input: unknown): Promise<Omit<Surface, "html" | "dueAt">> {
+  async add(input: unknown): Promise<Omit<Surface, "html" | "dueAt" | "failures" | "pressedAt">> {
     requireAsk(this.store, this.owner, "live-surfaces");
     if (this.live.size >= 12) throw new Error("At most twelve live pages can be kept");
     const surface: Surface = { ...SurfaceSchema.parse(input), id: randomUUID(), page: randomBytes(24).toString("base64url"),
-      html: "", updatedAt: null, error: null, dueAt: 0 };
+      html: "", updatedAt: null, error: null, dueAt: 0, failures: 0, pressedAt: -Infinity };
     this.live.set(surface.id, surface);
     this.persist();
     await this.refresh(surface.id);
@@ -71,28 +78,42 @@ export class LiveSurfaces {
     this.persist();
     return { removed };
   }
-  /** Asks the tool again now. A refusal keeps the last page and says why. */
-  async refresh(id: string): Promise<void> {
+  /**
+   * Asks the tool again now. A refusal keeps the last page and says why, and each failure in a row
+   * doubles the wait before the beat asks again. Pressed by hand (`manual`), a second press within
+   * ten seconds of the last press asks nothing, so a held-down button cannot run the tool in a loop.
+   */
+  async refresh(id: string, options: { manual?: boolean } = {}): Promise<void> {
     const surface = this.live.get(id);
     if (!surface) throw new Error("That live page was not found");
-    surface.dueAt = this.now() + surface.everySeconds * 1000;
+    const started = this.now();
+    if (options.manual) {
+      if (started - surface.pressedAt < manualGapMs) return;
+      surface.pressedAt = started;
+    }
     try {
       surface.html = surfaceHtml(await this.runTool(surface.tool, surface.args, surface.id));
       surface.updatedAt = new Date(this.now()).toISOString();
       surface.error = null;
+      surface.failures = 0;
     } catch (error) {
       surface.error = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+      surface.failures = Math.min(surface.failures + 1, maxBackoff);
     }
+    surface.dueAt = started + Math.min(surface.everySeconds * 1000 * 2 ** surface.failures, maxWaitMs);
   }
-  /** One beat: every surface that is due is asked again, one at a time. */
+  /** One beat: every surface that is due is asked again, one at a time; a beat never overlaps another. */
   async tick(): Promise<number> {
-    if (askMode(this.store, this.owner, "live-surfaces") === "off") return 0;
+    if (this.ticking || askMode(this.store, this.owner, "live-surfaces") === "off") return 0;
+    this.ticking = true;
     let refreshed = 0;
-    for (const surface of [...this.live.values()]) {
-      if (surface.dueAt > this.now()) continue;
-      await this.refresh(surface.id);
-      refreshed++;
-    }
+    try {
+      for (const surface of [...this.live.values()]) {
+        if (surface.dueAt > this.now() || !this.live.has(surface.id)) continue;
+        await this.refresh(surface.id);
+        refreshed++;
+      }
+    } finally { this.ticking = false; }
     return refreshed;
   }
   start(everyMs = 15000): void {
