@@ -7,7 +7,8 @@ import { mkdir, copyFile, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
 await mkdir(resolve("dist"), { recursive: true });
-for (const name of ["holidays.json", "providers.json", "memory-retrieval.json", "channels.json"])
+// Wave mac5: local-models.json, the list of models offered with one click.
+for (const name of ["holidays.json", "providers.json", "memory-retrieval.json", "channels.json", "local-models.json"])
   await copyFile(resolve("data", name), resolve("dist", name));
 
 const handbook = resolve("dist/handbook");

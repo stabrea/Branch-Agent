@@ -457,3 +457,19 @@ input.plan-step-title {
   padding: 0.35rem 0.55rem;
   font: inherit;
 }
+
+/* Wave mac5: one-click models on this computer (public/local-oneclick.js). Tokens only. */
+.local-oneclick { display: grid; gap: var(--s2); min-width: 0; }
+.local-oneclick h3 { margin: var(--s3) 0 0; }
+.local-variant { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s2) 0; border-top: 1px solid var(--line); min-width: 0; }
+.local-oneclick .local-detail { flex: 1 1 100%; margin: 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.local-variant button { margin-left: auto; }
+.local-fit { padding: 0 var(--s2); border-radius: var(--r1); border: 1px solid var(--line); font-size: 0.85rem; }
+.local-fit[data-fit="well"] { color: var(--ok); border-color: var(--ok); }
+.local-fit[data-fit="tight"] { color: var(--warn); border-color: var(--warn); }
+.local-fit[data-fit="no"] { color: var(--bad); border-color: var(--bad); }
+.local-warning { color: var(--warn); }
+.local-here { color: var(--ok); }
+.local-oneclick .item h3 { overflow-wrap: anywhere; }
+.local-search .input-row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.local-search .input-row input { flex: 1 1 12rem; min-width: 0; }
