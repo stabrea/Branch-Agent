@@ -477,5 +477,59 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
 
   const script = await fetch(server.url + "/move-in.js");
   assert.equal(script.status, 200);
-  assert.match(await script.text(), /Bring the ticked things over/);
+  assert.match(await script.text(), /action\.movein-bring/);
+});
+
+test("every word the move-in card shows is on file in English and in real French", async () => {
+  const script = await readFile(new URL("../public/move-in.js", import.meta.url), "utf8");
+  const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  const keys = new Set([...script.matchAll(/["'`]((?:memory\.movein|action\.movein|field\.movein)[\w.-]*)["'`]/g)].map((m) => m[1]));
+  for (const kind of ["chat", "project", "memory", "instructions", "skill", "mcp", "setting"]) keys.add(`memory.movein.kind.${kind}`);
+  assert.ok(keys.size > 30, "the script's keys were not found");
+  for (const key of keys) {
+    assert.ok(english[key], `${key} has no English`);
+    assert.ok(french[key] && french[key] !== english[key], `${key} has no French of its own`);
+  }
+  assert.ok(!/textContent = "[A-Z]/.test(script), "a word is written into the page without a key");
+});
+
+test("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
+  const { chromium } = await import("playwright");
+  const made = await fixture(t);
+  await claudeHome(made.home);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0 });
+  const previous = process.env.BRANCH_MOVE_IN_HOME;
+  process.env.BRANCH_MOVE_IN_HOME = made.home;
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => {
+    if (previous === undefined) delete process.env.BRANCH_MOVE_IN_HOME; else process.env.BRANCH_MOVE_IN_HOME = previous;
+    await browser.close();
+    await server.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 400, height: 800 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  const offer = page.locator("#move-in-offer button");
+  await offer.waitFor({ state: "visible" });
+  assert.equal(await offer.textContent(), "Bring your chats and memory from Claude Code.");
+  await offer.click();
+  await page.locator("#memory").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "See what is there", exact: true }).click();
+  const bring = page.getByRole("button", { name: "Bring the ticked things over", exact: true });
+  await bring.waitFor({ state: "visible" });
+  const wide = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert.ok(await wide() <= 0, "the preview pushes the page sideways");
+  await bring.click();
+  await page.locator("#move-in-brought pre").first().waitFor({ state: "attached" });
+  await page.locator("#move-in-brought details").first().evaluate((node) => { node.open = true; });
+  assert.ok(await wide() <= 0, "the receipt or a server entry pushes the page sideways");
+  assert.match(await page.locator("#move-in-status").textContent(), /^9 brought over, 0 left behind\.$/);
+  assert.equal(await page.locator("#move-in-offer").count(), 0, "the offer stays after everything came over");
+  assert.deepEqual(errors, []);
 });
