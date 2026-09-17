@@ -661,6 +661,10 @@ export async function createBranch(options: {
   research.pageFallback = async (url, context) => {
     const names = registry.names();
     if (!names.includes("browser.navigate") || !names.includes("browser.snapshot") || !context.permissions.has("browser.read")) return null;
+    // Integration review: only where the owner's approval rules already let the browser open this page
+    // without asking; a rule that asks (or refuses) leaves the plain read's answer standing.
+    for (const [tool, args] of [["browser.navigate", { url }], ["browser.snapshot", {}]] as const)
+      if (runtime.checkPolicy(tool, args, context).decision !== "allow") return null;
     await registry.execute("browser.navigate", { url }, context);
     const snapshot = await registry.execute("browser.snapshot", {}, context) as { url?: string; accessibility?: string };
     return { url: snapshot.url ?? url, title: snapshot.url ?? url, text: String(snapshot.accessibility ?? "") };

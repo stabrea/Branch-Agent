@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { createBranch } from "../dist/index.js";
+import { createBranch, savePolicy } from "../dist/index.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 /* bucket-18 (A2128): research reads a page built by script with the browser, only when one is set up. */
@@ -63,4 +63,20 @@ test("A2128 a page built by script is read with the browser, and an ordinary pag
     permissions: app.registry.permissions().filter((name) => name !== "browser.read") });
   await app.registry.execute("research.run", { question: "How tall is the Eiffel Tower really?", depth: "quick" }, limited);
   assert.deepEqual(visited, []);
+});
+
+test("A2128 review: the browser is only used where the owner's approval rules let it open the page without asking", async (t) => {
+  const base = await site(t);
+  const { app } = await fixture(t, base);
+  const visited = [];
+  app.registry.register({ name: "browser.navigate", permission: "browser.read", description: "stand-in",
+    parameters: z.object({ url: z.string() }).strict(), execute: async (args) => { visited.push(args.url); return {}; } });
+  app.registry.register({ name: "browser.snapshot", permission: "browser.read", description: "stand-in",
+    parameters: z.object({}).strict(), execute: async () => ({ url: visited.at(-1), accessibility: "rendered ".repeat(60) }) });
+  savePolicy(app.store, app.runtime.owner, { preset: "workspace" });
+  const run = app.store.createRun("local", "How tall is the Eiffel Tower?");
+  const report = await app.registry.execute("research.run", { question: "How tall is the Eiffel Tower?", depth: "quick" }, app.runtime.context({ runId: run.id }));
+  assert.equal(report.status, "finished");
+  assert.deepEqual(visited, [], "the rule asks before opening a page, so research does not open one silently");
+  assert.equal(app.store.events(run.id).some((event) => event.kind === "research.browser"), false);
 });
