@@ -140,11 +140,18 @@ export function notes(store: Store, runId: string) {
   // Wave 7: a think-then-act specialist leaves one line of reasoning a round, and the working style
   // it was given; both belong on the "Look inside" screen rather than in the answer.
   const thinking: { at: string; text: string }[] = [];
+  // Wave 9: what a second connection made of the finished answer. It sits beside the answer on the
+  // "Look inside" screen and is never folded into it, so the owner reads both and decides.
+  let advice: { preset: string; stands: string; line: string } | null = null;
   let style: string | null = null;
   for (const event of store.events(runId)) {
     const data = event.data as Record<string, unknown>;
     if (event.kind === "react.scratch") { thinking.push({ at: event.createdAt, text: String(data.text ?? "") }); continue; }
     if (event.kind === "specialist.style") { style = String(data.style ?? ""); continue; }
+    if (event.kind === "advice.given") {
+      advice = { preset: String(data.preset ?? ""), stands: String(data.stands ?? "unsure"), line: String(data.line ?? "") };
+      continue;
+    }
     if (event.kind.startsWith("plan.")) plan.push({ at: event.createdAt, title: event.kind.replace("plan.", "plan "), detail: clip(data.steps ?? data.step ?? data.error) });
     else if (event.kind === "verify.verdict" || event.kind === "verify.failed")
       verdicts.push({ at: event.createdAt, verdict: String(data.verdict ?? (event.kind === "verify.failed" ? "could not check" : "unknown")), reason: clip(data.reason ?? data.error) });
@@ -153,7 +160,7 @@ export function notes(store: Store, runId: string) {
     else if (event.kind === "policy.ask" || event.kind === "user.ask")
       questions.push({ at: event.createdAt, question: String(data.question ?? data.label ?? "waiting for an answer"), answered: false });
   }
-  return { plan, verdicts, steering, questions, thinking, style };
+  return { plan, verdicts, steering, questions, thinking, style, advice };
 }
 
 /** Everything the "Look inside" screen needs, and the same shape the JSON export writes out. */

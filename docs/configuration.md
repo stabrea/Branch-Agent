@@ -4210,3 +4210,90 @@ backup and the diagnostics folder both already understand is the whole design.
   what is mentioned with what is built in the same SQLite file (`src/knowledge-graph.ts`), which is
   what a house-sized knowledge base actually needs. A separate graph server would be a service to
   install, run and back up for no gain here.
+
+## A second opinion before it commits (wave 9)
+
+Three separate things, all of them off or opt-in, because a second opinion costs a second model call.
+
+### An advisor that reads the answer
+
+When it is on, a connection of your choosing reads each finished answer and says whether it stands
+up and what it would check. **Its words go beside the answer and are never written into it.** The
+answer you were given is the answer the model gave; the advice is a second thing you read next to
+it, and you decide. The pass runs on its own budget and its cost lands on the task like any other
+model call, so you can see what it came to on the Usage screen.
+
+Settings, saved under `second-opinion` and set on the Settings screen:
+
+- `advisor` — whether a second connection checks each finished answer. Off by default.
+- `advisorPreset` — which connection advises. Empty means whichever one answered, which is a
+  weaker check: a model rarely argues with itself.
+- `advisorMaxTokens` — the most the pass may spend on one task.
+
+It never runs for a specialist's sub-task, and it can never fail a task that has already answered:
+an advisor that errors, times out or runs out of its own tokens is written down as
+`advice.failed` and the answer is given exactly as it was.
+
+### Two connections arguing
+
+`delegate.debate` puts two of your model connections on one question. Each answers on its own, then
+each reads the other and says where it disagrees and why, and a short verdict says what was argued
+and what is still open. Nothing here decides anything for you — two models arguing is evidence to
+read, not a ruling to act on.
+
+It is bounded twice over, and it says which bound stopped it:
+
+- `debateExchanges` — how many times each side may answer the other. One unless you raise it.
+- `debateMaxTokens` — the most a whole debate may spend. The running total is checked before every
+  single call, so reaching the ceiling means nothing more is sent.
+
+### Answers in a shape the app can rely on
+
+A task can declare the shape it wants back in zod, the same way a tool declares its arguments
+(`declareShape("weather", z.object({ city: z.string(), temperature: z.number() }))`). The model is
+asked for exactly that shape, and the reply goes through the same check every delegated answer
+already goes through. A reply that does not fit is re-asked **once** with its own validation error,
+and a second reply that still does not fit is refused in a plain sentence naming what was wrong.
+Nothing is half-parsed: a shape that could not be met produces no answer rather than a guess.
+
+Where this uses a service's own setting and where it does not, honestly:
+
+- **OpenAI** (and the OpenAI-compatible adapters that share `openaiBody`): its own
+  `response_format: {"type":"json_schema"}` is sent, so the model is genuinely constrained. `strict`
+  is deliberately left off — it would demand that every property be required and no extras be
+  allowed anywhere, which a shape written in zod need not be, and a refused request is worse than a
+  reply that has to be checked.
+- **Anthropic**: there is no response-format setting. Anthropic's own way of fixing a reply's shape
+  is a tool the model is made to call, so the shape is sent as one tool with `tool_choice` naming
+  it, and the reply arrives as that tool's arguments. This only works when the request carries no
+  other tools — true of the shaped pass, which runs with no permissions and so an empty catalog. A
+  request that does carry tools keeps them and falls back to asking in words.
+- **Every other adapter** (Gemini, Bedrock, Cohere, Ollama, Azure through its own body, the CLI
+  agents): the shape is asked for in the words of the question and checked afterwards. That is the
+  re-ask path, not a native one. It works; it is just not enforced by the service.
+
+### Pydantic: not applicable, and what stands in for it
+
+The capability audit asks for Pydantic model validation of structured output. Pydantic is a Python
+library and Branch is TypeScript, so there is nothing to integrate. The equivalent is zod, which
+Branch already uses to declare every tool's arguments and every setting on this page, and which is
+what a declared shape is written in above. A shape goes from zod through zod's own `toJSONSchema`
+into the same check every delegated answer already passes through, so a declared shape is validated
+the same way a tool's arguments are. Nothing further is needed, and adding a Python dependency to a
+TypeScript app to satisfy the letter of the row would be worse than not having it.
+
+### The adapter family (`adapter-system` in #55): chat and XML are not applicable
+
+The audit's `adapter-system` family asks for three adapters. Only one of them means anything here,
+and building the other two would be building something nobody would run:
+
+- **JSON adapter — built.** That is the shaped answer above, native where a service offers it.
+- **Chat adapter — not applicable.** Every connection Branch has already speaks the one chat shape:
+  `Message[]` in, `Completion` out, through `openaiMessage`, `anthropicMessages` and their
+  equivalents. A "chat adapter" is the `Provider` contract itself, which has existed since the
+  first release. Adding a thing called a chat adapter on top of it would be a second name for the
+  same object.
+- **XML adapter — not applicable.** Nothing in Branch consumes XML from a model. Tool calls arrive
+  as structured objects from every provider's own API, not as tags to be parsed out of prose, and
+  the one place a reply's shape matters is covered by JSON above. An XML adapter would add a
+  parser, a failure mode and a setting for a format no part of the app reads.

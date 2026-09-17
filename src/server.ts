@@ -19,6 +19,7 @@ import {
   PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
   saveSessionPlanAct, sessionPlanAct, clearSessionPlanAct,
 } from "./plan-act.js";
+import { secondOpinionSettings, saveSecondOpinionSettings } from "./second-opinion.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { PackageInstallSchema } from "./skill-packages.js";
@@ -312,6 +313,8 @@ async function staticFile(
     // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
     // better versions of a skill under Skills.
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
+    // Wave 9: the advisor switch and the two debate bounds.
+    "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
@@ -568,6 +571,7 @@ function state(app: Branch): unknown {
     providerPlugins: app.providerPlugins.list(),
     issueTrackers: app.issues?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
+    secondOpinion: secondOpinionSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
     setAside: app.store.governance.exclusions(),
@@ -790,10 +794,16 @@ async function api(
         messages: app.store.messages(run.sessionId),
         usage: app.store.usage(run.id),
         cost: runCost(app, run.id),
+        // Shown beside the answer, never folded into it: the owner reads both and decides.
+        advice: app.runtime.advice(run.id),
       };
   }
   if (request.method === "GET" && path === "/api/activity")
     return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/second-opinion")
+    return secondOpinionSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/second-opinion")
+    return saveSecondOpinionSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/orchestration")
     return orchestrationSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/orchestration")

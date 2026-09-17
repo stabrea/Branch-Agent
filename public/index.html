@@ -943,6 +943,29 @@
             <p class="appearance-note" data-t="appearance.note">Saved with this workspace, so it looks the same the next time you open it.</p>
             <button data-t="appearance.save">Save appearance</button>
           </form>
+          <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <form id="second-opinion-form" class="card">
+            <h2 data-t="settings.card.second-opinion">A second opinion</h2>
+            <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
+            <label class="check-row"
+              ><input type="checkbox" id="advisor-on" />
+              <span data-t="field.advisor-on">Have a second connection check each finished answer</span></label
+            >
+            <label for="advisor-preset" data-t="field.advisor-connection">Which connection advises</label>
+            <select id="advisor-preset">
+              <option value="" data-t="settings.second-opinion.same-connection">Whichever one answered</option>
+            </select>
+            <p class="field-note" data-t="settings.second-opinion.same-connection-note">Leaving this on the one that answered is a weaker check: a model rarely argues with itself.</p>
+            <label for="advisor-ceiling" data-t="field.advisor-ceiling">Most the check may spend on one task (tokens)</label>
+            <input type="number" id="advisor-ceiling" min="200" max="200000" step="100" />
+            <h3 data-t="settings.second-opinion.debate">Two connections arguing</h3>
+            <p data-t="settings.second-opinion.debate-intro">For a question worth the cost, two connections answer on their own and then read each other. It stops at whichever of these two it reaches first, and says which one stopped it.</p>
+            <label for="debate-exchanges" data-t="field.debate-exchanges">Times each side may answer the other</label>
+            <input type="number" id="debate-exchanges" min="1" max="3" step="1" />
+            <label for="debate-ceiling" data-t="field.debate-ceiling">Most a whole debate may spend (tokens)</label>
+            <input type="number" id="debate-ceiling" min="1000" max="500000" step="1000" />
+            <button data-t="action.save-second-opinion">Save second opinion</button>
+          </form>
           <form id="voice-settings-form" class="card">
             <h2 data-t="settings.card.voice">Voice</h2>
             <p>Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
@@ -1685,6 +1708,7 @@
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
     <script src="/flows.js" type="module"></script>
+    <script src="/second-opinion.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>

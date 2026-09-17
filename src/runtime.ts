@@ -78,6 +78,8 @@ import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
+import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
+import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
@@ -107,7 +109,7 @@ interface GateOutcome {
   refusal: unknown | null; sandbox: SandboxChoice | null;
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -505,14 +507,34 @@ export class Runtime {
   }
   /** A delegated run plus the check of its answer against the schema the parent asked for. */
   async delegateChecked(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}) {
-    const run = await this.delegate(prompt, parent, permissions, instructions, options);
+    const asked = options.shape ? `${prompt}
+
+${shapeInstructions(options.shape)}` : prompt;
+    const run = await this.delegate(asked, parent, permissions, instructions, options);
     const evidence = run.status === "failed" && run.output.startsWith("The answer did not pass its check") ? `: ${run.output}` : "";
-    const result: ResultCheck = run.status !== "completed"
+    let result: ResultCheck = run.status !== "completed"
       ? { status: "unresolved", reason: `The child ended with status ${run.status}${evidence}` }
-      : checkResult(run.output, options.resultSchema);
+      : checkResult(run.output, options.shape?.schema ?? options.resultSchema);
+    if (result.status === "unresolved" && options.shape && run.status === "completed")
+      result = await this.reshape(run, parent, options.shape, result.reason);
     if (result.status === "unresolved" && parent.runId)
       this.store.event(parent.runId, "delegation.unresolved", { childRunId: run.id, reason: result.reason });
     return { run, result };
+  }
+  /**
+   * One re-ask for an answer that missed its declared shape. The child is not run again — that
+   * would repeat whatever it did — only its words are handed back with the validation error, once.
+   * Still wrong the second time means a plain refusal, because half an answer is worse than none.
+   */
+  private async reshape(run: Run, parent: ToolContext, shape: AnswerShape, reason: string): Promise<ResultCheck> {
+    const holder = this.store.run(parent.runId) ?? run;
+    const question = `This answer was meant to be ${shape.name} and was not: ${reason}. Here it is; send the same content in the right shape.
+
+${run.output.slice(0, 6000)}`;
+    const answer = await this.shaped(holder, parent, question, shape);
+    return answer.status === "resolved"
+      ? { status: "resolved", value: answer.value }
+      : { status: "unresolved", reason: answer.reason };
   }
   /**
    * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
@@ -618,6 +640,7 @@ export class Runtime {
       }
     }
     if (context.dryRun) this.reportDryRun(run);
+    if (status === "completed") await this.advise(run, context, output);
     const settled = await this.settleRun(run, context, status, output);
     const usage = this.store.usage(run.id);
     span.end(settled.status === "completed" ? "ok" : "error", settled.status === "completed" ? "" : settled.output, {
@@ -901,6 +924,76 @@ export class Runtime {
       signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
     };
     return (await this.complete(run, messages, scoped, route.candidates[route.index]!, null)).content;
+  }
+  /**
+   * The advisor pass: a second connection reads the finished answer and says whether it stands up.
+   * Off unless the owner turns it on, never run for a specialist's sub-task, and given a budget of
+   * its own so it cannot spend the task's. Its words are written down beside the answer as an
+   * event; the answer itself is not touched, here or anywhere, so the owner reads both.
+   *
+   * Nothing in here may fail a task that has already answered. An advisor that errors, times out
+   * or runs out of its own tokens records why and the answer is given exactly as it was.
+   */
+  private async advise(run: Run, context: ToolContext, answer: string): Promise<void> {
+    const settings = secondOpinionSettings(this.store, context.owner);
+    if (!settings.advisor || context.depth > 0 || context.agent || !answer.trim()) return;
+    const chosen = settings.advisorPreset && this.models.presets.has(settings.advisorPreset)
+      ? this.models.presets.get(settings.advisorPreset)!
+      : this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = {
+      ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: settings.advisorMaxTokens }),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
+    };
+    this.store.event(run.id, "advice.started", { preset: chosen.id, maxTokens: settings.advisorMaxTokens });
+    try {
+      const said = await this.complete(run, [
+        { role: "system", content: advisorInstructions },
+        { role: "user", content: advisorQuestion(run.prompt, answer) },
+      ], scoped, chosen, null);
+      const advice = readAdvice(chosen.name, said.content);
+      this.store.event(run.id, "advice.given", { ...advice, preset: chosen.name, presetId: chosen.id, line: adviceLine(advice) });
+    } catch (error) {
+      // The ceiling is the ordinary way this ends, so it is said as a sentence rather than as the
+      // budget's own words. Either way the answer is given exactly as it was.
+      const reason = error instanceof BudgetError
+        ? `There was not enough left of the ${settings.advisorMaxTokens.toLocaleString()}-token ceiling for the check, so the answer has not been looked at. Raise it in Settings.`
+        : errorText(error);
+      this.store.event(run.id, "advice.failed", { preset: chosen.id, reason });
+    }
+  }
+  /**
+   * One short question to a named connection with no tools, charged to the task it belongs to.
+   * This is what a debate's turns are made of; the caller supplies the budget so the ceiling it
+   * has to respect is its own, not the task's.
+   */
+  async completeAside(run: Run, context: ToolContext, preset: ModelPreset, question: string): Promise<string> {
+    return (await this.complete(run, [{ role: "user", content: question }], context, preset, null)).content;
+  }
+  /** What the advisor said about one task, for showing beside its answer. Null when none was asked. */
+  advice(runId: string): (Advice & { line: string }) | null {
+    const said = this.store.events(runId).filter((event) => event.kind === "advice.given").at(-1);
+    return said ? (said.data as unknown as Advice & { line: string }) : null;
+  }
+  /**
+   * An answer in a declared shape. One pass with no tools, so the connection's own setting for a
+   * fixed reply shape can be used where it has one (see openaiBody and anthropicBody); a reply that
+   * does not fit is re-asked once with its own validation error and then refused in plain words.
+   * The checking is the same `checkResult` every delegated answer goes through, not a second one.
+   */
+  async shaped(run: Run, context: ToolContext, question: string, shape: AnswerShape, preset?: ModelPreset): Promise<ShapedAnswer> {
+    const chosen = preset ?? this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = { ...context, permissions: new Set(),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]) };
+    const ask = async (asked: string, wanted: AnswerShape): Promise<string> => {
+      const said = await this.complete(run, [{ role: "user", content: asked }], scoped, chosen, null, undefined, wanted);
+      // Anthropic answers a shaped ask by calling the tool that holds the shape; its arguments are
+      // the reply. OpenAI answers in the text. Either way what comes back here is the JSON itself.
+      return said.content.trim() || said.toolCalls.find((call) => call.name === wanted.name)?.arguments || said.content;
+    };
+    const answer = await askInShape(ask, question, shape);
+    this.store.event(run.id, "answer.shaped", { shape: shape.name, status: answer.status, reasked: answer.reasked,
+      ...(answer.status === "refused" ? { reason: answer.reason } : {}) });
+    return answer;
   }
   /**
    * A note the owner sends to a task that is still working. It goes in front of the next round,
@@ -1288,6 +1381,7 @@ export class Runtime {
     preset: ModelPreset,
     reasoning: ReasoningEffort | null,
     onTextDelta?: (text: string) => void,
+    shape?: AnswerShape,
   ): Promise<Completion> {
     context.budget.step(context.signal);
     const tools = this.toolsFor(context);
@@ -1301,6 +1395,7 @@ export class Runtime {
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      shape: shape?.name ?? null,
     };
     const kept = this.requestCache.look(cacheKey);
     if (kept) return this.answeredFromCache(run, preset, kept, input);
@@ -1322,7 +1417,8 @@ export class Runtime {
     try {
       // Wave 8: one more call against this connection, for the "how busy is it" reading.
       this.models.requests.record(preset.id);
-      const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
+      const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}),
+        ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       const raw = onTextDelta
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
