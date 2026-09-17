@@ -51,6 +51,7 @@ import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
+import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
@@ -1195,7 +1196,7 @@ ${run.output.slice(0, 6000)}`;
       "branch.retrieval.source": "documents",
     });
     try {
-      const found = await this.documents.contextFor(context.owner, run.prompt, context.signal);
+      const found = await this.documents.contextFor(context.owner, await this.searchQuestion(run, context, messages), context.signal); // w911 (A0847) hook
       if (!found) { span?.end("ok", "", { "branch.retrieval.passages": 0 }); return; }
       const at = ids.findIndex((id) => id !== null), position = at < 0 ? messages.length : at;
       messages.splice(position, 0, { role: "system", content:
@@ -1207,6 +1208,23 @@ ${run.output.slice(0, 6000)}`;
     } catch (error) {
       this.store.event(run.id, "documents.retrieval_failed", { error: errorText(error) });
       span?.end("error", errorText(error));
+    }
+  }
+  // ── w911 (A0847) hook: a follow-up is made whole before the documents are searched (src/chat-engine.ts). ──
+  private async searchQuestion(run: Run, context: ToolContext, messages: Message[]): Promise<string> {
+    const earlier = earlierTurns(messages, run.prompt);
+    if (!shouldCondense(chatEngineSettings(this.store, context.owner).mode, run.prompt, earlier)) return run.prompt;
+    try {
+      const preset = this.models.plan(context.owner, run.sessionId, {}).candidates[0];
+      if (!preset) return run.prompt;
+      const reply = await this.complete(run, condenseMessages(earlier, run.prompt), { ...context, permissions: new Set() }, preset, null);
+      const made = standaloneQuestion(reply.content, run.prompt);
+      this.store.event(run.id, "documents.question", { rewritten: made.rewritten, question: made.question.slice(0, 300) });
+      return made.question;
+    } catch (error) {
+      if (context.signal.aborted) throw error;
+      this.store.event(run.id, "documents.question", { rewritten: false, error: errorText(error) });
+      return run.prompt;
     }
   }
   /** Applies the run's declared checks to a final answer; a miss within the retry allowance asks the model again. */

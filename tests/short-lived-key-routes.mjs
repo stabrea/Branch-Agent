@@ -80,6 +80,7 @@ export const ROUTES = {
   "/api/channels/slack-automations": "owner POST",
   "/api/channels/slack-automations/run": "task POST",
   "/api/channels/test": "owner POST",
+  "/api/chat-engine": "owner POST", // w911 (A0847)
   "/api/chatgpt": "prefix",
   "/api/chatgpt/": "prefix",
   "/api/chatgpt/login": "owner POST",

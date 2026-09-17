@@ -5047,8 +5047,15 @@ kept against it for a while. An identical request is then answered from what was
 leaves this computer and nothing is charged.
 
 - `GET /api/request-cache` — whether it is on, how long an answer counts for, how many are kept.
-- `POST /api/request-cache` with `{ "enabled": true, "ttlMinutes": 60, "maxEntries": 500 }`.
+- `POST /api/request-cache` with `{ "mode": "on", "ttlMinutes": 60, "maxEntries": 500 }`.
 - `POST /api/request-cache/clear` throws every kept answer away.
+
+The switch has three positions and starts **off**. **When needed** keeps only the answers to the
+questions Branch asks on its own with no tools on offer (a summary, a follow-up rewritten for the
+document search), so every ordinary turn of a conversation is still asked afresh. **On** keeps every
+plain answer, including ordinary turns. A setting saved before the three positions existed only had
+`"enabled": true`, which kept every plain answer, so it reads as **on**; sending `enabled` alone still
+works the same way.
 
 Three rules keep it honest. **An answer that asks for a tool is never kept**, because replaying it
 would replay whatever that tool does — only plain text answers are. **Nothing that carried a picture
@@ -5082,7 +5089,11 @@ shape: each part of it is summarised on its own before the parts are drawn toget
 do not depend on each other.
 
 - `GET /api/batch` — the settings, and which of your connections can take a whole set.
-- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000, "discount": 0.5 }`.
+- `POST /api/batch` with `{ "mode": "when-needed", "minQuestions": 10, "pollMs": 5000, "maxWaitMs": 600000, "discount": 0.5 }`.
+  The switch starts **off**. **When needed** hands over only a set of at least `minQuestions`
+  (10 unless you say otherwise), because a small set is not worth the wait, and a smaller one is asked
+  one question at a time with that reason given. **On** hands over every set. An older
+  `"enabled": true` meant every set, so it reads as **on**.
 - `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
   waits for it, and gives the answers back.
 - `GET /api/batch-sets` — every set handed over, what it cost and what handing it over saved. This
@@ -5123,16 +5134,33 @@ than quietly asking every question again on its own.
 
 What a set cost is read from what the service reported, never guessed.
 
-### Chat engines (A0847) — not applicable
+### Follow-up questions and your documents (A0847)
 
-This row asks for "chat engines": a way of plugging in different chat back-ends behind one
-interface. Branch already has exactly that and has had since the first release, under a different
-name. `Provider` in `src/contracts.ts` is the interface; `src/providers.ts` and `src/providers/`
-hold the implementations (OpenAI-shaped, Anthropic, Gemini, Azure, Bedrock, Cohere, Ollama, the
-signed-in ChatGPT connection, a command-line agent, and the demo); `src/models.ts` picks between
-them, falls back when one is failing, and keeps a cooldown. Adding a second name for the same idea
-would mean a wrapper with no caller, so nothing was built for this row. If you want to add a chat
-back-end, implement `Provider` and register a preset — that is the whole contract.
+A chat engine, in the projects the audit looked at, is three things: a conversation that remembers
+its turns and can be started afresh, an answer written out as it arrives, and your own documents
+searched for every turn. Branch had the first two already — the conversation store, `/new` in a chat
+app (`tests/chat-live.test.mjs`, "/new starts a fresh conversation"), streamed answers over the
+OpenAI-style endpoint (`tests/interop.test.mjs`, "…streams chunks") — and the third for a first
+question only (`tests/rag-vector.test.mjs`, "R3 an attached knowledge base reaches the model…").
+
+What was missing is the part those engines call *condensing the question*. The document search used
+the words of the message you just sent, so "what about the others?" after a question about paid
+leave found nothing. Now, with **Settings → follow-up questions** (`GET`/`POST /api/chat-engine`,
+`{ "mode": "off" | "when-needed" | "on" }`, off unless you turn it on), the model first rewrites the
+follow-up as one question that stands on its own, and the search uses that
+(`src/chat-engine.ts`, hooked into the runtime where documents are added).
+
+- **When needed** rewrites only a message that reads like a follow-up — four words or fewer, or one
+  leaning on "it", "that", "those", "what about"… — so a plain question costs nothing extra.
+- **On** rewrites every message after the first in a conversation.
+- The rewrite is one short model call with no tools, shown only the plain words of the last few turns
+  (no tool output), and told not to follow instructions in them. Your message reaches the model
+  exactly as you wrote it; only the search changes. The task records `documents.question` with the
+  question that was searched.
+- If the rewrite fails or comes back empty or overlong, your own words are searched and the task
+  carries on.
+
+Asserted in `tests/chat-engine.test.mjs`.
 
 ### Lockdown: one switch (A0615)
 
@@ -5224,8 +5252,8 @@ These rows of the audit are done, by a feature that exists under another name.
   pipeline** — knowledge bases with word and meaning search, a second ranking pass
   (`src/retrieval.ts`), numbered sources on every answer (`src/citations.ts`), and a conversation
   shared as one page that can do nothing (`src/conversation-share.ts`).
-- **A0847 chat engines** — the runtime is the chat engine: conversations, compaction, tool rounds,
-  per-conversation model choice and working styles.
+- **A0847 chat engines** — see "Follow-up questions and your documents" above: conversations that
+  can be started afresh, streamed answers, documents searched per turn, and follow-ups made whole.
 - **A1410 structured output** — a delegated task may be required to match a JSON shape
   (`resultSchema`), checked before the answer is accepted. Pydantic is a Python library; the same job
   is done here by zod and JSON Schema.

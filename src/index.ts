@@ -1526,6 +1526,7 @@ export * from "./api-openapi.js";
 export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
+export * from "./chat-engine.js"; // w911 (A0847)
 export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
