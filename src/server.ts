@@ -100,6 +100,7 @@ import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
+import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
@@ -350,6 +351,7 @@ async function staticFile(
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     // Wave mac2: bringing your chats and memory over from another assistant.
     "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
+    "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
@@ -1132,6 +1134,10 @@ async function api(
     app.store.save("settings", app.runtime.owner, "usage_budget", input);
     return { budget: input };
   }
+  // --- bucket 14 (A0367, A1751): the usage report and sending the task counters; src/usage-report-api.ts ---
+  if (["/api/usage/report", "/api/usage/report/settings", "/api/usage/counters", "/api/usage/counters/send"].includes(path))
+    return usageReportRoute(app, request, path, () => readBody(request));
+  // --- end bucket 14 ---
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {

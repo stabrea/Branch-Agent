@@ -69,6 +69,7 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { afterTaskMetrics, executionMetricsDeps } from "./execution-metrics.js"; // bucket 14 (A1751)
 import { SessionTokens } from "./session-tokens.js";
 import { CommandSecrets, KeychainSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
@@ -777,6 +778,13 @@ export async function createBranch(options: {
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
   };
+  // --- bucket 14 (A1751): after the steps, the task counters, only when that switch is on ---
+  const sendTaskSteps = runtime.exportSpans;
+  runtime.exportSpans = async (runId) => {
+    await sendTaskSteps(runId);
+    await afterTaskMetrics(executionMetricsDeps(store, runtime.owner, traceExport)).catch(() => null);
+  };
+  // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
   return {
     store,
@@ -1343,3 +1351,7 @@ export * from "./cli-run.js";
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
+// Bucket 14 (A1334, A0367): handing events to an embedding program's logger, and the usage report.
+export * from "./log-bridge.js";
+export * from "./usage-report.js";
+export * from "./execution-metrics.js";
