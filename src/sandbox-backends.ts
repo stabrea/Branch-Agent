@@ -478,7 +478,9 @@ export interface OpenedWall {
 }
 interface WallPlan {
   wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[];
-  extraWrites: string[]; keys: EdgeKey[]; staging: string; deps: WallDeps;
+  extraWrites: string[]; keys: EdgeKey[]; deps: WallDeps;
+  /** Linux only: a private folder for the filter and the door, made when the wall is built. */
+  staging?: string;
   /** A program left running: no door is ever opened for it. */
   doorless: boolean;
 }
@@ -517,8 +519,7 @@ async function planWall(
   const keys = edgeKeys(wall, options.secrets ?? {});
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
-  const staging = await mkdtemp(join(temp, "branch-wall-"));
-  return { wall, network, workspace, temp, hidden, extraWrites, keys, staging, deps, doorless: options.proxy === false };
+  return { wall, network, workspace, temp, hidden, extraWrites, keys, deps, doorless: options.proxy === false };
 }
 
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
@@ -545,23 +546,24 @@ async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: Sa
 async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: SandboxStart; door: SandboxProxy | null }> {
   const found = await bwrapAvailability(plan.deps.probe ?? defaultSandboxProbe(), plan.deps.locateBwrap ?? whichBwrap);
   if (!found.ok) throw new Error(found.reason);
-  const paths = { http: join(plan.staging, "http.sock"), socks: join(plan.staging, "socks.sock") };
+  const staging = plan.staging = await mkdtemp(join(plan.temp, "branch-wall-"));
+  const paths = { http: join(staging, "http.sock"), socks: join(staging, "socks.sock") };
   const door = doorFor(plan, paths);
   if (door) await door.start();
   let command: SandboxCommand = start;
   if (door) {
-    const bridge = join(plan.staging, "door.cjs");
+    const bridge = join(staging, "door.cjs");
     await writeFile(bridge, doorBridgeSource, { mode: 0o400 });
     command = { executable: process.execPath, args: [bridge, paths.http, String(insideDoorPorts.http),
       paths.socks, String(insideDoorPorts.socks), "--", start.executable, ...start.args] };
   }
-  const filter = join(plan.staging, "filter.bpf");
+  const filter = join(staging, "filter.bpf");
   await writeFile(filter, seccompFilter({ network: plan.network }), { mode: 0o400 });
   const kindOf = plan.deps.kindOf ?? kindOnDisk;
   // A file that is not there yet can only be let through by its folder, the narrowest bwrap can bind.
   const extraWrites = plan.extraWrites.map((path) => (kindOf(path) ? path : dirname(path)))
     .filter((path) => widenable(path, { workspace: plan.workspace, hidden: plan.hidden }));
-  const args = bwrapArgs({ workspace: plan.workspace, network: plan.network, doorDir: door ? plan.staging : undefined,
+  const args = bwrapArgs({ workspace: plan.workspace, network: plan.network, doorDir: door ? staging : undefined,
     extraWrites, unreadable: plan.wall.unreadable, dataDir: plan.deps.dataDir, temp: plan.temp,
     seccompFd: 9, kindOf }, command);
   const wrapped = withSeccomp(found.path, filter, args);
@@ -583,7 +585,7 @@ export async function openWall(
   if (platform !== "darwin" && platform !== "linux")
     throw new Error("The wall around programs works on macOS and Linux only. Switch it off in Settings to run programs here.");
   const plan = await planWall(wall, options, deps);
-  const cleanup = () => rm(plan.staging, { recursive: true, force: true }).catch(() => undefined);
+  const cleanup = async () => { if (plan.staging) await rm(plan.staging, { recursive: true, force: true }).catch(() => undefined); };
   let built: { start: SandboxStart; door: SandboxProxy | null };
   try { built = platform === "darwin" ? await macWall(plan, start) : await linuxWall(plan, start); }
   catch (error) { await cleanup(); throw error; }
@@ -609,9 +611,13 @@ function wallVerdict(plan: WallPlan, door: SandboxProxy | null, result: WallRun)
   return keysNote ? `${denial.message}\n${keysNote}` : denial.message;
 }
 
-/** A program left running keeps its wall; what the wall set up is let go a little after it starts. */
+/**
+ * A program left running keeps its wall. It never has a door, and on Linux the filter file is only
+ * read as the program starts, so what the wall set up is let go a moment after it has started.
+ */
 function keptWall(opened: OpenedWall): SandboxStart {
-  setTimeout(() => void opened.close(), 30_000).unref();
+  if (opened.start.executable === sandboxExecPath) void opened.close();
+  else setTimeout(() => void opened.close(), 30_000).unref();
   return opened.start;
 }
 
