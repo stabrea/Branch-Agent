@@ -153,7 +153,7 @@ test("V7 llama.cpp and MLX listen on a fresh port on this computer, and only tha
   assert.equal(launcher.baseUrl("llama-cpp"), null);
 });
 
-test("V8 a llama.cpp connection brought back at start sends nothing until Branch starts its server", async (t) => {
+test("V8 a llama.cpp connection brought back at start sends nothing; the owner sets the model up again", async (t) => {
   const root = await scratch(t, "local-restore");
   const store = new Store(join(root, "branch.sqlite"));
   t.after(async () => { store.close(); await discardTemp(root); });
