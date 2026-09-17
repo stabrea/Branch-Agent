@@ -4,6 +4,7 @@ import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import type { SkillCatalogEntry } from "./skills.js";
 import { skillVersionInput } from "./skill-document.js";
+import { advisedSkills } from "./fly-core/apply.js";
 
 export const pinnedSkillKey = (sessionId: string) => `pinned-skill:${sessionId}`;
 /** A skill pinned to a conversation has its full instructions in every turn until it is unpinned. */
@@ -19,7 +20,9 @@ export function pinnedSkillInstructions(store: Store, context: ToolContext): str
   return `\nPinned skill "${entry.name}" (v${entry.version}) applies to this whole conversation. Its instructions:\n${document.document}\n`;
 }
 export function skillInstructions(store: Store, context: ToolContext): string {
-  const entries = context.permissions.has("skills.read") ? store.governanceFor(context.owner).filterCatalog(store.skills.catalog(context.owner), context.runId) : [];
+  const allowed = context.permissions.has("skills.read") ? store.governanceFor(context.owner).filterCatalog(store.skills.catalog(context.owner), context.runId) : [];
+  // mac2/fly-core-2: with the learning core "on", the skills that worked in similar tasks are listed first.
+  const entries = advisedSkills(context.runId, allowed);
   store.event(context.runId, "skills.catalog", { entries });
   if (!entries.length) return "";
   return "\nAvailable skill metadata (JSON): " + JSON.stringify(entries) +
