@@ -134,6 +134,8 @@ import { generalShortLivedKeyRefusal, ownerOnlyRead, taskRouteFor } from "./shor
 // ---- bucket 19: people signing in from their own device (src/people/). ----
 import { notPeople, PeopleHttpError, peopleApi, peopleSignInRoute } from "./people/api.js";
 import { People } from "./people/index.js";
+import { peopleEnabled } from "./people/settings.js";
+import { interopMode } from "./interop/settings.js";
 import { requireBoundSession } from "./people/access.js";
 import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
@@ -2427,6 +2429,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         throw new HttpError(404, "Not found");
       // Wave mac3: while the dashboard switch is off its page and files are not served at all.
       if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
+      // bucket 19: the person's page is only served while signing in, or handing a conversation over, is on.
+      if (["/people", "/people.js", "/people.css"].includes(path) && !peopleEnabled(app.store, app.runtime.owner)
+        && interopMode(app.store, app.runtime.owner, "handoff") === "off")
         throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;

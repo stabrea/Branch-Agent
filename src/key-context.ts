@@ -47,6 +47,8 @@ export interface RunOrigin {
   parentRunId: string | null;
   /** bucket 19: every short-lived key written down along the chain (empty for the owner's own work). */
   keyIds: string[];
+  /** bucket 19: the household person the task was started for, so a resumed task is held to their role. */
+  personProfileId: string | null;
 }
 type EventReader = { events(runId: string): { kind: string; data: Record<string, unknown> }[] };
 const startOf = (store: EventReader, runId: string) => store.events(runId).find((event) => event.kind === "run.started")?.data;
@@ -56,7 +58,7 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
   const origin: RunOrigin = {
     shortLivedKey: false, source: typeof own?.source === "string" ? own.source : "owner",
     permissions: Array.isArray(own?.permissions) ? own.permissions.map(String) : null,
-    parentRunId: typeof own?.parentRunId === "string" ? own.parentRunId : null, keyIds: [],
+    parentRunId: typeof own?.parentRunId === "string" ? own.parentRunId : null, keyIds: [], personProfileId: null,
   };
   const seen = new Set<string>();
   const queue = [runId];
@@ -68,6 +70,7 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
     if (!data) continue;
     if (data.shortLivedKey === true) origin.shortLivedKey = true;
     if (typeof data.shortLivedKeyId === "string" && !origin.keyIds.includes(data.shortLivedKeyId)) origin.keyIds.push(data.shortLivedKeyId);
+    if (typeof data.personProfileId === "string") origin.personProfileId ??= data.personProfileId;
     if (typeof data.source === "string" && data.source !== "owner") origin.source = data.source;
     for (const next of [data.parentRunId, data.resumedFrom]) if (typeof next === "string") queue.push(next);
   }

@@ -3,6 +3,7 @@ import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./n
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
+import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import {
   Budget,
   BudgetError,
@@ -135,7 +136,7 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
@@ -387,7 +388,8 @@ export class Runtime {
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
-      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}) }];
+      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
+      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -399,7 +401,9 @@ export class Runtime {
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
     const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
-    void (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start()).catch(() => undefined);
+    const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
+    // bucket 19: a message a household person queued runs as that person, held to their role.
+    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -433,7 +437,10 @@ export class Runtime {
     const previous = this.store.run(runId);
     if (!previous || previous.owner !== this.owner) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    return this.track(() => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id }));
+    const go = () => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id });
+    // bucket 19: a task a household person started carries on as that person, after a restart too.
+    const person = runOrigin(this.store, runId).personProfileId;
+    return this.track(() => (person && !currentPerson() ? asPerson({ profileId: person, keyId: "resumed" }, go) : go()));
   }
   /** A tool run outside a conversation; `options` says how it is gated (src/tool-gate.ts). */
   async executeTool(name: string, args: unknown, options: ToolGateOptions = {}): Promise<unknown> {
@@ -652,6 +659,7 @@ ${run.output.slice(0, 6000)}`;
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
+      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}),
     };
   }
   private prepareRun(options: RunOptions): Run {

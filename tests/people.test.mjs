@@ -55,6 +55,7 @@ test("B19-1 it ships off: no sign-in page answers and a person's key does nothin
   assert.equal((await f.owner("GET", "/api/people/settings")).body.settings.mode, "off");
   assert.equal((await f.call("GET", "/api/people/sign-in")).status, 404);
   assert.equal((await f.call("POST", "/api/people/sign-in/start", { body: { name: "Ada" } })).status, 404);
+  assert.equal((await fetch(`${f.server.url}/people`)).status, 404, "the page itself is not served either");
   const { key } = f.app.people.keys.issue(f.ada.id, 60, "pin", "test");
   const refused = await f.call("GET", "/api/people/me", { key });
   assert.equal(refused.status, 401);
@@ -121,6 +122,11 @@ test("B19-5 people cannot read each other's conversations, and the owner's only 
   const ada = await f.signIn("Ada", "1234"), bo = await f.signIn("Bo", "5678");
   const made = await f.call("POST", "/api/people/conversations", { key: ada, body: { prompt: "my secret plan" } });
   assert.equal(made.status, 200, JSON.stringify(made.body));
+  // The task writes down whose it was, so carrying it on after a restart is still Ada's.
+  const started = f.app.store.events(made.body.runId).find((event) => event.kind === "run.started");
+  assert.equal(started.data.personProfileId, f.ada.id);
+  const { runOrigin } = await import("../dist/key-context.js");
+  assert.equal(runOrigin(f.app.store, made.body.runId).personProfileId, f.ada.id);
   const mine = await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: ada });
   assert.equal(mine.body.access, "own");
   assert.ok(mine.body.messages.some((m) => m.content === "my secret plan"));
@@ -260,6 +266,9 @@ test("B19-11 a key handed to another device reaches that one conversation and no
   assert.equal((await f.call("POST", "/api/run", { key, body: { prompt: "go on", sessionId: mine.sessionId } })).status, 200);
   assert.equal((await f.call("POST", `/api/sessions/${other.sessionId}/followups`, { key, body: { prompt: "x" } })).status, 401);
   // An ordinary run key is not held, and cannot read the handover view.
+  assert.equal((await fetch(`${f.server.url}/people`)).status, 404, "with both switches off");
+  f.app.store.save("settings", f.app.runtime.owner, "interop-handoff", { mode: "on" });
+  assert.equal((await fetch(`${f.server.url}/people`)).status, 200, "handing a conversation over serves the page");
   const free = f.app.sessionTokens.create(f.app.runtime.owner, { scope: "run", minutes: 5 }).token;
   assert.equal((await f.call("GET", `/api/sessions/${other.sessionId}`, { key: free })).status, 200);
   assert.equal((await f.call("GET", "/api/people/handoff", { key: free })).status, 404);
