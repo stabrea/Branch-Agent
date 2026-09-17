@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ModelRouter } from "./models.js";
 import type { ApprovalGate, SessionGrant } from "./approvals.js";
+import { placeTask } from "./dispatch-fallback.js";
 
 /**
  * What a conversation is carrying, written down so it survives the app being closed: the model it
@@ -106,18 +107,26 @@ export function restoreSessionCarry(deps: CarryDeps, owner: string, sessionId: s
   return { sessionId, found: true, preset, reasoning: carried.reasoning, projectId, toolboxes, permissions, notRestored };
 }
 
-/** The model the conversation was set to, where that connection is still set up. */
+/**
+ * The model the conversation was set to, where that connection is still set up. A choice made since
+ * the note was written is newer than the note and is left exactly as it is: coming back must never
+ * undo something the owner did afterwards.
+ */
 function restoreModel(
   deps: CarryDeps, owner: string, sessionId: string, carried: SessionCarry, lost: CarryLoss[],
 ): string | null {
   if (!carried.preset) return null;
+  const live = deps.models.session(owner, sessionId);
+  if (live.preset && live.preset !== carried.preset) return live.preset;
   try {
     deps.models.configureSession(owner, sessionId, { preset: carried.preset, reasoning: carried.reasoning });
     return carried.preset;
   } catch {
+    // The same words a task gets when what it needs is not there: what is missing, and what instead.
     const now = deps.models.plan(owner, sessionId).choice;
+    const moved = placeTask({ atOnce: 1, running: 0, missingPreset: carried.preset, fallbackPreset: now.presetName });
     lost.push({ what: `the model "${carried.preset}"`,
-      why: `it is no longer set up on this computer, so this conversation is using ${now.presetName} instead.` });
+      why: `it is no longer set up on this computer. ${moved.alternative}` });
     return null;
   }
 }

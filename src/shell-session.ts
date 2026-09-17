@@ -9,6 +9,7 @@ import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.
 import { defaultJobObjects, jobWithin, type Job, type JobObjects } from "./integrations/job-object.js";
 import { ShellConfigSchema, shellEnvironment, type ShellConfig } from "./integrations/shell-config.js";
 import { backgroundSettings, type BackgroundSettings } from "./processes.js";
+import { placeTask, placementLine } from "./dispatch-fallback.js";
 
 /**
  * A command line the owner can keep open. An ordinary command starts a program, waits for it and
@@ -134,6 +135,11 @@ class OpenShell {
   }
 }
 
+/** The programs commands may be run with, for when somebody names one that is not among them. */
+const allowed = (config: ShellConfig): string | null => {
+  const names = Object.keys(config.executables);
+  return names.length ? names.join(", ") : null;
+};
 /** How long a command's answer must be quiet before it counts as finished. */
 const quietMs = 120;
 
@@ -160,7 +166,8 @@ export class ShellSessions {
     const limits = this.settings();
     const program = Object.hasOwn(this.config.executables, input.program)
       ? this.config.executables[input.program] : undefined;
-    if (!program) throw new Error(`"${input.program}" is not one of the programs commands may be run with.`);
+    if (!program) throw new Error(placementLine(placeTask({ atOnce: 1, running: 0,
+      missing: { what: `a program called "${input.program}"`, instead: allowed(this.config) } })));
     if (this.list({ active: true }).length >= limits.maxRunning)
       throw new Error(`${limits.maxRunning} command lines are already open; close one before opening another.`);
     const cwd = await new WorkspaceFiles(context.workspace).checked(input.cwd, true);

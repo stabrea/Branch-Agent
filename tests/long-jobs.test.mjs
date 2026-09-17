@@ -22,6 +22,8 @@ import {
 import { ShellSessions, registerShellSessions } from "../dist/shell-session.js";
 import { runHeadless, jobExitCode, promptsFromScript, parseHeadlessArgs } from "../dist/headless.js";
 import { parseRunArgs, exitCodes } from "../dist/cli-run.js";
+import { loadIntegrations } from "../dist/integrations/bootstrap.js";
+import { writeFile } from "node:fs/promises";
 
 const scriptFixture = resolve("tests/fixtures/kept-shell.mjs");
 const fakeEnv = { ...process.env, NODE_OPTIONS: "" };
@@ -95,6 +97,29 @@ test("a conversation comes back from a restart with its model, its permissions a
   assert.equal(second.runtime.approvals.grants(sessionId)[0].expiresAt, grantedUntil,
     "a restart must not quietly lengthen a permission");
   assert.match(carrySentences(back)[0], /came back with the model "careful"/);
+
+  // The task itself, not only the report: a task joining the conversation after the restart is what
+  // puts it back in the product, and it says on its own record what came back.
+  const carried = await second.runtime.run({ prompt: "carry on", sessionId, onTextDelta: () => undefined });
+  const restored = second.store.events(carried.id).find((event) => event.kind === "session.restored");
+  assert.ok(restored, "the first task after a restart records what the conversation came back with");
+  assert.equal(restored.data.preset, "careful");
+  assert.equal(restored.data.permissions, 1);
+  assert.deepEqual(restored.data.notRestored, []);
+});
+
+test("a toolbox a conversation had open is open again in its next task after a restart", async (t) => {
+  const { base, keep } = await scratch(t);
+  const first = await open(base, presetsFor(scripted()));
+  const sessionId = first.store.createSession("local");
+  rememberSessionCarry({ store: first.store, models: first.runtime.models, approvals: first.runtime.approvals,
+    toolboxes: () => ["git"] }, "local", sessionId, ["git"]);
+  await first.close();
+  const second = await open(base, presetsFor(scripted()));
+  keep(() => second.close());
+  const run = await second.runtime.run({ prompt: "carry on", sessionId, onTextDelta: () => undefined });
+  const chosen = second.store.events(run.id).find((event) => event.kind === "catalog.preselected");
+  assert.ok(chosen.data.style?.includes("git"), "the toolbox it had open is open again from the first round");
 });
 
 test("what a restart cannot bring back is named rather than quietly swapped", async (t) => {
@@ -121,7 +146,7 @@ test("what a restart cannot bring back is named rather than quietly swapped", as
   keep(() => second.close());
   const back = second.runtime.carriedBySession(sessionId);
   const said = back.notRestored.map((loss) => `${loss.what}: ${loss.why}`).join("\n");
-  assert.match(said, /the model "careful".*no longer set up.*using Everyday instead/s);
+  assert.match(said, /the model "careful".*no longer set up.*[Uu]sing "Everyday" instead/s);
   assert.match(said, /the project "doomed".*has been removed/s);
   assert.match(said, /"teleport" toolbox.*nothing in this launch offers it/s);
   assert.match(said, /permission for Running node build.*already run out.*asked for again/s);
@@ -207,6 +232,34 @@ test("nothing a kept-open command line started survives the app closing, and no 
     /not being run in this launch/);
   const source = await readFile("dist/shell-session.js", "utf8");
   assert.match(source, /windowsHide: true/, "a kept-open command line never puts a console on the screen");
+});
+
+test("a real launch registers the kept-open command line and closes it with everything else", async (t) => {
+  const { base, keep } = await scratch(t);
+  const app = await open(base);
+  keep(() => app.close());
+  const configPath = join(base, "integrations.json");
+  const config = { executables: { keeper: { path: process.execPath, args: [scriptFixture] } } };
+  await writeFile(configPath, JSON.stringify({ shell: config }));
+  const registry = new (app.registry.constructor)();
+  const live = await loadIntegrations(registry, configPath, fakeEnv, undefined, app.channelHost);
+  for (const name of ["shell.session.open", "shell.session.run", "shell.session.list", "shell.session.close"])
+    assert.ok(registry.names().includes(name), `${name} is missing from a real launch`);
+  const sessionId = app.store.createSession("local");
+  const context = app.runtime.context({ permissions: ["shell.execute"],
+    runId: app.store.createRun("local", "a task", sessionId).id });
+  const opened = await registry.execute("shell.session.open",
+    { program: "keeper", args: [], cwd: ".", name: "kept" }, context);
+  assert.ok(opened.pid);
+  // Closing the app is what this proves: nothing it started is left behind.
+  await live.close();
+  await gone(opened.pid, "the kept-open command line from a real launch");
+});
+
+test("a program that is not one of the allowed ones says so and names the ones that are", async (t) => {
+  const { shells, context } = await keptShell(t);
+  await assert.rejects(() => shells.start({ program: "psql", args: [], cwd: ".", name: "no" }, context("a task")),
+    /needs a program called "psql", which is not on this computer.*You could use keeper instead/s);
 });
 
 /* ---- A2315: the whole assistant with no window at all ---- */
