@@ -1,10 +1,9 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
-import type { IncomingMessage } from "node:http";
 import { isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
 import { audit } from "./audit.js";
 import { presetRules, type Policy } from "./policy.js";
-import { instructionFileNames } from "./instruction-files.js";
+import { FeatureSwitchSchema, type FeatureSwitch } from "./loop-guard.js";
 import type { Store } from "./store.js";
 
 /**
@@ -16,11 +15,17 @@ import type { Store } from "./store.js";
  * opened. So before a folder's own settings are used, the owner is shown what the folder carries
  * and says "trust" or "don't trust".
  *
- *  - trusted: its notes are read (see src/instruction-files.ts);
- *  - not trusted: nothing of its own is read, and every change waits for a yes, whatever the
- *    approval setting says (a rule can only tighten, never loosen);
+ *  - trusted: what it carries may be read (a loader asks `isFolderTrusted` first);
+ *  - not trusted: nothing of its own is read, and a task working in it asks before every change,
+ *    whatever the approval setting says (a rule can only tighten, never loosen);
  *  - not decided yet: nothing of its own is read, the approval setting is left as it is, and
  *    the owner is asked.
+ *
+ * The owner chooses how it works (`folderTrustMode`), and it ships switched off:
+ *  - off: every folder counts as trusted and approvals are unchanged, exactly as before;
+ *  - on: every folder has to be decided;
+ *  - when needed: only a folder that holds something for AI assistants (`assistantFolderItems`)
+ *    has to be decided; one that holds nothing counts as trusted.
  *
  * A decision covers the folder and everything inside it; the closest decided folder wins. The
  * shape follows Gemini CLI's `trust.ts` and `FolderTrustDiscoveryService.ts` (Apache-2.0).
@@ -37,6 +42,23 @@ const SavedSchema = z.object({
 }).strict();
 type Saved = z.infer<typeof SavedSchema>;
 const settingsKey = "folder_trust";
+const modeKey = "folder_trust_mode";
+export const FolderTrustSettingsSchema = z.object({
+  /** off (the default), on, or when-needed. */
+  mode: FeatureSwitchSchema.default("off"),
+}).strict();
+/** How the owner has set folder trust. Read fresh every time. */
+export function folderTrustMode(store: Store, owner: string): FeatureSwitch {
+  const parsed = FolderTrustSettingsSchema.safeParse(store.get("settings", owner, modeKey)?.data ?? {});
+  return parsed.success ? parsed.data.mode : "off";
+}
+export function saveFolderTrustSettings(store: Store, owner: string, input: unknown): FeatureSwitch {
+  const { mode } = FolderTrustSettingsSchema.parse(input ?? {});
+  store.save("settings", owner, modeKey, { mode });
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `Folder trust: ${mode}`,
+    reason: "Whether folders have to be trusted before what they carry is used", outcome: "saved" });
+  return mode;
+}
 
 /** What the owner sends: a folder written relative to the workspace ("" or "." for the workspace itself). */
 export const FolderTrustInputSchema = z.object({
@@ -78,8 +100,8 @@ export function decideFolder(store: Store, owner: string, workspace: string, inp
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `Folder ${decision === "trust" ? "trusted" : "not trusted"}: ${path}`.slice(0, 300),
     reason: decision === "trust"
-      ? "The folder's own instructions may now be read"
-      : "Nothing the folder carries is read, and every change waits for a yes",
+      ? "What the folder carries for AI assistants may now be used"
+      : "Nothing the folder carries is used, and a task working in it asks before every change",
     outcome: "saved",
   });
   return { path, trust: decision === "trust" ? "trusted" : "untrusted" };
@@ -101,42 +123,82 @@ export function workspaceFolder(workspace: string, folder: string): string {
  * every "no" and every "ask" it had, loses every standing "yes", and asks before any change — even
  * when approvals are otherwise switched off.
  */
-export function trustCappedPolicy(policy: Policy, trust: FolderTrust): Policy {
-  if (trust !== "untrusted") return policy;
+export function trustCappedPolicy(policy: Policy, trust: FolderTrust, mode: FeatureSwitch = "on"): Policy {
+  if (mode === "off" || trust !== "untrusted") return policy;
   return { ...policy, rules: [...policy.rules.filter((rule) => rule.decision !== "allow"), ...presetRules("ask-before-changes")] };
 }
+
+/**
+ * Everything in a folder that is meant for an AI assistant. One list, so every loader of these
+ * things and the trust screen agree on what has to be trusted first. Names are compared without
+ * regard to letter case. Folders and files named here are listed, never opened, by this module.
+ */
+export const assistantFolderItems = Object.freeze({
+  /** Notes for assistants, looked for in the folder and up to three folders below it. */
+  notes: Object.freeze(["AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "GEMINI.md", ".hermes.md",
+    "SOUL.md", "USER.md", "IDENTITY.md", "MEMORY.md", "HEARTBEAT.md", "TOOLS.md", "SOP.md"]),
+  /** AI tool server lists: the file, and the key the servers sit under. */
+  toolServers: Object.freeze([[".mcp.json", "mcpServers"], [".cursor/mcp.json", "mcpServers"],
+    [".vscode/mcp.json", "servers"], [".gemini/settings.json", "mcpServers"]] as const),
+  /** Folders whose sub-folders are skills. */
+  skills: Object.freeze([".agents/skills", ".claude/skills", ".gemini/skills", ".branch-skills"]),
+  /** Settings files whose "hooks" entries run commands by themselves. */
+  hooks: Object.freeze([".claude/settings.json", ".claude/settings.local.json", ".gemini/settings.json"]),
+  /** Folders whose sub-folders are plugins or extensions. */
+  plugins: Object.freeze([".claude/plugins", ".agents/plugins", ".gemini/extensions"]),
+});
 
 export interface FolderFindings {
   instructions: string[];
   aiToolServers: string[];
   skills: string[];
   hooks: string[];
+  plugins: string[];
 }
 const findingLimit = 50;
-const noteNames = new Set(instructionFileNames.map((name) => name.toUpperCase()));
+const noteNames = new Set(assistantFolderItems.notes.map((name) => name.toUpperCase()));
 const skippedFolders = new Set(["node_modules", ".git", "dist", "release", ".branch", ".branch-worktrees"]);
 
 /**
  * What a folder carries that could steer an assistant, found without running or loading any of
- * it. Links are never followed and every list is capped. Branch itself reads only the notes today;
- * the rest is shown so the owner knows what the folder holds.
+ * it: note files are only listed by name, settings files are read for their entry names alone.
+ * Links are never followed and every list is capped.
  */
 export async function discoverFolder(folder: string): Promise<FolderFindings> {
-  const found: FolderFindings = { instructions: [], aiToolServers: [], skills: [], hooks: [] };
+  const found: FolderFindings = { instructions: [], aiToolServers: [], skills: [], hooks: [], plugins: [] };
   await findNotes(folder, "", 0, found.instructions);
-  found.aiToolServers = await jsonKeys(join(folder, ".mcp.json"), "mcpServers");
-  found.hooks = [
-    ...(await jsonKeys(join(folder, ".claude", "settings.json"), "hooks")),
-    ...(await jsonKeys(join(folder, ".gemini", "settings.json"), "hooks")),
-  ].slice(0, findingLimit);
-  for (const place of [".agents/skills", ".claude/skills", ".gemini/skills"])
-    for (const name of await plainFolders(join(folder, place)))
-      if (found.skills.length < findingLimit) found.skills.push(`${place}/${name}`);
+  for (const [file, key] of assistantFolderItems.toolServers)
+    found.aiToolServers.push(...(await jsonKeys(join(folder, file), key)));
+  for (const file of assistantFolderItems.hooks)
+    found.hooks.push(...(await jsonKeys(join(folder, file), "hooks")));
+  await subFolders(folder, assistantFolderItems.skills, found.skills);
+  await subFolders(folder, assistantFolderItems.plugins, found.plugins);
+  found.aiToolServers = found.aiToolServers.slice(0, findingLimit);
+  found.hooks = found.hooks.slice(0, findingLimit);
   return found;
 }
 
 export function nothingFound(found: FolderFindings): boolean {
-  return !found.instructions.length && !found.aiToolServers.length && !found.skills.length && !found.hooks.length;
+  return Object.values(found).every((list: string[]) => !list.length);
+}
+
+/**
+ * Whether a loader may read what a folder carries, under the owner's setting. Off: always yes, as
+ * before. On: only a folder the owner trusts. When needed: a trusted folder, or one not decided
+ * about that holds nothing for AI assistants. A folder the owner does not trust is always no.
+ */
+export async function isFolderTrusted(store: Store, owner: string, path: string): Promise<boolean> {
+  const mode = folderTrustMode(store, owner);
+  if (mode === "off") return true;
+  const trust = folderTrust(store, owner, path);
+  if (trust !== "unknown") return trust === "trusted";
+  return mode === "when-needed" && nothingFound(await discoverFolder(path));
+}
+
+/** Whether the owner should be asked about a folder now, under the owner's setting. */
+export function needsAnswer(mode: FeatureSwitch, trust: FolderTrust, found: FolderFindings): boolean {
+  if (mode === "off" || trust !== "unknown") return false;
+  return mode === "on" || !nothingFound(found);
 }
 
 async function findNotes(folder: string, prefix: string, depth: number, out: string[]): Promise<void> {
@@ -151,6 +213,12 @@ async function findNotes(folder: string, prefix: string, depth: number, out: str
     else if (entry.isDirectory() && !skippedFolders.has(entry.name) && !entry.name.startsWith("."))
       await findNotes(folder, path, depth + 1, out);
   }
+}
+
+async function subFolders(folder: string, places: readonly string[], out: string[]): Promise<void> {
+  for (const place of places)
+    for (const name of await plainFolders(join(folder, place)))
+      if (out.length < findingLimit) out.push(`${place}/${name}`);
 }
 
 async function plainFolders(path: string): Promise<string[]> {
@@ -170,56 +238,4 @@ async function jsonKeys(path: string, key: string): Promise<string[]> {
     return value && typeof value === "object" && !Array.isArray(value)
       ? Object.keys(value).slice(0, findingLimit).map((name) => name.slice(0, 100)) : [];
   } catch { return []; }
-}
-
-/* ------------------------------------------------------------------ the owner's screen */
-
-/** What the runtime and store look like to the trust screen; `createBranch`'s result fits. */
-export interface FolderTrustApp {
-  store: Store;
-  runtime: { owner: string; workspace: string };
-}
-export interface FolderTrustView {
-  path: string;
-  /** The folder as the owner sends it back: "" for the workspace, or a folder inside it. */
-  folder: string;
-  label: string;
-  /** The project whose folder this is, or null for the workspace itself. */
-  project: string | null;
-  trust: FolderTrust;
-  found: FolderFindings;
-  /** True when the owner should be asked: not decided yet, and the folder carries something. */
-  needsAnswer: boolean;
-}
-
-export function handlesFolderTrustPath(path: string): boolean {
-  return path === "/api/folder-trust";
-}
-
-/** The workspace and every project folder, each with what it carries and whether it is trusted. */
-export async function folderTrustView(app: FolderTrustApp): Promise<{ folders: FolderTrustView[] }> {
-  const { owner, workspace } = app.runtime;
-  const projects = app.store.projects.list(owner);
-  const places = new Map<string, string | null>([["", null]]);
-  for (const project of projects)
-    if (project.folder && !places.has(project.folder)) places.set(project.folder, project.name);
-  const folders: FolderTrustView[] = [];
-  for (const [folder, project] of places) {
-    const path = workspaceFolder(workspace, folder);
-    const trust = folderTrust(app.store, owner, path);
-    const found = await discoverFolder(path);
-    const label = project === null ? "Your workspace" : `The "${project}" project's folder`;
-    folders.push({ path, folder, label, project, trust, found, needsAnswer: trust === "unknown" && !nothingFound(found) });
-  }
-  return { folders };
-}
-
-export async function folderTrustApi(
-  app: FolderTrustApp, request: IncomingMessage, path: string,
-  readBody: (request: IncomingMessage) => Promise<unknown>,
-): Promise<unknown> {
-  if (!handlesFolderTrustPath(path)) throw new Error("Not found");
-  if (request.method === "POST") decideFolder(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
-  else if (request.method !== "GET") throw new Error("Use GET or POST");
-  return folderTrustView(app);
 }

@@ -4,7 +4,11 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, LoopGuard, canonicalArguments, isPollTool, repeatingCycle } from "../dist/index.js";
+import {
+  createBranch, LoopGuard, canonicalArguments, guardFor, isPollTool, loopGuardMode, repeatingCycle,
+  saveLoopGuardSettings, whenNeededAfterCalls,
+} from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 
 const kinds = (guard, calls) => calls.map(([name, args]) => guard.check(name, JSON.stringify(args)).kind);
 
@@ -82,6 +86,7 @@ test("A1769 a task that keeps asking for the same thing is ended with a plain se
   await writeFile(join(root, "workspace", "a.txt"), "same every time");
   const provider = scripted((round) => ({ content: "", toolCalls: [{ id: `c${round}`, name: "files.read", arguments: JSON.stringify({ path: "a.txt" }) }] }));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  saveLoopGuardSettings(app.store, app.runtime.owner, { mode: "on" });
   const run = await app.runtime.run({ prompt: "read it" });
   assert.equal(run.status, "failed");
   assert.match(run.output, /^Stopped: the assistant kept repeating the same steps without getting anywhere/);
@@ -109,7 +114,67 @@ test("ordinary work that does not repeat itself is left alone", async (t) => {
     ? { content: "", toolCalls: [{ id: `w${round}`, name: "files.write", arguments: JSON.stringify({ path: `n${round}.txt`, content: String(round) }) }] }
     : { content: "done", toolCalls: [] });
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  saveLoopGuardSettings(app.store, app.runtime.owner, { mode: "on" });
   const run = await app.runtime.run({ prompt: "write four files" });
   assert.equal(run.status, "completed", run.output);
   assert.equal(app.store.events(run.id).some((event) => event.kind.startsWith("loop.")), false);
+});
+
+test("the switch ships off, and off leaves a repeating task exactly as before", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-loop-off-"));
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  await mkdir(join(root, "workspace"), { recursive: true });
+  await writeFile(join(root, "workspace", "a.txt"), "same");
+  const provider = scripted((round) => round <= 7
+    ? { content: "", toolCalls: [{ id: `c${round}`, name: "files.read", arguments: JSON.stringify({ path: "a.txt" }) }] }
+    : { content: "done", toolCalls: [] });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  assert.equal(loopGuardMode(app.store, app.runtime.owner), "off");
+  assert.equal(guardFor("off"), null);
+  const run = await app.runtime.run({ prompt: "read it seven times" });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(app.store.events(run.id).some((event) => event.kind.startsWith("loop.")), false);
+  assert.throws(() => saveLoopGuardSettings(app.store, app.runtime.owner, { mode: "sometimes" }));
+});
+
+test("when needed: a small task is left alone except for a tight loop, a bigger one is watched in full", () => {
+  assert.equal(whenNeededAfterCalls, 8, "the size at which a task is watched in full");
+  const a = ["files.read", { path: "a.txt" }], b = ["files.write", { path: "a.txt", content: "x" }];
+  // Back-and-forth in a small task is not warned about...
+  const small = guardFor("when-needed");
+  assert.deepEqual(kinds(small, [a, b, a, b]), ["allow", "allow", "allow", "allow"]);
+  // ...but the very same call a third time is, even from the second step.
+  const tight = guardFor("when-needed");
+  assert.deepEqual(kinds(tight, [a, a, a]), ["allow", "allow", "warn"]);
+  // Past the size, back-and-forth counts again.
+  const big = guardFor("when-needed");
+  const others = Array.from({ length: whenNeededAfterCalls }, (_, index) => ["files.read", { path: `f${index}.txt` }]);
+  assert.deepEqual(kinds(big, others), Array(whenNeededAfterCalls).fill("allow"));
+  assert.deepEqual(kinds(big, [a, b, a, b]), ["allow", "allow", "allow", "warn"]);
+  // Repeated results are not held against a small task either.
+  const quiet = guardFor("when-needed");
+  quiet.check("files.read", "{}");
+  assert.equal(quiet.record("files.read", "{}", "same"), null);
+  quiet.check("files.read", "{}");
+  assert.equal(quiet.record("files.read", "{}", "same"), null);
+  assert.equal(guardFor("on").check("files.read", "{}").kind, "allow");
+});
+
+test("the switch is changed from the settings screen, and not with a short-lived key", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-loop-api-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted(() => ({ content: "ok", toolCalls: [] })) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = async (body, token = server.token) => {
+    const response = await fetch(server.url + "/api/loop-guard", { method: body ? "POST" : "GET",
+      headers: { authorization: `Bearer ${token}`, host: new URL(server.url).host, ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: response.status, body: await response.json() };
+  };
+  assert.deepEqual((await call()).body, { mode: "off" });
+  const key = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 5 });
+  assert.equal((await call({ mode: "on" }, key.token)).status, 401);
+  assert.deepEqual((await call({ mode: "when-needed" })).body, { mode: "when-needed" });
+  assert.equal((await call({ mode: "maybe" })).status, 400);
+  assert.equal(loopGuardMode(app.store, app.runtime.owner), "when-needed");
 });

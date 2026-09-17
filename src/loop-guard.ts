@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
+import type { Store } from "./store.js";
 
 /**
  * Noticing when a task is going round in circles (audit A1769, A1713).
@@ -14,6 +16,14 @@ import { createHash } from "node:crypto";
  * A call that also keeps giving back exactly the same result is blocked sooner: that is the
  * clearest sign the approach is not working. Tools that are meant to be asked again and again
  * (a program's output, a status, a list) get gentler limits.
+ *
+ * The owner chooses how it works (see `loopGuardMode`), and it ships switched off:
+ *  - off: nothing is watched, exactly as before;
+ *  - on: every task is watched from its first call;
+ *  - when needed: a small task is left alone except for a tight loop (the same call with the same
+ *    details a third time), and everything switches on once the task has made
+ *    `whenNeededAfterCalls` calls — the size at which a loop is worth looking for, in the same
+ *    spirit as tools that are only loaded once a task shows it needs them (src/tool-loading.ts).
  *
  * The shape follows OpenFang's `loop_guard.rs` (MIT or Apache-2.0) and Gemini CLI's
  * `loopDetectionService.ts` (Apache-2.0); see THIRD_PARTY_NOTICES.md. Nothing here reads the
@@ -35,12 +45,42 @@ export interface LoopLimits {
   pollMultiplier: number;
   /** Refusals in one task before the task is stopped. */
   stopAfterBlocks: number;
+  /**
+   * Calls a task makes before back-and-forth and repeated results are looked for. Zero looks from
+   * the start; the "when needed" setting uses `whenNeededAfterCalls`.
+   */
+  quietCalls: number;
 }
 
 export const defaultLoopLimits: Readonly<LoopLimits> = Object.freeze({
   warnAt: 3, blockAt: 5, sameResultWarnAt: 2, sameResultBlockAt: 3,
-  cycleWarnAt: 2, cycleBlockAt: 3, pollMultiplier: 3, stopAfterBlocks: 3,
+  cycleWarnAt: 2, cycleBlockAt: 3, pollMultiplier: 3, stopAfterBlocks: 3, quietCalls: 0,
 });
+/** "When needed": the number of calls after which a task is watched in full. */
+export const whenNeededAfterCalls = 8;
+
+export const FeatureSwitchSchema = z.enum(["off", "on", "when-needed"]);
+export type FeatureSwitch = z.infer<typeof FeatureSwitchSchema>;
+export const LoopGuardSettingsSchema = z.object({
+  /** off (the default), on, or when-needed. */
+  mode: FeatureSwitchSchema.default("off"),
+}).strict();
+const loopGuardKey = "loop_guard";
+/** How the owner has set the loop guard. Read fresh each task. */
+export function loopGuardMode(store: Store, owner: string): FeatureSwitch {
+  const saved = LoopGuardSettingsSchema.safeParse(store.get("settings", owner, loopGuardKey)?.data ?? {});
+  return saved.success ? saved.data.mode : "off";
+}
+export function saveLoopGuardSettings(store: Store, owner: string, input: unknown): FeatureSwitch {
+  const { mode } = LoopGuardSettingsSchema.parse(input ?? {});
+  store.save("settings", owner, loopGuardKey, { mode });
+  return mode;
+}
+/** The guard a task gets for a setting, or none when the guard is off. */
+export function guardFor(mode: FeatureSwitch): LoopGuard | null {
+  if (mode === "off") return null;
+  return new LoopGuard(mode === "when-needed" ? { quietCalls: whenNeededAfterCalls } : {});
+}
 
 export type LoopVerdict =
   | { kind: "allow" }
@@ -85,6 +125,7 @@ export class LoopGuard {
   private readonly recent: string[] = [];
   private blocks = 0;
   private stopped = false;
+  private calls = 0;
 
   constructor(limits: Partial<LoopLimits> = {}) {
     this.limits = { ...defaultLoopLimits, ...limits };
@@ -98,9 +139,12 @@ export class LoopGuard {
     this.remember(key);
     const count = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, count);
+    this.calls += 1;
+    // A small task is only held to the plain repeat count until it has made enough calls.
+    const quiet = this.calls <= this.limits.quietCalls;
     // The firmest of the three answers wins, so a back-and-forth that has earned a refusal is not
     // let through on the strength of a milder warning about one of its calls.
-    const found = [this.sameResultVerdict(key, name), this.repeatVerdict(name, count), this.cycleVerdict(name)]
+    const found = [quiet ? null : this.sameResultVerdict(key, name), this.repeatVerdict(name, count), quiet ? null : this.cycleVerdict(name)]
       .filter((verdict): verdict is LoopVerdict => verdict !== null);
     const verdict = found.find((one) => one.kind === "block") ?? found[0];
     return verdict ? this.escalate(verdict) : { kind: "allow" };
@@ -117,6 +161,7 @@ export class LoopGuard {
     this.results.set(pair, seen);
     const scale = this.scale(name);
     if (seen >= this.limits.sameResultBlockAt * scale) this.refusedForResults.add(key);
+    if (this.calls <= this.limits.quietCalls) return null;
     if (seen >= this.limits.sameResultWarnAt * scale)
       return `"${name}" has given back exactly the same result ${seen} times. Asking again will not change it; try something different.`;
     return null;
@@ -124,9 +169,7 @@ export class LoopGuard {
 
   /** Numbers for the task's record. */
   stats(): { calls: number; distinct: number; blocked: number; stopped: boolean } {
-    let calls = 0;
-    for (const count of this.counts.values()) calls += count;
-    return { calls, distinct: this.counts.size, blocked: this.blocks, stopped: this.stopped };
+    return { calls: this.calls, distinct: this.counts.size, blocked: this.blocks, stopped: this.stopped };
   }
 
   private scale(name: string): number {

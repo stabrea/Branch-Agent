@@ -35,7 +35,7 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
-// Wave mac2 (guards): loop guard, folder instructions and folder trust; see src/run-guards.ts.
+// Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
@@ -262,7 +262,7 @@ export class Runtime {
   readonly deferrals: Deferrals;
   /** Answers kept for identical requests. Off until the owner turns it on; see src/request-cache.ts. */
   readonly requestCache: RequestCache;
-  /** Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust. */
+  /** Wave mac2 (guards): the loop guard and folder trust. */
   readonly guards: RunGuards;
   constructor(
     readonly store: Store,
@@ -873,7 +873,7 @@ ${run.output.slice(0, 6000)}`;
     if (style && style !== "default") this.store.event(run.id, "specialist.style", { style, summary: shape.summary });
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
-    await this.guards.opening(run.id, messages, ids); // wave mac2 (guards)
+    await this.guards.opening(run.id); // wave mac2 (guards): an undecided folder is noted for the owner
     const catalog = this.openCatalog(run, context, messages, shape.groups);
     const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
@@ -1569,7 +1569,7 @@ ${run.output.slice(0, 6000)}`;
   }
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
-    // Wave mac2 (guards): a folder the owner does not trust always asks before a change.
+    // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
     return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
   }
   /**

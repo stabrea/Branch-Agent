@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  createBranch, decideFolder, discoverFolder, folderContains, folderTrust, nothingFound, presetRules,
-  PolicySchema, trustCappedPolicy, workspaceFolder,
+  assistantFolderItems, createBranch, decideFolder, discoverFolder, folderContains, folderTrust, folderTrustMode,
+  isFolderTrusted, needsAnswer, nothingFound, presetRules, PolicySchema, saveFolderTrustSettings, trustCappedPolicy,
+  workspaceFolder,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -71,12 +72,20 @@ test("an untrusted folder always asks before a change, and a rule can only tight
   assert.deepEqual(tightened.rules.map((rule) => `${rule.tool}:${rule.decision}`), ["shell.execute:deny", "web.*:ask", "*:ask"]);
   assert.equal(trustCappedPolicy(custom, "trusted"), custom);
   assert.equal(trustCappedPolicy(custom, "unknown"), custom, "not deciding changes nothing about approvals");
+  assert.equal(trustCappedPolicy(off, "untrusted", "off"), off, "with the switch off nothing is tightened");
+  assert.deepEqual(trustCappedPolicy(off, "untrusted", "when-needed").rules, presetRules("ask-before-changes"));
 });
 
 test("a task in a folder the owner does not trust waits for a yes before writing", async (t) => {
   const write = { id: "w1", name: "files.write", arguments: JSON.stringify({ path: "notes.txt", content: "hi" }) };
   const { app, workspace, owner, provider } = await fixture(t, {}, [{ content: "", toolCalls: [write] }, { content: "done", toolCalls: [] }]);
   decideFolder(app.store, owner, workspace, { folder: "", decision: "distrust" });
+  // Switched off (the default), the answer is kept but nothing is held back.
+  const before = await app.runtime.run({ prompt: "write" });
+  assert.equal(before.status, "completed", before.output);
+  await rm(join(workspace, "notes.txt"));
+  provider.calls = 0;
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
   const paused = await app.runtime.run({ prompt: "write" });
   assert.equal(paused.status, "needs_input", paused.output);
   await assert.rejects(readFile(join(workspace, "notes.txt"), "utf8"));
@@ -87,6 +96,17 @@ test("a task in a folder the owner does not trust waits for a yes before writing
   assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "hi");
 });
 
+test("a task in an undecided folder that holds something writes that down for the owner, once", async (t) => {
+  const { app, owner } = await fixture(t, { "AGENTS.md": "a", ".mcp.json": JSON.stringify({ mcpServers: { x: {} } }) });
+  const noted = (run) => app.store.events(run.id).filter((event) => event.kind === "folder.trust_needed");
+  assert.deepEqual(noted(await app.runtime.run({ prompt: "hi" })), [], "nothing while it is off");
+  saveFolderTrustSettings(app.store, owner, { mode: "when-needed" });
+  const [event] = noted(await app.runtime.run({ prompt: "hi" }));
+  assert.deepEqual(event.data.instructions, ["AGENTS.md"]);
+  assert.deepEqual(event.data.aiToolServers, ["x"]);
+  assert.deepEqual(noted(await app.runtime.run({ prompt: "hi" })), [], "asked once per launch, not every task");
+});
+
 test("what a folder carries is listed without loading any of it", async (t) => {
   const { workspace } = await fixture(t, {
     "AGENTS.md": "a", "src/CLAUDE.md": "b", "node_modules/pkg/AGENTS.md": "skipped", "src/agents.md": "listed whatever the case",
@@ -94,10 +114,14 @@ test("what a folder carries is listed without loading any of it", async (t) => {
     ".claude/settings.json": JSON.stringify({ hooks: { PreToolUse: [] } }),
     ".gemini/settings.json": "not json",
     ".agents/skills/review/SKILL.md": "x",
+    "docs/SOUL.md": "listed, never opened", ".hermes.md": "x", "AGENTS.override.md": "x",
+    ".vscode/mcp.json": JSON.stringify({ servers: { local: {} } }),
+    ".gemini/extensions/helper/gemini-extension.json": "{}",
   });
   const found = await discoverFolder(workspace);
-  assert.deepEqual(found.instructions.sort(), ["AGENTS.md", "src/CLAUDE.md", "src/agents.md"]);
-  assert.deepEqual(found.aiToolServers, ["github", "filesystem"]);
+  assert.deepEqual(found.instructions.sort(), [".hermes.md", "AGENTS.md", "AGENTS.override.md", "docs/SOUL.md", "src/CLAUDE.md", "src/agents.md"]);
+  assert.deepEqual(found.aiToolServers, ["github", "filesystem", "local"]);
+  assert.deepEqual(found.plugins, [".gemini/extensions/helper"]);
   assert.deepEqual(found.hooks, ["PreToolUse"]);
   assert.deepEqual(found.skills, [".agents/skills/review"]);
   assert.equal(nothingFound(found), false);
@@ -112,6 +136,36 @@ test("a skills folder that is a link is not looked into", { skip: process.platfo
   assert.deepEqual((await discoverFolder(workspace)).skills, []);
 });
 
+test("one list says what counts as something for AI assistants", () => {
+  for (const name of ["AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "GEMINI.md", ".hermes.md", "SOUL.md", "USER.md",
+    "IDENTITY.md", "MEMORY.md", "HEARTBEAT.md", "TOOLS.md", "SOP.md"])
+    assert.ok(assistantFolderItems.notes.includes(name), name);
+  assert.ok(assistantFolderItems.toolServers.some(([file]) => file === ".mcp.json"));
+  assert.ok(assistantFolderItems.skills.length && assistantFolderItems.hooks.length && assistantFolderItems.plugins.length);
+  assert.throws(() => assistantFolderItems.notes.push("X.md"), "the list cannot be changed by whoever imports it");
+});
+
+test("off / on / when needed decide whether a loader may read a folder", async (t) => {
+  const { app, workspace, owner } = await fixture(t, { "notes/AGENTS.md": "a", "empty/readme.txt": "b" });
+  const notes = join(workspace, "notes"), empty = join(workspace, "empty"), refused = join(workspace, "refused");
+  decideFolder(app.store, owner, workspace, { folder: "refused", decision: "distrust" });
+  assert.equal(folderTrustMode(app.store, owner), "off", "ships off");
+  for (const path of [notes, empty, refused]) assert.equal(await isFolderTrusted(app.store, owner, path), true, `off: ${path}`);
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
+  assert.deepEqual(await Promise.all([notes, empty, refused].map((path) => isFolderTrusted(app.store, owner, path))), [false, false, false]);
+  saveFolderTrustSettings(app.store, owner, { mode: "when-needed" });
+  assert.deepEqual(await Promise.all([notes, empty, refused].map((path) => isFolderTrusted(app.store, owner, path))), [false, true, false]);
+  decideFolder(app.store, owner, workspace, { folder: "notes", decision: "trust" });
+  assert.equal(await isFolderTrusted(app.store, owner, notes), true);
+  assert.equal(await app.runtime.guards.isFolderTrusted(notes), true, "the runtime offers the same check");
+  const some = await discoverFolder(join(workspace, "missing"));
+  assert.equal(needsAnswer("off", "unknown", some), false);
+  assert.equal(needsAnswer("on", "unknown", some), true);
+  assert.equal(needsAnswer("when-needed", "unknown", some), false);
+  assert.equal(needsAnswer("on", "trusted", some), false);
+  assert.throws(() => saveFolderTrustSettings(app.store, owner, { mode: "sometimes" }));
+});
+
 test("the trust screen lists each folder, takes an answer, and refuses a short-lived key", async (t) => {
   const { app, root, workspace, owner } = await fixture(t, { "AGENTS.md": "a" });
   app.store.projects.save(owner, { id: "site", name: "Site", folder: "site" });
@@ -123,6 +177,11 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
       ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, body: await response.json() };
   };
+  const offView = await call("GET");
+  assert.equal(offView.body.mode, "off");
+  assert.deepEqual(offView.body.folders.map((folder) => folder.needsAnswer), [false, false], "nobody is asked while it is off");
+  assert.equal((await call("POST", { mode: "when-needed" }, (app.sessionTokens.create(owner, { scope: "run", minutes: 5 })).token)).status, 401);
+  assert.equal((await call("POST", { mode: "when-needed" })).body.mode, "when-needed");
   const first = await call("GET");
   assert.equal(first.status, 200);
   assert.deepEqual(first.body.folders.map((folder) => [folder.folder, folder.trust, folder.needsAnswer]),
@@ -153,6 +212,7 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   const { app, root, workspace: top, owner } = await fixture(t, { [`${deep}/AGENTS.md`]: "a", [`${deep}/.mcp.json`]: JSON.stringify({ mcpServers: { planted: {} } }) });
   app.store.projects.save(owner, { id: "deep", name: "Deep", folder: deep });
   const workspace = join(top, deep);
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });

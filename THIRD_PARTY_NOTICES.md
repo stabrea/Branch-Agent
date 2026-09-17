@@ -3218,9 +3218,6 @@ studying them, and they are named here in keeping with their licences.
   back-and-forth detection and gentler limits for polled tools (`crates/openfang-runtime/src/loop_guard.rs`),
   adapted in `src/loop-guard.ts`.
 - **Gemini CLI** (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, Apache-2.0:
-  hierarchical instruction files with `@file.md` imports and a cycle guard (`memoryDiscovery.ts`,
-  `memoryImportProcessor.ts`), loop detection (`loopDetectionService.ts`), and trusted folders with a
-  read-only listing before trust (`utils/trust.ts`, `FolderTrustDiscoveryService.ts`), adapted in
-  `src/instruction-files.ts`, `src/loop-guard.ts` and `src/folder-trust.ts`.
-- **Goose** (https://github.com/aaif-goose/goose), Apache-2.0: reading a subfolder's hints the first
-  time a tool touches it (`crates/goose/src/hints/`), adapted in `src/instruction-files.ts`.
+  loop detection (`loopDetectionService.ts`), and trusted folders with a read-only listing before
+  trust (`utils/trust.ts`, `FolderTrustDiscoveryService.ts`), adapted in `src/loop-guard.ts` and
+  `src/folder-trust.ts`.

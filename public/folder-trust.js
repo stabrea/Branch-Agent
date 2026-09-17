@@ -1,4 +1,4 @@
-// Trusted folders (wave mac2). Before Branch reads anything a folder carries for AI assistants —
+// Trusted folders and stopping repeated steps (wave mac2). Before Branch reads anything a folder carries for AI assistants —
 // notes like AGENTS.md, lists of AI tool servers, skills, hooks — the owner sees the list and says
 // whether the folder is trusted. The deciding happens on the server (src/folder-trust.ts); this
 // file only shows what it says and sends the answer back. Every word is behind a key.
@@ -6,8 +6,8 @@ import { t, formatNumber } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 
-async function api(body) {
-  const response = await fetch("/api/folder-trust", {
+async function api(body, path = "folder-trust") {
+  const response = await fetch("/api/" + path, {
     method: body === undefined ? "GET" : "POST",
     headers: {
       authorization: "Bearer " + (sessionStorage.getItem("branch-token") || ""),
@@ -42,7 +42,30 @@ const kinds = [
   ["aiToolServers", "folder-trust.kind.servers", "folder-trust.kind.servers-note"],
   ["skills", "folder-trust.kind.skills", "folder-trust.kind.skills-note"],
   ["hooks", "folder-trust.kind.hooks", "folder-trust.kind.hooks-note"],
+  ["plugins", "folder-trust.kind.plugins", "folder-trust.kind.plugins-note"],
 ];
+
+/** A labelled off / on / when-needed choice that saves itself. */
+function switchRow(id, labelKey, mode, save) {
+  const label = worded("label", labelKey);
+  label.htmlFor = id;
+  const select = document.createElement("select");
+  select.id = id;
+  for (const value of ["off", "on", "when-needed"]) {
+    const option = worded("option", `folder-trust.switch.${value}`);
+    option.value = value;
+    select.append(option);
+  }
+  select.value = mode;
+  const status = document.createElement("p");
+  status.className = "subtle";
+  status.setAttribute("role", "status");
+  select.addEventListener("change", async () => {
+    try { await save(select.value); status.textContent = t("folder-trust.saved"); }
+    catch (error) { status.textContent = error.message; }
+  });
+  return [label, select, status];
+}
 
 /** What one folder carries, as short lists. */
 function findings(found) {
@@ -104,7 +127,7 @@ function askCard(folders) {
 }
 
 /** Every folder and its answer, in Settings, so a decision can be changed later. */
-function settingsCard(folders) {
+function settingsCard(mode, folders) {
   let card = $("folder-trust-card");
   const after = $("firewall-card");
   if (!card) {
@@ -114,7 +137,10 @@ function settingsCard(folders) {
     card.id = "folder-trust-card";
     after.after(card);
   }
-  card.replaceChildren(worded("h2", "settings.card.trusted-folders"), worded("p", "folder-trust.lead", "subtle"));
+  card.replaceChildren(worded("h2", "settings.card.trusted-folders"), worded("p", "folder-trust.lead", "subtle"),
+    ...switchRow("folder-trust-mode", "field.folder-trust-mode", mode, async (next) => { await api({ mode: next }); await refresh(); }),
+    worded("p", `folder-trust.mode.${mode}`, "subtle"));
+  if (mode === "off") return;
   for (const folder of folders) {
     const row = document.createElement("div");
     row.className = "card-row";
@@ -126,15 +152,33 @@ function settingsCard(folders) {
   }
 }
 
-let shown = [];
+/** The loop guard's own card, placed after the trusted-folders card. */
+function loopCard(mode) {
+  let card = $("loop-guard-card");
+  const after = $("folder-trust-card");
+  if (!card) {
+    if (!after) return;
+    card = document.createElement("section");
+    card.className = "card";
+    card.id = "loop-guard-card";
+    after.after(card);
+  }
+  card.replaceChildren(worded("h2", "settings.card.stopping-repeated-steps"), worded("p", "loop-guard.lead", "subtle"),
+    ...switchRow("loop-guard-mode", "field.loop-guard-mode", mode, (next) => api({ mode: next }, "loop-guard")),
+    worded("p", "loop-guard.modes", "subtle"));
+}
+
+let shown = { mode: "off", folders: [], loop: "off" };
 function draw() {
-  askCard(shown);
-  settingsCard(shown);
+  askCard(shown.folders);
+  settingsCard(shown.mode, shown.folders);
+  loopCard(shown.loop);
 }
 async function refresh() {
   if (!sessionStorage.getItem("branch-token")) return;
   try {
-    shown = (await api()).folders;
+    const [trust, loop] = await Promise.all([api(), api(undefined, "loop-guard")]);
+    shown = { mode: trust.mode, folders: trust.folders, loop: loop.mode };
     draw();
   } catch { /* signed out or offline: the next look tries again */ }
 }

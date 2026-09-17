@@ -113,8 +113,8 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
-// Wave mac2 (guards): which workspace folders are trusted.
-import { folderTrustApi, handlesFolderTrustPath } from "./folder-trust.js";
+// Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
+import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -630,8 +630,8 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
-  // Wave mac2 (guards): which workspace folders are trusted, and what each one carries.
-  if (handlesFolderTrustPath(path)) return folderTrustApi(app, request, path, readBody);
+  // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
+  if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -2587,7 +2587,7 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
-  if (handlesFolderTrustPath(path)) return "A short-lived key cannot change which folders are trusted. Do that in the app window.";
+  if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
