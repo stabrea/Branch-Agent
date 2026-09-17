@@ -14,6 +14,17 @@
  *  - A program the table does not know, a flag or quote where the action's words should be, and a
  *    one-word action that can change things (`rm`, `mv`, `chmod`) are remembered word for word, as
  *    every remembered command was before this.
+ *
+ * Integration review (mac3/tool-safety) added three more, each found by trying to get past a yes:
+ *  - A program named with its folder (`./git`, `/tmp/git`) is not the program the owner said yes
+ *    to, so a yes to `git status` never covers it, and it is remembered word for word.
+ *  - A flag that makes the action run or load something else (`git grep -O<program>`,
+ *    `npm run dev --script-shell=…`, `npm exec x --package=…`, `git fetch --upload-pack=…`,
+ *    `make build SHELL=…`) is only covered word for word.
+ *  - Invisible characters and line or page breaks other than a space or tab make a command not
+ *    plain, so what a rule reads is what the shell reads. A refusal or question also looks past
+ *    quotes, backslashes, `VAR=value` and wrapper programs (`sudo`, `env`, `xargs`, `sh -c`,
+ *    `find -exec`), so hiding a refused action inside one does not get it through.
  */
 import { globMatches } from "./policy-resources.js";
 
@@ -46,19 +57,29 @@ const ARITY: Record<string, number> = {
 const lookOnly = new Set(["cat", "cd", "echo", "grep", "ls", "ps", "pwd", "sleep", "tail", "which"]);
 
 /**
- * Shell syntax that joins, redirects or substitutes commands. A backslash is left out on purpose:
- * it is how a Windows program's folder is written, and a Windows command must read as it always has.
+ * Shell syntax that joins, redirects or substitutes commands, and characters a person cannot see or
+ * that a shell reads differently from a space (a line or page break, a no-break space, a zero-width
+ * character). A backslash is left out on purpose: it is how a Windows program's folder is written,
+ * and a Windows command must read as it always has.
  */
-const shellSyntax = /[;&|<>`$()\r\n]/;
+const shellSyntax = /[;&|<>`$()\r\n]|[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]|(?! )\p{Zs}/u;
 
 /** The program's own name without its folder: `/usr/bin/git` is `git`. */
 const programName = (word: string): string => word.replace(/^.*[\\/]/, "");
+/** Whether the program is named with a folder, which makes it a different program from the bare name. */
+const hasFolder = (word: string): boolean => /[\\/]/.test(word);
+
+/** The command's words exactly as written, or null when it is not a plain list of words. */
+function rawWords(command: string): string[] | null {
+  if (shellSyntax.test(command)) return null;
+  const words = command.trim().split(/[ \t]+/).filter(Boolean);
+  return words.length ? words : null;
+}
 
 /** The command's words, or null when it is not a plain list of words. */
 export function plainWords(command: string): string[] | null {
-  if (shellSyntax.test(command)) return null;
-  const words = command.trim().split(/\s+/).filter(Boolean);
-  return words.length ? [programName(words[0]!), ...words.slice(1)] : null;
+  const words = rawWords(command);
+  return words ? [programName(words[0]!), ...words.slice(1)] : null;
 }
 
 /** A command as rules compare it: the program's name without its folder, single spaces between words. */
@@ -79,38 +100,118 @@ function arityPrefix(words: string[]): string[] | null {
   return null;
 }
 
+/** Long flags that make an action run, load or write something the owner did not name. */
+const riskyLongFlags = new Set([
+  "upload-pack", "receive-pack", "exec", "execdir", "exec-path", "extcmd", "tool", "open-files-in-pager",
+  "output", "output-directory", "ext-diff", "config", "git-dir", "work-tree", "template", "smtp-server",
+  "script-shell", "shell", "package", "call", "node-options", "userconfig", "globalconfig", "prefix", "dir",
+  "cwd", "require", "import", "loader", "eval", "toolexec", "pager", "editor", "cmd", "command",
+  "manifest-path", "makefile", "file", "directory", "include-dir",
+]);
+/** One-letter flags that do the same, for the programs where they exist (`git grep -O`, `npm exec -c`). */
+const riskyShortFlags: Record<string, string> = {
+  git: "Oxc", "git clone": "Oxcu", "git ls-remote": "Oxcu", "git archive": "Oxcu",
+  npm: "cp", pnpm: "cpC", yarn: "cp", bun: "cp", make: "fCEI",
+};
+
+/** Whether one word after the program could make its action run or load something else. */
+function riskyArgument(words: string[], word: string): boolean {
+  const program = words[0]!.toLowerCase();
+  const flag = /^--?([A-Za-z][\w-]*)/.exec(word);
+  if (!flag) return program === "make" && word.includes("=");
+  if (riskyLongFlags.has(flag[1]!.toLowerCase())) return true;
+  if (word.startsWith("--")) return false;
+  const letters = riskyShortFlags[`${program} ${words[1] ?? ""}`] ?? riskyShortFlags[program] ?? "";
+  return [...flag[1]!].some((letter) => letters.includes(letter));
+}
+
+/** Whether any word after the program could make its action run or load something else. */
+function hasRiskyArgument(raw: string[]): boolean {
+  const words = [programName(raw[0]!), ...raw.slice(1)];
+  return words.slice(1).some((word) => riskyArgument(words, word));
+}
+
 /**
  * The words a standing answer to this command should cover — `git status` for
  * `git status --short` — or null when it can only be remembered word for word.
  */
 export function commandPrefix(command: string): string | null {
-  const words = plainWords(command);
-  if (!words) return null;
-  const prefix = arityPrefix(words);
+  const raw = rawWords(command);
+  if (!raw || hasFolder(raw[0]!) || hasRiskyArgument(raw)) return null;
+  const prefix = arityPrefix(raw);
   if (!prefix) return null;
-  if (prefix.some((word) => /^-|["'*?=]/.test(word))) return null;
+  if (prefix.some((word) => /^-|["'*?=\\]/.test(word))) return null;
   if (prefix.length === 1 && !lookOnly.has(prefix[0]!.toLowerCase())) return null;
   return prefix.join(" ");
 }
 
-/** The pieces of a joined command (`a && b; c | d`), each tidied, for rules that can only tighten. */
+/** Programs that run another command given after them, so a refusal must look past them. */
+const wrappers = new Set([
+  "sudo", "doas", "env", "nohup", "time", "nice", "ionice", "timeout", "command", "exec", "builtin", "xargs",
+  "stdbuf", "chroot", "strace", "watch", "caffeinate", "find", "sh", "bash", "zsh", "dash", "ksh", "fish",
+  "pwsh", "powershell", "cmd", "npx", "pnpx", "bunx", "start", "call", "script", "unbuffer", "eval",
+]);
+/** A word as a refusal reads it: no quotes, no folder, no escaping backslash, no `.exe`. */
+const bareWords = (word: string): string[] => {
+  const unquoted = word.replace(/["'\p{Cf}]/gu, "");
+  const names = [programName(unquoted), unquoted.replace(/\\/g, "")];
+  return [...new Set(names.map((name) => name.replace(/\.(exe|cmd|bat|com)$/i, "")))];
+};
+
+/**
+ * Every way a piece of a command could start its real program, for rules that can only tighten:
+ * the piece itself, and each place after a `VAR=value` or a wrapper program, with quotes and
+ * escapes taken off. Reading too much here only ever makes a refusal or question reach further.
+ */
+function startings(piece: string): string[] {
+  const words = piece.trim().split(/\s+/).filter(Boolean);
+  const found = new Set<string>();
+  let wrapped = false;
+  words.forEach((word, at) => {
+    if (at === 0 || wrapped) {
+      const rest = words.slice(at + 1).map((next) => next.replace(/["'\\\p{Cf}]/gu, "")).join(" ");
+      for (const name of bareWords(word)) found.add(`${name} ${rest}`.trim());
+    }
+    if (/^[A-Za-z_]\w*=/.test(word) || bareWords(word).some((name) => wrappers.has(name.toLowerCase()))) wrapped = true;
+  });
+  return [...found];
+}
+
+/** The pieces of a joined command (`a && b; c | d`), for rules that can only tighten. */
 function pieces(command: string): string[] {
-  return command.split(/&&|\|\||[;&|\r\n]|\$\(|`/).map((piece) => tidyCommand(piece.replace(/[()]/g, " "))).filter(Boolean);
+  return command.split(/&&|\|\||[;&|\r\n]|\$\(|`|[\u000b\u000c\u0085\u2028\u2029]/).map((piece) => piece.replace(/[()]/g, " ")).filter((piece) => piece.trim());
 }
 
 /** Whether a rule's command words cover a plain command: `git` covers `git push`, `git status` does not. */
 const wordsCover = (pattern: string, command: string): boolean =>
   globMatches(pattern, command) || globMatches(pattern + " *", command);
 
+/** Whether an allow covers a command exactly as written, and nothing else. */
+const exactly = (pattern: string, command: string): boolean =>
+  !pattern.includes("*") && pattern.trim().split(/[ \t]+/).join(" ").toLowerCase() === command.trim().split(/[ \t]+/).join(" ").toLowerCase();
+
 /**
  * Whether a rule about a command covers this one. A plain command is covered by a rule naming its
- * first words. A joined or redirected command is covered by an "allow" only word for word, and by
- * an "ask" or "deny" when any piece of it is, so joining commands can make a rule stricter but
- * never looser.
+ * first words (with the program's folder, when it has one), unless it carries a risky flag, when
+ * only word for word. A
+ * joined or redirected command is covered by an "allow" only word for word, and by an "ask" or
+ * "deny" when any piece of it is, so joining commands can make a rule stricter but never looser.
  */
 export function commandCovers(pattern: string, command: string, decision: "allow" | "ask" | "deny"): boolean {
-  const tidy = tidyCommand(command);
-  if (plainWords(command)) return wordsCover(pattern, tidy);
-  if (decision === "allow") return !pattern.includes("*") && pattern.trim().toLowerCase() === tidy.toLowerCase();
-  return globMatches(pattern, tidy) || pieces(command).some((piece) => wordsCover(pattern, piece));
+  const raw = rawWords(command);
+  if (decision === "allow") {
+    if (!raw || hasRiskyArgument(raw)) return exactly(pattern, command);
+    // `./git` or `/tmp/git` is only the program a rule names when the rule names that folder too.
+    return wordsCover(pattern, hasFolder(raw[0]!) ? raw.join(" ") : tidyCommand(command));
+  }
+  if (globMatches(pattern, tidyCommand(command))) return true;
+  return pieces(command).some((piece) => startings(piece).some((start) => wordsCover(pattern, start)));
+}
+
+/**
+ * A remembered command that can only be kept word for word, as a rule that matches exactly that
+ * command and nothing a wildcard in it could stand for.
+ */
+export function exactCommandPattern(command: string): string {
+  return command.trim().split(/[ \t]+/).join(" ").slice(0, 300);
 }

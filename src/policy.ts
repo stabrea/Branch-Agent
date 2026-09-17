@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
 import { globMatches, isCommandTool, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
-import { commandPrefix } from "./command-prefix.js";
+import { commandPrefix, exactCommandPattern, plainWords } from "./command-prefix.js";
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
@@ -203,7 +203,19 @@ function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
   if (!globMatches(rule.match, request.target)) return false;
+  if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;
   return rule.resource ? resourceMatches(rule.resource, request.resource, rule.decision) : true;
+}
+/**
+ * Integration review (mac3/tool-safety): an allow that names a command only through its target — a
+ * remembered command from before, or "npm *" — covers a command only when the target is the whole
+ * command and a plain list of words. A `*` in it never stands for `; rm -rf ~`, and a command cut
+ * at 300 characters is never let through by its harmless start.
+ */
+function commandTargetTrusted(request: PolicyRequest): boolean {
+  const resource = request.resource;
+  if (resource?.kind !== "command") return true;
+  return !resource.cut && plainWords(resource.value) !== null;
 }
 /**
  * The first rule that matches decides, and rules that name a particular folder, website, account or
@@ -270,12 +282,17 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
  */
 export function standingRule(rule: PolicyRule): PolicyRule {
   const remote = rule.tool === "remote.run";
-  if (rule.resource || rule.match === "*" || rule.match.includes("*") || !(remote || isCommandTool(rule.tool))) return rule;
+  if (rule.resource || rule.match === "*" || !(remote || isCommandTool(rule.tool))) return rule;
   const at = remote ? rule.match.indexOf(": ") : 0;
   if (at < 0) return rule;
-  const prefix = commandPrefix(remote ? rule.match.slice(at + 2) : rule.match);
-  if (!prefix) return rule;
-  return { ...rule, match: remote ? `${rule.match.slice(0, at)}: *` : "*", resource: { kind: "command", pattern: prefix } };
+  const command = remote ? rule.match.slice(at + 2) : rule.match;
+  const match = remote ? `${rule.match.slice(0, at)}: *` : "*";
+  // Integration review: a `*` in a remembered command is a star, not "anything" — `rm -rf *` must
+  // never cover `rm -rf /` — so such a command is kept as an exact rule.
+  const prefix = rule.match.includes("*") ? null : commandPrefix(command);
+  if (prefix) return { ...rule, match, resource: { kind: "command", pattern: prefix } };
+  if (!rule.match.includes("*")) return rule;
+  return { ...rule, match, resource: { kind: "command", pattern: exactCommandPattern(command), exact: true } };
 }
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {

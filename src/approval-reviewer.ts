@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Budget, errorText, type ToolCall, type ToolContext, type Run } from "./contracts.js";
 import { checkResult } from "./delegation.js";
 import { FeatureSwitchSchema } from "./loop-guard.js";
+import { redactLeaks } from "./leak-guard.js";
 import { evaluatePolicy, type Policy, type PolicyOutcome, type RunSource } from "./policy.js";
 import { isCommandTool, resourceOf } from "./policy-resources.js";
 import type { ApprovalGate } from "./approvals.js";
@@ -46,14 +47,26 @@ export const ReviewerSettingsSchema = z.object({
 export type ReviewerSettings = z.infer<typeof ReviewerSettingsSchema>;
 
 const settingsKey = "approval_reviewer";
+/**
+ * The saved settings, read once per workspace and owner and kept, so a call made while the second
+ * look is off costs nothing more than a lookup. Saving through this file replaces what is kept.
+ */
+const settingsKept = new WeakMap<Store, Map<string, ReviewerSettings>>();
 export function reviewerSettings(store: Store, owner: string): ReviewerSettings {
+  const kept = settingsKept.get(store) ?? new Map<string, ReviewerSettings>();
+  settingsKept.set(store, kept);
+  const known = kept.get(owner);
+  if (known) return known;
   const saved = ReviewerSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
-  return saved.success ? saved.data : ReviewerSettingsSchema.parse({});
+  const settings = saved.success ? saved.data : ReviewerSettingsSchema.parse({});
+  kept.set(owner, settings);
+  return settings;
 }
 /** Saves what was sent; anything left out keeps its current value. */
 export function saveReviewerSettings(store: Store, owner: string, input: unknown): ReviewerSettings {
   const next = ReviewerSettingsSchema.parse({ ...reviewerSettings(store, owner), ...ReviewerSettingsSchema.partial().parse(input ?? {}) });
   store.save("settings", owner, settingsKey, next);
+  settingsKept.get(store)?.set(owner, next);
   return next;
 }
 
@@ -123,7 +136,10 @@ function reasonsFor(host: ReviewerHost, mode: ReviewerSettings["mode"], check: P
   if (mode === "off" || check.reason || about.context.dryRun) return null;
   const { call, context } = about;
   const unknown = host.registry.isExternal(call.name) && !check.readOnly;
-  const classify = unknown && (context.source ?? "owner") === "owner" && check.decision !== "allow";
+  // Integration review: "only reads" may turn a question into a yes and nothing more. A refusal stays
+  // a refusal, whatever the tool or the second look says, and a tool whose name says it changes
+  // things is never called read-only.
+  const classify = unknown && (context.source ?? "owner") === "owner" && check.decision === "ask" && !namedForChange(call.name);
   if (check.decision === "deny") return classify ? { classify, judge: false } : null;
   const raw = rawOutcome(host, check, about, check.readOnly);
   // An allow the rules did not give, or a yes the owner already gave for this very request in this
@@ -135,6 +151,10 @@ function reasonsFor(host: ReviewerHost, mode: ReviewerSettings["mode"], check: P
   const judge = mode === "on" ? check.decision === "ask" || command || unknown : unmatchedCommand || unknown;
   return classify || judge ? { classify, judge } : null;
 }
+
+/** Words in a tool's name that say it changes something, so no second look may call it read-only. */
+const changeWords = /(^|[._-])(write|delete|remove|rm|create|update|edit|set|put|post|send|patch|move|rename|upload|install|run|exec|execute|drop|insert|kill|stop|start|publish|pay|buy|transfer|push|commit|merge|approve|grant|revoke|reset|clear|purge|archive|replace|modify|add)([._-]|$)/i;
+const namedForChange = (tool: string): boolean => changeWords.test(tool.replace(/([a-z])([A-Z])/g, "$1_$2"));
 
 /** What the rules alone say about the call, before any earlier answer is counted, and whether a rule said it. */
 function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall, readOnly: boolean): { outcome: PolicyOutcome & { leak?: string }; matched: boolean } {
@@ -156,6 +176,7 @@ export async function reviewCall(host: ReviewerHost, check: PolicyCheck, about: 
     return { ...check, decision: "allow" };
   }
   const settings = reviewerSettings(host.store, host.owner);
+  if (settings.mode === "off") return check;
   const reasons = reasonsFor(host, settings.mode, check, about);
   if (!reasons) return check;
   const verdict = await look(host, settings, check, about);
@@ -203,7 +224,8 @@ async function look(host: ReviewerHost, settings: ReviewerSettings, check: Polic
   const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: settings.maxTokens }),
     signal: AbortSignal.any([context.signal, AbortSignal.timeout(30_000)]) };
   try {
-    const raw = await host.completeAside(run, scoped, preset, reviewQuestion(settings.rules.trim() || stockReviewRules, run.prompt, actionData(host, check, call)));
+    const task = redactLeaks(host.hideSecrets(run.prompt)).text;
+    const raw = await host.completeAside(run, scoped, preset, reviewQuestion(settings.rules.trim() || stockReviewRules, task, actionData(host, check, call)));
     const verdict = readVerdict(raw);
     if (!verdict) return failed(host, about, "its reply could not be read");
     if (remembered.size >= 200) remembered.delete(remembered.keys().next().value!);
@@ -220,13 +242,17 @@ function choosePreset(host: ReviewerHost, settings: ReviewerSettings, run: Run |
   return run ? host.models.plan(host.owner, run.sessionId).candidates[0] : undefined;
 }
 
-/** The call as the second model sees it, with saved passwords and keys already taken out. */
+/**
+ * The call as the second model sees it, with saved passwords and keys taken out, and anything that
+ * merely looks like a key hidden by the leak guard (src/leak-guard.ts) before any text is cut short.
+ */
 function actionData(host: ReviewerHost, check: PolicyCheck, call: ToolCall): Record<string, unknown> {
   const description = host.registry.inventory().find((tool) => tool.name === call.name)?.description ?? "";
+  const clean = (text: string, most: number): string => redactLeaks(host.hideSecrets(text)).text.slice(0, most);
   return {
-    tool: call.name, description: host.hideSecrets(description).slice(0, 600),
-    summary: host.hideSecrets(check.label).slice(0, 300), target: host.hideSecrets(check.target).slice(0, 300),
-    details: host.hideSecrets(call.arguments).slice(0, 2000),
+    tool: call.name, description: clean(description, 600),
+    summary: clean(check.label, 300), target: clean(check.target, 300),
+    details: clean(call.arguments, 2000),
   };
 }
 

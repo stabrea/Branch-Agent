@@ -905,7 +905,7 @@ Any part of Branch that reads what a folder carries asks `isFolderTrusted(store,
 
 **Always allow, per command.** "Yes, always" (and "No, always") to a command is remembered for that
 one action of the program, not for the exact words and not for the whole program: a yes to
-`git status` covers `git status --short` and `/usr/bin/git status`, and `git push` is still asked
+`git status` covers `git status --short`, and `git push` is still asked
 about; `npm run dev` stays separate from `npm install`. How many words name the action comes from
 OpenCode's table (`src/command-prefix.ts`): `git` takes two, `npm run` three, `ls` one. The rule is
 written as `{ match: "*", resource: { kind: "command", pattern: "git status" } }`; for a program on
@@ -922,10 +922,12 @@ command sent to a kept-open command line (`shell.session.run`) is judged by the 
 Another model reads a tool call before the approval card and answers two things: whether the call
 only reads, and — against the owner's own rules in plain English (`rules`; empty uses
 `stockReviewRules`) — whether it is fine, should be asked about, or should be refused. The call is
-given to it as untrusted data after a marker, with saved passwords and keys taken out.
+given to it as untrusted data after a marker, with saved passwords and anything that looks like a key hidden (the leak guard). While it is off the
+saved setting is read once and kept, so a call costs nothing extra.
 *Only reads* is used only for tools that do not say what they do (another AI tool's tools) and only in
-tasks the owner started; it is handed to the rules as a fact, so such a call gets past a rule for
-changes (Ask before changes, Read only) and never past a rule for everything. *Fine / ask / refuse*
+tasks the owner started, and never for a tool whose name says it changes something (`delete`, `send`,
+`write`…); it can only turn a question into a yes (Ask before changes), never a refusal (Read only, or a
+deny rule) and never a rule for everything. *Fine / ask / refuse*
 can only make the answer stricter: "ask" turns a yes into a question, and "refuse" turns the call into
 a question carrying the reason that the owner may allow **only this once** ("Yes, just now";
 `onceOnly: true` on the waiting question). A longer-lasting yes to it is refused with a 400, and
@@ -939,9 +941,20 @@ read, the rules decide exactly as they would with it off, and `policy.review_fai
 that answered writes `policy.reviewed`. Practice runs are never looked at. A short-lived key cannot
 change these settings.
 
-**macOS and Linux.** Both work the same on every system. A program's folder is dropped before
-matching whether it is written with `/` or `\`, so `/usr/bin/git status` and `C:\Tools\git status`
-both read as `git status`.
+**What a remembered yes never covers** (integration review). A program named with a folder (`./git`,
+`/tmp/git`, `C:\Temp\git`) is not the program a yes was given to: an allow covers it only when the rule
+names that folder too, and a refusal or question naming the bare program still reaches it. A flag that
+makes the action run or load something else (`git grep -O…`, `git fetch --upload-pack=…`,
+`npm run dev --script-shell=…`, `npm exec x --package=…`, `make build SHELL=…`) is covered only word for
+word. Line and page breaks other than a newline, no-break spaces and invisible characters count as shell
+syntax. A refusal or question also looks past quotes, backslashes, `VAR=value` and wrapper programs
+(`sudo`, `env`, `xargs`, `sh -c`, `find -exec`, `npx`). A command is judged whole from its arguments, not
+from its 300-character target. A remembered command with a `*` in it is kept as an exact rule
+(`resource.exact: true`), so `rm -rf *` never covers `rm -rf /`, and an allow that names a command only
+through `match` (`"npm *"`) covers plain commands only. A `*` in any rule now also fits a line break.
+
+**macOS and Linux.** Both work the same on every system. A program's folder is read whether it is
+written with `/` or `\`.
 
 ## Teams, linked chats, registries and evaluation
 
