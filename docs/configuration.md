@@ -860,6 +860,45 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## The dashboard in the browser
+
+One page, served by Branch itself at `/dashboard`, that shows at a glance what Branch is doing (**Now**:
+running or not, the model and connection, the tasks working with a Stop button, what needs you),
+whether its parts are healthy (**Health**: model connections and chat apps, automations as working,
+failing, never run or paused, the background engine and the last update, memory and disk, the last
+week's problems), what it has cost (**Spend**: today and this month by connection and by project,
+with the month's forecast; a task on a model with no price on file is counted apart, never as
+nothing), and what is happening (**Activity**: each step, filtered, with a way into each task). Its
+**Controls** pause every automation, switch Lockdown, restart the engine, and open any Settings
+page. It fits a phone at 400 px and spreads to four columns on a wall screen.
+
+The switch is under Customize → Channels (`dashboard.mode` in the `DashboardSettingsSchema`,
+`src/dashboard-api.ts`) and ships `off`:
+
+- `off` — the page and its files answer 404 and `GET /api/dashboard` refuses.
+- `on` — the page reads `GET /api/dashboard` every ten seconds while it is in view and keeps the
+  live updates of `/api/events/stream` open.
+- `when-needed` — the page is served but reads everything once, when it opens or Refresh is
+  pressed, and keeps nothing open in between.
+
+It sits behind the same key and host rules as the app window, so it is reachable on the paired
+address exactly when the app is. A short-lived key made with `branch token create --scope read`
+gets a page that only looks; `--scope run` may also press Stop (through `POST /api/runs/{id}/cancel`).
+`POST /api/dashboard/automations` with `{ paused }`, `POST /api/dashboard/restart` and
+`POST /api/dashboard/settings` with `{ mode }` need the master key. Pausing sets every waiting
+schedule to paused and switches every trigger off, and remembers which; starting them again brings
+back only those, so anything the owner paused by hand stays paused. Links back into the window use
+`/#open=<place:tab>` (any home in `docs/places.md`) and `/#task=<id>`.
+
+**macOS and Linux.** Restart stops the background engine the way Ctrl+C does, with exit code 75, and
+the sign-in file starts it again: launchd's `KeepAlive` (`SuccessfulExit` false) on a Mac, systemd's
+`Restart=on-failure` on Linux. It is offered only when this copy is the background engine and was
+started by that file (`XPC_SERVICE_NAME` is `com.keepoak.branch-agent`, or systemd set
+`INVOCATION_ID`); a copy started by hand or running in the app window says how to restart it
+instead. On Windows the button explains that Branch is closed from its icon by the clock and opened
+again; nothing on Windows changes. Disk use is read with `statfs` on the data folder, which works the
+same on all three.
+
 ## A conversation that survives a restart
 
 Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end

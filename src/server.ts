@@ -85,6 +85,10 @@ import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from 
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+// Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
+import {
+  DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
+} from "./dashboard-api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -309,6 +313,14 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2163,6 +2175,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // box off the owner's page rather than only hiding the setting.
       if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
         throw new HttpError(404, "Not found");
+      // Wave mac3: while the dashboard switch is off its page and files are not served at all.
+      if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -2201,6 +2216,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
+      // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
+      // out once here, so the page can show a read-only view to a key that may only look. ----
+      if (handlesDashboardPath(path)) {
+        const access = dashboardAccess(request, token, (supplied) =>
+          app.sessionTokens.check(app.runtime.owner, supplied, { method: "POST", executes: true }));
+        const answer = await dashboardApi(app, request, path, {
+          dataDir: options.dataDir, access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof DashboardApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the dashboard block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
