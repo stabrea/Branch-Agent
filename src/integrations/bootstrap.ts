@@ -8,13 +8,11 @@ import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
-import { registerWebPages } from '../web-pages.js'; // w911 (bucket 10) hook
-import { registerWebCrawl } from '../web-crawl.js'; // w911 (bucket 10) hook
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ShellSessions, registerShellSessions } from '../shell-session.js';
-import { type Store } from '../store.js';
+import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
 import { DiscordAdapter } from '../channels/discord.js';
@@ -295,11 +293,6 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       const adapter = await buildChannel(channel, env, channels!, policy);
       await channels!.router.attach(adapter, { activation: channel.activation, pairing: channel.pairing, allowlist: channel.allowlist });
       closers.push(() => adapter.stop());
-    }
-    // w911 (bucket 10): register web.page and web.crawl tools if web access is available
-    if (channels?.web && channels?.store) {
-      registerWebPages(registry, channels.web, hosted.browser, channels.store as Store);
-      registerWebCrawl(registry, channels.web, hosted.browser, channels.store as Store);
     }
     return { close, count: closers.length, hosted };
   } catch (error) { await close().catch(() => undefined); throw error; }

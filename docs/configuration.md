@@ -583,28 +583,39 @@ names: Branch is TypeScript and drives the browser on this computer, the same re
 `hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
 One implementation satisfies all three rows; none of them needs building again.
 
-## Web page fetching and crawling (A0743, A1452)
+**`A0743` and `A1452` (reading a whole page, and following one site's links) — built, switched
+off until you turn them on.** The switch is the `web-pages` setting (`GET`/`POST /api/web-pages`,
+owner only: off, when-needed or on). There is no Settings card for it yet. While it is off both
+tools are hidden from the assistant and refuse in one sentence.
 
-**Settings → Computer → Web access** has the three-way switch, off by default.
-
-**`web.page` (A0743: Fetch a web page).** Three routes:
-- `plain`: HTTP fetch with readable-text extraction (no JavaScript).
-- `browser`: render the page in headless Playwright (JavaScript runs; slow).
-- `auto`: try plain first; fall back to browser if text is nearly empty.
-
-When a challenge is detected (Cloudflare, hCaptcha, or other "are you human?" gates), the tool returns a result marked `{ challenged: true }` instead of throwing. The owner is asked via `user.ask` to visit the site themselves, complete the check, and tell Branch to continue. If the owner has enabled "Let Branch use my browser for this task" in Settings, they are told that option is available.
-
-**`web.crawl` (A1452: Crawl a website).** Stays on one registrable host (last two labels: `a.example.com` → `example.com`; no dependency on a full public-suffix list). Limits:
-- Default 1, max 3 depth.
-- Default 10, max 50 pages per crawl.
-- Polite delay between requests (default 500 ms).
-- Honours `robots.txt` for `User-agent: *` and Branch's own UA; ignores `Allow`, `Crawl-delay`, and wildcards.
-- Strips URL fragments to dedupe and prevent revisits.
-- Stops and asks the owner if a challenge is detected mid-crawl.
-
-Stops on challenge with partial results: the pages fetched before the challenge, so a crawl can be resumed by the owner manually if needed.
-
-Both tools refuse in one sentence while the switch is off: *"Reading and crawling web pages is switched off. Turn it on under Settings → Computer → Web access."*
+- **`web.page`** reads one page. `route: plain` is an ordinary read under your network rules:
+  private and local addresses are refused unless you allowed them, and every redirect (up to five)
+  is checked again before anything is sent to it. `route: browser` opens the page in Branch's own
+  headless browser, which only goes to the sites in its allowed list and refuses redirects.
+  `route: auto` (the default) reads plainly and uses the browser only when the page came back
+  nearly empty and built by script, and only when a browser is set up, the task may use it, and
+  your approval rules let it open the page without asking; otherwise it keeps the plain answer and
+  says why. The answer always names the route used, and says how many characters were cut off.
+- **`web.crawl`** follows one website's own links: the same host only (a different subdomain is a
+  different site), at most 3 levels deep (default 1) and 50 pages (default 10). It reads
+  `robots.txt` first: the group for Branch's own name (`BranchAgent`) if there is one, otherwise
+  the `*` group; the longest matching `Allow`/`Disallow` wins, `Allow` wins a tie, and `*` and a
+  final `$` work as in RFC 9309. No `robots.txt` (or a 4xx) means everything is allowed; a server
+  error means nothing is read. `Crawl-delay` and sitemaps are not read. Between pages it waits
+  (`crawlDelayMs`, default 1000, 250–10000). Addresses are compared without their `#` part and read
+  once; files that are not web pages are skipped and listed; a page that moves to another website
+  is not read. Each page's text is trimmed (default 3000 characters, the rest counted) and its links
+  listed. Stopping the task stops the crawl.
+- **When a site asks "are you a person?"** (a 403, 429 or 503 carrying a Cloudflare or captcha
+  check, a "Just a moment" / "Checking your browser" page, or a short page built around a captcha
+  or Turnstile box), the tool stops after that one request and answers `challenged: true` with the
+  site, what it showed, and what to do. There is no retry, no waiting it out, no disguise and no
+  captcha solving. The page is handed to you as a job in the handed-over list, the task is marked
+  as needing you, and the `approval.needed` webhook event is sent (when you have webhooks set up). You open the page yourself, get past the
+  check, and tell Branch to carry on — or turn on "Let Branch use my browser for this task" so the
+  task can work in your own signed-in browser. A crawl stops at that page and keeps what it read.
+- **Limits:** the challenge check looks for the common signs only, so an unusual check page can be
+  read as an ordinary page (or an error). Only Chromium's headless browser is tested.
 
 **The two document rows filed under the browser (`family: doc-processing`, `family:
 document-processing` in #62) are stale.** PDF text extraction and document extraction are both

@@ -109,6 +109,7 @@ import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
+import { WebPages, registerWebPages } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { PluginCatalog } from "./plugin-catalog.js";
 import { AddOns } from "./add-ons/index.js"; // bucket-15: add-ons other people wrote
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
@@ -738,6 +739,8 @@ export async function createBranch(options: {
   registerFlows(registry, flows);
   // Bucket 21: tools for people building on Branch (switched off until the owner turns them on).
   registerSdkKit(registry, store);
+  // w911 (A0743, A1452) hook: web.page and web.crawl (switched off until the owner turns them on).
+  const webPages = new WebPages({ store, web, registry, runtime }); registerWebPages(registry, webPages);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
@@ -1006,6 +1009,7 @@ export async function createBranch(options: {
     voice,
     /** Bucket 17: videos and sound understood through the owner's own ffmpeg and yt-dlp. */
     understanding,
+    webPages, // w911 (A0743, A1452) hook: reading and crawling web pages
     /** Wave 8: live conversations — talking and being cut off, over a connection that stays open. */
     live,
     /** Finding, tidying and moving saved facts. */
@@ -1610,4 +1614,5 @@ export * from "./execution-metrics.js";
 // Bucket 21: a library other people can build on — flows as YAML, and the app-builder tools.
 export * from "./flow-yaml.js";
 export * from "./sdk-kit.js";
+export * from "./web-pages-settings.js"; // w911 (A0743, A1452) hook
 export * from "./sdk-starters.js";
