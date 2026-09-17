@@ -296,7 +296,9 @@ test("cancellation during backoff stops before another provider attempt", async 
       id = run.id;
     },
   });
+  // onStarted fires after the run's first bookkeeping, so wait for the id before reading its events.
   while (
+    id === undefined ||
     !app.store
       .events(id)
       .some((event) => event.kind === "model.retry_scheduled")

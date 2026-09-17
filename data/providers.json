@@ -12,11 +12,12 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "audio", "images", "realtime"],
-      "defaultModel": "gpt-4o",
-      "recommendedModels": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+      "defaultModel": "gpt-5.6-terra",
+      "recommendedModels": ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-4o"],
       "pricingUrl": "https://openai.com/api/pricing",
       "note": "The usual OpenAI account. Nothing extra to fill in.",
-      "signUp": "https://platform.openai.com/account/api-keys"
+      "signUp": "https://platform.openai.com/account/api-keys",
+      "terms": { "route": "Your own API key", "url": "https://openai.com/policies/services-agreement/", "standing": "official" }
     },
     {
       "id": "openai-responses",
@@ -27,11 +28,12 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming"],
-      "defaultModel": "gpt-4o",
-      "recommendedModels": ["gpt-4o", "gpt-4o-mini"],
+      "defaultModel": "gpt-5.6-terra",
+      "recommendedModels": ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
       "pricingUrl": "https://openai.com/api/pricing",
       "note": "The same OpenAI account over OpenAI's newer Responses route. Same key as the entry above.",
-      "signUp": "https://platform.openai.com/account/api-keys"
+      "signUp": "https://platform.openai.com/account/api-keys",
+      "terms": { "route": "Your own API key (Responses route)", "url": "https://openai.com/policies/services-agreement/", "standing": "official" }
     },
     {
       "id": "azure-openai",
@@ -51,7 +53,27 @@
         { "key": "apiVersion", "label": "The dated version of the API to use", "required": false, "example": "2024-10-01-preview", "default": "2024-10-01-preview" }
       ],
       "note": "Needs your resource name and the name you gave the deployment; the model is chosen by the deployment, not by the model name.",
-      "signUp": "https://portal.azure.com/"
+      "signUp": "https://portal.azure.com/",
+      "terms": { "route": "Your Azure key, dated deployments route", "url": "https://azure.microsoft.com/support/legal/", "standing": "official" }
+    },
+    {
+      "id": "azure-openai-v1",
+      "name": "Azure OpenAI (v1 address)",
+      "shape": "openai-chat",
+      "kind": "cloud",
+      "baseUrl": "https://{resource}.openai.azure.com/openai/v1",
+      "auth": "bearer",
+      "modelsPath": null,
+      "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
+      "defaultModel": "gpt-4.1-nano",
+      "recommendedModels": ["gpt-4.1-nano", "gpt-4o"],
+      "pricingUrl": "https://azure.microsoft.com/pricing/details/cognitive-services/openai-service/",
+      "extras": [
+        { "key": "resource", "label": "Your Azure resource name", "required": true, "example": "my-openai" }
+      ],
+      "note": "Azure's newer address with no dated version to keep up with. Put your deployment name where the model goes.",
+      "signUp": "https://portal.azure.com/",
+      "terms": { "route": "Your Azure key, v1 route", "url": "https://azure.microsoft.com/support/legal/", "standing": "official" }
     },
     {
       "id": "anthropic",
@@ -62,11 +84,32 @@
       "auth": "x-api-key",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "streaming"],
-      "defaultModel": "claude-3-5-sonnet-20241022",
-      "recommendedModels": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-opus-4-1"],
+      "defaultModel": "claude-sonnet-5",
+      "recommendedModels": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-fable-5-1"],
       "pricingUrl": "https://www.anthropic.com/pricing",
-      "note": "The usual Anthropic account. Nothing extra to fill in.",
-      "signUp": "https://console.anthropic.com/"
+      "note": "Your own Anthropic API key. Nothing extra to fill in. To use a Claude plan instead, add Claude Code under coding assistants; Branch never signs in to Claude.ai itself.",
+      "signUp": "https://console.anthropic.com/",
+      "terms": { "route": "Your own API key", "url": "https://www.anthropic.com/legal/commercial-terms", "standing": "official" }
+    },
+    {
+      "id": "anthropic-vertex",
+      "name": "Claude on Google Vertex AI",
+      "shape": "anthropic-vertex",
+      "kind": "cloud",
+      "baseUrl": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic",
+      "auth": "bearer",
+      "modelsPath": null,
+      "capabilities": ["chat", "vision", "tools", "streaming"],
+      "defaultModel": "claude-sonnet-5",
+      "recommendedModels": ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5@20251001"],
+      "pricingUrl": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+      "extras": [
+        { "key": "project", "label": "Your Google Cloud project id", "required": true, "example": "my-project-123" },
+        { "key": "location", "label": "The region your project uses, or global", "required": true, "example": "global" }
+      ],
+      "note": "Claude billed through your own Google Cloud project. Needs a project id, a region and a sign-in token rather than an API key: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.",
+      "signUp": "https://console.cloud.google.com/vertex-ai/model-garden",
+      "terms": { "route": "Your own Google Cloud project and access token", "url": "https://cloud.google.com/terms/service-terms", "standing": "official" }
     },
     {
       "id": "gemini",
@@ -77,11 +120,12 @@
       "auth": "google-key",
       "modelsPath": "/v1beta/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "realtime"],
-      "defaultModel": "gemini-2.0-flash",
-      "recommendedModels": ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+      "defaultModel": "gemini-3.8-flash",
+      "recommendedModels": ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-flash"],
       "pricingUrl": "https://ai.google.dev/pricing",
-      "note": "A Google AI Studio key. The key travels in a header, never in the address.",
-      "signUp": "https://aistudio.google.com/apikey"
+      "note": "A Google AI Studio key. The key travels in a header, never in the address. To use a Google plan instead, add Gemini CLI under coding assistants; Branch never reuses Gemini CLI's sign-in.",
+      "signUp": "https://aistudio.google.com/apikey",
+      "terms": { "route": "Your own Google AI Studio key", "url": "https://ai.google.dev/gemini-api/terms", "standing": "official" }
     },
     {
       "id": "vertex-ai",
@@ -92,15 +136,16 @@
       "auth": "bearer",
       "modelsPath": null,
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming"],
-      "defaultModel": "gemini-1.5-pro",
-      "recommendedModels": ["gemini-1.5-pro", "gemini-1.5-flash"],
+      "defaultModel": "gemini-3.8-flash",
+      "recommendedModels": ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-flash"],
       "pricingUrl": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
       "extras": [
         { "key": "project", "label": "Your Google Cloud project id", "required": true, "example": "my-project-123" },
         { "key": "location", "label": "The region your project uses", "required": true, "example": "us-central1" }
       ],
       "note": "Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.",
-      "signUp": "https://console.cloud.google.com/vertex-ai"
+      "signUp": "https://console.cloud.google.com/vertex-ai",
+      "terms": { "route": "Your own Google Cloud project and access token", "url": "https://cloud.google.com/terms/service-terms", "standing": "official" }
     },
     {
       "id": "mistral",
@@ -111,11 +156,12 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
-      "defaultModel": "mistral-large-2",
-      "recommendedModels": ["mistral-large-2", "mistral-medium", "mistral-small"],
+      "defaultModel": "mistral-large-latest",
+      "recommendedModels": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"],
       "pricingUrl": "https://mistral.ai/technology/",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://console.mistral.ai/"
+      "signUp": "https://console.mistral.ai/",
+      "terms": { "route": "Your own API key", "url": "https://mistral.ai/terms", "standing": "official" }
     },
     {
       "id": "groq",
@@ -126,11 +172,12 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "tools", "json-mode", "streaming", "audio"],
-      "defaultModel": "llama-3-70b-8192",
-      "recommendedModels": ["llama-3-70b-8192", "llama-3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it"],
+      "defaultModel": "openai/gpt-oss-120b",
+      "recommendedModels": ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"],
       "pricingUrl": "https://groq.com/pricing/",
       "note": "Very fast, text only. Nothing extra to fill in.",
-      "signUp": "https://console.groq.com/"
+      "signUp": "https://console.groq.com/",
+      "terms": { "route": "Your own API key", "url": "https://groq.com/terms-of-use", "standing": "official" }
     },
     {
       "id": "openrouter",
@@ -145,22 +192,24 @@
       "recommendedModels": ["openai/gpt-4-turbo", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3-70b-instruct"],
       "pricingUrl": "https://openrouter.ai/models",
       "note": "One key that reaches many services. Model names carry the maker in front, like openai/gpt-4-turbo. Prices differ per model, so Branch keeps none on file.",
-      "signUp": "https://openrouter.ai/"
+      "signUp": "https://openrouter.ai/",
+      "terms": { "route": "Your own API key", "url": "https://openrouter.ai/terms", "standing": "official" }
     },
     {
       "id": "together",
       "name": "Together AI",
       "shape": "openai-chat",
       "kind": "cloud",
-      "baseUrl": "https://api.together.xyz/v1",
+      "baseUrl": "https://api.together.ai/v1",
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "images"],
-      "defaultModel": "meta-llama/Llama-3-70b-chat-hf",
-      "recommendedModels": ["meta-llama/Llama-3-70b-chat-hf", "mistralai/Mixtral-8x7B-Instruct-v0.1"],
+      "defaultModel": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "recommendedModels": ["deepseek-ai/DeepSeek-V4.1-Flash", "Qwen/Qwen3.8-Flash", "meta-llama/Llama-3.3-70B-Instruct-Turbo"],
       "pricingUrl": "https://www.together.ai/pricing",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://together.ai/"
+      "signUp": "https://together.ai/",
+      "terms": { "route": "Your own API key", "url": "https://www.together.ai/terms-of-service", "standing": "official" }
     },
     {
       "id": "fireworks",
@@ -171,26 +220,28 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings", "images"],
-      "defaultModel": "accounts/fireworks/models/llama-v3-70b-instruct",
-      "recommendedModels": ["accounts/fireworks/models/llama-v3-70b-instruct", "accounts/fireworks/models/mixtral-8x7b-instruct"],
+      "defaultModel": "accounts/fireworks/models/llama-v3p1-70b-instruct",
+      "recommendedModels": ["accounts/fireworks/models/llama-v3p1-70b-instruct"],
       "pricingUrl": "https://fireworks.ai/pricing",
       "note": "Model names start with accounts/fireworks/models/. Nothing extra to fill in.",
-      "signUp": "https://fireworks.ai/"
+      "signUp": "https://fireworks.ai/",
+      "terms": { "route": "Your own API key", "url": "https://fireworks.ai/terms-of-service", "standing": "official" }
     },
     {
       "id": "deepseek",
       "name": "DeepSeek",
       "shape": "openai-chat",
       "kind": "cloud",
-      "baseUrl": "https://api.deepseek.com/v1",
+      "baseUrl": "https://api.deepseek.com",
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "tools", "json-mode", "streaming"],
-      "defaultModel": "deepseek-chat",
-      "recommendedModels": ["deepseek-chat", "deepseek-coder"],
+      "defaultModel": "deepseek-flash",
+      "recommendedModels": ["deepseek-flash", "deepseek-v4-pro"],
       "pricingUrl": "https://platform.deepseek.com/api-docs/pricing",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://platform.deepseek.com/"
+      "signUp": "https://platform.deepseek.com/",
+      "terms": { "route": "Your own API key", "url": "https://cdn.deepseek.com/policies/en-US/deepseek-open-platform-terms-of-service.html", "standing": "official" }
     },
     {
       "id": "xai",
@@ -201,26 +252,28 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "images"],
-      "defaultModel": "grok-beta",
-      "recommendedModels": ["grok-beta"],
+      "defaultModel": "grok-4.6",
+      "recommendedModels": ["grok-4.6"],
       "pricingUrl": "https://x.ai/api",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://console.x.ai/"
+      "signUp": "https://console.x.ai/",
+      "terms": { "route": "Your own API key", "url": "https://x.ai/legal", "standing": "official" }
     },
     {
       "id": "perplexity",
       "name": "Perplexity",
-      "shape": "openai-chat",
+      "shape": "perplexity-agent",
       "kind": "cloud",
-      "baseUrl": "https://api.perplexity.ai",
+      "baseUrl": "https://api.perplexity.ai/v1",
       "auth": "bearer",
       "modelsPath": null,
-      "capabilities": ["chat", "streaming"],
-      "defaultModel": "sonar",
-      "recommendedModels": ["sonar", "sonar-pro"],
-      "pricingUrl": "https://docs.perplexity.ai/guides/pricing",
-      "note": "Answers questions with sources of its own. It does not publish a list of models, so Branch cannot check the key without using it.",
-      "signUp": "https://www.perplexity.ai/settings/api"
+      "capabilities": ["chat", "vision", "tools", "streaming"],
+      "defaultModel": "fast",
+      "recommendedModels": ["fast", "low", "medium", "high", "xhigh"],
+      "pricingUrl": "https://docs.perplexity.ai/docs/getting-started/pricing",
+      "note": "Answers questions with sources of its own, through Perplexity's Agent API. Pick a preset (fast, low, medium, high, xhigh) or a provider/model name. Older Sonar connections were moved over for you.",
+      "signUp": "https://www.perplexity.ai/settings/api",
+      "terms": { "route": "Your own API key, Agent API", "url": "https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service", "standing": "official" }
     },
     {
       "id": "cohere",
@@ -231,15 +284,16 @@
       "auth": "bearer",
       "modelsPath": null,
       "capabilities": ["chat", "tools", "json-mode", "streaming", "embeddings"],
-      "defaultModel": "command-r-plus-08-2024",
-      "recommendedModels": ["command-r-plus-08-2024", "command-r-08-2024"],
+      "defaultModel": "command-a-03-2025",
+      "recommendedModels": ["command-a-plus-05-2026", "command-a-03-2025", "command-a-reasoning-08-2025", "command-r-08-2024"],
       "pricingUrl": "https://cohere.com/pricing",
       "prices": {
         "command-r-plus-08-2024": { "input": 2.5, "output": 10 },
         "command-r-08-2024": { "input": 0.15, "output": 0.6 }
       },
       "note": "Cohere speaks its own shape rather than OpenAI's. Nothing extra to fill in.",
-      "signUp": "https://dashboard.cohere.com/api-keys"
+      "signUp": "https://dashboard.cohere.com/api-keys",
+      "terms": { "route": "Your own API key", "url": "https://cohere.com/terms-of-use", "standing": "official" }
     },
     {
       "id": "cerebras",
@@ -250,11 +304,12 @@
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "tools", "json-mode", "streaming"],
-      "defaultModel": "llama-3.3-70b",
-      "recommendedModels": ["llama-3.3-70b"],
+      "defaultModel": "qwen-3.8-27b",
+      "recommendedModels": ["qwen-3.8-27b"],
       "pricingUrl": "https://www.cerebras.ai/pricing",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://cloud.cerebras.ai/"
+      "signUp": "https://cloud.cerebras.ai/",
+      "terms": { "route": "Your own API key", "url": "https://www.cerebras.ai/terms-of-service", "standing": "official" }
     },
     {
       "id": "sambanova",
@@ -269,7 +324,8 @@
       "recommendedModels": ["Meta-Llama-3.3-70B-Instruct"],
       "pricingUrl": "https://cloud.sambanova.ai/pricing",
       "note": "Nothing extra to fill in.",
-      "signUp": "https://cloud.sambanova.ai/"
+      "signUp": "https://cloud.sambanova.ai/",
+      "terms": { "route": "Your own API key", "url": "https://sambanova.ai/terms-and-conditions", "standing": "official" }
     },
     {
       "id": "huggingface",
@@ -284,7 +340,8 @@
       "recommendedModels": ["meta-llama/Llama-3.3-70B-Instruct"],
       "pricingUrl": "https://huggingface.co/docs/inference-providers/pricing",
       "note": "Hugging Face's router, which speaks OpenAI's shape and passes your request on to whoever hosts the model.",
-      "signUp": "https://huggingface.co/settings/tokens"
+      "signUp": "https://huggingface.co/settings/tokens",
+      "terms": { "route": "Your own access token", "url": "https://huggingface.co/terms-of-service", "standing": "official" }
     },
     {
       "id": "github-models",
@@ -293,13 +350,30 @@
       "kind": "cloud",
       "baseUrl": "https://models.github.ai/inference",
       "auth": "bearer",
-      "modelsPath": "/models",
-      "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
+      "modelsPath": null,
+      "capabilities": [],
       "defaultModel": "openai/gpt-4o",
       "recommendedModels": ["openai/gpt-4o", "openai/gpt-4o-mini"],
       "pricingUrl": "https://docs.github.com/billing/concepts/product-billing/github-models",
-      "note": "Uses a GitHub personal access token with the models permission, not a separate API key.",
-      "signUp": "https://github.com/settings/tokens"
+      "note": "Retired by GitHub on 30 July 2026. A saved connection stays on the list with this note and is never used.",
+      "signUp": "https://github.com/settings/tokens",
+      "terms": { "route": "GitHub Models inference (ended)", "url": "https://github.blog/changelog/2026-07-30-github-models-is-now-retired/", "standing": "retired", "warning": "GitHub retired GitHub Models on 30 July 2026 and its address now refuses every request. For a model catalogue GitHub points to Microsoft Foundry (use Azure OpenAI here); for GitHub work, use the GitHub Copilot command line under coding assistants." }
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot (sign-in)",
+      "shape": "openai-chat",
+      "kind": "cloud",
+      "baseUrl": "https://api.githubcopilot.com",
+      "auth": "bearer",
+      "modelsPath": null,
+      "capabilities": [],
+      "defaultModel": "not-offered",
+      "recommendedModels": [],
+      "pricingUrl": "https://github.com/features/copilot/plans",
+      "note": "Not offered. Use the GitHub Copilot command line under coding assistants instead: it is GitHub's own program with your own sign-in.",
+      "signUp": "https://github.com/features/copilot",
+      "terms": { "route": "None: Branch does not sign in to Copilot itself", "url": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/", "standing": "not-offered", "warning": "GitHub supports Copilot sign-in only in its own tools and in OpenCode, through OpenCode's own sign-in. Reusing another app's sign-in or posing as VS Code has led to abuse warnings, so Branch does neither. Use GitHub's Copilot command line instead." }
     },
     {
       "id": "cloudflare",
@@ -317,7 +391,8 @@
         { "key": "accountId", "label": "Your Cloudflare account id", "required": true, "example": "0123456789abcdef0123456789abcdef" }
       ],
       "note": "Needs your Cloudflare account id as well as a token. Model names start with @cf/.",
-      "signUp": "https://dash.cloudflare.com/profile/api-tokens"
+      "signUp": "https://dash.cloudflare.com/profile/api-tokens",
+      "terms": { "route": "Your own API token", "url": "https://www.cloudflare.com/terms/", "standing": "official" }
     },
     {
       "id": "bedrock",
@@ -328,15 +403,16 @@
       "auth": "aws-sigv4",
       "modelsPath": null,
       "capabilities": ["chat", "vision", "tools", "streaming"],
-      "defaultModel": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-      "recommendedModels": ["anthropic.claude-3-5-sonnet-20241022-v2:0", "meta.llama3-70b-instruct-v1:0"],
+      "defaultModel": "anthropic.claude-sonnet-5",
+      "recommendedModels": ["anthropic.claude-sonnet-5", "anthropic.claude-opus-5", "anthropic.claude-haiku-4-5", "meta.llama3-70b-instruct-v1:0"],
       "pricingUrl": "https://aws.amazon.com/bedrock/pricing/",
       "extras": [
         { "key": "region", "label": "The AWS region your models are enabled in", "required": true, "example": "us-east-1" },
         { "key": "accessKeyId", "label": "Your AWS access key id", "required": true, "example": "AKIA..." }
       ],
-      "note": "Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above.",
-      "signUp": "https://console.aws.amazon.com/bedrock/"
+      "note": "Signs each request with your AWS keys rather than sending them. The secret access key is the key you paste in; the access key id and region go in the boxes above. Some regions want a cross-region name such as us.anthropic.claude-sonnet-5, and Anthropic models need AWS's first-use form.",
+      "signUp": "https://console.aws.amazon.com/bedrock/",
+      "terms": { "route": "Your own AWS keys", "url": "https://aws.amazon.com/service-terms/", "standing": "official" }
     },
     {
       "id": "ollama",
@@ -357,7 +433,8 @@
         "starling-lm": { "input": 0, "output": 0 }
       },
       "note": "Runs on this computer, so nothing leaves it and nothing is charged. Install Ollama and run `ollama serve`. No key needed.",
-      "signUp": "https://ollama.com/download"
+      "signUp": "https://ollama.com/download",
+      "terms": { "route": "Runs on this computer", "url": "https://github.com/ollama/ollama/blob/main/LICENSE", "standing": "official" }
     },
     {
       "id": "lm-studio",
@@ -371,9 +448,12 @@
       "defaultModel": "local-model",
       "recommendedModels": ["local-model"],
       "pricingUrl": "",
-      "prices": { "local-model": { "input": 0, "output": 0 } },
+      "prices": {
+        "local-model": { "input": 0, "output": 0 }
+      },
       "note": "Runs on this computer. Load a model in LM Studio and start its server. Any placeholder key works.",
-      "signUp": "https://lmstudio.ai/"
+      "signUp": "https://lmstudio.ai/",
+      "terms": { "route": "Runs on this computer", "url": "https://lmstudio.ai/app-terms", "standing": "official" }
     },
     {
       "id": "vllm",
@@ -387,9 +467,12 @@
       "defaultModel": "local-model",
       "recommendedModels": ["local-model"],
       "pricingUrl": "",
-      "prices": { "local-model": { "input": 0, "output": 0 } },
+      "prices": {
+        "local-model": { "input": 0, "output": 0 }
+      },
       "note": "Runs on this computer. Start vLLM with its OpenAI-compatible server. Any placeholder key works.",
-      "signUp": "https://docs.vllm.ai/"
+      "signUp": "https://docs.vllm.ai/",
+      "terms": { "route": "Runs on this computer", "url": "https://docs.vllm.ai/", "standing": "official" }
     },
     {
       "id": "llama-cpp",
@@ -403,9 +486,12 @@
       "defaultModel": "local-model",
       "recommendedModels": ["local-model"],
       "pricingUrl": "",
-      "prices": { "local-model": { "input": 0, "output": 0 } },
+      "prices": {
+        "local-model": { "input": 0, "output": 0 }
+      },
       "note": "Runs on this computer. Start llama-server from llama.cpp. Any placeholder key works.",
-      "signUp": "https://github.com/ggml-org/llama.cpp"
+      "signUp": "https://github.com/ggml-org/llama.cpp",
+      "terms": { "route": "Runs on this computer", "url": "https://github.com/ggml-org/llama.cpp/blob/master/LICENSE", "standing": "official" }
     },
     {
       "id": "localai",
@@ -419,9 +505,12 @@
       "defaultModel": "local-model",
       "recommendedModels": ["local-model"],
       "pricingUrl": "",
-      "prices": { "local-model": { "input": 0, "output": 0 } },
+      "prices": {
+        "local-model": { "input": 0, "output": 0 }
+      },
       "note": "Runs on this computer and can also make speech and pictures. Any placeholder key works.",
-      "signUp": "https://localai.io/"
+      "signUp": "https://localai.io/",
+      "terms": { "route": "Runs on this computer", "url": "https://localai.io/", "standing": "official" }
     },
     {
       "id": "jan",
@@ -435,9 +524,12 @@
       "defaultModel": "local-model",
       "recommendedModels": ["local-model"],
       "pricingUrl": "",
-      "prices": { "local-model": { "input": 0, "output": 0 } },
+      "prices": {
+        "local-model": { "input": 0, "output": 0 }
+      },
       "note": "Runs on this computer. Turn on Jan's local server. Any placeholder key works.",
-      "signUp": "https://jan.ai/"
+      "signUp": "https://jan.ai/",
+      "terms": { "route": "Runs on this computer", "url": "https://jan.ai/", "standing": "official" }
     },
     {
       "id": "litellm",
@@ -452,7 +544,8 @@
       "recommendedModels": ["gpt-4o"],
       "pricingUrl": "https://docs.litellm.ai/docs/proxy/cost_tracking",
       "note": "A proxy you run yourself that speaks OpenAI's shape and forwards to whichever service you configured behind it. Point this at wherever you run it.",
-      "signUp": "https://docs.litellm.ai/docs/simple_proxy"
+      "signUp": "https://docs.litellm.ai/docs/simple_proxy",
+      "terms": { "route": "A proxy you run, with your own keys behind it", "url": "https://docs.litellm.ai/docs/", "standing": "official" }
     },
     {
       "id": "portkey",
@@ -467,67 +560,118 @@
       "recommendedModels": ["gpt-4o"],
       "pricingUrl": "https://portkey.ai/pricing",
       "note": "A gateway that sits in front of other services and speaks OpenAI's shape. Which model answers depends on the configuration you set up there.",
-      "signUp": "https://app.portkey.ai/"
+      "signUp": "https://app.portkey.ai/",
+      "terms": { "route": "Your own API key", "url": "https://portkey.ai/terms", "standing": "official" }
     },
     {
       "id": "moonshot",
       "name": "Moonshot (Kimi)",
       "shape": "openai-chat",
       "kind": "cloud",
-      "baseUrl": "https://api.moonshot.cn/v1",
+      "baseUrl": "https://{host}/v1",
       "auth": "bearer",
       "modelsPath": "/models",
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming"],
-      "defaultModel": "moonshot-v1-8k",
-      "recommendedModels": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
-      "pricingUrl": "https://platform.moonshot.cn/docs/pricing",
-      "note": "A Chinese service, billed in yuan. Branch keeps no price on file for it.",
-      "signUp": "https://platform.moonshot.cn/"
+      "defaultModel": "kimi-k2.6",
+      "recommendedModels": ["kimi-k3", "kimi-k2.6", "kimi-k2.7-code", "kimi-k2.7-code-highspeed"],
+      "pricingUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "extras": [
+        {
+          "key": "host",
+          "label": "Which Moonshot platform your key is from",
+          "required": false,
+          "example": "api.moonshot.ai",
+          "default": "api.moonshot.ai",
+          "choices": ["api.moonshot.ai", "api.moonshot.cn"]
+        }
+      ],
+      "note": "Kimi models. International keys use api.moonshot.ai (the usual choice); keys from the Chinese platform use api.moonshot.cn. Branch keeps no price on file for it.",
+      "signUp": "https://platform.kimi.ai/",
+      "terms": { "route": "Your own API key", "url": "https://platform.kimi.ai/docs/agreement/modeluse", "standing": "official" }
     },
     {
       "id": "zhipu",
-      "name": "Zhipu GLM",
+      "name": "Zhipu GLM (China)",
       "shape": "openai-chat",
       "kind": "cloud",
       "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
       "auth": "bearer",
       "modelsPath": null,
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
-      "defaultModel": "glm-4-plus",
-      "recommendedModels": ["glm-4-plus", "glm-4-flash"],
+      "defaultModel": "glm-5.3",
+      "recommendedModels": ["glm-5.3", "glm-5.3-flash", "glm-4-plus"],
       "pricingUrl": "https://open.bigmodel.cn/pricing",
-      "note": "A Chinese service, billed in yuan. Branch keeps no price on file for it.",
-      "signUp": "https://open.bigmodel.cn/"
+      "note": "Zhipu's platform in mainland China, billed in yuan. Outside China, use Z.ai instead. Branch keeps no price on file for it.",
+      "signUp": "https://open.bigmodel.cn/",
+      "terms": { "route": "Your own API key", "url": "https://open.bigmodel.cn/", "standing": "official" }
+    },
+    {
+      "id": "zai",
+      "name": "Z.ai (GLM)",
+      "shape": "openai-chat",
+      "kind": "cloud",
+      "baseUrl": "https://api.z.ai/api/paas/v4",
+      "auth": "bearer",
+      "modelsPath": null,
+      "capabilities": ["chat", "vision", "tools", "json-mode", "streaming"],
+      "defaultModel": "glm-5.3",
+      "recommendedModels": ["glm-5.3", "glm-5.3-flash"],
+      "pricingUrl": "https://docs.z.ai/guides/overview/pricing",
+      "note": "Zhipu's GLM models for the rest of the world. Branch keeps no price on file for it.",
+      "signUp": "https://z.ai/manage-apikey/apikey-list",
+      "terms": { "route": "Your own API key", "url": "https://docs.z.ai/legal-agreement/terms-of-use", "standing": "official" }
     },
     {
       "id": "dashscope",
       "name": "Qwen (Alibaba DashScope)",
       "shape": "openai-chat",
       "kind": "cloud",
-      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "baseUrl": "https://{host}/compatible-mode/v1",
       "auth": "bearer",
       "modelsPath": null,
       "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
       "defaultModel": "qwen-plus",
-      "recommendedModels": ["qwen-plus", "qwen-turbo", "qwen-max"],
-      "pricingUrl": "https://help.aliyun.com/zh/model-studio/billing-for-model-studio",
-      "note": "Alibaba's DashScope in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.",
-      "signUp": "https://bailian.console.aliyun.com/"
+      "recommendedModels": ["qwen3.8-max", "qwen-plus"],
+      "pricingUrl": "https://www.alibabacloud.com/help/en/model-studio/models",
+      "extras": [
+        {
+          "key": "host",
+          "label": "Which Alibaba Cloud region your key is from",
+          "required": false,
+          "example": "dashscope-intl.aliyuncs.com",
+          "default": "dashscope-intl.aliyuncs.com",
+          "choices": ["dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com", "dashscope.aliyuncs.com"]
+        }
+      ],
+      "note": "Alibaba Model Studio in its OpenAI-compatible mode. International (Singapore) is the usual choice; the US and mainland China addresses are offered too. A workspace address works through \"Something else\". Branch keeps no price on file.",
+      "signUp": "https://modelstudio.console.alibabacloud.com/",
+      "terms": { "route": "Your own API key", "url": "https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service", "standing": "official" }
     },
     {
       "id": "minimax",
       "name": "MiniMax",
       "shape": "openai-chat",
       "kind": "cloud",
-      "baseUrl": "https://api.minimax.chat/v1",
+      "baseUrl": "https://{host}/v1",
       "auth": "bearer",
       "modelsPath": null,
       "capabilities": ["chat", "tools", "streaming"],
-      "defaultModel": "abab6.5s-chat",
-      "recommendedModels": ["abab6.5s-chat"],
-      "pricingUrl": "https://platform.minimaxi.com/document/price",
-      "note": "A Chinese service, billed in yuan. Branch keeps no price on file for it.",
-      "signUp": "https://platform.minimaxi.com/"
+      "defaultModel": "MiniMax-M2.7",
+      "recommendedModels": ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5"],
+      "pricingUrl": "https://platform.minimax.io/docs/guides/pricing",
+      "extras": [
+        {
+          "key": "host",
+          "label": "Which MiniMax platform your key is from",
+          "required": false,
+          "example": "api.minimax.io",
+          "default": "api.minimax.io",
+          "choices": ["api.minimax.io", "api.minimax.cn"]
+        }
+      ],
+      "note": "International keys use api.minimax.io (the usual choice); keys from the Chinese platform use api.minimax.cn. Branch keeps no price on file for it.",
+      "signUp": "https://platform.minimax.io/",
+      "terms": { "route": "Your own API key", "url": "https://platform.minimax.io/protocol/terms-of-service", "standing": "official" }
     },
     {
       "id": "modelscope",
@@ -542,7 +686,8 @@
       "recommendedModels": ["Qwen/Qwen2.5-72B-Instruct"],
       "pricingUrl": "https://modelscope.cn/docs/model-service/API-Inference/intro",
       "note": "Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.",
-      "signUp": "https://modelscope.cn/my/myaccesstoken"
+      "signUp": "https://modelscope.cn/my/myaccesstoken",
+      "terms": { "route": "Your own access token", "url": "https://www.modelscope.cn/", "standing": "official" }
     },
     {
       "id": "doubao",
@@ -557,7 +702,8 @@
       "recommendedModels": ["doubao-pro-32k", "doubao-lite-32k"],
       "pricingUrl": "https://www.volcengine.com/docs/82379/1099320",
       "note": "ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.",
-      "signUp": "https://console.volcengine.com/ark"
+      "signUp": "https://console.volcengine.com/ark",
+      "terms": { "route": "Your own API key", "url": "https://www.volcengine.com/docs/6256/64903", "standing": "official" }
     },
     {
       "id": "qianfan",
@@ -572,7 +718,8 @@
       "recommendedModels": ["ernie-4.0-8k", "ernie-3.5-8k"],
       "pricingUrl": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/hlrk4akp7",
       "note": "Baidu's Qianfan in its OpenAI-compatible mode. Billed in yuan; Branch keeps no price on file.",
-      "signUp": "https://console.bce.baidu.com/qianfan/"
+      "signUp": "https://console.bce.baidu.com/qianfan/",
+      "terms": { "route": "Your own API key", "url": "https://cloud.baidu.com/doc/Agreements/index.html", "standing": "official" }
     },
     {
       "id": "voyageai",
@@ -587,7 +734,8 @@
       "recommendedModels": ["voyage-3", "voyage-3-lite"],
       "pricingUrl": "https://docs.voyageai.com/docs/pricing",
       "note": "Compares passages only; it does not hold conversations, so it cannot be a connection that answers you. Use it for searching your own documents.",
-      "signUp": "https://dash.voyageai.com/"
+      "signUp": "https://dash.voyageai.com/",
+      "terms": { "route": "Your own API key", "url": "https://www.voyageai.com/tos", "standing": "official" }
     },
     {
       "id": "custom",
@@ -605,7 +753,8 @@
         { "key": "baseUrl", "label": "The address the service gave you", "required": true, "example": "https://api.example.com/v1" }
       ],
       "note": "For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer.",
-      "signUp": ""
+      "signUp": "",
+      "terms": { "route": "An address and key you give", "url": "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md", "standing": "unofficial", "warning": "Branch cannot know this service's terms. Read them before you connect." }
     }
   ]
 }

@@ -607,8 +607,11 @@ test("C6 a coding assistant already installed here can answer as a model", async
   const broken = await fakeProgram(root, "fake-agent-broken.mjs", "process.exit(2);\n");
 
   // The rows Branch knows say plainly that they use the owner's own tool and sign-in.
-  assert.deepEqual(cliAgentCatalog.map((row) => row.id).sort(), ["claude-code", "codex", "copilot"]);
-  assert.ok(cliAgentRows().every((row) => /your installed tool and its own sign-in/.test(row.note)));
+  assert.deepEqual(cliAgentCatalog.map((row) => row.id).sort(), ["claude-code", "codex", "copilot", "gemini-cli"]);
+  assert.ok(cliAgentRows().every((row) => /own .* with your own sign-in\. Branch never sees or keeps that sign-in\./.test(row.note)));
+  // mac5/providers: each row names its route and links the maker's terms.
+  assert.ok(cliAgentRows().every((row) => row.terms?.url.startsWith("https://") && row.terms.standing === "official"));
+  assert.match(cliAgentCatalog.find((row) => row.id === "claude-code").terms.warning, /plan's usage limits/);
   assert.ok(cliAgentRows().every((row) => row.shape === "cli-agent"));
 
   const row = rowFor({ id: "fake", command: words.command, args: words.args, jsonField: "result", name: "A fake assistant" });

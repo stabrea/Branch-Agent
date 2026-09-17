@@ -34,6 +34,7 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
@@ -542,7 +543,11 @@ async function testProvider(body: unknown): Promise<unknown> {
   const started = Date.now();
   try {
     const options = { endpoint, model, apiKey: input.apiKey };
-    const provider = chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
+    // --- mac5/providers: services whose route the header-style guess below gets wrong (Perplexity's
+    // Agent API) or that have ended (GitHub Models). See src/provider-factory.ts testRouteFor.
+    const ownRoute = chosen ? testRouteFor(chosen.id, endpoint, model, input.apiKey) : null;
+    // --- end mac5/providers
+    const provider = ownRoute ? ownRoute : chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
       : chosen?.headerStyle === "x-api-key" ? new AnthropicProvider(options) : new OpenAIProvider(options);
     const completion = await provider.complete({
       messages: [{ role: "system", content: "You are Branch Agent. Reply with the single word OK." }, { role: "user", content: "Connection test" }],

@@ -397,7 +397,7 @@ function anthropicMessages(messages: Message[]): Record<string, unknown>[] {
   return result;
 }
 export class AnthropicProvider implements Provider {
-  readonly name = "anthropic";
+  readonly name: string = "anthropic";
   /** Claude models take a picture as a base64 image block. */
   readonly acceptsImages = true;
   constructor(private readonly options: ProviderOptions) {
