@@ -98,3 +98,29 @@ Nine re-audit groups plus follow-ups, all off by default:
 - `dashboard-card.js` must stay directly before `layout.js`, and each script listed once
   (`tests/index-structure.test.mjs`, `tests/dashboard.test.mjs`, `tests/agent-interop.test.mjs`).
 - `tests/handbook.test.mjs` H2 fails whenever a new setting name is missing from `docs/configuration.md`.
+
+## Added after the first handoff (Mac, end of session)
+
+Full macOS suite on 1b74f51 (every file except `tests/desktop*` and `screen-control`):
+**3248 tests, 3227 pass, 7 fail, 14 skipped.** Fixed and pushed (d4e1992): a literal NUL in
+`tests/personal-files-voice.test.mjs`, and 40 fixture credentials across 13 test files now marked
+`not-a-real-secret`. The R17-S01 French check fails only when the machine is loaded; it passes alone.
+
+Two builders were running when the Mac session ended. Their branches are NOT pushed; if a cloud
+session takes over, redo the work from these notes.
+
+1. **`mac7/chat-approvals`** (worktree `/Volumes/512GB SSD/branch-wt/chat-approvals`).
+   Today's chat lock-down means the owner can grant their phone the right to change things but must
+   then approve at the computer, so the three G2 tests in `tests/polish-observability.test.mjs` fail
+   (the Yes button is gone). The fix: a per-sender `approvals` switch in the `chat-permissions` rules,
+   shipped off, letting that sender answer Yes for what their own rule granted — never a standing yes,
+   never anything on `neverFromChat` — with a plain warning on the card and in the docs that a chat app
+   cannot prove who is typing. Then fix the three G2 tests to the settled behaviour.
+2. **`mac7/tool-search`** (worktree `/Volumes/512GB SSD/branch-wt/tool-search`).
+   `tests/tool-loading.test.mjs` "searching ranks an exact name…" fails: "make a new specialist" ranks
+   `templates.import`, `media.info`, `git.worktree_add`. Today's several hundred new tools drowned the
+   ranking, which costs every task quality and tokens. Weight the name and first sentence, damp terms
+   carried by many tools, and add queries across devices, comfort, safety extras, flows and boards,
+   learning-more and reach.
+
+Both still need an adversarial integrator afterwards, like every other branch.
