@@ -218,6 +218,11 @@ export class ChannelRouter {
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
   /**
+   * R17-A (Trunks): a plain refusal when a chat app may not reach the Trunk whose conversation this
+   * chat is linked to (src/trunks/). `createBranch` connects it; on its own every chat is answered.
+   */
+  trunkReach: (channel: string, sessionId: string) => string | null = () => null;
+  /**
    * Batch 26 (wave 8): the ceiling the owner set for one person messaging from outside. `createBranch`
    * connects the real counter; on its own nothing is limited. Somebody who reaches it is told so in
    * one sentence and their message is let go rather than queued behind everybody else's, because a
@@ -647,6 +652,13 @@ export class ChannelRouter {
     const off = this.store.onEvent((runId, kind, data) => { if (runId === turn.runId) live?.event(kind, data); });
     try {
       const sessionId = this.sessionFor(message.channel, message.chatId);
+      // R17-A (Trunks): a chat linked to a Trunk's conversation is answered only where that Trunk may reach.
+      const trunkRefusal = sessionId ? this.trunkReach(message.channel, sessionId) : null;
+      if (trunkRefusal) {
+        await live?.finish("error");
+        await this.deliver(message.channel, message.chatId, trunkRefusal, `trunk-reach:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+        return "rejected";
+      }
       const run = await this.runtime.run({
         prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
         onStarted: (started) => {

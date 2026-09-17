@@ -6657,6 +6657,47 @@ readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (tr
 and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
 and `winget` on Windows.
 
+## Trunks: assistants of your own (R17-A)
+
+A Trunk is a named assistant that stays: it has its own conversation, pinned and never swept away by
+the history rule, its own memory, model, instructions, style, tools, picture and routines. It is not a
+person on this computer (those are people, in Settings → General) and not a specialist (a reusable
+set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
+Agent's Bots and Grok's bots.
+
+Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
+Inbox → Needs you.
+
+| Part | What it does |
+| --- | --- |
+| Trunks | Make one from three fields (name, what it does, about it); it introduces itself. Edit Trunk opens every field. A message written `@name …` in the message box goes to that Trunk, and `/trunk` lists them or talks to one. |
+| Rooms | Two to six Trunks and you in one conversation. Your message starts at most three rounds and ten replies; only those you @mention answer (nobody mentioned means everyone); a Trunk may pass; `@you` raises "needs you"; a Trunk waiting for your yes is answered in the room. Rooms run inside Branch, not the window, and carry on after a restart. |
+| Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
+| Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
+| Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+
+What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
+sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`), no connected tool servers until named. A Trunk never gets more
+than whoever started its turn; a reviewing style takes away every tool that writes. What it learns is
+saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
+facts you marked as shared unless you switch that off; it never writes into the shared facts. A
+Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
+without its own plan or reviewer pass. Keys are copies of yours. With several accounts per
+connection switched on (`src/accounts/`), the account you pick for a Trunk is its conversation's
+choice; without a pick, the connection's default account answers, sign-ins included, and the editor
+says so. A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
+itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
+Teaching learns only from a task you started yourself.
+
+Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
+a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
+through the one tool gate (`media.image`).
+
+**macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
@@ -6947,6 +6988,7 @@ the switch is off.
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
+| `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
 
 ### Parity with other agents
 

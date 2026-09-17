@@ -121,6 +121,11 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
+| The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
+| Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
+| A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
+| `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
 | The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
 | Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
 | Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |

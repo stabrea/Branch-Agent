@@ -3476,3 +3476,22 @@ The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and
 - ZeroClaw (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0): procedures with their own autonomy level, a per-step confirmation that overrides running on their own, coalescing a start while one runs, and the completion rate (`crates/zeroclaw-runtime/src/sop/`).
 - OpenFang (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0): requirements with install steps per system and a readiness report (`crates/openfang-hands/`).
 - CrewAI (https://github.com/crewAIInc/crewAI, MIT) and Agent Zero (https://github.com/agent0ai/agent-zero, Copyright (c) Agent Zero, s.r.o., MIT): turning feedback into standing instructions given to later tasks (`crew.py` `train`, `plugins/_memory/tools/behaviour_adjustment.py`).
+
+### Hermes Agent (Nous Research) Bot Mode rooms, MIT
+
+The rules for who speaks next in a room of Trunks in `src/trunks/room-plan.ts` — the first round
+scoped by @mentions or everyone, later rounds only for members another member called on, passing,
+and the caps of three rounds and ten messages — are ported from `plan_next_task`,
+`resolve_mentions`, `_unaddressed_member_mentions`, `is_pass_text` and `_build_prompt` in Hermes
+Agent's `gateway/hosted_room_discussion.py` (https://github.com/NousResearch/hermes-agent). The shape of
+Trunks as a whole (three-field create, a permanent chat, routines, direct messages with attribution,
+receipts and one retry, keys copied but sign-ins not) follows `website/docs/user-guide/bot-mode.md`
+in the same project; that part was written afresh. Used under the MIT licence:
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

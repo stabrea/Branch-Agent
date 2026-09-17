@@ -110,6 +110,7 @@ import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -422,6 +423,7 @@ async function staticFile(
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2689,6 +2691,15 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the r17-b block ----
+        // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
+        if (handlesTrunksPath(path)) {
+          app.store.profiles.requireOwner("Trunks");
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+            .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-A block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3232,6 +3243,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesAsksPath(path))
     // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
     || (request.method !== "GET" && handlesAutonomyPath(path))
+    // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
+    || (request.method !== "GET" && handlesTrunksPath(path))
   );
 }
 function configureLimits(server: Server): void {
