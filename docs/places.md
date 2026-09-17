@@ -91,6 +91,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
+| Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.
