@@ -8,7 +8,7 @@ well**, without changing anything a Windows user sees. You build ONE area, named
 - Machine: the owner's Mac (macOS, Apple Silicon, Node 26, zsh). **This Mac is also the owner's
   everyday computer**: nothing you run may open a window, play a sound, show a notification, ask for
   a macOS permission, install a login item, load a launchd job, or touch `~/Library/LaunchAgents`.
-- Your worktree: `~/Code/wt/<area>` on branch `mac1/<area>`, cut from `wave2/integration` (already
+- Your worktree: `~/Code/wt/<area>` (new worktrees from 17 September on live in `/Volumes/512GB SSD/branch-wt/<area>`; the internal disk is nearly full — keep large caches, SDKs and build outputs on that SSD too) on branch `mac1/<area>`, cut from `wave2/integration` (already
   created for you; check `git branch --show-current`). Run `npm ci --no-audit --no-fund` once in it.
   Do not symlink `node_modules`.
 - Linux check machine: `ssh branch-test-linux` (Ubuntu 24.04, Node 24, Xvfb, no desktop). Copy your
@@ -25,6 +25,13 @@ well**, without changing anything a Windows user sees. You build ONE area, named
 - Windows is checked by the pull-request CI (`.github/workflows/checks.yml` runs Windows, macOS and
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
+
+## Running tests on the Mac
+
+Many agents share this Mac. **A full-suite run goes through the Mac lock, one at a time:**
+`lockf -t 7200 /tmp/branch-mac-suite.lock node --test --test-concurrency=2 --test-timeout=240000 <files>`.
+Targeted runs of a few files don't need the lock but use `--test-concurrency=2` at most. A test that fails only while
+the Mac is busy (load average above ~20, see `uptime`) must be rerun alone before it is called a failure.
 
 ## Read first
 

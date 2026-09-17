@@ -646,7 +646,7 @@ Costs are estimated the same honest way as everything else: published per-minute
 
 Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
 
-**macOS and Linux.** "The voice that comes with your computer" keeps its saved name (`windows`) but means the system voice wherever Branch runs. On a Mac that is `say`, started with a list of arguments, the words read from a file (`-f`) and the sound written to a WAV file (`--file-format=WAVE --data-format=LEI16@22050 -o …`); the voice list comes from `say -v ?`. On Linux it is `espeak-ng` (`-w <file> -s <words a minute> -f <file>`, voices from `espeak-ng --voices`) when it is installed. `spd-say` can only speak through the loudspeaker and cannot make a sound file, so a computer that has only `spd-say` is told to install `espeak-ng`; with neither, reading aloud says "there is no system voice on this computer" and the voice list is empty. A voice name that starts with a dash is refused. These flags follow each program's own documentation; the tests use stand-ins, so no sound is ever played.
+**macOS and Linux.** "The voice that comes with your computer" keeps its saved name (`windows`) but means the system voice wherever Branch runs. On a Mac that is `say`, started with a list of arguments, the words read from a file (`-f`) and the sound written to a WAV file (`--file-format=WAVE --data-format=LEI16@22050 -o …`); the voice list comes from `say -v ?`. On Linux it is `espeak-ng` (`-w <file> -s <words a minute> -f <file>`, voices from `espeak-ng --voices`) when it is installed. `spd-say` can only speak through the loudspeaker and cannot make a sound file, so a computer that has only `spd-say` is told to install `espeak-ng`; with neither, reading aloud says "there is no system voice on this computer" and the voice list is empty. A voice name that starts with a dash is refused. These flags follow each program's own documentation; the tests use stand-ins, so no sound is ever played. Off Windows the Voice screen calls it "your computer's own voice" (Windows keeps "the voice that comes with Windows"), and the voice list shows the computer's own voices above the browser's. `GET /api/voice/voices` answers `{ windows, system, platform, label, microphoneHelp }`, where `system` is the same list as `windows` under a name that fits every computer; the list is only asked for when you open it, never when the page loads. `GET /api/voice/plan` carries `systemVoice: { platform, label, microphoneHelp }`, which starts no program. The computer's own voice has its own switch, `systemVoice` in the voice settings: `off` (the default, on every computer: reading aloud with it refuses in one sentence and its voice list stays empty without asking the computer), `when-needed`, or `on` (the `voice.say` tool also travels with every task). Its card, "Your computer's own voice", has the home `settings:voice`. `POST /api/voice/settings` now merges what it is sent onto what is saved, so a form that sends some fields leaves the rest alone.
 
 ### Live conversation (wave 8)
 
@@ -696,7 +696,7 @@ Every value that has ever been looked up is remembered by **one scrubber** for a
 
 **Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
 
-**macOS and Linux.** `secret://bitwarden/...` and `secret://1password/...` work the same way on a Mac and on Linux: `bw` and `op` are looked for by their bare names on the search path. On a Mac there is one more source, **the Keychain**: `secret://keychain/<name>` names one of the entries you listed (setting `keychain-entries`: `enabled`, off by default, and `entries`, each `{ name, service, account? }`), and Branch runs `/usr/bin/security find-generic-password -s <service> [-a <account>] -w` at the moment the value is needed. Only listed entries can be read, so a tool call cannot go looking through the rest of your Keychain; it waits for the same unlock as the locker, the value is scrubbed like every other, and each read is written into the audit by name only. If the Keychain is locked, or you turn down your Mac's question about the item, Branch says so in one sentence. There is no settings route for these entries yet. On any other computer a Keychain reference is refused plainly.
+**macOS and Linux.** `secret://bitwarden/...` and `secret://1password/...` work the same way on a Mac and on Linux: `bw` and `op` are looked for by their bare names on the search path. On a Mac there is one more source, **the Keychain**: `secret://keychain/<name>` names one of the entries you listed (setting `keychain-entries`: `enabled`, off by default, and `entries`, each `{ name, service, account? }`), and Branch runs `/usr/bin/security find-generic-password -s <service> [-a <account>] -w` at the moment the value is needed. Only listed entries can be read, so a tool call cannot go looking through the rest of your Keychain; it waits for the same unlock as the locker, the value is scrubbed like every other, and each read is written into the audit by name only. If the Keychain is locked, or you turn down your Mac's question about the item, Branch says so in one sentence. **Settings → Passwords from your Mac's Keychain** (Mac only, home `settings:secrets`) lists and edits the entries: `GET /api/keychain/settings` returns `{ enabled, mode, entries, timeoutMs, available, references }` and `POST` saves `mode` (off, the default / when-needed / on; reading has no tools of its own, so the last two both read only when a task uses a reference), the older `enabled`, and `entries` through the same checks (names only — the route never asks the Keychain anything, and a field that is not a name is refused). On any other computer a Keychain reference is refused plainly.
 
 ### Keys Branch never looked up
 
@@ -888,6 +888,18 @@ The `user.ask` tool lets the assistant stop when it cannot proceed without you. 
 `POST /api/run` accepts `checks`: `mustMention` (phrases), `mustMatch` (a regular expression), `resultSchema` (the answer must be JSON of that shape), `files` (workspace files that must exist) and `maxRetries` (0 to 2, default 1). A missed check is recorded as `run.check_failed`, the model is told what was missing and tries again; when the allowance is used up the task fails with a plain reason.
 
 A task marked interrupted (the app stopped while it was working) shows **Continue where it stopped**. `POST /api/runs/:id/resume` starts a new run in the same conversation from the saved transcript: no new prompt, nothing replayed, and tool calls whose outcome was never recorded are shown to the model as unknown so it checks before repeating them.
+
+## Stopping repeated steps and trusted folders
+
+Both have a three-way switch in **Settings**, and both ship **off**, which is exactly how Branch behaved before them.
+
+**Stopping repeated steps.** `GET|POST /api/loop-guard { mode }` with `mode` `off`, `on` or `when-needed` (`LoopGuardSettingsSchema`). When on, every task watches its own tool calls. The same tool with exactly the same details a third time gets a warning beside its result (`loopWarning`); a fifth time it is not run and the model is told why. A call that keeps giving back exactly the same result is refused sooner (from the fourth time), and two or three calls going back and forth (read, write, read, write) are warned about after two rounds and refused after three. Tools meant to be asked again while something finishes — a running program's output (`process.read`), a status, a list — get three times the room, judged from the tool's name only. After three refusals the task ends with one sentence starting "Stopped:", and every call the model asked for still has an answer in the conversation, so the next message carries on normally. **When needed** leaves a task alone until it has made eight tool calls (`whenNeededAfterCalls`), except that the very same call with the same details is still warned about the third time and refused the fifth, since a tight loop can start at the second step. Events: `loop.warned`, `loop.blocked`, `loop.stopped`. The limits are fixed in `src/loop-guard.ts`.
+
+**Trusted folders.** `GET /api/folder-trust` gives the switch (`mode`, `FolderTrustSettingsSchema`) and lists the workspace and every project folder with what each holds for AI assistants and whether it is `trusted`, `untrusted` or `unknown`. `POST /api/folder-trust { mode }` changes the switch; `POST /api/folder-trust { folder, decision: "trust" | "distrust" }` answers for a folder written relative to the workspace (`""` is the workspace itself). A decision covers everything inside the folder and the closest one wins. What counts is one list, `assistantFolderItems` in `src/folder-trust.ts`: notes (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `GEMINI.md`, `.hermes.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `MEMORY.md`, `HEARTBEAT.md`, `TOOLS.md`, `SOP.md`, up to three folders deep), AI tool server lists (`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json`), skills, hooks and plugin folders. They are only listed: note files are never opened, and settings files are read for their entry names alone.
+
+Any part of Branch that reads what a folder carries asks `isFolderTrusted(store, owner, path)` (or `runtime.guards.isFolderTrusted(path)`) first; a loader that cannot wait, and has already found a file to read, asks `folderAllows(store, owner, path)`, which gives the same answer without looking at the disk. **Off:** always yes. **On:** only for a folder the owner trusts. **When needed:** for a trusted folder, or for one nobody has decided about that holds nothing on the list. A folder the owner does not trust is always no. With the switch on or when needed, a task whose own folder (the workspace, or the active project's `folder`) is not trusted asks before every change, even with approvals switched off; deny and ask rules are kept and standing yeses are dropped. That fallback follows only the task's own folder: distrusting `vendor/` inside a trusted workspace keeps what `vendor/` holds out without making writes there ask. A folder that needs an answer shows a question on the chat screen, and a task started there writes `folder.trust_needed` once per launch. A short-lived key cannot change either switch or any answer. Every answer and every change of the switch is written to the record as `policy.changed`.
+
+**macOS and Linux.** Both work the same on every system. Folder decisions compare paths with letter case on macOS and Linux and without it on Windows. Note files are listed whatever their letter case, since the usual macOS disk (and Windows) ignores case. A skills or plugin folder that is a link is never looked into.
 
 ## Teams, linked chats, registries and evaluation
 
@@ -1475,6 +1487,14 @@ Ignored files: put a `.branchignore` in the workspace (or the project folder) an
 ## What it learns
 
 `GET|POST /api/memory/settings` holds `review` (after each finished task a separate, bounded model call may suggest memories or skill notes; suggestions wait for you) and `requireApproval` (memory changes the model makes on its own become suggestions instead of writes). `GET /api/memory/proposals`, `POST /api/memory/proposals/:id/accept|reject`. Every memory edit or deletion keeps an exact earlier version: `GET /api/memory/versions?id=`, `POST /api/memory/versions/restore { id, revision }`. Checkpoints freeze every memory and each skill's active version: `GET|POST /api/memory/checkpoints`, `POST /api/memory/checkpoints/:id/restore`. Each conversation starts with a memory snapshot (up to 20 recent facts) that stays the same until a new conversation begins.
+
+### The learning core
+
+Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it. With `mode: "on"`, every task also has its suggestions worked out as it starts and written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`). Temporary conversations are never learned from. From code, `app.learningCore.settings()` and `app.learningCore.configure({ mode })` read and change the switch; changing it adds or removes the tool at once. There is no screen or web route for it yet.
+
+When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. The core gives advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
+
+**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
 
 ## Trust
 
@@ -2384,18 +2404,33 @@ layer first — a button is pressed by its name, text is placed into a box direc
 to a real mouse click or key press only when the program offers nothing better. The script runs
 through the same bounded runner the host-command tool uses, so it is stopped by time, by output
 size, or the moment the task is cancelled. No new dependency; nothing is installed.
-**macOS and Linux.** The commands are built and tested for both, and switched off on both for now.
-On a Mac every action would go through one fixed JavaScript for Automation script run by
-`osascript -l JavaScript <script> <action> <request as JSON>`, so what was asked for is only ever a
-separate argument read as data; pictures through `screencapture -x`, programs and files through
-`open`, and "ctrl" in a key chord means Command. On Linux the same actions are `xdotool` argument
-lists (typed words after `--`), on an X11 session only; Wayland, no session, or no `xdotool` is one
-plain sentence. Reading a window's contents, pictures, the clipboard and starting a program by name
-are not built for Linux yet. The reason both are off: the notice with its **Stop** button is still a
-Windows program, and screen control does not run anywhere without a way to stop it. Until that
-notice works there, every screen tool on a Mac or Linux answers "not available on this computer
-yet". A refusal from macOS names the page to change (Automation, Accessibility, or Screen & System
-Audio Recording).
+**macOS and Linux.** On a Mac every action goes through one fixed JavaScript for Automation script
+run by `osascript -l JavaScript <script> <action> <request as JSON>`, so what was asked for is only
+ever a separate argument read as data; pictures through `screencapture -x`, programs and files
+through `open`, and "ctrl" in a key chord means Command. On Linux the same actions are `xdotool`
+argument lists (typed words after `--`), on an X11 session only; Wayland, no session, or no
+`xdotool` is one plain sentence. Reading a window's contents, pictures, the clipboard and starting a
+program by name are not built for Linux yet. A refusal from macOS names the page to change
+(Automation, Accessibility, or Screen & System Audio Recording).
+The **Stop** notice there is a small window of the desktop app's own: frameless, always on top (on a
+Mac on every desktop, full-screen ones included), with no script in it, and put up without taking
+the keyboard from the window being worked. Its Stop button is a link to an address that is never
+visited: the app refuses the visit, closes the notice, and a closing notice is "let go now", exactly
+as on Windows. Screen control on a Mac or Linux runs only while that window is really showing — the
+check is made again before every action — so it works only inside the Branch Agent app on this
+computer. From the command line, or from an engine working in the background with no window, every
+screen tool answers "Branch can only use your screen and keyboard from the Branch Agent app on this
+computer". If the notice cannot be shown, nothing is done and Branch says so. (Code:
+`src/integrations/desktop-banner.ts`, `src/desktop/banner-window.ts`.)
+**Off, when needed, or on (every computer).** The setting also carries `mode`: `off` (the default:
+every screen tool refuses, and none is offered to the model in the first round; one asked for by
+name still refuses), `when-needed` (the tools are a line
+in the tool index and load when the work calls for them — what "enabled" always meant, so an older
+saved `enabled: true` reads as this), or `on` (the tools travel with every task from the first
+round). `POST /api/desktop/settings` takes `mode` or the older `enabled`; turning `enabled` on
+brings back the mode it had, or `when-needed`. Saving only `maxActionsPerRun` no longer switches
+the feature off. The choice is its own card, "How Branch uses your screen" (home
+`settings:computer`, in `public/os-permissions.js`). (Code: `src/feature-switches.ts`.)
 While any of this is happening a small notice sits on top of everything with a **Stop** button on
 it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
 the action in flight is cut off and every later one in the same task is refused. `POST
@@ -3622,9 +3657,9 @@ Branch Agent is one person's assistant on one Windows computer. A number of thin
 for belong to a hosted product with many customers, or to another operating system, and they are not
 going to be built. They are written down here so nobody goes looking for them.
 
-- **No macOS screen control yet.** The screen and keyboard tools drive Windows windows through UI
-  Automation. The macOS and Linux commands are built but switched off until the Stop notice works
-  there; see "Using this computer's screen and keyboard".
+- **No screen control on a Mac or Linux outside the app.** There the screen and keyboard tools work
+  only inside the Branch Agent app, whose own window carries the Stop notice; see "Using this
+  computer's screen and keyboard".
 - **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
   to the room waiting for its name, because that means a microphone open all day.
 - **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
@@ -3720,6 +3755,11 @@ apps) — each with an `explanation` in plain words and a `settingsLink` that op
 Windows too. On Linux the desktop session is what decides: with an X11 session screen control can
 work (with `xdotool`); on Wayland, or with no desktop session at all, the screen is reported as
 unavailable with the reason, and the microphone and camera are explained as having no single switch.
+The route also returns `platform`, and on Linux `session` (`x11`, `wayland` or `none`). **Settings →
+What this computer allows** (`public/os-permissions.js`, home `settings:computer`) shows the list on a
+Mac and on Linux: each switch with its explanation, on Linux the session type, and on
+a Mac an **Open System Settings** button that opens that one page only when you press it (in the app
+through its own link opener, which accepts only these four pages). On Windows the card is not shown.
 
 ## Commands nobody has ruled on (batch 26, wave 8)
 
@@ -4294,9 +4334,8 @@ recorded here as deliberately out of scope rather than left open for ever.
 - **A0401 Dashboard and desktop** — the desktop app is `src/desktop/main.ts` with its own settings,
   updater and conversation export; see "The desktop app" above.
 - **A1585 Cross-platform GUI control** — screen and keyboard control is
-  `src/integrations/desktop.ts`, behind its own switch and the Stop banner. It is Windows-only on
-  purpose: this is a Windows desktop assistant, and a cross-platform layer would mean three
-  untestable back ends.
+  `src/integrations/desktop.ts`, behind its own switch and the Stop banner. On a Mac and on Linux it
+  runs inside the desktop app only, while the app's own Stop window is showing (wave mac2).
 - **A1452 Web crawling** — `src/integrations/web.ts` fetches and reads a page through the network
   policy, and `src/integrations/browser.ts` drives a real browser when a page needs one. There is no
   Crawl4AI: it is a Python library, and a whole-site crawler is not something a personal assistant

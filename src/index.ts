@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
@@ -42,6 +43,7 @@ import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
 import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
+import { integrationsFileTrusted } from "./folder-trust.js";
 import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
@@ -106,6 +108,8 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
+import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
+import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
@@ -152,6 +156,9 @@ import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
+// mac2/fly-core: the learning core switch and its on-demand tool.
+import { flyCoreSettings } from "./fly-core/settings.js";
+import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -169,6 +176,8 @@ export async function createBranch(options: {
   retryPolicy?: RetryPolicyInput;
   /** Stall, tool time and context-size limits for ordinary runs. */
   reliability?: ReliabilityInput;
+  /* mac2/desktop-ui: the desktop app's own Stop notice window, for screen control on macOS and Linux. */
+  bannerWindow?: BannerWindowFactory;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -185,7 +194,10 @@ export async function createBranch(options: {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
+  // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
+  const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
   // One scrubber in front of the whole event log: no saved password or key can be written down.
@@ -242,6 +254,8 @@ export async function createBranch(options: {
   registerLanguageServers(registry, languageServers, codeChanges);
   const debugAdapters = new DebugAdapters(store, options.owner ?? "local", files);
   registerDebug(registry, debugAdapters);
+  // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
+  syncSuggestTool(registry, store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -292,7 +306,10 @@ export async function createBranch(options: {
   const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
-  const desktop = new DesktopControl(store, { artifacts });
+  // mac2/desktop-ui: on a Mac or Linux the screen is used only while the app's Stop notice shows.
+  const desktop = new DesktopControl(store, {
+    artifacts, ...screenControlParts(options.bannerWindow ? { window: options.bannerWindow } : {}),
+  });
   // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
   // there looks like nothing happening at all. The screen is probed by asking for the window list;
   // the microphone and the camera are read out of what the person already chose.
@@ -759,6 +776,11 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
+    learningCore: {
+      settings: () => flyCoreSettings(store, options.owner ?? "local"),
+      configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+    },
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
     files,
@@ -941,6 +963,9 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
+      // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
+      configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
       mcp: {
@@ -1308,3 +1333,7 @@ export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
+export * from "./loop-guard.js";
+export * from "./folder-trust.js";
+export * from "./run-guards.js";

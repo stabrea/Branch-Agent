@@ -109,12 +109,16 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
+import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
+import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
+import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -154,7 +158,7 @@ const PlanAnswerSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
 /** Which of the two modes this conversation is in, and how far it may go before checking back. */
-const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+const PlanActChoiceSchema = optionalFields(PlanActSettingsSchema).extend({
   sessionId: z.string().max(64).optional(),
   /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
   scope: z.enum(["conversation", "project"]).default("conversation"),
@@ -275,6 +279,8 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
+    "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
@@ -325,6 +331,8 @@ async function staticFile(
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (guards): the card that asks whether a folder is trusted.
+    "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -635,6 +643,8 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
+  if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -771,12 +781,15 @@ async function api(
   }
   // Batch 26 (wave 8): what Windows itself allows, with the page that turns each one on.
   if (request.method === "GET" && path === "/api/os-permissions")
-    return { permissions: await app.osPermissions.all() };
+    return { permissions: await app.osPermissions.all(), ...permissionsContext() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
     return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
+  // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
+  if (path === keychainSettingsPath)
+    return keychainApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);
@@ -2601,6 +2614,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
+  if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
