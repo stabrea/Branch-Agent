@@ -9,6 +9,21 @@ import { ignoreMatcher, type IgnoreMatcher } from "./ignore.js";
 const pathSchema = z.string().min(1).max(500);
 const secret =
   /(^\.env($|\.)|^\.ssh$|^\.aws$|^\.git$|^\.branch$|credentials|secrets?|^id_rsa|^id_ed25519|\.(pem|key|p12|pfx)$)/i;
+/**
+ * More places keys and passwords live, refused the same way (after IronClaw's list of sensitive
+ * paths): sign-in files for package registries and servers, container and cluster settings, other
+ * key folders, and the history files a shell keeps of every command typed, which often hold a
+ * password typed on the command line. Each name is matched whole, so `docker-compose.yml` and
+ * `history.ts` stay readable.
+ */
+const moreSecret =
+  /^(?:[._]netrc|\.npmrc|\.pypirc|\.pgpass|\.docker|\.kube|\.gnupg|\.azure|\.gcloud|\.vault-token|\.terraformrc|id_ecdsa|id_dsa|\.[\w-]*_history|\.histfile|fish_history|consolehost_history\.txt|[^/]*\.(?:jks|keystore))$/i;
+/** Credentials that are only recognisable by their folder: the GitHub command line's sign-in file and gcloud's settings. */
+const secretPath = /(?:^|\/)(?:gh\/hosts\.ya?ml|\.config\/gcloud)(?:\/|$)/i;
+const secretName = (name: string): boolean => secret.test(name) || moreSecret.test(name);
+/** True for a workspace path (forward slashes) whose last name or folder marks it as holding keys. */
+export const isSecretEntry = (path: string): boolean =>
+  secretName(path.slice(path.lastIndexOf("/") + 1)) || secretPath.test(path);
 export class WorkspaceFiles {
   /** A subfolder of the workspace that all paths resolve inside (the active project's folder), or "" for the whole workspace. */
   scope: () => string = () => "";
@@ -44,8 +59,9 @@ export class WorkspaceFiles {
             p === "" ||
             (p !== "." && p.endsWith(".")) ||
             p.endsWith(" ") ||
-            secret.test(p),
-        )
+            secretName(p),
+        ) ||
+      secretPath.test(path)
     )
       throw new Error("Path denied: traversal or secret filename");
     if (path === "." && !allowRoot) throw new Error("File path required");
@@ -148,7 +164,7 @@ export class WorkspaceFiles {
     const entries: { name: string; type: string }[] = [];
     for (const e of (await readdir(target, { withFileTypes: true })).slice(0, 400)) {
       if (entries.length >= 200) break;
-      if (e.isSymbolicLink() || secret.test(e.name)) continue;
+      if (e.isSymbolicLink() || isSecretEntry(here ? `${here}/${e.name}` : e.name)) continue;
       if (await this.hidden(here ? `${here}/${e.name}` : e.name, e.isDirectory()))
         continue;
       entries.push({ name: e.name, type: e.isDirectory() ? "directory" : "file" });

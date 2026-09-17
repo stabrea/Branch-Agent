@@ -554,14 +554,18 @@ export class McpServer {
     const permission = this.registry.permissionOf(name);
     const context = this.toolContext('policy-check', new Set([name]));
     const target = this.registry.targetOf(name, args, context);
-    const label = describeToolCall(name, args);
+    const described = describeToolCall(name, args);
     const bytes = this.runtime.hideSecrets(JSON.stringify(args));
-    const fingerprint = argumentFingerprint(bytes);
+    // Fingerprinted before hiding: two different keys hide to the same words and must stay two questions.
+    const fingerprint = argumentFingerprint(JSON.stringify(args));
     const approvalKey = `mcp:${session?.id ?? 'once'}`;
     const policy = cappedPolicy(readPolicy(this.store, this.runtime.owner), 'mcp');
-    const { decision } = evaluatePolicy(policy, { tool: name, target, readOnly: isReadOnlyPermission(permission) });
+    // mac2/leak-guard: an address carrying a key or password is asked about here too, per exact request.
+    const { decision, leak } = this.runtime.leakGuard.tighten(
+      evaluatePolicy(policy, { tool: name, target, readOnly: isReadOnlyPermission(permission) }), args);
     const answered = decision === 'ask'
-      ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint) : undefined;
+      ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint, !!leak) : undefined;
+    const label = leak ? `${described}, and the address carries ${leak}` : described;
     const where = target ? ` on ${target}` : '';
     // Whoever is signed in here is held to their role as well, exactly as they are in a
     // conversation; another AI tool's server must not be a way round what the owner said.

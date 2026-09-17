@@ -21,6 +21,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   verify:
+    # Windows keeps the plain name `verify`, which branch protection on main requires.
+    name: ${{ matrix.os == 'windows-latest' && 'verify' || format('verify ({0})', matrix.os) }}
     strategy:
       fail-fast: false
       matrix:

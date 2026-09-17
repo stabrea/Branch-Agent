@@ -1,8 +1,9 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { launchHandOver } from "./hand-over.js";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { Updater } from "./updater.js";
-import { appEntryName, installTarget, releaseAssetName } from "./release-assets.js";
+import { appEntryName, releaseAssetName } from "./release-assets.js";
+import { installedAppRoot } from "./install-root.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
@@ -37,9 +38,8 @@ export function registerUpdaterIpc(
   const updater = new Updater({
     ...(process.platform === "win32" ? updateSource : platformSource),
     currentVersion: version,
-    installDir: app.isPackaged
-      ? (process.platform === "win32" ? dirname(process.execPath) : installTarget(process.platform, process.execPath))
-      : null,
+    installDir: installedAppRoot(app.isPackaged, process.platform, process.execPath),
+    packaged: app.isPackaged,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),

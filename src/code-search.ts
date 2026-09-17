@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, matchesGlob } from "node:path";
 import { z } from "zod";
 import { ignoreMatcher } from "./ignore.js";
-import type { WorkspaceFiles } from "./files.js";
+import { isSecretEntry, type WorkspaceFiles } from "./files.js";
 import type { ToolRegistry } from "./registry.js";
 
 /**
@@ -11,8 +11,6 @@ import type { ToolRegistry } from "./registry.js";
  * workspace (or the active project's folder), skips secret-looking names, and is bounded so a
  * result always fits in one answer.
  */
-const secretName =
-  /(^\.env($|\.)|^\.ssh$|^\.aws$|^\.git$|^\.branch$|credentials|secrets?|^id_rsa|^id_ed25519|\.(pem|key|p12|pfx)$)/i;
 const alwaysSkipped = new Set(["node_modules", ".git", ".branch", "dist", "release"]);
 export const searchLimits = {
   entries: 4000,
@@ -69,8 +67,9 @@ export class WorkspaceSearch {
     if (depth > searchLimits.depth) return;
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (out.length >= limit || ++state.scanned > searchLimits.entries) { state.truncated = true; return; }
-      if (entry.isSymbolicLink() || secretName.test(entry.name)) continue;
       const relative = `${prefix}${entry.name}`;
+      // The same refused names as the file tools (src/files.ts), so a search never opens one either.
+      if (entry.isSymbolicLink() || isSecretEntry(relative)) continue;
       if (entry.isDirectory()) {
         if (alwaysSkipped.has(entry.name) || ignore(relative, true)) continue;
         await this.descend(join(directory, entry.name), `${relative}/`, ignore, out, state, limit, depth + 1);

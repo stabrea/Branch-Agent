@@ -14,10 +14,41 @@
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const CHECKPOINT = "docs/CHECKPOINT.md";
-const INSTALL = `**Install**
-Download \`Branch-Agent-windows-x64.zip\`, unzip it, and run \`Branch Agent.exe\`. From 0.7.3 onward the in-app update is silent. The checksum is in \`Branch-Agent-windows-x64.zip.sha256\`.`;
+
+/**
+ * The install paragraph. Every download name comes from the list the updater and the packaging
+ * scripts use (src/desktop/release-assets.ts, read from the build), so a renamed download can never
+ * leave the notes pointing at a file that is not there.
+ */
+export function installSection({ releaseAssets, checksumAssetName, appEntryName }) {
+  const name = (platform, arch) => {
+    const found = releaseAssets.find((asset) => asset.platform === platform && asset.arch === arch);
+    if (!found) throw new Error(`No ${platform} ${arch} download is listed in release-assets.ts.`);
+    return found.name;
+  };
+  const windows = name("win32", "x64");
+  return [
+    "**Install**",
+    `Download \`${windows}\`, unzip it, and run \`${appEntryName("win32")}\`. From 0.7.3 onward the in-app update is silent. The checksum is in \`${checksumAssetName(windows)}\`.`,
+    `On a Mac, download \`${name("darwin", "arm64")}\` (Apple silicon) or \`${name("darwin", "x64")}\` (Intel), unzip it, and move \`${appEntryName("darwin")}\` into your Applications folder.`,
+    `On Linux, download \`${name("linux", "x64")}\`, unpack it, and run \`${appEntryName("linux")}\`.`,
+    "Each download has its checksum beside it, in a file of the same name ending in `.sha256`.",
+  ].join("\n");
+}
+
+/** The download names, from the build. The drafter is run from a built checkout. */
+async function assetNames() {
+  try {
+    return await import("../dist/desktop/release-assets.js");
+  } catch {
+    console.error("Build Branch first (npm run build): the download names are read from the build.");
+    process.exit(1);
+  }
+}
 
 /** Git, as an argument list, so nothing here is ever handed to a shell to interpret. */
 function git(...args) {
@@ -80,47 +111,51 @@ function lead(heading) {
   return capital.endsWith(".") ? capital : `${capital}.`;
 }
 
-const args = process.argv.slice(2);
-const at = (flag) => {
-  const index = args.indexOf(flag);
-  return index === -1 ? null : args[index + 1] ?? null;
-};
-const since = at("--since") ?? newestTag();
-if (!since) {
-  console.error("No tag to compare with. Pass --since <tag>.");
-  process.exit(1);
-}
-const before = git("show", `${since}:${CHECKPOINT}`);
-if (before === null) {
-  console.error(`Could not read ${CHECKPOINT} at ${since}. Is that a tag in this checkout?`);
-  process.exit(1);
+async function main() {
+  const args = process.argv.slice(2);
+  const at = (flag) => {
+    const index = args.indexOf(flag);
+    return index === -1 ? null : args[index + 1] ?? null;
+  };
+  const since = at("--since") ?? newestTag();
+  if (!since) {
+    console.error("No tag to compare with. Pass --since <tag>.");
+    process.exit(1);
+  }
+  const before = git("show", `${since}:${CHECKPOINT}`);
+  if (before === null) {
+    console.error(`Could not read ${CHECKPOINT} at ${since}. Is that a tag in this checkout?`);
+    process.exit(1);
+  }
+
+  const was = sections(before);
+  const now = sections(readFileSync(CHECKPOINT, "utf8"));
+  const added = [...now].filter(([heading]) => !was.has(heading));
+
+  const out = [`## What changed in <version>`, ""];
+  if (!added.length) out.push(`Nothing has been added to ${CHECKPOINT} since ${since}.`, "");
+  for (const [heading, body] of added) {
+    const sentences = opening(body);
+    out.push(`**${lead(heading)}** ${plain(sentences)}`.trim(), "");
+  }
+  out.push(
+    "**Also.** <the smaller things, one clause each, separated by semicolons>",
+    "",
+    "**Fixed.** <what used to go wrong, in plain words>",
+    "",
+    installSection(await assetNames()),
+    "",
+  );
+  const draft = out.join("\n");
+
+  const target = at("--out");
+  if (target) {
+    writeFileSync(target, draft);
+    console.error(`Drafted ${added.length} theme(s) since ${since} into ${target}. Rewrite every paragraph by hand.`);
+  } else {
+    process.stdout.write(draft);
+    console.error(`\n--- ${added.length} theme(s) since ${since}. A draft, not the prose. ---`);
+  }
 }
 
-const was = sections(before);
-const now = sections(readFileSync(CHECKPOINT, "utf8"));
-const added = [...now].filter(([heading]) => !was.has(heading));
-
-const out = [`## What changed in <version>`, ""];
-if (!added.length) out.push(`Nothing has been added to ${CHECKPOINT} since ${since}.`, "");
-for (const [heading, body] of added) {
-  const sentences = opening(body);
-  out.push(`**${lead(heading)}** ${plain(sentences)}`.trim(), "");
-}
-out.push(
-  "**Also.** <the smaller things, one clause each, separated by semicolons>",
-  "",
-  "**Fixed.** <what used to go wrong, in plain words>",
-  "",
-  INSTALL,
-  "",
-);
-const draft = out.join("\n");
-
-const target = at("--out");
-if (target) {
-  writeFileSync(target, draft);
-  console.error(`Drafted ${added.length} theme(s) since ${since} into ${target}. Rewrite every paragraph by hand.`);
-} else {
-  process.stdout.write(draft);
-  console.error(`\n--- ${added.length} theme(s) since ${since}. A draft, not the prose. ---`);
-}
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main();
