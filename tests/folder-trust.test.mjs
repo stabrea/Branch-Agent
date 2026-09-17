@@ -10,6 +10,7 @@ import {
   workspaceFolder,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { openPlace } from "./places.mjs";
 
 async function fixture(t, files = {}, steps = [{ content: "ok", toolCalls: [] }]) {
   const root = await mkdtemp(join(tmpdir(), "branch-trust-"));
@@ -211,15 +212,9 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
   assert.match(html, /<script src="\/folder-trust\.js" type="module"><\/script>/);
 });
 
-/**
- * Opens the screen these cards live on. The one place a test finds its way there, so it can move
- * to tests/places.mjs (openSettingFor) when the redesigned window lands.
- */
+/** Opens the screen these cards live on, the way a person does in the redesigned window. */
 async function openSettings(page) {
-  const nav = page.locator('.nav[data-view="settings"]').first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
-  await page.evaluate(() => document.body.classList.remove("rail-open"));
+  await openPlace(page, "settings:permissions");
 }
 
 test("with both switches off (as shipped) both cards are still there to turn them on", async (t) => {
@@ -237,6 +232,8 @@ test("with both switches off (as shipped) both cards are still there to turn the
   for (const id of ["folder-trust-card", "loop-guard-card"]) {
     await page.locator(`#${id}`).waitFor({ state: "attached" });
     assert.equal(await page.locator(`#${id}`).getAttribute("data-home"), "settings:permissions");
+    await page.waitForFunction((card) => document.getElementById(card)?.closest("#lx-page-permissions"), id);
+    assert.ok(await page.locator(`#${id}`).isVisible(), `${id} is on the Permissions page`);
   }
   assert.equal(await page.locator("#folder-trust-mode").inputValue(), "off");
   assert.equal(await page.locator("#loop-guard-mode").inputValue(), "off");
