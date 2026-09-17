@@ -166,6 +166,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   computer?: { page?: unknown };
   /** Settings and spans, so the browser can read the "use my browser" switch and record healing. */
   store?: unknown; tracer?: unknown;
+  /** Wave mac2 (guards): false when the integrations file sits in a workspace folder the owner has not trusted. */
+  configTrusted?: (path: string) => boolean;
   /** Things to let go of when Branch locks itself, such as a browser of the owner's it had borrowed. */
   onLock?: (release: () => Promise<unknown>) => void }
 
@@ -210,6 +212,12 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
   const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  // Wave mac2 (guards): an untrusted folder's hooks and AI tool servers are left unstarted.
+  if (channels?.configTrusted && !channels.configTrusted(path)) {
+    if (config.mcp.length || config.hooks.length)
+      console.warn(`Branch did not start the AI tool servers or hooks listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions.`);
+    config.mcp = []; config.hooks = [];
+  }
   if (config.web) channels?.web?.configure(config.web);
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)
