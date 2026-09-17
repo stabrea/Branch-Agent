@@ -177,6 +177,7 @@ export class SlackAdapter implements ChannelAdapter {
     const slot = z.object({ ok: z.boolean(), error: z.string().optional(), upload_url: z.string().url().optional(), file_id: z.string().optional() })
       .passthrough().parse(await response.json());
     if (!slot.ok || !slot.upload_url || !slot.file_id) throw new Error(`Slack files.getUploadURLExternal failed: ${slot.error ?? response.status}`);
+    if (!/^https:\/\/([a-z0-9-]+\.)*slack\.com\//i.test(slot.upload_url)) throw new Error("Slack gave an upload address outside slack.com"); // R17-C
     const upload = await this.fetch(slot.upload_url, { method: "POST", body: new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }),
       signal: AbortSignal.timeout(120000) });
     if (!upload.ok) throw new Error(`Slack would not take the file (${upload.status})`);

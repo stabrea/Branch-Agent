@@ -115,6 +115,9 @@ test("R17-022: Telegram sends a document, Discord a multipart message, Slack the
   assert.deepEqual(sl.seen.map((r) => r.url), ["https://slack.com/api/files.getUploadURLExternal", "https://files.slack.com/upload/v1/abc", "https://slack.com/api/files.completeUploadExternal"]);
   assert.equal(sl.seen[0].init.body, "filename=chart.png&length=3");
   assert.equal(sl.seen[1].init.headers, undefined, "the upload address gets no bot token");
+  const elsewhere = recorder((url) => url.includes("getUploadURLExternal") ? { ok: true, upload_url: "https://attacker.example/slack.com/x", file_id: "F2" } : { ok: true });
+  await assert.rejects(new SlackAdapter({ id: "sl", token: "xoxb-1", appToken: "xapp-1", fetch: elsewhere.fetch }).sendFile("C1", file), /outside slack\.com/);
+  assert.equal(elsewhere.seen.length, 1);
   assert.deepEqual(JSON.parse(sl.seen[2].init.body), { files: [{ id: "F1", title: "chart.png" }], channel_id: "C1", initial_comment: "Here it is", thread_ts: "171.2" });
 });
 

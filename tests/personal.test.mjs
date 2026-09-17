@@ -66,7 +66,11 @@ test("a switch puts a part's tools in and takes them out, and 'on' preloads them
   await call("/api/personal/switch", { part: "spoken-brief", mode: "when-needed" });
   assert.equal(app.registry.permissionOf("brief.send_voice"), "channels.send");
   assert.equal(app.registry.permissionOf("chat.send_file"), "");
-  assert.equal(app.registry.permissionOf("brief.spoken"), "media.write");
+  assert.equal(app.registry.permissionOf("brief.spoken"), "personal.read");
+  // A task started from a chat gets none of the owner's personal connectors.
+  await call("/api/personal/switch", { part: "home-control", mode: "on" });
+  const chatAllowed = app.channels["chatPermissions"]();
+  for (const permission of ["personal.read", "personal.write", "home.control", "channels.send"]) assert.equal(chatAllowed.includes(permission), false, permission);
   for (const permission of ["personal.write", "home.control", "channels.send"]) assert.equal(isReadOnlyPermission(permission), false);
 });
 

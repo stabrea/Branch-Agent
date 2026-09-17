@@ -520,7 +520,9 @@ export class ChannelRouter {
     // A message from a chat app can read and change the local copy, but never publish it, and
     // never send to somebody else's chat: a paired person in one group must not be able to
     // make the assistant write to every chat it is linked to.
-    return this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p));
+    // R17-C: nor the owner's own mail, calendars, files in other services, or house.
+    const personal = ["personal.read", "personal.write", "home.control"];
+    return this.runtime.registry.permissions().filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p));
   }
   // ---- chat-live (wave mac2): one task per chat, notes steer it, commands control it ----------
   /** Carries out a chat command and sends its answer back. */

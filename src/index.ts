@@ -944,7 +944,7 @@ export async function createBranch(options: {
   const personal = new Personal({ runtime, registry, files, oauth, fetch: web.policy.guard(globalThis.fetch), secret: personalSecret,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address"),
     channels: { adapter: (id) => channels.adapter(id), outboundGuard: (text) => channels.outboundGuard(text),
-      reachable: (id, chatId) => channels.chats(runtime.owner).some((chat) => chat.channel === id && chat.chatId === chatId) || channels.senderAllowed(id, chatId) },
+      reachable: (id, chatId) => channels.chats(runtime.owner).some((chat) => chat.channel === id && chat.chatId === chatId) },
     holdsKnownSecret: (text) => store.secrets.scrubber.deep(text) !== text,
     requireOwner: (what) => store.profiles.requireOwner(what),
     morningBrief: () => brief.preview(runtime.owner).markdown,
