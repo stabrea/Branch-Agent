@@ -38,6 +38,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },
   { name: "trace", summary: "The trace number for one task, and whether it was sent anywhere", options: ["--json"] },
+  // mac3/security-check: the security self-check.
+  { name: "security", summary: "Check this computer's Branch setup for security problems: security audit", options: ["--fix", "--json"] },
 ];
 
 const commandNames = (): string => cliCommands.map((command) => command.name).join(" ");

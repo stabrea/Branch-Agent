@@ -3234,3 +3234,25 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### OpenClaw, MIT
+
+The shape of the security self-check in `src/security-audit/` — one list of named checks, each with a severity and an optional repair; looking for a sync service's name in the private folder's path; and the Windows repair that drops inherited access and leaves a file to its owner and the system — follows OpenClaw's `src/security/audit.ts`, `audit-extra.sync.ts`, `fix.ts` and `windows-acl.ts` (https://github.com/openclaw/openclaw). The checks themselves are Branch's own. Used under the MIT licence:
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Goose (Block, Inc.), Apache-2.0
+
+The malware check on add-ons in `src/security-audit/malware-check.ts` and the command-line reading in `src/security-audit/package-launch.ts` are adapted from Goose's `crates/goose/src/agents/extension_malware_check.rs` (https://github.com/block/goose): the OSV query and its pages, refusing only `MAL-` advisories, and finding the package an `npx` or `uvx` command would fetch. Changes: written in TypeScript, sent through Branch's network policy, `pipx run`, `bunx`, `pnpm dlx` and `uv tool run` added, and answers remembered for a while. Used under the Apache License, Version 2.0:
+
+Copyright 2024 Block, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.

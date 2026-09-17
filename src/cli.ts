@@ -38,6 +38,8 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+// mac3/security-check: the security self-check on the command line.
+import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
 // Wave 7 (a coder's toolbox): handing the whole assistant over as one file.
 import { agentSections, exportAgent, importAgent, openAgent } from "./agent-export.js";
@@ -180,6 +182,13 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "token") { tokenCommand(app); return; }
+    // mac3/security-check: `branch security audit [--fix] [--json]` (src/security-audit/api.ts).
+    if (command === "security") {
+      const { text, urgent } = await securityAuditCommand(app.security, process.argv.slice(3));
+      console.log(text);
+      if (urgent) process.exitCode = 1;
+      return;
+    }
     if (command === "trace") { traceCommand(app); return; }
     if (command === "eval") {
       await runEvaluation(app);
@@ -679,6 +688,7 @@ async function printDoctor(
   if (process.argv.includes("--fix") || process.argv.includes("--repair")) {
     console.log(doctorText(await doctorFix({
       fix: true, workspace: app.runtime.workspace, port: Number(process.env.BRANCH_PORT ?? 3210),
+      security: async () => (await app.security.check()).summary, // mac3/security-check
     })));
     return;
   }
