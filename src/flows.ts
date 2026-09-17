@@ -178,10 +178,15 @@ export class Flows {
     return this.workflows.remove(this.mine, id);
   }
   /** Starts a flow, telling whoever asked about each box as it finishes. */
-  async run(id: string, options: { resume?: boolean; input?: Record<string, unknown> } = {}): Promise<FlowView | GraphRunStart> {
+  async run(id: string,
+    options: { resume?: boolean; input?: Record<string, unknown>; interrupted?: "again" | "past" } = {}):
+    Promise<FlowView | GraphRunStart> {
     const owner = this.mine;
     if (this.store.get("flow_graphs", owner, id))
-      return options.resume ? this.resumeGraph(id, { approve: true }) : this.startGraph(id, options.input ?? {});
+      return options.resume
+        ? this.resumeGraph(id, { approve: true,
+            ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }) })
+        : this.startGraph(id, options.input ?? {});
     const before = this.workflows.stepStates(owner, id);
     const finished = await (options.resume ? this.workflows.resume(owner, id) : this.workflows.run(owner, id));
     this.announce(id, before, this.workflows.stepStates(owner, id));
@@ -204,14 +209,16 @@ export class Flows {
    * is the owner saying yes on their own screen to whatever a box stopped to ask about; the
    * assistant never sets it, so a flow waiting on the owner stays waiting until they answer.
    */
-  resumeGraph(id: string, options: { runId?: string; approve?: boolean } = {}): GraphRunStart {
+  resumeGraph(id: string,
+    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past" } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
     const pick = options.runId ?? this.graphs.resumable(id)?.runId;
     if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
     const waiting = this.graphs.view(pick);
-    if (!options.approve && waiting.question)
+    if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
-    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true }));
+    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true,
+      ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }) }));
     return { runId: pick, flowId: id, status: "running", name: definition.name };
   }
   /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */
@@ -318,7 +325,13 @@ export async function flowsApi(
   if (method === "DELETE" && !match[2]) return flows.remove(id);
   if (method === "POST" && match[2] === "run")
     return flows.run(id, { input: (await body()) as Record<string, unknown> ?? {} });
-  if (method === "POST" && match[2] === "resume") return flows.run(id, { resume: true });
+  if (method === "POST" && match[2] === "resume") {
+    // A box that was still running when Branch stopped is asked about rather than repeated; the
+    // owner's answer ("again" or "past") rides on the same request that carries the flow on.
+    const said = (await body()) as { interrupted?: unknown } | null;
+    const answer = said?.interrupted === "again" || said?.interrupted === "past" ? said.interrupted : undefined;
+    return flows.run(id, { resume: true, ...(answer === undefined ? {} : { interrupted: answer }) });
+  }
   if (method === "POST" && match[2] === "pause") return flows.pause(id);
   return null;
 }
