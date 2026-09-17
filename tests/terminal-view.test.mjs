@@ -145,7 +145,7 @@ test("every view draws at 80×24 and 120×40 in true colour, 256, 16 and no colo
         hashes[`${name}-${columns}x${rows}-${depth}`] = createHash("sha256").update(frame.lines.join("\n")).digest("hex");
       }
       if (UPDATE) await writeFile(plainFile, plain);
-      else assert.equal(plain, await readFile(plainFile, "utf8"), `${name} at ${columns}x${rows} changed; rerun with BRANCH_UPDATE_SNAPSHOTS=1 if that was meant`);
+      else assert.equal(plain, (await readFile(plainFile, "utf8")).replace(/\r\n/g, "\n"), `${name} at ${columns}x${rows} changed; rerun with BRANCH_UPDATE_SNAPSHOTS=1 if that was meant`);
     }
   if (UPDATE) await writeFile(hashesFile, JSON.stringify(hashes, null, 2) + "\n");
   else assert.deepEqual(hashes, saved, "the colours changed; rerun with BRANCH_UPDATE_SNAPSHOTS=1 if that was meant");
