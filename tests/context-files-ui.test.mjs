@@ -17,12 +17,16 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettings } from "./places.mjs";
 
-async function fixture(t) {
+async function fixture(t, seed) {
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-context-ui-"));
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
+  /* Files the workspace should already hold are written before the window opens. Writing them
+     afterwards would mean reloading the page, and a reload has to sign in again from the session
+     store -- which is slower on a loaded build machine than any wait is worth betting on. */
+  if (seed) await seed(workspace);
   const provider = { name: "context-ui-fixture", complete: async () => ({ content: "Done", toolCalls: [] }) };
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -66,10 +70,8 @@ test("each switch is on the screen that already owns its subject, not on a scree
 });
 
 test("every switch starts off, and the one you change is the one that is saved", async (t) => {
-  const { page, errors, workspace, app } = await fixture(t);
-  await writeFile(join(workspace, "AGENTS.md"), "Ask before you rename anything.", "utf8");
-  await page.reload();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  const { page, errors, app } = await fixture(t,
+    (workspace) => writeFile(join(workspace, "AGENTS.md"), "Ask before you rename anything.", "utf8"));
   await openSettings(page, "general");
   const card = page.locator("#context-project");
   await card.waitFor();
