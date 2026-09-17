@@ -24,11 +24,22 @@
  * - Hige T, Aso Y, Modi MN, Rubin GM, Turner GC (2015) "Heterosynaptic plasticity underlies aversive
  *   olfactory learning in Drosophila." Neuron 88:985–998 — Kenyon-cell activity paired with dopamine
  *   causes long-term depression of the Kenyon-cell → output-neuron synapse.
+ * - Owald D, Felsenberg J, Talbot CB, Das G, Perisse E, Huetteroth W, Waddell S (2015) "Activity of
+ *   defined mushroom body output neurons underlies learned olfactory behavior in Drosophila." Neuron
+ *   86(2):417–427. https://doi.org/10.1016/j.neuron.2015.03.025 — reward training lowers the
+ *   conditioned odour's drive to the M4/6 output neurons, whose activity steers the fly away, and
+ *   punishment training raises it: reward depresses the "avoid" pathway.
  * - Aso Y, Rubin GM (2016) "Dopaminergic neurons write and update memories with cell-type-specific
  *   rules." eLife 5:e16135 — compartments learn and forget at different rates.
  */
 
-/** Kenyon cells. The hemibrain's ~2,000 (Li et al. 2020); FlyWire has ~2,590 per side. */
+/**
+ * Kenyon cells. The hemibrain's ~2,000 (Li et al. 2020). Checked against Schlegel et al. 2024 on
+ * 2026-09-17: FlyWire counts 2,597 (right) and 2,580 (left), about 30% more per side than the
+ * hemibrain. Branch keeps 2,000 on purpose: the wiring is derived from this number and the owner's
+ * seed, so changing it would make every weight already learned unreadable. Both counts are the same
+ * order of magnitude, which is all the sparse code depends on.
+ */
 export const kenyonCells = 2000;
 /** Share of Kenyon cells left active after feedback inhibition (Lin et al. 2014: sparse, ~5%). */
 export const activeShare = 0.05;
@@ -43,11 +54,20 @@ export const inputChannels = 256;
 /** How many input channels one context feature drives (Branch choice). */
 export const channelsPerFeature = 8;
 
+/**
+ * Most learned synapses kept per output neuron (per side of an action). A Branch choice, not anatomy:
+ * the weakest changes are dropped first, so storage stays bounded however many situations an action
+ * is used in. It is above `activeCells`, so one whole situation always fits. At `maximumActions`
+ * (state.ts) the tables hold at most 5,000 × 2 × 120 entries × 8 base64 characters, about 9.6 MB of
+ * weights (measured: 9.97 MB). The in-memory index (fast-index.ts) is computed, not measured, at
+ * 5,000 × 240 × 10 bytes, about 12 MB, and up to about twice that because its lists grow by doubling.
+ */
+export const maximumWeightsPerSide = 120;
 /** A synapse starts at full strength; learning moves it between 0 and this. */
 export const baselineWeight = 1;
 /**
  * Learning rates. Depression is the documented effect of dopamine on active synapses (Hige et al.
- * 2015); recovery of the opposite pathway is kept slower. Different rates per pathway follow the
+ * 2015 for punishment, Owald et al. 2015 for reward depressing the avoid pathway); recovery of the opposite pathway is kept slower. Different rates per pathway follow the
  * idea of compartment-specific rules (Aso & Rubin 2016). The values themselves are Branch choices.
  */
 export const depressionRate = 0.35;

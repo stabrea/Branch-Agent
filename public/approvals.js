@@ -1,5 +1,7 @@
 // Settings → When to check with me: which approval preset is in force, how fast one conversation
 // may work, and any question a task has stopped on waiting for a yes.
+import { t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -77,8 +79,11 @@ function renderWaiting() {
     if (question.sandbox) item.append(el("p", `Your rules say to run this ${HELD[question.sandbox] ?? question.sandbox}.`, "subtle"));
     if (question.remember === "session")
       item.append(el("p", "A yes for this conversation lasts until you close it, or until you lock Branch.", "subtle"));
+    // Wave mac3 (tool-safety): a step the safety check advised against can only be allowed this once.
+    if (question.onceOnly) item.append(el("p", t("live.onceOnly"), "subtle"));
     for (const [label, remember] of [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]]) {
       if (remember === "always" && question.source !== "owner") continue;
+      if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);
       button.type = "button";
       button.addEventListener("click", () => void answer(question.sessionId, "allow", remember, question.fingerprint));

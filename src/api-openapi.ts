@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { GoalStartSchema } from "./goal-mode.js";
+import { RewindSchema } from "./rewind.js";
 import { RunInputSchema } from "./contracts.js";
 import { PolicyInputSchema } from "./policy.js";
 import { WorkflowSchema } from "./workflows.js";
@@ -37,6 +39,15 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/sessions/{sessionId}", summary: "One conversation with its messages.", tag: "sessions" },
   { method: "get", path: "/api/sessions/{sessionId}/tree", summary: "This conversation and everything branched from it.", tag: "sessions" },
   { method: "post", path: "/api/sessions/{sessionId}/merge-note", summary: "Carry this branch's last answer back into the conversation it came off.", tag: "sessions" },
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  { method: "post", path: "/api/goals", summary: "Keep working in rounds until a goal is judged met (goal mode must be switched on).", tag: "sessions", body: GoalStartSchema },
+  { method: "get", path: "/api/goal-undo/settings", summary: "The off, on and when-needed switches for goal mode and rewind snapshots.", tag: "sessions" },
+  { method: "post", path: "/api/goal-undo/settings", summary: "Change either switch; the one not sent keeps its value.", tag: "sessions", bodyNote: "{ goal?: \"off\" | \"on\" | \"when-needed\", snapshots?: same }" },
+  { method: "get", path: "/api/sessions/{sessionId}/goal", summary: "The goal in this conversation: round, score, what is missing, time.", tag: "sessions" },
+  { method: "post", path: "/api/sessions/{sessionId}/goal", summary: "Pause, resume or stop this conversation's goal.", tag: "sessions", bodyNote: "{ action: \"pause\" | \"resume\" | \"stop\" }" },
+  { method: "get", path: "/api/sessions/{sessionId}/rewind", summary: "Whether files can be taken back here, and the rewind that can be undone.", tag: "sessions" },
+  { method: "post", path: "/api/sessions/{sessionId}/rewind", summary: "Take the conversation, the files, or both back to just before one message.", tag: "sessions", body: RewindSchema },
+  { method: "post", path: "/api/sessions/{sessionId}/unrevert", summary: "Undo the newest rewind in this conversation.", tag: "sessions", bodyNote: "{}" },
   { method: "get", path: "/api/memory/export", summary: "Everything the assistant has been asked to remember.", tag: "memory" },
   { method: "post", path: "/api/memory/search", summary: "Search the saved facts.", tag: "memory", bodyNote: "A search: { query, limit }." },
   { method: "get", path: "/api/state", summary: "One snapshot of everything the app's own screen shows.", tag: "app" },

@@ -43,7 +43,8 @@ export const ProposalSchema = z.object({
    * and a fingerprint of the noticing, so turning it down stops it being offered again.
    */
   learned: z.object({
-    signal: z.enum(["file-revisited", "name-recurs", "correction"]),
+    /** "learning-core": a pattern of steps the learning core (src/fly-core) saw keep working. */
+    signal: z.enum(["file-revisited", "name-recurs", "correction", "learning-core"]),
     text: z.string().max(4000).default(""),
     source: z.string().max(500).default(""),
     kind: z.string().max(40).default("fact-about-world"),
@@ -68,13 +69,26 @@ export const memorySnapshotLimits = { facts: 20, chars: 2000 };
 export const tidyingKinds: Proposal["kind"][] = ["merge", "archive", "forget"];
 
 export class MemoryReview {
-  /** Set when hybrid retrieval is available: the snapshot then takes the most useful facts first. */
-  orderFacts?: (owner: string, agent?: string) => MemoryRecord[];
+  /**
+   * Set when hybrid retrieval is available: the snapshot then takes the most useful facts first.
+   * The conversation is passed so the learning core can put what helped in similar tasks first.
+   */
+  orderFacts?: (owner: string, agent?: string, sessionId?: string) => MemoryRecord[];
+  /**
+   * Set at start-up: what accepting a skill idea from the learning core does. It returns a skill
+   * draft for the existing skill editor to open, pre-filled from the steps; nothing is installed.
+   */
+  acceptSkillIdea?: (owner: string, proposal: Proposal) => unknown;
   /**
    * Set at start-up when knowledge bases are available: what accepting a card suggestion does. It
    * is handed in rather than reached for, so this module never has to know about collections.
    */
   acceptCard?: (owner: string, card: NonNullable<Proposal["card"]>) => unknown;
+  /**
+   * mac3/reflection-skills: what accepting a skill note does (src/reflection/skill-notes.ts), handed
+   * in at start-up like `acceptCard`. Without it a skill note is only noted.
+   */
+  applySkillNote?: (owner: string, proposal: Proposal) => unknown;
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
     db.exec(`CREATE TABLE IF NOT EXISTS memory_proposals(id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT);
       CREATE TABLE IF NOT EXISTS memory_checkpoints(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, memories TEXT NOT NULL, skills TEXT NOT NULL, created_at TEXT NOT NULL);`);
@@ -142,6 +156,9 @@ export class MemoryReview {
         throw new Error("That card reads like instructions to the assistant rather than something to remember, so it was not added.");
       return this.acceptCard(owner, proposal.card);
     }
+    if (proposal.kind === "skill-note" && proposal.learned?.signal === "learning-core" && this.acceptSkillIdea)
+      return this.acceptSkillIdea(owner, proposal);
+    if (proposal.kind === "skill-note" && this.applySkillNote) return this.applySkillNote(owner, proposal);
     return { noted: true };
   }
   /**
@@ -255,7 +272,7 @@ export class MemoryReview {
     const saved = this.db.prepare("SELECT data FROM settings WHERE owner=? AND id=?").get(owner, key);
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;
-    const ordered = this.orderFacts?.(owner, agent) ?? this.memories.list(owner).filter((r) => visibleTo(r, agent));
+    const ordered = this.orderFacts?.(owner, agent, sessionId) ?? this.memories.list(owner).filter((r) => visibleTo(r, agent));
     for (const record of ordered.slice(0, memorySnapshotLimits.facts)) {
       const line = `- ${String(record.data.text).replace(/\s+/g, " ").trim()}`;
       if (chars + line.length > memorySnapshotLimits.chars) break;

@@ -87,6 +87,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
+| What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 

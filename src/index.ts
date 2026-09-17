@@ -152,14 +152,28 @@ import { ProjectMap, registerProjectMap } from "./code-map.js";
 import { LanguageServers } from "./language-server.js";
 import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
-import { registerCheckpoints } from "./checkpoints.js";
+import { registerCheckpoints, SnapshotStore, systemGit, type GitCall } from "./checkpoints.js";
+// Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+import { GoalMode, goalUndoSettings } from "./goal-mode.js";
+import { Rewinds } from "./rewind.js";
+import { isReadOnlyPermission } from "./policy.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
+// mac3/security-check: the security self-check and the malware check on add-ons.
+import { SecurityService } from "./security-audit/service.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setWallEdge } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac3/reflection-skills: looking back over conversations, and skills written from experience.
+import { LearningLoop } from "./reflection/loop.js";
+import { attachLearningLoop } from "./reflection/hook.js";
+// mac2/fly-core-2: advice that acts, the owner's view of what was learned, and skill ideas as drafts.
+import { advisedFacts } from "./fly-core/apply.js";
+import { warmLearningCore } from "./fly-core/hook.js";
+import { skillIdeaDraft } from "./fly-core/skill-idea.js";
+import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -179,6 +193,10 @@ export async function createBranch(options: {
   reliability?: ReliabilityInput;
   /* mac2/desktop-ui: the desktop app's own Stop notice window, for screen control on macOS and Linux. */
   bannerWindow?: BannerWindowFactory;
+  /** Wave mac2: how the hidden snapshot store runs git; null means "git is not installed". */
+  snapshotGit?: GitCall | null;
+  /** mac3/security-check: the home folder the security check looks under; this computer's own when left out. */
+  home?: string;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -257,6 +275,9 @@ export async function createBranch(options: {
   registerDebug(registry, debugAdapters);
   // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
   syncSuggestTool(registry, store, options.owner ?? "local");
+  // mac2/fly-core-2: accepting the core's skill idea opens a pre-filled draft in the skill editor.
+  store.review.acceptSkillIdea = (_ideaOwner, proposal) => ({ skillDraft: skillIdeaDraft(proposal) });
+  warmLearningCore(store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -364,13 +385,23 @@ export async function createBranch(options: {
   try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
   // What goes in front of a task is taken layer by layer in the documented order and budget: what
   // is happening now, then the job in hand, then everything the assistant knows for good.
-  store.review.orderFacts = (factOwner, agent) =>
-    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
+  // mac2/fly-core-2: with the learning core "on", the facts that helped in similar tasks go first.
+  store.review.orderFacts = (factOwner, agent, sessionId) =>
+    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), memorySnapshotLimits).records;
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
+  // Wave mac2 (goal-undo): a hidden snapshot of the workspace before each task, kept in the private
+  // data folder, so an earlier message can take back files and conversation together; and goal mode.
+  const snapshots = new SnapshotStore(join(dataDir, "snapshots"), workspace,
+    options.snapshotGit === undefined ? systemGit() : options.snapshotGit);
+  const rewinds = new Rewinds(store.sqlite, runtime.owner, sessionTree, history, snapshots, files,
+    () => goalUndoSettings(store, runtime.owner).snapshots,
+    (tool) => { const permission = registry.permissionOf(tool); return permission !== "" && !isReadOnlyPermission(permission); });
+  runtime.turnStarted = (run) => rewinds.turnStarted(run);
+  const goals = new GoalMode(runtime, store);
   registerSkills(registry, store);
   registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
@@ -522,6 +553,10 @@ export async function createBranch(options: {
   // Drafts of better versions of a skill, tried against real tasks as a practice run first.
   const skillRevisions = new SkillRevisions(store, runtime.owner);
   registerSkillSync(registry, store, files);
+  // ── mac3/reflection-skills: the learning loop, its runtime hook, and what accepting a skill note does. ──
+  const learningLoop = new LearningLoop(store, runtime, registry, runtime.owner);
+  attachLearningLoop(runtime, learningLoop);
+  store.review.applySkillNote = (noteOwner, proposal) => learningLoop.notes.apply(noteOwner, proposal);
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
@@ -542,6 +577,13 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Wave mac2 (goal-undo): with snapshots "when needed", the workspace is recorded just before a
+  // task's first call that can change something, then the owner's own checks are asked as before.
+  const decideHooks = runtime.askHooks;
+  runtime.askHooks = async (runId, about) => {
+    await rewinds.beforeChange(runId, String(about.tool ?? ""));
+    return decideHooks(runId, about);
+  };
   // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
   // outside is told in one sentence and their message is let go. Both are written into the record.
   runtime.sessionCeiling = (sessionId, tokens) =>
@@ -761,6 +803,13 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
+  const security = new SecurityService(
+    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
+    { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
+      ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  security.start();
+  // ── end mac3/security-check ──
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -787,13 +836,23 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** mac3/security-check: the security self-check, its repairs, and the malware check on add-ons. */
+    security,
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {
       settings: () => flyCoreSettings(store, options.owner ?? "local"),
       configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+      /** mac2/fly-core-2: what it has learned, in plain words, and forgetting all of it. */
+      view: (viewOwner = options.owner ?? "local") => learningCoreView(store, viewOwner),
+      forget: (forgetOwner = options.owner ?? "local") => forgetLearning(store, forgetOwner),
     },
+    /** mac3/reflection-skills: looking back over conversations and writing new skills; both switches ship off. */
+    learningLoop,
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
+    /** Wave mac2: going back to an earlier message, and working toward a goal in rounds. */
+    rewinds,
+    goals,
     files,
     knowledge,
     documents,
@@ -988,6 +1047,8 @@ export async function createBranch(options: {
             void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
         },
         connections: mcpConnections,
+        // mac3/security-check: a server fetched from a package registry is looked up first.
+        vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
       },
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
@@ -1016,6 +1077,8 @@ export async function createBranch(options: {
       await processes.stopAll().catch(() => undefined);
       await languageServers.stopAll().catch(() => undefined);
       await debugAdapters.stopAll().catch(() => undefined);
+      // mac3/reflection-skills: a draft or a look back still being written gets a moment to finish.
+      await Promise.race([learningLoop.idle(), new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
@@ -1062,6 +1125,7 @@ export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
 export * from "./context-files.js";
+export * from "./security-audit/index.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";
@@ -1317,6 +1381,8 @@ export * from "./batch-inference.js";
 export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
+export * from "./goal-mode.js";
+export * from "./rewind.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
 // Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
@@ -1348,3 +1414,6 @@ export * from "./cli-run.js";
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
+// Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.
+export * from "./command-prefix.js";
+export * from "./approval-reviewer.js";

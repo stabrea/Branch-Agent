@@ -14,13 +14,34 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { appEntryName, checksumAssetName, releaseAssets } from "../dist/desktop/release-assets.js";
 
+/**
+ * A scratch folder, and the one hook that empties it.
+ *
+ * Node runs `after` hooks in the order they were registered, so a folder registered here and an app
+ * closed in a later hook are torn down in exactly the wrong order: the folder goes first, while
+ * SQLite still holds its write-ahead log open. On macOS that is fine -- an open file can be
+ * unlinked. On Windows it is EBUSY, the hook throws, node counts the whole file as failed, and the
+ * still-open database keeps the process alive so the run never ends. That is what stalled a verify
+ * run for half an hour.
+ *
+ * So anything holding the folder open says so through `closing`, and this one hook shuts those down
+ * first, in reverse order, before a single file is removed.
+ */
+const holdingOpen = new Map();
 async function scratch(t) {
   const base = join(tmpdir(), "Codex-session-files");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "branch-mac-followups-"));
-  t.after(() => discardTemp(root));
+  holdingOpen.set(root, []);
+  t.after(async () => {
+    for (const close of (holdingOpen.get(root) ?? []).reverse()) await close().catch(() => {});
+    holdingOpen.delete(root);
+    await discardTemp(root);
+  });
   return root;
 }
+/** Says that these hold the folder open, so the one teardown hook shuts them before removing it. */
+const closeBeforeRemoving = (root, ...closers) => holdingOpen.get(root).push(...closers);
 const token = "b".repeat(64);
 async function engineNote(root, pid, { url = "http://127.0.0.1:3210", mode = "daemon" } = {}) {
   await writeFile(join(root, "session-token"), token);
@@ -162,7 +183,7 @@ test("a short-lived key is turned away from the close door by the server itself"
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   // No presence note is written, so even a mistake here could never signal this test process.
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); });
+  closeBeforeRemoving(root, () => server.close(), () => app.close());
   for (const scope of ["read", "run"]) {
     const key = app.sessionTokens.create(app.runtime.owner, { scope, minutes: 5 });
     const answer = await fetch(`${server.url}/api/deployment/close`, { method: "POST", headers: { authorization: `Bearer ${key.token}` } });
