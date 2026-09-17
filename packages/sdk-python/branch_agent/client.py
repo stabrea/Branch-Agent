@@ -110,6 +110,7 @@ class BranchClient:
         self.documents = Documents(self)
         self.schedules = Schedules(self)
         self.policy = Policy(self)
+        self.flows = Flows(self)
 
     def __repr__(self) -> str:
         return f"BranchClient(url={self.url!r})"
@@ -358,3 +359,33 @@ class Policy:
 
     def set_categories(self, decisions: Dict[str, str]) -> Any:
         return self._client.post("/api/approvals/categories", decisions)
+
+
+class Flows:
+    """Saved flows, and the same flows written out and read back as YAML.
+
+    ``export_yaml`` and ``import_yaml`` need "Building on Branch" switched on in the app's Settings.
+    """
+
+    def __init__(self, client: BranchClient) -> None:
+        self._client = client
+
+    def list(self) -> Any:
+        return self._client.get("/api/flows")
+
+    def get(self, flow_id: str) -> Any:
+        return self._client.get(f"/api/flows/{_segment(flow_id)}")
+
+    def save(self, flow: Dict[str, Any]) -> Any:
+        return self._client.post("/api/flows", flow)
+
+    def run(self, flow_id: str, **inputs: Any) -> Any:
+        return self._client.post(f"/api/flows/{_segment(flow_id)}/run", inputs)
+
+    def export_yaml(self, flow_id: str) -> str:
+        """One saved flow as YAML text."""
+        return self._client.get(f"/api/flows/{_segment(flow_id)}/yaml")["yaml"]
+
+    def import_yaml(self, text: str) -> Any:
+        """Saves a flow written as YAML, always as a new flow."""
+        return self._client.post("/api/flows/yaml", {"yaml": text})

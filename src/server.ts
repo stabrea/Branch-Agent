@@ -175,6 +175,7 @@ import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } fro
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
 // questions at once, and what each project has cost.
 import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
+import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -349,6 +350,8 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
     "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
+    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
+    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
@@ -759,6 +762,12 @@ async function api(
   if (handlesTracingPath(path))
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── Bucket 21: the switch for building on Branch, and flows written out and read back as YAML. ──
+  if (handlesSdkKitPath(path))
+    return sdkKitApi({ store: app.store, owner: app.runtime.owner, flows: app.flows,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SdkKitError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
   // running, and the switches for the project's check, those programs, and small scripts.

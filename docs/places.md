@@ -100,6 +100,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |
 | Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
 | A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
+| Building on Branch: the switch for the app-builder tools, and the clients for each language (bucket 21) | `settings:advanced` |
+| Flows written out and read back as YAML files (bucket 21) | `automations:procedures` |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same

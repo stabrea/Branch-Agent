@@ -3544,6 +3544,33 @@ copy of the source). Its tests run against a fake server
 (`python3 -m unittest discover -s packages/sdk-python/tests`); `tests/sdk-python.test.mjs` runs them as
 part of `npm test` and also drives a real Branch Agent with it, and is skipped where no Python is
 installed. See `packages/sdk-python/README.md`.
+### Building on Branch
+Everything a program of your own needs to use Branch, in one place (bucket 21):
+
+- **Clients.** JavaScript and TypeScript (`packages/sdk`), Python (`packages/sdk-python`), Go
+  (`packages/sdk-go`, standard library only, Go 1.23 or later) and React hooks (`packages/sdk-react`,
+  around the JavaScript client, React being your page's own). They cover the same groups, keep the
+  session key to this computer's own address or `https`, and are not published to any package index:
+  each README says how to use it from a copy of the source. Branch refuses any web page on another
+  address, so the React hooks run in a desktop app, React Native, a server-rendered page, or behind
+  a development proxy.
+- **The switch.** Settings → Advanced → **Building on Branch**: off (the default), when needed, or on.
+  `GET`/`POST /api/sdk-kit` with `{"mode": "off" | "when-needed" | "on"}` does the same; only the owner
+  may change it, and a short-lived key may not.
+- **Tools for an AI coding tool.** With the switch not off, `sdk.routes` lists the web routes (by group
+  or by words), `sdk.route` gives one route's body and the call in Python, TypeScript, Go and React,
+  and `sdk.starter` gives a small working program in one language. They only read. Share them under
+  Customize → Connections and an editor connected to Branch's MCP server can ask them while it writes
+  your program. Off, they are not advertised and refuse in one sentence.
+- **Flows as files.** Automations → Procedures → **Flows as files** writes a saved flow out as YAML and
+  reads one back as a new flow (never over an existing one); `GET /api/flows/{flowId}/yaml` and
+  `POST /api/flows/yaml {"yaml": "..."}` do the same. A file starts with `format: branch-flow/1` and
+  `kind: steps` or `kind: graph`, then the flow exactly as the flow editor saves it; a file written by
+  hand may leave both out. Aliases, repeated keys, other formats and files over 512 KB are refused.
+  The switch must not be off.
+
+macOS and Linux: nothing here depends on the system. The Go and Python tests are skipped where Go
+1.23+ or Python 3.9+ is not installed.
 ### Issues as context
 `{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
 settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
@@ -5354,8 +5381,8 @@ recorded here as deliberately out of scope rather than left open for ever.
 - **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
 - **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
   this one. The web app here is plain modules served by the app itself, with no build step.
-- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
-  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **sdk-react (React SDK)** — re-opened and built in wave mac6: `packages/sdk-react` (see "Building on
+  Branch").
 - **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
   in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
   and update for no new behaviour.
@@ -6252,26 +6279,37 @@ every row is listed here and that every file named here exists.
 
 ### A library other people can build on (bucket 21)
 
-- **sdk-python** — built: `packages/sdk-python/branch_agent/client.py`, tested by
-  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python programs").
-- **framework-adapters** (Python API SDK) — built: the same Python client.
-- **A1509** (TypeScript, Python and Go clients) — partly: the TypeScript client is `packages/sdk/client.mjs`
-  (`packages/sdk/test/sdk.test.mjs`) and the Python one is above. There is no Go client; the OpenAPI
-  description below is what a Go program would generate one from.
+Re-opened in wave mac6 (every declined row came back); each row is now built or verified. See
+"Building on Branch" for how the pieces fit.
+
+- **sdk-python** — verified: `packages/sdk-python/branch_agent/client.py`, tested by
+  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python
+  programs"); it now also has `flows` (list, get, save, run, export_yaml, import_yaml).
+- **framework-adapters** (Python API SDK) — verified: the same Python client,
+  `packages/sdk-python/branch_agent/client.py`, tested by `tests/sdk-python.test.mjs`.
+- **A1509** (TypeScript, Python and Go clients) — built: the Go client is `packages/sdk-go/branch/client.go`
+  (standard library only), tested by `packages/sdk-go/branch/client_test.go` and `tests/sdk-go.test.mjs`,
+  which also drives a real Branch Agent with it and compiles every Go snippet the app hands out. The
+  TypeScript client is `packages/sdk/client.mjs` (`packages/sdk/test/sdk.test.mjs`).
 - **A2353** (REST API) and **A0758** (HTTP API) — verified: `src/server.ts` serves it and
   `src/api-openapi.ts` describes it at `GET /api/openapi.json`, with `docs/api.md` written from the same
   description. `tests/other-2.test.mjs` checks the description is well formed, that every route it
-  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` checks the routes
-  the Python client calls are in it.
-- **sdk-react** — not applicable: a front-end library for somebody else's page (see "What Branch is not").
-  An outside page uses `packages/sdk/client.mjs` or the OpenAPI description.
-- **app-building** (an MCP server for building apps with an SDK) — not built: Branch's own MCP server
-  (`src/mcp-server.ts`) offers Branch's tools to other programs; a server for writing somebody else's
-  app is a different product.
-- **serialization** (pipelines written as YAML) — partly: skills are YAML (`src/skill-document.ts`),
-  flows are JSON (`src/flows.ts`), and a whole assistant goes out and back as one file
-  (`src/agent-export.ts`, `tests/code-ide.test.mjs`). Flows are not written as YAML because JSON is what
-  the flow editor saves and reads; a second format would be a second thing to keep in step.
+  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` and
+  `tests/sdk-go.test.mjs` check the routes each client calls are in it.
+- **sdk-react** — built: `packages/sdk-react/hooks.mjs` (`BranchProvider`, `useBranch`, `useBranchGet`,
+  `useBranchRun`), with no dependency of its own (React is the page's own), tested by
+  `tests/sdk-react.test.mjs` with a small stand-in React and against a real Branch Agent.
+- **app-building** (an MCP server for building apps with an SDK) — built: `src/sdk-kit.ts` adds
+  `sdk.routes`, `sdk.route` and `sdk.starter`, made from the same route list as the OpenAPI description
+  (`src/sdk-starters.ts`). Shared under Customize → Connections, they make Branch's own MCP server
+  (`src/mcp-server.ts`) the server an AI coding tool asks while writing a program on Branch. Behind a
+  three-way switch that ships off; `tests/sdk-kit.test.mjs` checks the switch, the answers and the
+  MCP calls.
+- **serialization** (pipelines written as YAML) — built: `src/flow-yaml.ts` writes a saved flow (a
+  list of steps or a graph) out as YAML and reads one back as a new flow, through
+  `GET /api/flows/{flowId}/yaml` and `POST /api/flows/yaml`; `tests/sdk-kit.test.mjs` checks
+  YAML → flow → YAML is stable and that a bad file is refused in plain words. Skills were already
+  YAML (`src/skill-document.ts`).
 
 ### Installing it should be boring (bucket 22)
 
