@@ -10,7 +10,11 @@ import type { Store } from "./store.js";
  */
 export const hookEvents = ["run.finished", "run.check_failed", "tool.completed", "tool.failed", "file.changed", "delivery.sent", "content.flagged", "learning.reviewed", "attention.needed",
   // Batch 26 (wave 8): the one event that happens *before* something, so the hook can stop it.
-  "tool.before"] as const;
+  "tool.before",
+  // Wave 9: the moment a patch is actually applied. "file.changed" says a file is different and
+  // "tool.completed" says a tool finished; neither says a patch went in, which is the one thing a
+  // hook that reviews changes wants to hear about.
+  "patch.applied"] as const;
 export type HookEvent = (typeof hookEvents)[number];
 /** What a hook asked for: hold the call for a yes, refuse it outright, or stay out of the way. */
 export const HookVerdictSchema = z.object({

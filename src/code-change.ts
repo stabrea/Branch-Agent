@@ -85,7 +85,11 @@ export class CodeChanges {
   async patch(input: z.infer<typeof PatchInputSchema>, context: ToolContext) {
     const planned = await this.editor.planPatch(input.patch);
     await this.refuseBinary(planned);
-    return this.settle(planned, input.dryRun, context);
+    const settled = await this.settle(planned, input.dryRun, context);
+    // A patch going in is its own moment, apart from a file changing and a tool finishing, so a
+    // hook can be set to fire on exactly that (issue #55, workflow-hooks).
+    if (settled.applied) this.editor.notifyPatched(settled.files, context);
+    return settled;
   }
   /** Applies several exact text replacements across files, all of them or none of them. */
   async changeSet(input: z.infer<typeof ChangeSetInputSchema>, context: ToolContext) {

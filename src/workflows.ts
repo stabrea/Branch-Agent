@@ -98,6 +98,12 @@ export function weeklyReviewWorkflow(deliverTo?: { channel: string; chatId: stri
 }
 
 export class Workflows {
+  /**
+   * Set by the launch: how to carry on a flow drawn as a graph. A graph flow is a saved workflow
+   * to everyone outside, so "carry it on" is the one tool it already had rather than a second one
+   * in a toolbox that is already full.
+   */
+  resumeGraph: ((id: string) => unknown) | null = null;
   constructor(
     private readonly store: Store,
     private readonly runtime: Runtime,
@@ -375,7 +381,11 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Carry a stopped workflow on. A workflow waiting for the owner's approval is not carried on by this; the owner says yes on their own screen.",
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
-    execute: async (value, context) =>
-      workflows.resumeWithoutApproving(workflows.forOwner(context.owner), value.id, context.source ?? "owner"),
+    execute: async (value, context) => {
+      const owner = workflows.forOwner(context.owner);
+      // A flow drawn as a graph carries on from its own checkpoint; everything else is a step list.
+      return workflows.resumeGraph?.(value.id)
+        ?? workflows.resumeWithoutApproving(owner, value.id, context.source ?? "owner");
+    },
   });
 }
