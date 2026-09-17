@@ -150,12 +150,14 @@ test("A0245/A2277 an approval rule picks how tightly a program is held, and code
   assert.equal(held.sandbox, "no-internet");
   assert.equal(held.network, false);
 
-  // And "none" takes the box away again, which is the owner's to choose.
+  // "none" adds no box of its own, but it cannot take away the limits the script settings hold:
+  // a rule only ever tightens, so the script still runs held, and says so.
   const loose = await app.registry.execute("code.run", { language: "javascript", source: proxyProbe },
     { ...context, sandbox: "none" });
   assert.match(loose.output, /reachable/);
-  assert.equal(loose.sandbox, "none");
-  assert.equal(loose.isolation, "sampling", "no Windows job is asked for at all");
+  assert.equal(loose.sandbox, "limits-only");
+  assert.deepEqual(sandboxShape("none", { job: false, netless: false }), { job: false, netless: false },
+    "where the settings hold nothing, none still means no box");
 
   assert.deepEqual(sandboxShape(undefined, { job: true, netless: false }), { job: true, netless: false });
   assert.equal(shapeChoice({ job: true, netless: true }), "no-internet");
@@ -176,10 +178,11 @@ test("A2277 a rule holds a program more tightly than the settings, never more lo
     assert.equal(run.network, false);
   }
 
-  // The looser box still arrives: "none" asks Windows for no job at all, it just cannot add network.
+  // "none" cannot loosen either field: the limits the settings hold stay, as does the closed internet.
   const loose = await app.registry.execute("code.run", { language: "javascript", source: proxyProbe },
     { ...context, sandbox: "none" });
-  assert.equal(loose.isolation, "sampling");
+  assert.equal(loose.sandbox, "no-internet");
+  assert.deepEqual(sandboxShape("none", { job: true, netless: false }), { job: true, netless: false });
 
   // And the rule can still tighten a tool the settings leave open.
   assert.deepEqual(sandboxShape("no-internet", { job: true, netless: false }), { job: true, netless: true });

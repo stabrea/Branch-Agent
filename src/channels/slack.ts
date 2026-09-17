@@ -45,6 +45,11 @@ export function toMrkdwn(text: string): string {
   return out.replace(/\u0000(\d+)\u0000/g, (_, index: string) => fences[Number(index)]!);
 }
 
+/** Slack names reactions in words; these are the ones the live status uses (see live-status.ts). */
+const slackEmojiNames: Record<string, string> = {
+  "👀": "eyes", "🤔": "thinking_face", "\u{1F468}\u200D\u{1F4BB}": "technologist", "👍": "+1", "😢": "cry",
+};
+
 export class SlackAdapter implements ChannelAdapter {
   readonly kind = "slack";
   readonly id: string;
@@ -131,6 +136,7 @@ export class SlackAdapter implements ChannelAdapter {
       addressed: direct || mentioned,
       // Replying to this id keeps the answer in the thread the question was asked in.
       messageId: event.thread_ts ?? event.ts ?? "",
+      ...(event.thread_ts && event.ts ? { reactTo: event.ts } : {}),
     };
   }
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
@@ -139,6 +145,21 @@ export class SlackAdapter implements ChannelAdapter {
     });
     const parsed = z.object({ ts: z.string() }).passthrough().safeParse(result);
     return parsed.success ? parsed.data.ts : undefined;
+  }
+  /**
+   * Slack keeps every reaction side by side and names them in words, so the previous one is taken
+   * off first. Slack has no "typing…" for an app, so there is no `sendTyping` here.
+   */
+  async react(chatId: string, messageId: string, emoji: string, previous?: string): Promise<void> {
+    const name = slackEmojiNames[emoji];
+    if (!name) throw new Error("Slack has no name for that reaction");
+    const old = previous ? slackEmojiNames[previous] : undefined;
+    if (old && old !== name)
+      await this.call("reactions.remove", this.options.token, { channel: chatId, timestamp: messageId, name: old }).catch(() => undefined);
+    await this.call("reactions.add", this.options.token, { channel: chatId, timestamp: messageId, name });
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    await this.call("chat.update", this.options.token, { channel: chatId, ts: messageId, text: toMrkdwn(text) });
   }
   private async call(method: string, token: string, body: unknown): Promise<unknown> {
     const response = await this.fetch(`${this.base}/${method}`, {

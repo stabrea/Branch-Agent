@@ -6,6 +6,8 @@ import { z } from "zod";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
+import type { HeldBySystem } from "./integrations/posix-limits.js";
+import { systemName } from "./sandbox.js";
 
 /**
  * Where a program Branch Agent starts actually runs. `src/sandbox.ts` says how tightly it is held
@@ -22,7 +24,7 @@ export type SandboxBackendName = (typeof sandboxBackends)[number];
 
 /** Plain words for the settings screen, the approval card and the refusal. */
 export const sandboxBackendSentences: Record<SandboxBackendName, string> = {
-  "job-object": "on this computer, held to its memory and processor limits by Windows",
+  "job-object": `on this computer, held to its memory and processor limits by ${systemName()}`,
   docker: "inside a container, which cannot see anything on this computer except the folder it is given",
   wsl: "inside the Linux you already have on this computer, with a copy of the folder it is given",
   "windows-sandbox": "in Windows' own throwaway desktop, which is thrown away when it closes",
@@ -74,7 +76,7 @@ export interface SandboxLimits {
   timeoutMs: number; maxMemoryMb: number; maxCpuSeconds: number; maxOutputBytes: number;
   /** Whether the program may reach the internet at all. */
   network: boolean;
-  /** Whether Windows itself holds the memory and processor ceilings (see src/sandbox.ts). */
+  /** Whether the system itself holds the memory and processor ceilings (see src/sandbox.ts). */
   job: boolean;
 }
 export interface SandboxRunResult {
@@ -82,6 +84,8 @@ export interface SandboxRunResult {
   truncated: boolean; durationMs: number; backend: SandboxBackendName;
   /** Whether Windows itself held the memory and processor ceilings, or Branch sampled them. */
   isolation: "job-object" | "sampling";
+  /** macOS and Linux: what the system itself held, when the program ran in a limited process group. */
+  heldBySystem?: HeldBySystem;
   /** The exact program and arguments that were started, for the record and for the tests. */
   argv: string[];
 }
@@ -122,7 +126,7 @@ export type SandboxSpawn = (
   limits: SandboxLimits, signal: AbortSignal,
 ) => Promise<{
   status: string; exitCode: number | null; stdout: string; stderr: string;
-  truncated: boolean; durationMs: number; isolation?: "job-object" | "sampling";
+  truncated: boolean; durationMs: number; isolation?: "job-object" | "sampling"; heldBySystem?: HeldBySystem;
 }>;
 
 /** The real one: the same child-process machinery every other host command goes through. */
@@ -138,7 +142,7 @@ export function defaultSandboxSpawn(jobs: JobObjects = defaultJobObjects()): San
     }).run();
     return { status: result.status, exitCode: result.exitCode, stdout: result.stdout,
       stderr: result.stderr, truncated: result.truncated, durationMs: result.durationMs,
-      isolation: result.isolation };
+      isolation: result.isolation, ...(result.heldBySystem ? { heldBySystem: result.heldBySystem } : {}) };
   };
 }
 
