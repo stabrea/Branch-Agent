@@ -153,6 +153,9 @@ export const ROUTES = {
   "/api/flows/:id/pause": "task POST",
   "/api/flows/:id/resume": "task POST",
   "/api/flows/:id/run": "task POST",
+  // Bucket 21: a flow written out as YAML is a read; reading one back saves a flow, like POST /api/flows.
+  "/api/flows/:id/yaml": "look",
+  "/api/flows/yaml": "other POST",
   "/api/flows/check": "other POST",
   "/api/flows/runs/:id": "look",
   "/api/folder-trust": "owner POST",
@@ -429,6 +432,7 @@ export const ROUTES = {
   "/api/schedules/:id/gate": "owner POST",
   "/api/schedules/:id/remove": "other POST",
   "/api/schedules/:id/trigger": "task POST",
+  "/api/sdk-kit": "owner POST", // bucket 21: the switch for building on Branch
   "/api/second-opinion": "owner POST",
   "/api/secrets": "owner POST",
   "/api/secrets/audit": "look",

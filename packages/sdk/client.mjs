@@ -25,14 +25,31 @@ export async function fromDataDir(dataDir, { readFile, port = 3210 } = {}) {
   return new BranchClient({ url: `http://127.0.0.1:${port}`, token });
 }
 
+/**
+ * The session key is the whole of the app's security: it goes over plain http only to this
+ * computer's own address, and over https to anything else.
+ */
+function checkedUrl(address) {
+  let parsed;
+  try { parsed = new URL(String(address)); } catch { parsed = null; }
+  if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:"))
+    throw new Error("Give the web address Branch Agent is listening on, starting with http:// or https://");
+  const host = parsed.hostname.replace(/^\[|\]$/g, "");
+  const local = host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
+  if (parsed.protocol === "http:" && !local)
+    throw new Error("Plain http is only used for a Branch Agent on this computer; use https for any other address");
+  return String(address).replace(/\/+$/, "");
+}
+
 export class BranchClient {
   /**
    * @param {{url: string, token: string, fetch?: typeof fetch, timeoutMs?: number}} options
    */
   constructor(options) {
     if (!options?.url || !options?.token) throw new Error("Give the address Branch Agent is listening on and its session key");
-    this.url = String(options.url).replace(/\/+$/, "");
-    this.token = String(options.token);
+    this.url = checkedUrl(options.url);
+    // Not enumerable, so printing or JSON-encoding a client never shows the key.
+    Object.defineProperty(this, "token", { value: String(options.token), enumerable: false });
     this.fetch = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 120000;
     this.runs = new Runs(this);
@@ -54,6 +71,8 @@ export class BranchClient {
       headers: this.headers(body === undefined ? {} : { "content-type": "application/json" }),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: signal ?? AbortSignal.timeout(timeoutMs ?? this.timeoutMs),
+      // A redirect could carry the key somewhere else; it is answered as a refusal instead.
+      redirect: "manual",
     });
     const text = await response.text();
     let value;
@@ -110,6 +129,7 @@ class Runs {
   async *stream(runId, { after = 0, signal } = {}) {
     const response = await this.client.fetch(`${this.client.url}/api/runs/${runId}/stream?after=${after}`, {
       headers: this.client.headers({ accept: "text/event-stream" }),
+      redirect: "manual",
       ...(signal ? { signal } : {}),
     });
     if (!response.ok || !response.body) throw new BranchError(response.status, "That task's events could not be read", `/api/runs/${runId}/stream`);

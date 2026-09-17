@@ -60,6 +60,14 @@ Version 0.15.0. The machine-readable description is at `GET /api/openapi.json`.
 | `GET` | `/api/flows` | Saved flows as boxes and arrows. |
 | `POST` | `/api/flows` | Save a flow. |
 | `POST` | `/api/flows/{flowId}/run` | Start a saved flow. |
+| `GET` | `/api/flows/{flowId}/yaml` | One saved flow written as YAML (building on Branch must be switched on). |
+| `POST` | `/api/flows/yaml` | Save a flow written as YAML, always as a new flow (building on Branch must be switched on). |
+## developer
+
+| Method | Address | What it is for |
+| --- | --- | --- |
+| `GET` | `/api/sdk-kit` | The switch for building on Branch, the clients for each language, and the tools to share. |
+| `POST` | `/api/sdk-kit` | Change that switch (the owner only). |
 ## settings
 
 | Method | Address | What it is for |

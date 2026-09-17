@@ -107,6 +107,7 @@ import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
+import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
 import { PluginCatalog } from "./plugin-catalog.js";
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
@@ -722,6 +723,8 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Bucket 21: tools for people building on Branch (switched off until the owner turns them on).
+  registerSdkKit(registry, store);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
@@ -1572,3 +1575,7 @@ export * from "./approval-reviewer.js";
 export * from "./log-bridge.js";
 export * from "./usage-report.js";
 export * from "./execution-metrics.js";
+// Bucket 21: a library other people can build on — flows as YAML, and the app-builder tools.
+export * from "./flow-yaml.js";
+export * from "./sdk-kit.js";
+export * from "./sdk-starters.js";
