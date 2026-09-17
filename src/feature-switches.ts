@@ -137,6 +137,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──
   ...(Object.entries(addOnTools) as [AddOnPart, readonly string[]][]).map(([part, tools]) => ({
     reason: `${addOnLabels[part]} is switched on`, tools, hideWhenOff: true, mode: (s: Reader, o: string) => addOnMode(s, o, part) })),
+  // w911 (A0743, A1452) hook: reading whole web pages and following their links (src/web-pages.ts).
+  { reason: "reading and crawling web pages is switched on", tools: ["web.page", "web.crawl"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "web-pages") },
 ];
 
 /**

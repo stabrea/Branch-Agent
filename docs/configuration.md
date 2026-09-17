@@ -613,18 +613,39 @@ names: Branch is TypeScript and drives the browser on this computer, the same re
 `hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
 One implementation satisfies all three rows; none of them needs building again.
 
-**`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
-library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
-private addresses refused) and `browser.shape` (the same page in an exact shape) — both built and
-tested. Branch would not gain a capability by adding a Python library, only a dependency.
+**`A0743` and `A1452` (reading a whole page, and following one site's links) — built, switched
+off until you turn them on.** The switch is the `web-pages` setting (`GET`/`POST /api/web-pages`,
+owner only: off, when-needed or on). There is no Settings card for it yet. While it is off both
+tools are hidden from the assistant and refuse in one sentence.
 
-**`A1452` (web crawling) — not applicable as a crawler; the capability is covered.** It names
-Crawl4AI. Following a site's own links is `web.fetch` or `browser.navigate`, then `browser.shape`
-for the addresses, then reading a bounded handful of them — which is what the shipped
-**read several pages of one site** skill sets out, with the rules that keep it from becoming a
-crawl: the same website only, one level deep, at most five pages, never in a loop. A page to be
-checked again and again is the `monitors` tool's job, not a crawler's. No crawler is built, and a
-task's caps on actions and websites (above) already stop one being improvised.
+- **`web.page`** reads one page. `route: plain` is an ordinary read under your network rules:
+  private and local addresses are refused unless you allowed them, and every redirect (up to five)
+  is checked again before anything is sent to it. `route: browser` opens the page in Branch's own
+  headless browser, which only goes to the sites in its allowed list and refuses redirects.
+  `route: auto` (the default) reads plainly and uses the browser only when the page came back
+  nearly empty and built by script, and only when a browser is set up, the task may use it, and
+  your approval rules let it open the page without asking; otherwise it keeps the plain answer and
+  says why. The answer always names the route used, and says how many characters were cut off.
+- **`web.crawl`** follows one website's own links: the same host only (a different subdomain is a
+  different site), at most 3 levels deep (default 1) and 50 pages (default 10). It reads
+  `robots.txt` first: the group for Branch's own name (`BranchAgent`) if there is one, otherwise
+  the `*` group; the longest matching `Allow`/`Disallow` wins, `Allow` wins a tie, and `*` and a
+  final `$` work as in RFC 9309. No `robots.txt` (or a 4xx) means everything is allowed; a server
+  error means nothing is read. `Crawl-delay` and sitemaps are not read. Between pages it waits
+  (`crawlDelayMs`, default 1000, 250–10000). Addresses are compared without their `#` part and read
+  once; files that are not web pages are skipped and listed; a page that moves to another website
+  is not read. Each page's text is trimmed (default 3000 characters, the rest counted) and its links
+  listed. Stopping the task stops the crawl.
+- **When a site asks "are you a person?"** (a 403, 429 or 503 carrying a Cloudflare or captcha
+  check, a "Just a moment" / "Checking your browser" page, or a short page built around a captcha
+  or Turnstile box), the tool stops after that one request and answers `challenged: true` with the
+  site, what it showed, and what to do. There is no retry, no waiting it out, no disguise and no
+  captcha solving. The page is handed to you as a job in the handed-over list, the task is marked
+  as needing you, and the `approval.needed` webhook event is sent (when you have webhooks set up). You open the page yourself, get past the
+  check, and tell Branch to carry on — or turn on "Let Branch use my browser for this task" so the
+  task can work in your own signed-in browser. A crawl stops at that page and keeps what it read.
+- **Limits:** the challenge check looks for the common signs only, so an unusual check page can be
+  read as an ordinary page (or an error). Only Chromium's headless browser is tested.
 
 **The two document rows filed under the browser (`family: doc-processing`, `family:
 document-processing` in #62) are stale.** PDF text extraction and document extraction are both

@@ -936,6 +936,7 @@ export const ROUTES = {
   "/api/voice/speak": "task POST",
   "/api/voice/transcribe": "task POST",
   "/api/voice/voices": "look",
+  "/api/web-pages": "owner POST", // w911 (A0743, A1452) hook: the switch for reading and crawling web pages
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",
