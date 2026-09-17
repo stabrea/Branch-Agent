@@ -8,7 +8,8 @@ import { resolve, join } from "node:path";
 
 await mkdir(resolve("dist"), { recursive: true });
 // Wave mac5: local-models.json, the list of models offered with one click.
-for (const name of ["holidays.json", "providers.json", "memory-retrieval.json", "channels.json", "local-models.json"])
+// mac7/connect: channel-setup.json, how to get each chat app and make its bot.
+for (const name of ["holidays.json", "providers.json", "memory-retrieval.json", "channels.json", "local-models.json", "channel-setup.json"])
   await copyFile(resolve("data", name), resolve("dist", name));
 
 const handbook = resolve("dist/handbook");

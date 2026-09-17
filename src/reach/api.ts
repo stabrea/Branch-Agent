@@ -103,6 +103,8 @@ export async function reachApi(deps: ReachHttpDeps, path: string): Promise<unkno
   } catch (error) {
     if (error instanceof ReachOffError) throw new ReachHttpError(409, error.message);
     if (error instanceof z.ZodError) throw new ReachHttpError(400, error.issues.map((issue) => issue.message).join("; ").slice(0, 300));
+    const status = (error as { status?: unknown } | null)?.status;
+    if (error instanceof Error && typeof status === "number" && status >= 400 && status < 600) throw new ReachHttpError(status, error.message);
     throw error;
   }
 }

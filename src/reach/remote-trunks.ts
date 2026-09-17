@@ -8,11 +8,11 @@ import { quoteLine, reachRecord, requireReach } from "./settings.js";
  * titles of its Trunks (nothing else: no instructions, memory, keys or routines), a Trunk over there
  * is written `@name-computer`, and a Trunk here can send one a direct message.
  *
- * Trunks themselves (`src/trunks/`, mac7/r17-a) are still in review, so this is built against
- * `TrunkRoster`, the smallest thing it needs from them: the local roster, and a way to hand a
- * message that arrived to one Trunk. Until the Trunks integrator wires it, the roster is empty and
- * every arriving message is refused with a plain sentence. The other computers come from the same
- * list as R17-076 (bucket 23's nodes), and every call goes through `machineCall`.
+ * This file only needs `TrunkRoster` from Trunks (`src/trunks/`, R17-A): the local roster, and a
+ * way to hand a message that arrived to one Trunk. `src/reach/trunk-roster.ts` connects the real
+ * one; without it the roster is empty and every arriving message is refused with a plain sentence.
+ * The other computers come from the same list as R17-076 (bucket 23's nodes), and every call goes
+ * through `machineCall`.
  *
  * A message from another computer is somebody else's text: it is quoted on one line, marked with the
  * computer it claims to come from, capped, counted against an hourly limit, and only accepted when

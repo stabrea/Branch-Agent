@@ -118,6 +118,29 @@ test("R17-077: Trunks elsewhere are @name-computer, messages retry once, and arr
 
 const mp4 = () => Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from("ftypisom"), Buffer.alloc(4), Buffer.from("more video")]);
 
+test("R17-077: the real Trunks are shared only while on and not hidden, and a message runs as another assistant's task", async (t) => {
+  const { app, store } = await scratchApp(t);
+  const { trunkRoster } = await import("../dist/reach/trunk-roster.js");
+  const roster = trunkRoster(app.trunks, app.runtime, app.registry);
+  assert.deepEqual(roster.list(), [], "Trunks off: nothing is shared");
+  for (const part of ["trunks", "messages"]) app.trunks.setMode(part, { mode: "on" });
+  const ada = app.trunks.create({ name: "Ada", title: "Researcher" });
+  const hidden = app.trunks.create({ name: "Quiet" });
+  app.trunks.edit(hidden.id, { hidden: true });
+  await app.trunks.introduced();
+  assert.deepEqual(roster.list(), [{ handle: ada.handle, name: "Ada", title: "Researcher" }]);
+  assert.equal(await roster.deliver("quiet", { from: "scout-mini", text: "hi" }), false);
+  assert.equal(await roster.deliver(ada.handle, { from: "scout-mini (another computer's text)", text: "What is new?" }), true);
+  for (let i = 0; i < 100 && !store.runs(owner).some((r) => r.prompt.includes("What is new?")); i++) await new Promise((r) => setTimeout(r, 20));
+  const run = store.runs(owner).find((r) => r.prompt.includes("What is new?"));
+  assert.equal(run.sessionId, app.trunks.records.get(ada.id).chatSessionId);
+  const started = store.events(run.id).find((e) => e.kind === "run.started").data;
+  assert.equal(started.source, "a2a");
+  assert.equal(started.permissions.some((p) => p.endsWith(".manage") || p === "settings.write"), false);
+  app.trunks.setMode("messages", { mode: "off" });
+  assert.deepEqual(roster.list(), []);
+});
+
 test("R17-079: a video from OpenAI's own API, key in a header only, saved in the workspace", async (t) => {
   const { app, root, store } = await scratchApp(t);
   const calls = [];

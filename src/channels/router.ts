@@ -49,6 +49,18 @@ export interface InboundMessage {
   };
 }
 /** What a channel says about itself, in words the owner can act on. */
+/**
+ * What a task started from a chat may use, out of everything registered. Integration review
+ * (mac7/nodes): a chat cannot prove who is typing, so the owner's other devices (camera, screen,
+ * microphone, files, commands) are never lent to a chat sender either.
+ */
+export function chatPermissionsOf(all: readonly string[]): string[] {
+  // R17-C: nor the owner's own mail, calendars, files in other services, or house.
+  const personal = ["personal.read", "personal.write", "home.control"];
+  return all.filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
+    && !p.startsWith("devices."));
+}
+
 export interface ChannelHealth {
   state: "connected" | "reconnecting" | "needs attention";
   reason?: string;
@@ -109,8 +121,18 @@ export interface ChannelAdapter {
    * Absent means there is no progress message and replies are not streamed.
    */
   edit?(chatId: string, messageId: string, text: string): Promise<void>;
+  // ---- R17-C (R17-022): a file delivered into the chat as the app's own attachment -------------
+  // Absent means "this app cannot". A failure must throw. Only `chat.send_file`
+  // (src/personal/chat-files.ts) calls it, after the owner, recipient, size and leak checks.
+  /** The largest file this app takes from a bot, in bytes. */
+  readonly maxFileBytes?: number;
+  /** Sends one file with an optional caption, and returns the id of the message it made. */
+  sendFile?(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined>;
+  // ---- end R17-C ----
   stop(): Promise<void>;
 }
+/** R17-C (R17-022): one file on its way into a chat. */
+export interface OutgoingFile { name: string; mediaType: string; bytes: Uint8Array; caption?: string }
 
 /** One answer on an approval question, as a button. `value` is what comes back when it is pressed. */
 export interface ApprovalButton {
@@ -218,6 +240,11 @@ export class ChannelRouter {
    */
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
+  /**
+   * R17-A (Trunks): a plain refusal when a chat app may not reach the Trunk whose conversation this
+   * chat is linked to (src/trunks/). `createBranch` connects it; on its own every chat is answered.
+   */
+  trunkReach: (channel: string, sessionId: string) => string | null = () => null;
   /**
    * Batch 26 (wave 8): the ceiling the owner set for one person messaging from outside. `createBranch`
    * connects the real counter; on its own nothing is limited. Somebody who reaches it is told so in
@@ -518,7 +545,7 @@ export class ChannelRouter {
     // A message from a chat app can read and change the local copy, but never publish it, and
     // never send to somebody else's chat: a paired person in one group must not be able to
     // make the assistant write to every chat it is linked to.
-    return this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p));
+    return chatPermissionsOf(this.runtime.registry.permissions());
   }
   // ---- chat-live (wave mac2): one task per chat, notes steer it, commands control it ----------
   /** Carries out a chat command and sends its answer back. */
@@ -655,6 +682,13 @@ export class ChannelRouter {
     const off = this.store.onEvent((runId, kind, data) => { if (runId === turn.runId) live?.event(kind, data); });
     try {
       const sessionId = this.sessionFor(message.channel, message.chatId);
+      // R17-A (Trunks): a chat linked to a Trunk's conversation is answered only where that Trunk may reach.
+      const trunkRefusal = sessionId ? this.trunkReach(message.channel, sessionId) : null;
+      if (trunkRefusal) {
+        await live?.finish("error");
+        await this.deliver(message.channel, message.chatId, trunkRefusal, `trunk-reach:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+        return "rejected";
+      }
       const run = await this.runtime.run({
         prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
         onStarted: (started) => {

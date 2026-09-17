@@ -84,12 +84,17 @@ async function plugins(app: PlaceApp, words: Words): Promise<Row[]> {
     return { title: clip(plugin.name ?? plugin.id), detail: clip(`${state}${plugin.description ? " · " + plugin.description : ""}`) };
   });
 }
-function channels(app: PlaceApp): Row[] {
+function channels(app: PlaceApp, words: Words): Row[] {
   const summary = app.channels.summary();
-  return summary.channels.map((channel) => ({
+  return [...summary.channels.map((channel) => ({
     title: `${channel.id}`, detail: `${channel.kind} · ${String((channel.health as { state?: string }).state ?? "")}`,
     tone: (channel.health as { state?: string }).state === "connected" ? "ok" as const : "warn" as const,
-  }));
+  })), channelSetupRow(words)]; // mac7/connect
+}
+/** mac7/connect: the one command that sets up a chat app, shown where the chat apps are. */
+function channelSetupRow(words: Words): Row {
+  return { title: words.t("terminal.row.channel-setup", "Set up a chat app"),
+    detail: words.t("terminal.row.channel-setup-detail", "leave this view and run: branch connect <app> (telegram, discord, slack…)"), tone: "muted" };
 }
 
 /** Every tab's rows, by its home. */

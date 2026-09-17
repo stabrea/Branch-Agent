@@ -16,6 +16,7 @@ import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
 import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
+import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
 import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
 import { scopeDescriptions } from "./session-tokens.js";
@@ -151,6 +152,12 @@ async function main(): Promise<void> {
     console.log(commandHelp(command));
     return;
   }
+  // ---- mac7/nodes: `branch node` lends this computer to Branch elsewhere; it opens no workspace or database. ----
+  if (command === "node") {
+    process.exitCode = await nodeCommand({ argv: process.argv.slice(3), env: process.env, platform: process.platform, print: (line) => console.log(line) });
+    return;
+  }
+  // ---- end mac7/nodes ----
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
   // Printing a completion script or the command list needs no workspace, database or integrations.
@@ -164,6 +171,13 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac7/connect: `branch connect <chat app>` (src/channel-setup/cli.ts) ---
+  if (command === "connect") {
+    const { connectCommand } = await import("./channel-setup/cli.js");
+    process.exitCode = await connectCommand(process.argv.slice(3), { dataDir, workspace });
+    return;
+  }
+  // --- end mac7/connect ---
   if (command === "send") return sendCommand(process.argv.slice(3), dataDir); // r17-i
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
