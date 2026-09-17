@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readsSharedFacts, writesSharedFacts } from "./trunks/memory-scope.js"; // R17-A (Trunks)
 import { isDeepStrictEqual } from "node:util";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -34,7 +35,8 @@ export const MemoryDataSchema = z.object({
 export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {
   if (!agent) return true;
   const scope = record.data.scope ?? "private";
-  return scope === "shared" || scope === `agent:${agent}`;
+  if (scope === "shared") return readsSharedFacts(agent); // R17-A: a Trunk may be set to keep to itself
+  return scope === `agent:${agent}`;
 }
 const NewMemoryDataSchema = MemoryDataSchema.extend({
   text: z.string().trim().min(1).max(4000),
@@ -390,7 +392,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const sessionId = store.run(context.runId)?.sessionId;
       if (sessionId && store.memorySuppressed(owner, sessionId))
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
-      const scope = context.agent ? (value.scope === "shared" ? "shared" : `agent:${context.agent}`) : value.scope;
+      const scope = context.agent ? (value.scope === "shared" && writesSharedFacts(context.agent) ? "shared" : `agent:${context.agent}`) : value.scope;
       const { scope: _requested, ...rest } = value; void _requested;
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");

@@ -110,6 +110,9 @@ import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
+import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
@@ -165,6 +168,14 @@ import { toolCatalogReport } from "./tool-report.js";
 import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
+// ---- mac7/nodes: the owner's devices (src/devices/) ----
+import type { Duplex } from "node:stream";
+import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
+import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
+import { remoteChannel } from "./remote/gateway-auth.js";
+import { socketPath as deviceSocketPath } from "./devices/protocol.js";
+// ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
@@ -187,6 +198,8 @@ import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
+import { SetupRefusal } from "./channel-setup/check.js"; // mac7/connect
 // mac6/accounts: several accounts per connection (src/accounts/api.ts).
 import { AccountsApiError, accountsApi, handlesAccountsPath } from "./accounts/api.js";
 import { accountsServiceFor } from "./accounts/service.js";
@@ -333,7 +346,7 @@ function authorize(
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
@@ -422,7 +435,11 @@ async function staticFile(
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
+    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
@@ -458,6 +475,9 @@ async function staticFile(
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
+    // mac7/connect: the Set up panel for each chat app.
+    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
+    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
@@ -854,6 +874,14 @@ async function api(
     }).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
+  // --- mac7/connect: the Set up panel for each chat app (src/channel-setup/) ---
+  if (handlesChannelSetupPath(path))
+    return channelSetupApi({ store: app.store, owner: app.runtime.owner, fetch: app.web.policy.guard(globalThis.fetch),
+      telegram: app.neverBreak.telegram, requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SetupRefusal ? new HttpError(error.status, error.message) : error;
+    });
+  // --- end mac7/connect ---
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
@@ -1771,7 +1799,7 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
@@ -2559,6 +2587,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
       // ---- end bucket 19 ----
+      // ---- mac7/nodes: a device answering an invitation has no key; its number and its signature are checked. ----
+      if (openDevicePaths.includes(path)) {
+        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()))
+          throw new HttpError(403, "Origin rejected");
+        const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
+          path, requestSource(request.socket?.remoteAddress)).catch((error: unknown) => {
+          throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end mac7/nodes ----
       // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
       // only on this computer's own listener, since the name does not run out as an artifact's does.
       if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
@@ -2665,6 +2705,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           if (answer !== notPeople) { send(response, 200, answer); return; }
         }
         // ---- end bucket 19 ----
+        // ---- mac7/nodes: the Devices card's routes (src/devices/api.ts); the owner's alone. ----
+        if (handlesDevicesPath(path)) {
+          app.store.profiles.requireOwner("Your devices");
+          const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/nodes ----
         // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
         if (handlesAsksPath(path)) {
           app.store.profiles.requireOwner("These parts of Branch");
@@ -2691,6 +2743,39 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the r17-b block ----
+        // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
+        if (handlesCodingPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await codingApi({
+            coding: app.coding, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof CodingHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-d block ----
+        // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
+        if (handlesTrunksPath(path)) {
+          app.store.profiles.requireOwner("Trunks");
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+            .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-A block ----
+        // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
+        if (handlesPersonalPath(path)) {
+          app.store.profiles.requireOwner("Your personal connectors");
+          const answer = await personalApi({ personal: app.personal, runtime: app.runtime, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4 * 1024 * 1024) }, path).catch((error: unknown) => {
+            throw error instanceof PersonalHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-C block ----
         // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
         if (handlesFlowsBoardsPath(path)) {
           app.store.profiles.requireOwner("Flows and boards");
@@ -2744,9 +2829,27 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
     executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
-  server.on("upgrade", (request, socket) => {
+  // mac7/nodes: one upgrade handler for this computer's door and the paired door (`viaRemote`).
+  const upgrade = (request: IncomingMessage, socket: Duplex, viaRemote: boolean): void => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // ---- mac7/nodes: a device's socket. Its own signature is the key; never the window's key. ----
+      if (path === deviceSocketPath) {
+        const hosts = remote.allowedHosts();
+        const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
+          hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
+        // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
+        // phone window's key and secret, which a device never holds; the device's own signature over a
+        // fresh challenge stands in for them. The door's one allowlist still holds: "never" wins.
+        const neverOnDoor = viaRemote && allowlistSays(readSenderAllowlist(app.store, app.runtime.owner), remoteChannel, claimedDevice(request)) === "block";
+        if (refused || neverOnDoor) { refuseUpgrade(socket); return; }
+        app.devices.hub.attach(request, socket);
+        return;
+      }
+      // Integration review: the paired door serves the device socket and nothing else. It had no
+      // upgrade handler before this branch, and a task's socket stays on this computer's own door.
+      if (viaRemote) { refuseUpgrade(socket); return; }
+      // ---- end mac7/nodes ----
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -2769,7 +2872,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
-  });
+  };
+  server.on("upgrade", (request, socket) => upgrade(request, socket, false));
+  remote.upgrade = (request, socket) => upgrade(request, socket, true);
   configureLimits(server);
   startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
@@ -2783,6 +2888,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
+  app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
@@ -3189,6 +3295,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (handlesKnobsPath(path)) return knobsRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
+  if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
   if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
@@ -3247,6 +3355,12 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesAsksPath(path))
     // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
     || (request.method !== "GET" && handlesAutonomyPath(path))
+    // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
+    || (request.method !== "GET" && handlesTrunksPath(path))
+    // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
+    || (request.method !== "GET" && handlesCodingPath(path))
+    // R17-C: every change under /api/personal may reach an outside service or start a program.
+    || (request.method !== "GET" && handlesPersonalPath(path))
     // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
     || (request.method !== "GET" && handlesFlowsBoardsPath(path))
   );

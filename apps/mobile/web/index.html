@@ -77,6 +77,15 @@
           <p class="subtle" id="talk-status" role="status"></p>
         </section>
 
+        <!-- mac7/connect: set up a chat app from the phone (phone-connect.js) -->
+        <section class="card" id="connect-card" hidden>
+          <h2 data-t="phone.connect.title">Set up a chat app</h2>
+          <p data-t="phone.connect.intro">Get the app on this phone, make its bot, and paste the token. Your Branch checks it and keeps it.</p>
+          <label for="connect-app" data-t="channel-setup.app-label">Chat app</label>
+          <select id="connect-app"></select>
+          <div id="connect-body" class="phone-connect"></div>
+        </section>
+
         <section class="card" id="phone-settings">
           <h2 data-t="phone.settings.title">On this phone</h2>
           <p data-t="phone.settings.intro">Everything here starts off. "When needed" keeps it out of the way until it is useful.</p>

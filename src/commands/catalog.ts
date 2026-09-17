@@ -105,6 +105,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("health", ["doctor"], "", "a quick check of the database, models, chat apps and schedules", [...W, "terminal", "dashboard"], "look"),
   // bucket 12: the owner's saved prompts and procedures; their own commands are laid over this table in saved.ts
   entry("prompts", ["procedures", "workflows"], "[name]", "your saved prompts and procedures; with a name, one of them in the message box", ALL, "look"),
+  // R17-A: the owner's Trunks; talking to one starts a task, so a bare /trunk only looks
+  entry("trunk", ["trunks"], "[name] [message]", "your Trunks; with a name and a message, talk to one", [...W, "terminal"], "run", { bareLooks: true }),
   // mac6/accounts: which account the model answers through; switching is the owner's, so not in chat apps
   entry("account", ["accounts"], "[name|default name]", "which account the model uses; with a name, switch this conversation to it", [...W, "terminal", "dashboard"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/accounts/switch" } }),
   // ---- r17-b: repeating in a conversation, sub-goals, background tasks, handing on, suggested automations (src/autonomy/commands.ts) ----
@@ -116,6 +118,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("suggestions", ["suggest"], "[catalog | accept n | dismiss n]", "automations Branch suggests; a no is never offered again", [...W, "terminal"], "owner", { bareLooks: true }),
   entry("blueprint", ["bp"], "[name] [blank=value ...]", "the automation catalogue; with a name and its blanks, make one", [...W, "terminal"], "owner", { bareLooks: true }),
   // ---- end r17-b ----
+  // mac7/r17-d: the project's instruction file, written by the model (src/coding/init.ts); follows that part's switch
+  entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
   // ---- r17-h: the waiting line, typing while it works, focus view, asking for packages (src/flows-boards/commands.ts) ----
   entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "run", { bareLooks: true, whileWorking: true }),
   entry("busy", [], "[queue|steer|interrupt]", "what happens when you type while a task works: wait, pass it on, or stop and go next", [...W, "terminal"], "owner", { bareLooks: true }),
