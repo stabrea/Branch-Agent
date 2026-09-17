@@ -183,6 +183,8 @@ interface McpVerdict {
   /** The exact request, with saved passwords taken out, and the fingerprint a yes is bound to. */
   bytes: string;
   fingerprint: string;
+  /** How tightly the matching rule wants a program this call starts held (the sandbox wall). */
+  sandbox: Pick<ToolContext, 'sandbox' | 'sandboxBackend' | 'sandboxPaths' | 'osSandbox'>;
   refusal: string;
   waiting: string;
   /** Said when there is no free place to wait in, so nothing was asked and nothing was done. */
@@ -528,7 +530,7 @@ export class McpServer {
     const run = this.store.createRun(this.runtime.owner, `Another AI tool used ${name}`);
     this.store.event(run.id, 'run.started', { source: 'mcp', tool: name, provider: this.runtime.provider.name, parentRunId: null });
     try {
-      const result = await this.registry.execute(name, args, this.toolContext(run.id, exposed));
+      const result = await this.registry.execute(name, args, { ...this.toolContext(run.id, exposed), ...verdict.sandbox });
       await this.recordCall(run.id, name, args, result, true);
       this.store.finish(run.id, 'completed', JSON.stringify(result));
       this.announceRun(run.id);
@@ -552,27 +554,23 @@ export class McpServer {
    */
   private gate(name: string, args: Record<string, unknown>, session?: McpSession): McpVerdict {
     const permission = this.registry.permissionOf(name);
-    const context = this.toolContext('policy-check', new Set([name]));
-    const target = this.registry.targetOf(name, args, context);
-    const described = describeToolCall(name, args);
+    const approvalKey = `mcp:${session?.id ?? 'once'}`;
+    const context = { ...this.toolContext('policy-check', new Set([name])), approvalKey };
     const bytes = this.runtime.hideSecrets(JSON.stringify(args));
     // Fingerprinted before hiding: two different keys hide to the same words and must stay two questions.
     const fingerprint = argumentFingerprint(JSON.stringify(args));
-    const approvalKey = `mcp:${session?.id ?? 'once'}`;
-    const policy = cappedPolicy(readPolicy(this.store, this.runtime.owner), 'mcp');
-    // mac2/leak-guard: an address carrying a key or password is asked about here too, per exact request.
-    const { decision, leak } = this.runtime.leakGuard.tighten(
-      evaluatePolicy(policy, { tool: name, target, readOnly: isReadOnlyPermission(permission) }), args);
-    const answered = decision === 'ask'
-      ? this.runtime.approvals.answer(approvalKey, name, target, fingerprint, !!leak) : undefined;
-    const label = leak ? `${described}, and the address carries ${leak}` : described;
-    const where = target ? ` on ${target}` : '';
+    // mac5/manual-actions: the runtime's own reckoning — Branch's own files (never-break), the role,
+    // the rules capped for another AI tool, folder trust, the leak guard and the yeses already given.
+    const check = this.runtime.checkPolicy(name, args, context, fingerprint);
+    const where = check.target ? ` on ${check.target}` : '';
     // Whoever is signed in here is held to their role as well, exactly as they are in a
     // conversation; another AI tool's server must not be a way round what the owner said.
-    const held = this.runtime.roleRefusal(name, permission);
+    const held = this.runtime.roleRefusal(name, permission) ?? check.reason ?? null;
     return {
-      decision: held ? 'deny' : answered ?? decision, name, target, label, approvalKey,
+      decision: check.decision, name, target: check.target, label: check.label, approvalKey,
       bytes: bytes.slice(0, 2000), fingerprint,
+      sandbox: { ...this.runtime.wallFor(name, args, context, check.sandbox), ...(check.sandbox ? { sandbox: check.sandbox } : {}), ...(check.backend ? { sandboxBackend: check.backend } : {}),
+        ...(check.paths?.length ? { sandboxPaths: check.paths } : {}) },
       refusal: held || `Your approval settings do not allow ${name}${where}.`,
       waiting: `${name}${where} is waiting for your yes in Branch; nothing was done. Answer it there and ask again.`,
       tooMany: 'Branch is already holding as many questions for the owner as it allows. Nothing was asked and nothing was done. Answer the ones waiting in Branch, then try again.',

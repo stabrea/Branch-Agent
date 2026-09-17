@@ -220,7 +220,7 @@ export class FlowGraphRunner {
     const check = this.runtime.checkPolicy(node.tool!, args, context, fingerprint);
     if (check.decision === "deny") throw new PolicyRefusedError(node.tool!, check.label);
     if (check.decision === "ask") throw new ApprovalRequiredError(node.tool!, check.target, check.label, check.remember, fingerprint);
-    return this.runtime.executeTool(node.tool!, args);
+    return this.runtime.executeTool(node.tool!, args, { mode: "policy", source, approvalKey: `flow:${node.id}` }); // mac5/manual-actions
   }
 
   /** What a box that hands back one thing writes: the single value it declared, filled in. */

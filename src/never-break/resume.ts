@@ -1,6 +1,7 @@
 import { describeToolCall } from "../activity.js";
 import type { FeatureMode } from "../feature-switches.js";
 import type { Runtime } from "../runtime.js";
+import { scopeOf } from "../tool-gate.js";
 import type { Store } from "../store.js";
 import { checkEvidence, type OpenStep, type TaskJournal } from "./journal.js";
 
@@ -62,9 +63,11 @@ async function redo(input: RecoveryInput, runId: string, step: OpenStep): Promis
   let args: unknown;
   try { args = JSON.parse(step.arguments); } catch { return false; }
   const context = input.runtime.context({ runId });
-  if (input.runtime.checkPolicy(step.tool, args, context).decision !== "allow") return false;
+  const check = input.runtime.checkPolicy(step.tool, args, context);
+  if (check.decision !== "allow") return false;
   try {
-    const result = await input.runtime.registry.execute(step.tool, args, context);
+    // mac5/manual-actions: redone where the rule and the owner's wall say, as the first attempt was.
+    const result = await input.runtime.registry.execute(step.tool, args, { ...context, ...scopeOf(input.runtime, step.tool, args, context, check) });
     return replaceResult(input.store, step.sessionId, step.callId, { ok: true, result, status: "redone",
       note: "Branch was restarted while this step ran; it changes nothing or gives the same result every time, so it was simply done again." });
   } catch { return false; }

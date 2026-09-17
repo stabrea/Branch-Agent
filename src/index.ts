@@ -485,7 +485,9 @@ export async function createBranch(options: {
   const pullRequestDeps: PullRequestDeps = {
     store, owner: runtime.owner, files, policy: web.policy, registry,
     git: (options, signal) => gitRunner.run(options, AbortSignal.any([signal, pullRequestStop.signal])),
-    runTool: (name, args) => runtime.executeTool(name, args),
+    // mac5/manual-actions: inside a task the call that got here was already gated as a whole; the
+    // hook working by itself after a task is held to the full rules, "ask" included.
+    runTool: (name, args, runId) => runtime.executeTool(name, args, runId ? {} : { mode: "policy" }),
     // Integration review: Branch's saved work and keys never leave in a pull request.
     guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
   };

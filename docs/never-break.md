@@ -73,6 +73,13 @@ Results are from the Mac on 17 September (quick chaos set, 3–6 seeds); the Lin
 | 7 | Half-written files (config, swap interrupted) | Every file the gateway writes is written to a temporary name, fsync'd and renamed; an update interrupted at any step is repaired on the next start (`repairSwap`: a missing target is put back from the previous copy, a leftover incoming copy is removed) | `tests/never-break-update.test.mjs`, `tests/never-break-chaos.test.mjs` | pass: hand-over script cut after every line leaves a whole version; atomic writes leave no half file |
 | 8 | A full disk | A journal write that fails stops the task with a plain sentence instead of running a step it could not record; the gateway keeps answering | `tests/never-break-chaos.test.mjs` | pass: full disk after random journal writes never runs an unrecorded step; the next task works |
 
+**Tools run outside a conversation (mac5/manual-actions).** The refusal is not only for the model's
+own calls. `Runtime.executeTool` (a tool pressed by hand in the app window, `/api/action`, the code
+editor's save, a saved workflow's step, a flow box, a live voice call, the pull-request hook), "Try a
+tool", another AI tool over MCP, a saved procedure's steps and a step redone after a restart all go
+through `Runtime.checkPolicy`, so this refusal comes first for every one of them. The shared gate is
+`src/tool-gate.ts`; tests in `tests/manual-actions-gate.test.mjs` and `tests/mcp-server.test.mjs`.
+
 ## What the refusal cannot see (honest limits)
 
 The refusal reads text; it does not run the command. These still get past it, and the file

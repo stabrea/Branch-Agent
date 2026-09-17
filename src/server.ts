@@ -47,6 +47,9 @@ import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
+// mac5/manual-actions: the hand-pressed gate for "Try a tool".
+import { manualVerdict } from "./tool-gate.js";
+import { argumentFingerprint } from "./runtime.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
@@ -797,7 +800,9 @@ async function api(
       await tryTool(app.registry, app.store, app.runtime.owner,
         app.runtime.context({ signal: AbortSignal.timeout(120000) }),
         TryToolSchema.parse(await readBody(request)),
-        (tool, permission) => app.runtime.roleRefusal(tool, permission)));
+        (tool, permission) => app.runtime.roleRefusal(tool, permission),
+        // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept.
+        (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
   if (request.method === "POST" && path === "/api/artifacts/page")

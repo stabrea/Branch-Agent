@@ -58,7 +58,8 @@ export interface PullRequestDeps {
   policy: NetworkPolicy;
   registry: ToolRegistry;
   /** Runs a registered tool as the owner (the saved GitHub tools); the runtime's executeTool. */
-  runTool: (name: string, args: unknown) => Promise<unknown>;
+  /** `runId` is the task whose own call got here; without one it is the hook working by itself. */
+  runTool: (name: string, args: unknown, runId?: string) => Promise<unknown>;
   /** Integration review: Branch's own guard (src/never-break/protected.ts); a reason when a path may not be read. */
   guard?: (path: string) => string | null;
 }
@@ -134,7 +135,7 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: { nam
     repo: where.repo, title: input.title.slice(0, 200), body: input.summary.slice(0, 8000),
     base: where.base, head, changes: visible.slice(0, 20), draft: true,
     ...issueArgument(input.summary),
-  });
+  }, input.runId);
   return { repository: where.repo, branch: head, base: where.base, files: visible, pullRequest };
 }
 

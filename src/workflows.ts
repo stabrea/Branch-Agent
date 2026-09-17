@@ -315,7 +315,8 @@ export class Workflows {
       const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context, fingerprint);
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
       if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember, fingerprint);
-      const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
+      // mac5/manual-actions: the run itself is gated the same way, under this workflow's own yeses.
+      const result = await this.runtime.executeTool(step.tool!, step.args ?? {}, { mode: "policy", source, approvalKey: approvalKeyFor(id) });
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };
     }
     if (!this.knowledge) throw new Error("Saved procedures are not available in this launch");
