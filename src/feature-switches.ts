@@ -2,6 +2,10 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
+import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
+import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
+import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
+import { personalToolFeatures } from "./personal/settings.js"; // R17-C
 import { safetyToolFeatures } from "./safety-extras/settings.js"; // mac7/r17-g
 
 /**
@@ -102,6 +106,14 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
   ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── r17-b: suggestions, standing orders, procedures, readiness, instructions (src/autonomy/settings.ts keeps these lists). ──
+  ...autonomyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── R17-A: Trunks (src/trunks/settings.ts keeps these lists). ──
+  ...trunkToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
+  ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
+  ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac7/r17-g: the safety extras (src/safety-extras/settings.ts keeps these lists). ──
   ...safetyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).

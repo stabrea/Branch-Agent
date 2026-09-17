@@ -49,6 +49,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/ask-first/answers", "a task prompt with the answers in it"),
   post("/api/processes", "stops a program a task left running"),
   post(new RegExp(`^/api/teams/${id}/run$`), "starts a team on a task"),
+  // R17-A: talking to a Trunk, and to a room of Trunks, is a task; changing them is the owner's.
+  post(new RegExp(`^/api/trunks/${id}/say$`), "a message to one of the owner's Trunks"),
+  post(new RegExp(`^/api/trunks/rooms/${id}/(send|stop)$`), "a message to a room of Trunks, or stopping it"),
   post("/api/queue", "puts a task in the waiting line"),
   post(new RegExp(`^/api/queue/${id}/cancel$`), "takes a task out of the waiting line"),
   post(new RegExp(`^/api/flows/${id}/(run|resume|pause)$`), "runs, resumes or pauses a saved flow"),
@@ -75,6 +78,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/tools/meaning-search", "finds a tool by what it does"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
+  // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
+  post("/api/coding/checks/run", "runs the project's review checks, each by a helper that may only read"),
+  post("/api/coding/worktrees/fork", "carries a conversation on in its own copy of the project"),
   // mac7/r17-g: the safety extras. Everything else under /api/safety-extras (the switches, letting the
   // emergency stop go, setting up authenticator codes, installing or running WebAssembly add-ons) is
   // refused by the rule above. Reading /api/safety-extras is allowed: it never carries the code key.
@@ -95,7 +101,21 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/people\/(settings|shares\/export)$/,
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
+  // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
+  /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
+  // mac7/r17-d: the shell snapshot holds the owner's PATH, aliases and functions.
+  /^\/api\/coding\/shell$/,
+  // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
+  /^\/api\/personal(\/|$)/,
 ];
+
+/**
+ * R17-S-B: the hidden knobs (`knobsRoutes` in src/knobs/api.ts) are the owner's alone. Reading
+ * them is a look; every change is refused to a short-lived key, because the cards include which
+ * environment variables commands are given, how key-like values are hidden, and the launch file.
+ */
+export const knobsRefusal =
+  "A short-lived key cannot change Branch's limits, which environment variables commands get, or how keys are hidden. Do that in the app window.";
 
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";

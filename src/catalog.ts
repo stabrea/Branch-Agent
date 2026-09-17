@@ -12,7 +12,7 @@ import { estimateTokens } from "./contracts.js";
 /** Toolboxes a tool can belong to. "core" is always open; "other" catches anything unrecognised. */
 export const toolGroups = [
   "core", "files", "code", "git", "web", "browser", "desktop", "memory", "documents",
-  "data", "research", "media", "channels", "schedules", "agents", "skills", "settings", "services", "other",
+  "data", "research", "media", "personal", "channels", "schedules", "agents", "skills", "settings", "services", "other",
 ] as const;
 
 /** Name prefixes that decide a tool's group when the tool does not name one itself. */
@@ -43,6 +43,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],
+  // R17-C (integration review): the owner's own accounts, music, house and files sent into chats —
+  // one box, before "agents" so a Teams transcript is not taken for a team of agents.
+  ["personal", ["gmail.", "gcal.", "gdrive.", "outlook.", "teams.summary", "spotify.", "home.", "x.search", "chat.send_file"]],
   ["channels", ["channels.", "telegram.", "slack.", "discord.", "email.", "mail.", "messages.", "whatsapp."]],
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.

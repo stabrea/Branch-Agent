@@ -177,6 +177,8 @@ const readOnlyPermissions = new Set([
   // mac6/bucket-23: a project's board, which intent a request is, the sources' cursors, the list of
   // app steps and whether other Branch computers are up only look (src/asks/).
   "projects.read", "intents.read", "sources.read", "blocks.read", "nodes.read",
+  // R17-C: reading the owner's own mail, calendar, files, music and house only looks (src/personal/).
+  "personal.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

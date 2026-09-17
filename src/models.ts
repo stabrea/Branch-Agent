@@ -5,6 +5,7 @@ import { type Capability, catalogEntry } from "./provider-catalog.js";
 import { ProviderHealth, fallbackReason } from "./provider-health.js";
 import { RequestCounter } from "./dashboards.js";
 import { fallbackEligible } from "./provider-retry.js";
+import { effortFor } from "./knobs/apply.js"; // R17-S12
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
 export type ReasoningEffort = (typeof reasoningEfforts)[number];
@@ -165,7 +166,8 @@ export class ModelRouter {
     const projectPreset = project && this.presets.has(project) ? project : null;
     const source = chosen ? "session" : projectPreset ? "project" : owned.activePreset ? "owner" : "default";
     const first = this.presets.get(chosen ?? projectPreset ?? owned.activePreset ?? this.default.id) ?? this.default;
-    const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null);
+    // R17-S12: a default the owner set for this one connection comes before the general default.
+    const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? effortFor(this.store, owner, first.id) ?? owned.reasoning ?? first.reasoning ?? null);
     const fallbacks = owned.fallbackOrder
       // mac5/providers: a connection whose service ended its route is never a fallback.
       .filter(id => id !== first.id && !this.coolingDown(id) && !isRetiredConnection(this.presets.get(id)))

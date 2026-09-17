@@ -47,6 +47,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "activity", summary: "Check that the tamper-evident activity record is unbroken: activity verify", options: ["--tip"] },
   // mac3/security-check: the security self-check.
   { name: "security", summary: "Check this computer's Branch setup for security problems: security audit", options: ["--fix", "--json"] },
+  // mac7/connect: getting a chat app, making its bot and saving its token (src/channel-setup/).
+  { name: "connect", summary: "Set up a chat app: connect <app> installs the official app, opens the bot page and saves the token", options: [] },
   // Wave mac3 (terminal): every place by name and the everyday commands (src/terminal-parity.ts).
   ...TERMINAL_CLI_COMMANDS,
 ];

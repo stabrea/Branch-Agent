@@ -130,6 +130,8 @@ export class ApprovalGate {
   private readonly pending = new Map<string, PendingApproval[]>();
   /** Wave mac3 (tool-safety): requests the safety check advised against, by fingerprint, with its reason. */
   private readonly advisedAgainst = new Map<string, string>();
+  /** R17-C integration review: requests that are always once-only for another reason (a lock, a door), with the words for it. */
+  private readonly heldOnce = new Map<string, string>();
   /** Wave mac3 (tool-safety): one-time overrules the owner gave, as conversation and fingerprint. */
   private readonly overrules = new Set<string>();
   /**
@@ -203,7 +205,8 @@ export class ApprovalGate {
    * an answer that will never come.
    */
   ask(request: PendingApproval): PendingApproval | null {
-    if (request.fingerprint && this.advisedAgainst.has(request.fingerprint)) request = { ...request, onceOnly: true };
+    if (request.fingerprint && (this.advisedAgainst.has(request.fingerprint) || this.heldOnce.has(request.fingerprint)))
+      request = { ...request, onceOnly: true };
     const forSession = this.pending.get(request.sessionId) ?? [];
     this.pending.set(request.sessionId, forSession);
     const same = forSession.findIndex((entry) => sameQuestion(entry, request));
@@ -259,6 +262,11 @@ export class ApprovalGate {
     if (this.advisedAgainst.size >= 500) this.advisedAgainst.delete(this.advisedAgainst.keys().next().value!);
     this.advisedAgainst.set(fingerprint, reason);
   }
+  /** R17-C integration review: marks a request as once-only for its own reason, apart from the safety check's list. */
+  holdOnce(fingerprint: string, reason: string): void {
+    if (this.heldOnce.size >= 500) this.heldOnce.delete(this.heldOnce.keys().next().value!);
+    this.heldOnce.set(fingerprint, reason);
+  }
   /**
    * Checks an answer to a question before it is recorded. A request the safety check advised against
    * may be allowed only "just now": that yes is kept as a single pass for this very request in this
@@ -269,7 +277,10 @@ export class ApprovalGate {
     // each held to it, however many other requests were advised against since.
     const fingerprint = question.fingerprint;
     if (!question.onceOnly || !fingerprint) return;
-    if (decision === "allow" && remember !== "never") throw new Error(onceOnlyRefusal);
+    if (decision === "allow" && remember !== "never") {
+      const held = this.heldOnce.get(fingerprint);
+      throw new Error(held && !this.advisedAgainst.has(fingerprint) ? `${held}. Choose "Yes, just now" to go ahead.` : onceOnlyRefusal);
+    }
     if (decision === "allow") this.overrules.add(`${sessionId}\u0000${fingerprint}`);
   }
   /** Uses up the owner's one-time overrule for this request, if there is one. */

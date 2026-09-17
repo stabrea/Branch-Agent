@@ -114,3 +114,7 @@ body {
 .phone-seg label:has(input:checked) { background: var(--copper); color: var(--on-copper); }
 .phone-seg label:has(input:focus-visible) { box-shadow: inset 0 0 0 2px var(--ring, var(--copper)); }
 #talk.recording { background: var(--bad); border-color: var(--bad); }
+
+/* mac7/connect: the chat app setup card. */
+.phone-connect { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.phone-connect a.quiet-button { display: block; text-align: center; text-decoration: none; }

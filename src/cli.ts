@@ -164,6 +164,13 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac7/connect: `branch connect <chat app>` (src/channel-setup/cli.ts) ---
+  if (command === "connect") {
+    const { connectCommand } = await import("./channel-setup/cli.js");
+    process.exitCode = await connectCommand(process.argv.slice(3), { dataDir, workspace });
+    return;
+  }
+  // --- end mac7/connect ---
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
     return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });
