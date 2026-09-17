@@ -39,8 +39,8 @@ export function broughtSettings(store: Store, owner: string): Record<string, { v
 
 /**
  * The entry the connections file takes for a server, with an id Branch accepts. The list of tools
- * is left for the owner to fill in after trying the server, because Branch never lets a server's
- * tools in without that list.
+ * and the version the server reports are left for the owner to fill in after trying it, because
+ * Branch never lets a server's tools in without both.
  */
 export function connectionEntry(server: MovedServer): Record<string, unknown> {
   const id = server.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^[^a-z]+/, "").slice(0, 30).replace(/-+$/, "") || "server";

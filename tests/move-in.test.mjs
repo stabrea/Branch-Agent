@@ -84,6 +84,10 @@ test("a folder is recognised by what is inside it, not by its name", async (t) =
   assert.equal(await recognise(folderTree(join(home, ".openclaw"))), "openclaw");
   assert.equal(await recognise(folderTree(join(home, ".local/share/opencode"))), "opencode");
   assert.equal(await recognise(folderTree(join(home, ".agents"))), null);
+  // A Codex folder without its settings file is still Codex, even though it has a `memories` folder.
+  const bare = zipWrite([["sessions/2026/01/01/rollout-a.jsonl", "{}"], ["memories/MEMORY.md", "x"]]);
+  assert.equal(await recognise(archiveTree("codex.zip", bare)), "codex");
+  assert.equal(await recognise(archiveTree("hermes.zip", zipWrite([["memories/USER.md", "x"], ["SOUL.md", "calm"]]))), "hermes");
 });
 
 // ------------------------------------------------------------------ reading safely
@@ -248,6 +252,10 @@ test("Claude Code: bringing it over fills Branch's own stores, once", async (t) 
     { id: "files", tools: [], expectedVersion: "", transport: "stdio", command: "npx", args: ["-y", "@example/files"], envKeys: ["FILES_TOKEN"] });
   assert.deepEqual(servers[1].server.connection,
     { id: "search", tools: [], expectedVersion: "", transport: "http", url: "https://search.example.com/mcp", bearerEnv: "SEARCH_TOKEN" });
+  // Once the owner fills in what the try showed, the entry is one the connections file accepts as it is.
+  const { McpConfigSchema } = await import("../dist/integrations/mcp-config.js");
+  for (const entry of servers)
+    assert.doesNotThrow(() => McpConfigSchema.parse({ ...entry.server.connection, tools: ["read"], expectedVersion: "1.0.0" }), entry.name);
   assert.deepEqual(broughtSettings(app.store, owner), { model: { value: "claude-opus-4", source: "Claude Code" } });
   assert.ok(!wholeDatabase(app).includes(SECRET), "no key's value is kept anywhere in Branch");
 

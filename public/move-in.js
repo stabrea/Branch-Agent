@@ -174,7 +174,7 @@ async function showBrought() {
   if (settings.model) where.append(make("p", `The model you used with ${settings.model.source}: ${settings.model.value}. Choose it under Settings when you connect a model.`));
   if (!servers.length) return;
   where.append(make("h3", "Tool servers brought over"),
-    make("p", "Try each one first under Settings → Sharing with other AI tools → Try a server. To keep one, add its entry to your connections file, with the tools you want it to offer listed under \"tools\".", "subtle"));
+    make("p", "Try each one first under Settings → Sharing with other AI tools → Try a server. To keep one, add its entry to your connections file, with the tools you want it to offer under \"tools\" and the version the try showed under \"expectedVersion\".", "subtle"));
   for (const entry of servers) {
     const row = make("details", "", "card-row");
     row.append(make("summary", `${entry.name} (from ${entry.source})`), make("pre", JSON.stringify(entry.server.connection, null, 2)));

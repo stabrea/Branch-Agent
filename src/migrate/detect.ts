@@ -53,10 +53,11 @@ export async function recognise(tree: SourceTree): Promise<MoveInSource | null> 
   if (await has(tree, "openclaw.json") || await has(tree, "clawdbot.json")
     || (await has(tree, "agents", "dir") && await has(tree, "workspace", "dir"))) return "openclaw";
   if (await has(tree, "opencode.db") || await has(tree, "storage/session", "dir")) return "opencode";
-  if (await has(tree, "config.toml") || (await has(tree, "sessions", "dir") && await has(tree, "history.jsonl")))
+  if (await has(tree, "config.toml") || await has(tree, "session_index.jsonl")
+    || (await has(tree, "sessions", "dir") && (await has(tree, "history.jsonl") || await has(tree, "memories", "dir"))))
     return "codex";
-  if (await has(tree, "config.yaml") || await has(tree, "state.db") || await has(tree, "memories", "dir"))
-    return "hermes";
+  // Codex keeps a `memories` folder too, so only files Hermes alone writes decide it is Hermes.
+  if (await has(tree, "config.yaml") || await has(tree, "state.db") || await has(tree, "SOUL.md")) return "hermes";
   if (await has(tree, "projects", "dir") || await has(tree, "settings.json") || await has(tree, "CLAUDE.md"))
     return "claude-code";
   return null;

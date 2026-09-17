@@ -1140,7 +1140,7 @@ Memory → **Bring things over from another assistant** (and a one-line offer on
 | Projects (the folders chats were in) | A project `moved-<folder name>`. |
 | Memory, `CLAUDE.md` / `AGENTS.md` / `SOUL.md` | Saved facts (long text is split, at most 3800 characters each); instructions become preferences. |
 | Skills | Installed skills, reshaped to Branch's fields and checked by the skill scanner first; other files in the skill's folder stay behind. |
-| Tool servers (MCP) | Kept under the card, ready to try under Settings → Sharing with other AI tools → Try a server, with the entry to paste into the connections file once its `tools` are filled in. |
+| Tool servers (MCP) | Kept under the card, ready to try under Settings → Sharing with other AI tools → Try a server, with the entry to paste into the connections file once its `tools` and `expectedVersion` (both shown by the try) are filled in. |
 | Model choice | Shown as a suggestion when connecting a model. |
 
 Keys and sign-ins are never copied: `auth.json`, `.credentials.json`, `credentials/` and database tables of sign-ins are not opened, and from `.env`, `env` blocks and server headers only the names are read, to list which keys to add under Settings → Secrets. A record per assistant (`settings` row `move-in:<assistant>`, included in backups) makes a second press bring nothing twice. Databases (`state.db`, `openclaw-agent.sqlite`, `opencode.db`) are read from a private copy, never in place.
