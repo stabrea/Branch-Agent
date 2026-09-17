@@ -8,6 +8,7 @@ import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
+import { readBrowserContainerSettings, createBrowserLauncher } from './browser-container.js'; // w911 (A2019)
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
@@ -250,6 +251,15 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.profiles = channels?.browserProfiles;
       browser.store = channels?.store as never;
       browser.tracer = channels?.tracer as never;
+      // w911 (A2019) hook: set launcher for container/endpoint modes based on settings.
+      if (channels?.store && channels?.context) {
+        const owner = channels.context('bootstrap').owner;
+        const store = channels.store as Store;
+        const settings = readBrowserContainerSettings(store, owner);
+        if (settings.mode !== 'off') {
+          browser.launcher = await createBrowserLauncher(settings);
+        }
+      }
       // The quirks of particular websites live in the skills the owner installed, not in the
       // browser tool, so they are read fresh each time: installing a skill needs no restart.
       const skillStore = channels?.store as SiteSkillSource | undefined;
