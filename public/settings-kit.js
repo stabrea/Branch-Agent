@@ -63,8 +63,9 @@ const CHOICE_WORDS = {
 };
 function valueWords(change, value) {
   const choices = CHOICE_WORDS[`${change.key}.${change.field}`];
-  if (choices && value in choices) return say(`settings-kit.value.${change.key}.${change.field}.${value}`, choices[value]);
-  const pair = VALUE_WORDS[String(value)];
+  // Own keys only: a saved value such as "constructor" must not reach the object's prototype.
+  if (choices && Object.hasOwn(choices, value)) return say(`settings-kit.value.${change.key}.${change.field}.${value}`, choices[value]);
+  const pair = Object.hasOwn(VALUE_WORDS, String(value)) ? VALUE_WORDS[String(value)] : null;
   return pair ? say(...pair) : String(value);
 }
 

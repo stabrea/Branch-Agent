@@ -1,5 +1,14 @@
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
+import { saveLoopGuardSettings } from "../loop-guard.js";
+import { saveFolderTrustSettings } from "../folder-trust.js";
+import { saveReviewerSettings } from "../approval-reviewer.js";
+import { saveSecurityCheckSettings } from "../security-audit/settings.js";
+import { saveWallSettings, wallSettings } from "../sandbox.js";
+import { saveKeychainSettings } from "../vault-sources.js";
+import { retentionSettings, saveRetentionSettings } from "../retention.js";
+import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
+import { audit } from "../audit.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -55,8 +64,13 @@ export interface SettingSpec {
   fields: FieldSpec[];
   /** Records that keep an older yes/no beside the switch have it kept in step. */
   keepsEnabled?: boolean;
-  /** A setting that has its own way of being saved (and written into the record) uses it. */
+  /**
+   * A setting that has its own way of being saved uses it, so a copy kept in memory, a tool that
+   * comes and goes, or the record of the change is never skipped (integration review).
+   */
   write?: (store: Store, owner: string, patch: Record<string, unknown>) => void;
+  /** A setting whose module reads a damaged record in its own way (the wall reads it as "on") is shown that way. */
+  read?: (store: Store, owner: string) => Record<string, unknown>;
 }
 
 const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
@@ -65,6 +79,11 @@ const yesNo = (field: string, label: string, t: string, guard: Guard, initial = 
   ({ field, label, t, kind: { type: "yes-no" }, initial, guard });
 const one = (key: string, name: string, t: string, home: string, guard: Guard, extra: Partial<SettingSpec> = {}): SettingSpec =>
   ({ key, name, t, home, fields: [sw("mode", "Switch", "settings-kit.field.switch", guard)], ...extra });
+const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): void => {
+  const next = saveWallSettings(store, owner, { ...wallSettings(store, owner), ...patch });
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `The wall around programs: ${next.mode}, reach ${next.network}`,
+    reason: "Changed from Settings: presets, reset or a settings file", outcome: "saved" });
+};
 
 const safety: SettingSpec[] = [
   {
@@ -78,25 +97,33 @@ const safety: SettingSpec[] = [
     // The approval rules are worked out from the preset, so the preset is saved the way the card saves it.
     write: (store, owner, patch) => { savePolicy(store, owner, patch, "Changed from Settings: presets, reset or a settings file"); },
   },
-  one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard"),
-  one("loop_guard", "Stopping repeated steps", "settings-kit.name.loop-guard", "settings:permissions", "guard"),
-  one("folder_trust_mode", "Trusted folders", "settings-kit.name.folder-trust", "settings:permissions", "guard"),
+  one("approval_reviewer", "A second look before approvals", "settings-kit.name.reviewer", "settings:permissions", "guard",
+    { write: (store, owner, patch) => { saveReviewerSettings(store, owner, patch); } }),
+  one("loop_guard", "Stopping repeated steps", "settings-kit.name.loop-guard", "settings:permissions", "guard",
+    { write: (store, owner, patch) => { saveLoopGuardSettings(store, owner, patch); } }),
+  one("folder_trust_mode", "Trusted folders", "settings-kit.name.folder-trust", "settings:permissions", "guard",
+    { write: (store, owner, patch) => { saveFolderTrustSettings(store, owner, patch); } }),
   {
     key: "security-check", name: "Security self-check", t: "settings-kit.name.security-check", home: "settings:permissions",
     fields: [sw("audit", "Check by itself", "settings-kit.field.audit", "guard"),
       sw("malware", "Check add-ons for malware", "settings-kit.field.malware", "guard")],
+    // The window hands in the service's own save, which also adds or takes away the check's tool.
+    write: (store, owner, patch) => { saveSecurityCheckSettings(store, owner, patch); },
   },
   {
     key: "os-sandbox", name: "The wall around programs", t: "settings-kit.name.os-sandbox", home: "settings:computer",
     fields: [sw("mode", "Switch", "settings-kit.field.switch", "guard"),
       { field: "network", label: "What programs behind the wall may reach", t: "settings-kit.field.wall-network", guard: "guard",
         initial: "none", kind: { type: "choice", options: ["none", "limited", "per-site", "open"] } }],
+    write: saveWall,
+    read: (store, owner) => ({ ...wallSettings(store, owner) }),
   },
 ];
 
 const reach: SettingSpec[] = [
   one("desktop-control", "Your screen and keyboard", "settings-kit.name.desktop", "settings:computer", "reach", { keepsEnabled: true }),
-  one("keychain-entries", "Passwords from the Keychain", "settings-kit.name.keychain", "settings:secrets", "reach", { keepsEnabled: true }),
+  one("keychain-entries", "Passwords from the Keychain", "settings-kit.name.keychain", "settings:secrets", "reach",
+    { keepsEnabled: true, write: (store, owner, patch) => { saveKeychainSettings(store, owner, patch); } }),
   {
     key: "voice", name: "Voice", t: "settings-kit.name.voice", home: "settings:voice",
     fields: [sw("systemVoice", "Your computer's own voice", "settings-kit.field.system-voice", "reach"),
@@ -122,7 +149,8 @@ const reach: SettingSpec[] = [
 const comfort: SettingSpec[] = [
   one("local-models", "Models on this computer", "settings-kit.name.local-models", "settings:models:local", "plain", { keepsEnabled: true }),
   one("usage-report", "Usage report", "settings-kit.name.usage-report", "settings:data", "plain", { keepsEnabled: true }),
-  one("event-loop-watch", "Whether Branch is keeping up", "settings-kit.name.event-loop", "settings:advanced", "plain"),
+  one("event-loop-watch", "Whether Branch is keeping up", "settings-kit.name.event-loop", "settings:advanced", "plain",
+    { write: (store, owner, patch) => { eventLoopWatch.follow(saveEventLoopSettings(store, owner, { ...eventLoopSettings(store, owner), ...patch })); } }),
   one("run-recording", "Recording each task", "settings-kit.name.recording", "inbox:history", "plain"),
   one("prompt-library", "Saved prompts", "settings-kit.name.prompts", "automations:procedures", "plain"),
   one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain"),
@@ -130,13 +158,14 @@ const comfort: SettingSpec[] = [
   one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
   {
     key: "goal-undo", name: "Goals and going back", t: "settings-kit.name.goal-undo", home: "settings:data",
-    fields: [sw("goal", "Keep working until a goal is met", "settings-kit.field.goal", "plain"),
-      sw("snapshots", "Record the files before a task", "settings-kit.field.snapshots", "plain")],
+    // Working on until a goal is met is the assistant acting on its own; the snapshots are what lets you go back.
+    fields: [sw("goal", "Keep working until a goal is met", "settings-kit.field.goal", "reach"),
+      sw("snapshots", "Record the files before a task", "settings-kit.field.snapshots", "guard")],
   },
   {
     key: "reflection", name: "Looking back over conversations", t: "settings-kit.name.reflection", home: "library:memory",
     fields: [sw("reflection", "Looking back", "settings-kit.field.reflection", "plain"),
-      sw("newSkills", "Writing new skills from experience", "settings-kit.field.new-skills", "plain")],
+      sw("newSkills", "Writing new skills from experience", "settings-kit.field.new-skills", "reach")],
   },
   {
     key: "context-files", name: "The files you write", t: "settings-kit.name.context-files", home: "settings:general",
@@ -148,6 +177,7 @@ const comfort: SettingSpec[] = [
     fields: [yesNo("enabled", "Offer to delete old conversations", "settings-kit.field.retention", "plain"),
       { field: "keepDays", label: "Older than this many days", t: "settings-kit.field.keep-days", guard: "plain",
         initial: 0, kind: { type: "number", min: 0, max: 3650 } }],
+    write: (store, owner, patch) => { saveRetentionSettings(store, owner, { ...retentionSettings(store, owner), ...patch }); },
   },
 ];
 
@@ -161,10 +191,34 @@ export const neverTouched: readonly RegExp[] = [
   /^lockdown$/, /^session-lock$/, /^model-connections/, /^local-model-connections$/, /^local-model-setups$/,
   /^secret/, /^credential/, /^people/, /^remote/, /pairing/, /^deferred:/, /^move-in:/,
   /^feature-switches-migration$/, /^webhook-addresses$/, /^sender-allowlist$/, /^telegram-setup$/,
+  // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
+  // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
+  /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */
 export const secretShaped = /key|token|secret|password|passphrase|credential|cookie|auth/i;
+
+/**
+ * A setting whose name sounds like safety or reach. Should one of its fields ever be written down as
+ * "plain", any move of it still counts as less careful (src/settings-kit/changes.ts, loosens).
+ */
+export const securityShaped =
+  /sandbox|trust|polic|approv|review|guard|never|wall|add-?on|page-?note|web-?page|autonom|connector|tunnel|knob|env|leak|lock|keychain|desktop|remote|pair|secret|credential|account|people|gateway|launch|security|goal|skill|plan-act|orchestrat|permission/i;
+
+/**
+ * What a setting's field is, for anything that has to decide about it. Fails closed: a setting or
+ * field that is not in the catalogue, or is on the never-touched list, is "blocked", including every
+ * setting added after this was written.
+ */
+export type Classification = "blocked" | "plain" | "less-careful-when-raised" | "less-careful-when-lowered" | "less-careful-either-way";
+export function classify(key: string, field: string): Classification {
+  const spec = specFor(key);
+  const found = spec?.fields.find((entry) => entry.field === field);
+  if (!spec || !found || secretShaped.test(field)) return "blocked";
+  if (found.guard === "plain") return securityShaped.test(key) ? "less-careful-either-way" : "plain";
+  return found.guard === "reach" || found.kind.type === "choice" ? "less-careful-when-raised" : "less-careful-when-lowered";
+}
 
 export function specFor(key: string): SettingSpec | undefined {
   if (neverTouched.some((pattern) => pattern.test(key))) return undefined;

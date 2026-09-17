@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { audit } from "../audit.js";
-import { secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
+import { securityShaped, secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
 
 /**
  * R17-S-A: one list of changes, whoever proposed them — putting settings back, a whole-app preset,
@@ -53,7 +53,7 @@ export function acceptValue(spec: FieldSpec, value: unknown): Value | undefined 
 
 /** What the field holds now; an unset or unreadable value counts as its starting value. */
 export function currentValue(store: Store, owner: string, spec: SettingSpec, field: FieldSpec): Value {
-  const data = (store.get("settings", owner, spec.key)?.data ?? {}) as Record<string, unknown>;
+  const data = spec.read ? spec.read(store, owner) : (store.get("settings", owner, spec.key)?.data ?? {}) as Record<string, unknown>;
   let saved = readPath(data, field.field);
   // An older record with only a yes/no stands for "when needed" (src/feature-switches.ts, modeOf).
   if (saved === undefined && field.field === "mode" && spec.keepsEnabled && data.enabled === true) saved = "when-needed";
@@ -73,8 +73,9 @@ function reachOf(field: FieldSpec, value: Value): number {
   return 0;
 }
 
-export function loosens(field: FieldSpec, from: Value, to: Value): boolean {
-  if (field.guard === "plain") return false;
+export function loosens(field: FieldSpec, from: Value, to: Value, spec?: Pick<SettingSpec, "key">): boolean {
+  // Fails closed: a "plain" field on a setting that sounds like safety counts as less careful either way.
+  if (field.guard === "plain") return !!spec && securityShaped.test(spec.key) && from !== to;
   const up = reachOf(field, to) > reachOf(field, from);
   const down = reachOf(field, to) < reachOf(field, from);
   // A choice list is written most careful first, so moving along it is loosening whichever guard it is.
@@ -102,7 +103,7 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     if (from === to || seen.has(id)) continue;
     seen.add(id);
     changes.push({ id, key: spec.key, field: field.field, name: spec.name, nameT: spec.t, label: field.label, labelT: field.t,
-      home: spec.home, from, to, loosens: loosens(field, from, to) });
+      home: spec.home, from, to, loosens: loosens(field, from, to, spec) });
   }
   return { changes, refused };
 }

@@ -870,7 +870,15 @@ async function api(
   if (handlesSettingsKitPath(path))
     return settingsKitApi({
       store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
-      writers: { "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch) },
+      writers: {
+        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
+        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
+        "security-check": (patch) => app.security.configure(patch),
+        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
+          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+      },
+      guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
+        workspace: app.runtime.workspace }, app.runtime.protectedAreas),
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
       throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });

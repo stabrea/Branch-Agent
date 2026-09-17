@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { audit } from "../audit.js";
+import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue } from "./catalogue.js";
 import { applyChanges, changesFor, currentValue, resetProposals, type Proposal, type Writer } from "./changes.js";
 import { fileMap, openFile, saveFile, SlotSchema } from "./file-map.js";
@@ -8,10 +9,10 @@ import { presetFor, presets } from "./presets.js";
 import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./transfer.js";
 
 /**
- * R17-S-A: the window's side of understandable settings, under /api/settings-kit. Reads answer
- * anyone with the session; every change is the owner's alone. A short-lived key is refused every
- * change here (none of these routes is on its list in src/short-lived-keys.ts), and the settings
- * file and the owner's own files are on its list of reads it may not make.
+ * R17-S-A: the window's side of understandable settings, under /api/settings-kit. Every route is the
+ * owner's alone: a household profile is answered 403 (integration review). A short-lived key is
+ * refused every change here (none of these routes is on its list in src/short-lived-keys.ts), and the
+ * settings file and the owner's own files are on its list of reads it may not make.
  */
 export class SettingsKitError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -24,6 +25,13 @@ export interface SettingsKitDeps {
   appVersion: string;
   /** Saves that do more than write the record (see ApplyChoice.writers). */
   writers?: Record<string, Writer> | undefined;
+  /** The never-break guard for a file about to be written: why not, or null (src/never-break/protected.ts). */
+  guard?: ((target: string) => string | null) | undefined;
+}
+
+function ownerOnly(deps: SettingsKitDeps, what: string): void {
+  try { deps.store.profiles.requireOwner(what); }
+  catch (error) { throw new SettingsKitError(403, (error as Error).message); }
 }
 
 export const handlesSettingsKitPath = (path: string): boolean => path === "/api/settings-kit" || path.startsWith("/api/settings-kit/");
@@ -70,7 +78,9 @@ function overview(deps: SettingsKitDeps) {
 }
 
 function apply(deps: SettingsKitDeps, input: unknown) {
-  deps.store.profiles.requireOwner("Changing settings");
+  // Lockdown keeps its own copy of what it took over and writes it back when it ends; a change made
+  // underneath it would either loosen it now or be thrown away then.
+  if (lockedDown(deps.store, deps.owner)) throw new SettingsKitError(409, "Lockdown is on, so settings cannot be changed from here. Turn it off first.");
   const body = Apply.parse(input);
   const { proposals, why } = proposalsFor(body.plan);
   const { changes } = changesFor(deps.store, deps.owner, proposals);
@@ -85,13 +95,13 @@ function apply(deps: SettingsKitDeps, input: unknown) {
 }
 
 export async function settingsKitApi(deps: SettingsKitDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
+  // The switches, the settings file and the text of the owner's own files are the owner's alone.
+  ownerOnly(deps, "Settings");
   if (method === "GET" && path === "/api/settings-kit") return overview(deps);
   if (method === "GET" && path === "/api/settings-kit/export") return exportSettings(deps.store, deps.owner, deps.appVersion);
   if (method === "GET" && path === "/api/settings-kit/files") return { files: fileMap(deps.store, deps.owner, deps.workspace) };
   const slot = /^\/api\/settings-kit\/files\/([a-z][a-z0-9_-]{0,20})$/.exec(path);
   if (method === "GET" && slot) {
-    // The text of these files says who the owner is, so only the owner reads it here.
-    deps.store.profiles.requireOwner("Reading the files your assistant reads");
     const key = SlotSchema.safeParse(slot[1]);
     if (!key.success) throw new SettingsKitError(404, "There is no such file.");
     return openFile(deps.store, deps.owner, deps.workspace, key.data);
@@ -103,9 +113,8 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   }
   if (path === "/api/settings-kit/apply") return apply(deps, await body());
   if (path === "/api/settings-kit/files") {
-    deps.store.profiles.requireOwner("Changing the files your assistant reads");
     const input = await body();
-    try { return saveFile(deps.store, deps.owner, deps.workspace, input); }
+    try { return saveFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
     catch (error) { throw error instanceof z.ZodError ? error : new SettingsKitError(400, (error as Error).message); }
   }
   throw new SettingsKitError(404, "Not found");

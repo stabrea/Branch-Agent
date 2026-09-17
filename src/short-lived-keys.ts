@@ -89,7 +89,7 @@ const ownerOnlyReads: readonly RegExp[] = [
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
   // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
-  /^\/api\/settings-kit\/(export|files(\/[a-z]+)?)$/,
+  /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
 ];
 
 export const generalShortLivedKeyRefusal =

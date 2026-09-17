@@ -1,5 +1,5 @@
-import { closeSync, constants, lstatSync, openSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, writeSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { contextFileSettings, contextFileStatus, findFile, perFileBytes, slotKeys, slots, switchFor, type SlotKey } from "../context-files.js";
@@ -78,8 +78,26 @@ export function openFile(store: Store, owner: string, workspace: string, key: Sl
   return { slot: key, name: found?.name ?? slot.names[0], text: found?.text ?? "", editable: true, setting, why: "" };
 }
 
-/** Replaces the whole file with the owner's text. */
-export function saveFile(store: Store, owner: string, workspace: string, input: unknown): OpenedFile {
+/**
+ * Opens the file for writing without following a link, and refuses anything that is not a plain file
+ * with one name: a hard link would carry the owner's text into whatever else it names.
+ */
+function openForWrite(path: string, exists: boolean): number {
+  const flags = constants.O_WRONLY | constants.O_NOFOLLOW | (exists ? 0 : constants.O_CREAT | constants.O_EXCL);
+  const handle = openSync(path, flags, 0o600);
+  const found = fstatSync(handle);
+  if (!found.isFile() || (exists && found.nlink > 1)) {
+    closeSync(handle);
+    throw new Error("That is not a plain file, so nothing was written.");
+  }
+  return handle;
+}
+
+/**
+ * Replaces the whole file with the owner's text. `guard` is the never-break check: a file outside the
+ * data folder's own list (a project's file) is asked about before it is written.
+ */
+export function saveFile(store: Store, owner: string, workspace: string, input: unknown, guard?: (target: string) => string | null): OpenedFile {
   const { slot, text } = FileSaveSchema.parse(input);
   if (Buffer.byteLength(text, "utf8") > perFileBytes)
     throw new Error(`That is longer than your assistant reads (${perFileBytes / 1000} kB). Shorten it and save again.`);
@@ -89,8 +107,12 @@ export function saveFile(store: Store, owner: string, workspace: string, input: 
     : "This file cannot be changed here. Open it in your own editor.");
   const place = placeFor(store, owner, workspace, slot)!;
   if (place.exists && !lstatSync(place.path).isFile()) throw new Error("That is not a plain file, so nothing was written.");
-  const flags = constants.O_WRONLY | constants.O_NOFOLLOW | (place.exists ? constants.O_TRUNC : constants.O_CREAT | constants.O_EXCL);
-  const handle = openSync(place.path, flags, 0o600);
-  try { writeSync(handle, text.endsWith("\n") || !text ? text : `${text}\n`); } finally { closeSync(handle); }
+  const refused = resolve(dirname(place.path)) === resolve(store.folder) ? null : guard?.(place.path);
+  if (refused) throw new Error(refused);
+  const handle = openForWrite(place.path, place.exists);
+  try {
+    if (place.exists) ftruncateSync(handle, 0);
+    writeSync(handle, text.endsWith("\n") || !text ? text : `${text}\n`);
+  } finally { closeSync(handle); }
   return openFile(store, owner, workspace, slot);
 }

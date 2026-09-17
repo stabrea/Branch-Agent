@@ -7195,14 +7195,22 @@ made. A change that makes Branch less careful (a guard turned down, or a switch 
 turned up) starts unticked and also needs "Yes, make it less careful"; the server refuses it otherwise.
 They reach only the fields listed in `src/settings-kit/catalogue.ts` (switches, yes/no, short choices
 and bounded numbers), never Lockdown, the session lock, connections, keys, people or pairing, so a
-settings file cannot carry or bring in a secret. A short-lived key may read the list of settings but
-not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
+settings file cannot carry or bring in a secret. The list fails closed: a setting or field that is not
+in the catalogue, including any added later, is blocked (`classify`), and accounts, add-ons, the leak
+guard, what is passed on to programs, never-break, tunnels and the launch file are on the never-touched
+list as well. Working until a goal is met and writing new skills count as reaching further; turning off
+the snapshots counts as taking a protection away. Guards are saved through their own module's save
+(the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
+smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
+changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
 **Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
 and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
 it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
-and replaces it whole; a file longer than the loader carries, a link, or a file in an untrusted
-project folder is not edited here.
+and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
+link), or a file in an untrusted project folder is not edited here, and a project's file is checked
+against the never-break guard before it is written.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
 each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
