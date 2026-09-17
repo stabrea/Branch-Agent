@@ -253,6 +253,7 @@ function engineCard(summary) {
   return box;
 }
 
+/* The meter and its 75% / 92% steps follow OpenClaw's Control UI (MIT; see THIRD_PARTY_NOTICES.md). */
 function meter(labelKey, english, used, total) {
   const wrap = make("div", "db-meter-row");
   const share = total ? Math.min(1, Math.max(0, used / total)) : 0;
