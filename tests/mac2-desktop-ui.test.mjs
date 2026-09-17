@@ -279,7 +279,11 @@ test("the voice service is told which computer it is on, and never starts the re
   // Switched off out of the box: nothing is listed, nothing is asked, and reading aloud says why.
   const quiet = await systemVoices(voice, "local");
   assert.deepEqual([quiet.system, quiet.mode], [[], "off"]);
-  await assert.rejects(voice.speak("local", { text: "hello", voice: "", speed: 1 }), /own voice is switched off/);
+  await assert.rejects(voice.speak("local", { text: "hello", voice: "", speed: 1 }), /own voice is switched off.*or choose your provider's voice/);
+  saveVoiceSettings(app.store, "local", { keepAudioOnThisComputer: true });
+  await assert.rejects(voice.speak("local", { text: "hello", voice: "", speed: 1 }),
+    (error) => /switched off/.test(error.message) && !/provider/.test(error.message), "no advice that would be refused too");
+  saveVoiceSettings(app.store, "local", { keepAudioOnThisComputer: false });
   assert.equal(started.length, 0, "nothing was started while it was off");
   const deps0 = { store: app.store, models: app.runtime.models, owner: "local", voice, policy: new NetworkPolicy({}), fetch };
   assert.equal(voicePlan(deps0).readAloud.ready, false);

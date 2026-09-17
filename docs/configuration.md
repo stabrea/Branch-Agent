@@ -2287,7 +2287,8 @@ screen tool answers "Branch can only use your screen and keyboard from the Branc
 computer". If the notice cannot be shown, nothing is done and Branch says so. (Code:
 `src/integrations/desktop-banner.ts`, `src/desktop/banner-window.ts`.)
 **Off, when needed, or on (every computer).** The setting also carries `mode`: `off` (the default:
-every screen tool refuses and none is advertised to the model), `when-needed` (the tools are a line
+every screen tool refuses, and none is offered to the model in the first round; one asked for by
+name still refuses), `when-needed` (the tools are a line
 in the tool index and load when the work calls for them — what "enabled" always meant, so an older
 saved `enabled: true` reads as this), or `on` (the tools travel with every task from the first
 round). `POST /api/desktop/settings` takes `mode` or the older `enabled`; turning `enabled` on

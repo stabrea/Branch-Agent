@@ -66,9 +66,11 @@ export function ttsRouteFor(settings: VoiceSettings, provider: Provider | undefi
 }
 
 /** What reading aloud says while the computer's own voice is switched off. */
-export function systemVoiceOffMessage(platform: string = process.platform): string {
+export function systemVoiceOffMessage(platform: string = process.platform, keepAudioHere = false): string {
   const name = platform === "win32" ? "The voice that comes with Windows" : "Your computer's own voice";
-  return `${name} is switched off, so nothing was read aloud. Turn it on under Settings → Voice, or choose your provider's voice there.`;
+  // With audio kept on this computer the provider's voice refuses too, so it is not offered.
+  const instead = keepAudioHere ? "" : ", or choose your provider's voice there";
+  return `${name} is switched off, so nothing was read aloud. Turn it on under Settings → Voice${instead}.`;
 }
 
 /** Which computer the voice runs on, and how it starts and finds programs there; all replaced in tests. */
@@ -110,7 +112,8 @@ export class VoiceService {
     const settings = this.settings(owner), provider = this.provider(owner);
     const tts = ttsRouteFor(settings, provider, this.platform);
     const off = tts.kind === "windows" && settings.systemVoice === "off";
-    return { stt: sttRouteFor(settings, provider), tts: off ? { ...tts, reason: systemVoiceOffMessage(this.platform) } : tts, settings };
+    const reason = systemVoiceOffMessage(this.platform, settings.keepAudioOnThisComputer);
+    return { stt: sttRouteFor(settings, provider), tts: off ? { ...tts, reason } : tts, settings };
   }
   /** The computer's own voices, or none without asking the computer while that voice is switched off. */
   async systemVoiceNames(owner: string): Promise<string[]> {
@@ -134,7 +137,8 @@ export class VoiceService {
   async speak(owner: string, input: SpeakRequest, options: { signal?: AbortSignal } = {}): Promise<SpokenAudio> {
     const settings = this.settings(owner);
     const route = ttsRouteFor(settings, this.provider(owner), this.platform);
-    if (route.kind === "windows" && settings.systemVoice === "off") throw new Error(systemVoiceOffMessage(this.platform));
+    if (route.kind === "windows" && settings.systemVoice === "off")
+      throw new Error(systemVoiceOffMessage(this.platform, settings.keepAudioOnThisComputer));
     const request: SpeakRequest = {
       text: input.text,
       voice: input.voice || (settings.voiceId === "default" ? "" : settings.voiceId),
