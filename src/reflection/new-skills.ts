@@ -93,6 +93,9 @@ export class NewSkillDrafts {
     if (!options.force && entry.trial && !entry.trial.noWorse)
       throw new Error("Tasks went worse with the new skill than without it. Keep it anyway only if you mean to.");
     const skill = this.store.skills.view(this.owner, skillId);
+    // The acknowledgement below is only for the trial; a scan finding is never acknowledged for the owner.
+    if (skill.versions.find((entry) => entry.version === skill.headVersion)?.findings.length)
+      throw new Error("The skill scan found something in this skill, so it cannot be switched on from here.");
     if (options.force)
       audit(this.store, this.owner, { action: "skill.forced", actor: this.owner, subject: `new skill ${skill.name}`, source: "owner", outcome: "allowed",
         reason: entry.trial ? "Tasks went worse with it, and it was switched on anyway." : "It was switched on without being tried on any past task." });

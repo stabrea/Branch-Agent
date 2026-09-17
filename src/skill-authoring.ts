@@ -5,6 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { TrialReport, TrialTask } from "./skill-revisions.js";
 import { parseSkillDocument } from "./skill-document.js";
 import { detectInjection } from "./content-guard.js";
+import { describeFindings, scanSkill } from "./skill-scan.js";
 
 /**
  * Help with writing skills. The first part reads several tasks that went well and proposes one
@@ -107,11 +108,18 @@ export function learningTask(store: Store, owner: string, prompt: string, runtim
   return { parent, context: practice ? runtime.context({ runId: parent.id, dryRun: true }) : runtime.context({ runId: parent.id, permissions: [] }) };
 }
 const unfence = (text: string): string => text.trim().replace(/^```[a-z]*\r?\n?|\r?\n?```$/g, "").trim();
-/** A drafted skill file is refused when any line reads like an order slipped in from outside. */
+/**
+ * A drafted skill file is refused when any line reads like an order slipped in from outside, or
+ * when the skill scan finds anything at all (a secret, sending data out, overriding the rules).
+ * The owner's "review" skill policy is for skills a person chose; a skill the assistant wrote never
+ * gets a finding waved through, so its drafts can only be as safe as the strictest policy.
+ */
 function refuseInjected(document: string): void {
   const warnings = detectInjection(document);
   if (warnings.length)
     throw new Error(`The draft was not kept: a line in it ${warnings[0]!.reason} ("${warnings[0]!.excerpt}").`);
+  const findings = scanSkill(document);
+  if (findings.length) throw new Error(`The draft was not kept: ${describeFindings(findings)}.`);
 }
 
 export const DraftFromNoteSchema = z.object({
