@@ -69,7 +69,10 @@ test("a tool in a closed group is found and called through tools.expand, and per
   assert.equal(run.status, "completed");
   assert.equal(run.output, "Nothing is scheduled.");
   assert.ok(!provider.requests[0].tools.includes("schedules.list"), "the closed tool was not described at first");
-  assert.ok(provider.requests[1].tools.includes("schedules.list"), "opening the toolbox added its tools");
+  assert.ok(provider.requests[1].tools.includes("schedules.list"),
+    "opening the toolbox added its tools. If this broke after you registered a tool, it is the cap in "
+    + "src/tool-loading.ts (defaultMaxLoaded), not anything you did: a toolbox holding more tools than "
+    + "the cap has to drop some, and ties go by registration order. Do not raise the cap.");
   assert.ok(provider.requests[2].tools.includes("schedules.list"), "it stays open for the rest of the conversation");
   const [expanded] = eventsOf(app, run.id, "catalog.expanded");
   assert.deepEqual(expanded.opened, ["schedules"]);
@@ -276,4 +279,24 @@ test("a catalog of 150 tools stays small over a long conversation without thrash
   assert.ok(biggest > 8000, `the conversation really did grow (${biggest} tokens at its largest)`);
   assert.ok(compactions <= 6, `${compactions} compactions over 20 rounds is not thrashing`);
   assert.ok(compactions >= 1, "and the conversation was long enough for at least one");
+});
+
+test("registering another tool does not push an existing one out of an opened toolbox", async (t) => {
+  // A new tool used to displace an existing one whenever its name sorted earlier, which broke this
+  // file for whoever happened to add the next tool anywhere in the app. Ties now go by registration
+  // order instead, so what is already there keeps its place and anything new waits at the back.
+  const { app, provider } = await fixture(t, [
+    call(expandToolName, { groups: ["schedules"] }),
+    call("schedules.list", {}),
+    say("Nothing is scheduled."),
+  ]);
+  for (const name of ["schedules.aaa_added", "schedules.bbb_added", "schedules.ccc_added"])
+    app.registry.register({
+      name, description: `A tool named ${name}, registered after the ones already here, and sorting before schedules.list.`,
+      parameters: z.object({}).strict(), permission: "schedules.read",
+      execute: async () => ({ ok: true }),
+    });
+  await app.runtime.run({ prompt: "tidy the desk" });
+  assert.ok(provider.requests[1].tools.includes("schedules.list"),
+    "a newly registered tool pushed an existing one out of the opened toolbox");
 });
