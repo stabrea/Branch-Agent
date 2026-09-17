@@ -90,3 +90,10 @@ export function partSettings<T>(store: Pick<Store, "get">, owner: string, key: s
   const saved = schema.safeParse(store.get("settings", owner, key)?.data ?? {});
   return saved.success ? saved.data : schema.parse({});
 }
+
+/** Cuts text to at most this many bytes without splitting a character (a workspace file holds 32 KiB). */
+export function clipBytes(text: string, bytes: number): string {
+  const buffer = Buffer.from(text, "utf8");
+  if (buffer.byteLength <= bytes) return text;
+  return buffer.subarray(0, bytes).toString("utf8").replace(/\uFFFD$/, "");
+}

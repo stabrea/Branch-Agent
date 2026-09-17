@@ -2425,8 +2425,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
       if (artifactPageRoute(request, response, path)) return;
-      // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name.
-      if (app.asks.surfaces.serve(request, response, path)) return;
+      // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
+      // only on this computer's own listener, since the name does not run out as an artifact's does.
+      if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));

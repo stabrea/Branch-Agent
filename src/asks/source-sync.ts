@@ -4,7 +4,7 @@ import type { ToolContext } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
-import { partSettings, requireAsk } from "./settings.js";
+import { clipBytes, partSettings, requireAsk } from "./settings.js";
 
 /**
  * A0612: bringing new items in from other services, each source keeping a cursor so a sync only
@@ -147,11 +147,14 @@ export class SourceSync {
   }
 }
 
-/** One item as a small Markdown file; its text is kept as data, clipped to what a file may hold. */
+/**
+ * One item as a small Markdown file; its text is kept as data, clipped to what a workspace file may
+ * hold (32 KiB), so one long item can never stop the cursor from moving on.
+ */
 export function render(item: SyncItem): string {
   const lines = [`# ${item.title.replace(/\n/g, " ").slice(0, 200)}`, "", `- When: ${item.at}`];
-  if (item.url) lines.push(`- Where: ${item.url}`);
-  lines.push("", item.text.slice(0, 24000), "");
+  if (item.url) lines.push(`- Where: ${item.url.slice(0, 500)}`);
+  lines.push("", clipBytes(item.text, 30000), "");
   return lines.join("\n");
 }
 

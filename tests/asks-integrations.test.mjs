@@ -104,6 +104,9 @@ test("A0612 a private repository's key is filled in at the call, and Telegram wa
     /can only be read in one place/);
   assert.equal(telegram.calls.length, 1, "nothing was asked while Telegram is a chat channel");
   assert.match(render({ id: "x", title: "a\nb", text: "t", url: "", at: "now" }), /^# a b\n/);
+  const long = render({ id: "x", title: "t", text: "é".repeat(40000), url: "", at: "now" });
+  assert.ok(Buffer.byteLength(long) <= 32768, "a long item still fits a workspace file");
+  assert.equal(long.includes("\uFFFD"), false, "no character is cut in half");
 });
 
 test("A0612 a mailbox is read after its last UID over real IMAP, without marking anything read", async (t) => {

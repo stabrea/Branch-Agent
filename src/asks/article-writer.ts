@@ -7,7 +7,7 @@ import type { ToolRegistry } from "../registry.js";
 import { slugFor } from "../research.js";
 import type { Store } from "../store.js";
 import type { AnswerWeb } from "./answer-engine.js";
-import { requireAsk } from "./settings.js";
+import { clipBytes, requireAsk } from "./settings.js";
 
 /**
  * The research-pipeline family (STORM long-form article, multi-perspective personas, outline,
@@ -105,7 +105,7 @@ export class ArticleWriter {
     const article = dropRepeats(`# ${input.topic}\n\n${lead}\n\n${bodies.join("\n\n")}\n\n${citations.markdown("Sources")}\n`);
     this.stage(context, "polish", { characters: article.length });
     const path = `research/${slugFor(input.topic)}-article.md`;
-    await this.deps.files.write(path, article.slice(0, 30000), context.signal);
+    await this.deps.files.write(path, clipBytes(article, 32000), context.signal);
     return { path, sections, personas, sources: citations.size };
   }
 }

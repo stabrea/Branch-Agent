@@ -222,7 +222,7 @@ export const ROUTES = {
   "/api/asks/runtimes/remove": "owner POST",
   "/api/asks/sources": "owner POST",
   "/api/asks/sources/sync": "other POST",
-  "/api/asks/surfaces": "owner POST",
+  "/api/asks/surfaces": "secret-read",
   "/api/asks/surfaces/:id/refresh": "other POST",
   "/api/asks/surfaces/:id/remove": "owner POST",
   "/api/asks/switch": "owner POST",
