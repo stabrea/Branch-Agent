@@ -1,5 +1,5 @@
 /**
- * The five benchmark formats Branch Agent can read from files on this computer. Each one reads the
+ * The six benchmark formats Branch Agent can read from files on this computer. Each one reads the
  * published shape unchanged, so the owner downloads the dataset once, puts it in a folder, and
  * nothing is ever fetched by the program itself.
  *
@@ -13,6 +13,7 @@ import { join, dirname } from "node:path";
 import { parsePatch, applyHunks } from "./patch.js";
 import { normaliseAnswer } from "./evaluation-scorers.js";
 import { findBash, findGit, runBenchmarkCommand } from "./benchmark-shell.js";
+import { nexusAdapter } from "./benchmark-nexus.js";
 import {
   field, judgeFail, judgePass, jsonlFiles, readJsonl, safeId, withinFolder,
   type BenchmarkAdapter, type BenchmarkJudgement, type BenchmarkResult, type BenchmarkTask, type PreparedTask,
@@ -296,7 +297,7 @@ export const terminalBenchAdapter: BenchmarkAdapter = {
 
 /** Every adapter the program has, by name. */
 export const benchmarkAdapters: readonly BenchmarkAdapter[] = [
-  sweBenchAdapter, gaiaAdapter, codeTasksAdapter, webTasksAdapter, terminalBenchAdapter,
+  sweBenchAdapter, gaiaAdapter, codeTasksAdapter, webTasksAdapter, terminalBenchAdapter, nexusAdapter,
 ];
 
 export function findBenchmarkAdapter(id: string): BenchmarkAdapter {

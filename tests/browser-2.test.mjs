@@ -397,9 +397,10 @@ test('each search service is asked in its own way and its answer is read correct
   assert.equal(requestFor({backend: 'duckduckgo'}, 'q', 5, '', 'http://127.0.0.1:1/lite/').url, 'http://127.0.0.1:1/lite/');
 });
 
-test('the three browser skills pack, read back, and describe steps the fixtures really support', async () => {
-  assert.deepEqual(browserSkillNames.sort(),
-    ['fill-a-form-from-a-document', 'search-and-summarise', 'watch-a-page-for-a-change']);
+test('the shipped browser skills pack, read back, and describe steps the fixtures really support', async () => {
+  assert.deepEqual(browserSkillNames.slice().sort(),
+    ['fill-a-form-from-a-document', 'read-several-pages-of-one-site', 'search-and-summarise',
+      'watch-a-page-for-a-change', 'write-a-site-skill']);
   for (const name of browserSkillNames) {
     const {manifest, files} = readSkillPackage(browserSkillPackage(name));
     assert.equal(manifest.name, name);
@@ -407,7 +408,7 @@ test('the three browser skills pack, read back, and describe steps the fixtures 
     assert.deepEqual(manifest.permissions, ['skills.read'], 'a skill of instructions asks for nothing else');
     assert.ok(files['SKILL.md'].length > 200);
   }
-  assert.equal(browserSkillList().length, 3);
+  assert.equal(browserSkillList().length, 5);
 
   // What "fill a form from a document" tells the assistant to do is run against the fixture form.
   const h = await harness('browser2-skills');

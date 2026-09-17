@@ -68,13 +68,27 @@ export const markLine = (mark: Mark): string => `[${mark.id}] ${mark.role}${mark
  */
 export async function annotate(page: Page, options: z.infer<typeof AnnotateSchema>,
   registry: MarkRegistry): Promise<{ url: string; marks: Mark[]; map: string; truncated: boolean }> {
-  const found = await page.evaluate(collectMarks, { limit: options.limit, layerId: markLayerId, attribute: passAttribute });
+  const found = await page.evaluate(describeElements,
+    { limit: options.limit, layerId: markLayerId, attribute: passAttribute, only: '' });
   const marks: Mark[] = found.candidates.map(candidate => ({
     role: candidate.role, name: candidate.name, key: markKey(candidate), id: 0,
   })).map(mark => ({ ...mark, id: registry.number(mark.key) }));
   await page.evaluate(drawMarks, { layerId: markLayerId, attribute: markAttribute, pass: passAttribute,
     draw: options.draw, numbers: marks.map(mark => mark.id) });
   return { url: page.url(), marks, map: marks.map(markLine).join('\n'), truncated: found.truncated };
+}
+
+/**
+ * The stable name of whatever is wearing a number on the page right now, or nothing when no single
+ * thing wears it. A page can take a number off one thing and put it on another between the moment
+ * the page was described and the moment a press is asked for; comparing this against the name the
+ * number was handed to is what stops that press landing on the wrong thing.
+ */
+export async function liveMarkKey(page: Page, mark: number): Promise<string | null> {
+  const empty = { candidates: [] as Candidate[], truncated: false };
+  const found = await page.evaluate(describeElements, { limit: 3, layerId: markLayerId,
+    attribute: passAttribute, only: `[${markAttribute}="${mark}"]` }).catch(() => empty);
+  return found.candidates.length === 1 ? markKey(found.candidates[0]!) : null;
 }
 
 /** Takes the labels off again, so a picture or a saved page looks the way the website meant it to. */
@@ -87,57 +101,50 @@ export async function clearMarks(page: Page): Promise<void> {
   }, markLayerId).catch(() => undefined);
 }
 
+/** What one round of describing asks for. `only` names things to describe without touching them. */
+interface DescribeOptions { limit: number; layerId: string; attribute: string; only: string }
+
 /**
- * Runs inside the page. Collects the things worth numbering in the order the page lists them, and
- * marks each one with its place in that order so the drawing step can find it again.
+ * Runs inside the page. Describes the things worth numbering, in the order the page lists them, and
+ * marks each one with its place in that order so the drawing step can find it again. Given `only`,
+ * it describes just those things and changes nothing at all — which is how a number is checked,
+ * later on, to be still worn by the very thing it was handed to.
  */
-function collectMarks(options: { limit: number; layerId: string; attribute: string }): {
-  candidates: Candidate[]; truncated: boolean;
-} {
-  const selector = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [contenteditable=""], [contenteditable="true"]';
-  const roleOf = (element: Element): string => {
-    const explicit = element.getAttribute('role');
-    if (explicit) return explicit.trim().toLowerCase().slice(0, 30);
-    const tag = element.tagName.toLowerCase();
-    if (tag === 'a') return 'link';
-    if (tag === 'input') return `input:${(element.getAttribute('type') ?? 'text').toLowerCase().slice(0, 20)}`;
-    return tag;
-  };
-  const nameOf = (element: Element): string => {
-    const labelled = element.getAttribute('aria-label') ?? '';
+function describeElements(options: DescribeOptions): { candidates: Candidate[]; truncated: boolean } {
+  const pressable = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [contenteditable=""], [contenteditable="true"]';
+  const clean = (text: string): string => text.replace(/\s+/g, ' ').trim().slice(0, 120);
+  const describe = (element: Element): Candidate => {
+    const tag = element.tagName.toLowerCase(), explicit = element.getAttribute('role');
+    const role = explicit ? explicit.trim().toLowerCase().slice(0, 30)
+      : tag === 'a' ? 'link'
+      : tag === 'input' ? `input:${(element.getAttribute('type') ?? 'text').toLowerCase().slice(0, 20)}` : tag;
     const own = (element as HTMLElement).innerText ?? element.textContent ?? '';
-    const fallback = element.getAttribute('placeholder') ?? element.getAttribute('title')
-      ?? element.getAttribute('alt') ?? element.getAttribute('name') ?? '';
     const label = element.id ? document.querySelector(`label[for="${CSS.escape(element.id)}"]`)?.textContent ?? '' : '';
-    const text = labelled || own.trim() || label.trim() || fallback;
-    return text.replace(/\s+/g, ' ').trim().slice(0, 120);
+    const name = clean(element.getAttribute('aria-label') || own.trim() || label.trim()
+      || element.getAttribute('placeholder') || element.getAttribute('title')
+      || element.getAttribute('alt') || element.getAttribute('name') || '');
+    // The kinds of boxes it sits inside, without any counting, so reordering changes nothing.
+    const boxes: string[] = [];
+    for (let node = element.parentElement; node && boxes.length < 4; node = node.parentElement)
+      boxes.push(node.tagName.toLowerCase());
+    return { role, name, path: boxes.join('>'), detail: `${tag}|${element.getAttribute('type') ?? ''}` };
   };
-  // The kinds of boxes this thing sits inside, without any counting, so reordering changes nothing.
-  const pathOf = (element: Element): string => {
-    const names: string[] = [];
-    let node: Element | null = element.parentElement;
-    while (node && names.length < 4) { names.push(node.tagName.toLowerCase()); node = node.parentElement; }
-    return names.join('>');
-  };
-  const visible = (element: Element): boolean => {
-    const box = element.getBoundingClientRect();
-    return box.width > 0 && box.height > 0;
-  };
+  if (options.only)
+    return { candidates: [...document.querySelectorAll(options.only)].slice(0, options.limit).map(describe), truncated: false };
   // A number must never be something the page can claim for itself. Anything already wearing one of
   // these attributes — left over from a previous round, or written by the page to lure a press onto
   // the wrong thing — has it taken off before any number is handed out.
   for (const node of document.querySelectorAll('[data-branch-mark], [data-branch-mark-pass]')) {
-    node.removeAttribute('data-branch-mark');
-    node.removeAttribute('data-branch-mark-pass');
+    node.removeAttribute('data-branch-mark'); node.removeAttribute('data-branch-mark-pass');
   }
-  const candidates: Candidate[] = [];
-  const all = [...document.querySelectorAll(selector)]
-    .filter(element => !element.closest(`#${options.layerId}`) && visible(element));
-  for (const element of all.slice(0, options.limit)) {
-    element.setAttribute(options.attribute, String(candidates.length));
-    candidates.push({ role: roleOf(element), name: nameOf(element), path: pathOf(element),
-      detail: element.tagName.toLowerCase() + '|' + (element.getAttribute('type') ?? '') });
-  }
+  const all = [...document.querySelectorAll(pressable)].filter(element => {
+    const box = element.getBoundingClientRect();
+    return !element.closest(`#${options.layerId}`) && box.width > 0 && box.height > 0;
+  });
+  const candidates = all.slice(0, options.limit).map((element, index) => {
+    element.setAttribute(options.attribute, String(index));
+    return describe(element);
+  });
   return { candidates, truncated: all.length > candidates.length };
 }
 
