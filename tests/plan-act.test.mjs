@@ -149,6 +149,46 @@ test("a step that needs something the plan did not mention stops and names the d
   assert.equal(kept.waitingOnOwner, true);
 });
 
+test("an ordinary approval in the middle of a plan does not throw the rest of the plan away", async (t) => {
+  const { app, api, workspace } = await served(t, ({ system, user, last }) => {
+    if (/You are planning a task/.test(system)) return say('{"steps":[{"title":"Write the first note","touches":"one.txt","changes":true},{"title":"Write the second note","touches":"two.txt","changes":true}]}');
+    if (last?.role === "tool") return say("Written.");
+    if (/^Step 1 of 2/.test(user)) return call("files.write", { path: "one.txt", content: "one" });
+    if (/^Step 2 of 2/.test(user)) return call("files.write", { path: "two.txt", content: "two" });
+    return say("Both notes are written.");
+  });
+  await api("policy", { preset: "ask-before-changes" });
+  await api("plan-act", { scope: "project", planMode: "show-plan" });
+  const asked = await api("run", { prompt: "write two notes" });
+  await api(`runs/${asked.id}/plan`, {});
+
+  const stopped = await api("run", { prompt: "go ahead", sessionId: asked.sessionId });
+  assert.equal(stopped.status, "needs_input", "the approval rule stops it, as it always has");
+  assert.match(stopped.output, /Before I go ahead/);
+  const kept = (await api(`runs/${asked.id}/plan`)).plan;
+  assert.equal(kept.approved, true, "the agreed plan is still there");
+  assert.equal(kept.current, 0, "and it is still on the step it stopped in");
+
+  // Each note is a different file, so each is a question of its own: that is the approval rule
+  // doing its job. What matters here is that the plan survives both of them.
+  await api("policy/approve", { sessionId: asked.sessionId, decision: "allow", remember: "session" });
+  const second = await api("run", { prompt: "go ahead", sessionId: asked.sessionId });
+  assert.equal(await readFile(join(workspace, "one.txt"), "utf8"), "one");
+  assert.equal(second.status, "needs_input", "the second note is a second question");
+  assert.deepEqual(data(app, second.id, "plan.step.started").map((d) => d.step), [1, 2],
+    "the step it stopped inside is done again from its start, and then it moves on");
+  await api("policy/approve", { sessionId: asked.sessionId, decision: "allow", remember: "session" });
+  const done = await api("run", { prompt: "go ahead", sessionId: asked.sessionId });
+  assert.equal(done.status, "completed", "the rest of the plan is picked up after the answers");
+  assert.equal(await readFile(join(workspace, "two.txt"), "utf8"), "two");
+  // A step the task stopped inside is begun again, so what it had already done it would do again.
+  // Here nothing had: the question came before the write, which is where an approval always comes.
+  const writes = [stopped.id, second.id, done.id].flatMap((id) => data(app, id, "tool.completed"))
+    .filter((event) => event.name === "files.write").length;
+  assert.equal(writes, 2, "each note was written exactly once, though step 1 was begun twice");
+  assert.equal(app.runtime.orchestration.plan(asked.sessionId), undefined, "the finished plan is cleared");
+});
+
 test("each autonomy setting stops where it should", async (t) => {
   const plan = '{"steps":[{"title":"Look it up","changes":false},{"title":"Write it down","changes":true}]}';
   const reply = ({ system, user }) => {

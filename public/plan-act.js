@@ -127,8 +127,9 @@ export async function render() {
   $("session-plan-mode").value = state.effective.planMode;
   $("session-autonomy").value = state.effective.autonomy;
   const plan = state.plan;
-  if (!plan || plan.mode !== "show-plan") { $("plan-card").hidden = true; $("plan-card").replaceChildren(); return; }
-  planCard(plan, riskLine(plan));
+  if (!plan || plan.mode !== "show-plan") { $("plan-card").hidden = true; $("plan-card").replaceChildren(); }
+  else planCard(plan, riskLine(plan));
+  keepLooking();
 }
 /** The one sentence about which steps change something, in the language the page is showing. */
 function riskLine(plan) {
@@ -137,10 +138,24 @@ function riskLine(plan) {
   const steps = risky.map((one) => `${one.at} (${one.step.touches || one.step.title})`).join(", ");
   return t(risky.length === 1 ? "planAct.riskOne" : "planAct.riskSome", { steps });
 }
+/**
+ * Looking for a plan costs a small request, so it is only done while one could appear: for a minute
+ * after you send something, and for as long as a plan card is on the screen. A conversation in
+ * "Just do it" settles back to asking nothing at all.
+ */
+let ticker = null, watchUntil = 0;
+function keepLooking() {
+  const wanted = !$("plan-card")?.hidden || Date.now() < watchUntil;
+  if (wanted && !ticker) ticker = setInterval(() => { if (!document.hidden) void render(); }, 2000);
+  if (!wanted && ticker) { clearInterval(ticker); ticker = null; }
+}
 $("session-plan-mode")?.addEventListener("change", () => void choose("conversation"));
 $("session-autonomy")?.addEventListener("change", () => void choose("conversation"));
 $("plan-mode-project")?.addEventListener("click", () => void choose("project"));
+$("chat-form")?.addEventListener("submit", () => { watchUntil = Date.now() + 60000; keepLooking(); });
 document.addEventListener("branch-language", () => void render());
+/* Opening another conversation changes this one attribute, and the card belongs to that one. */
+if ($("conversation"))
+  new MutationObserver(() => void render()).observe($("conversation"), { attributeFilter: ["data-session-id"] });
 globalThis.branchPlanAct = { render };
-setInterval(() => { if (!document.hidden) void render(); }, 2000);
 void render();
