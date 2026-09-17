@@ -839,7 +839,42 @@ them on a task in a suite file as `"scorers": [...]`:
 you can say a tool must have been used with particular arguments), `budget` (`maxSteps`, `maxMs`,
 `maxTokens`, `maxDollars` — the rounds, time, tokens and money a task may use), `finished` (did it
 actually do the work, or did it say it could not — the completion checks you already use, plus the
-phrases an answer uses when it has quietly given up), and `rubric`.
+phrases an answer uses when it has quietly given up), `f1`, `passage`, `html`, `trajectory`, and
+`rubric`.
+
+**`f1`** — how many words the answer and your reference answer have in common, which is how
+published question sets mark an answer that is right but worded differently. `{"kind": "f1",
+"value": "the Eiffel Tower", "threshold": 0.6}`. Before comparing, both are lower-cased, stripped of
+punctuation, and stripped of the three articles "a", "an" and "the"; word order does not count. So
+"The Eiffel Tower." and "eiffel tower" score 1, and an answer that gets half the words right scores
+about a half. `threshold` is the bar it has to clear, 0.6 unless you say otherwise.
+
+**`passage`** — does the answer *carry* the right piece of a document rather than equal it.
+`{"kind": "passage", "passages": ["the deposit is returned within ten working days"], "threshold":
+0.8, "verbatim": false}`. The score is the share of the passage's words that are in the answer, so
+a sentence with the passage inside it passes. List more than one passage when a question has more
+than one right source; the best one wins. Set `verbatim` when the words must also appear back to
+back, in the passage's own order.
+
+**`html`** — the page itself rather than a description of it, for a task whose result is a changed
+page. `{"kind": "html", "selector": "input#agree", "attribute": "checked"}` says the tick box has to
+be ticked. `source` is `"answer"` (the markup is in the answer, the default) or `"file"` with a
+`path` inside your workspace. Then: `absent` for "there must be none of these", `count` for exactly
+how many, `text` for words the first one must contain, and `attribute` with an optional `value`.
+
+The way an element is named is deliberately small, and that is the whole of it: a tag (`button`),
+an id (`#total`), a class (`.row`), an attribute (`[disabled]`), an attribute with a value
+(`[type=checkbox]`), any of those stuck together for one element (`input.tick[checked]`), and
+spaces between them for "somewhere inside" (`form.order button#send`). Anything else — a comma, a
+`>`, `:first-child` — is refused by name rather than half-understood.
+
+**`trajectory`** — the path taken rather than the answer, for a task where guessing the right answer
+is still wrong. `{"kind": "trajectory", "steps": [{"name": "files.read"}, {"name": "files.write",
+"arguments": {"path": "notes.md"}}], "threshold": 0.6, "ordered": true}`. Only the arguments you
+name are checked. The score is how much of the two paths line up, counting both the steps that did
+not happen and the calls that were not asked for, so one extra call in the middle costs one call
+rather than everything after it. With `ordered` (the default) every named step must also have
+happened in the order you wrote.
 
 `rubric` is the only one that costs money: it asks the model in use to grade a free-text answer
 against words you write. It refuses to guess when no model connection has been chosen, and the same
@@ -899,6 +934,15 @@ Four rules hold for every benchmark that decides by running something:
 - **Same limits as any other command**: the same time, memory, processor and output ceilings, in a
   job the operating system enforces, with no way out to the internet.
 
+**Nexus** (`nexus`) is the published function-calling set: JSON Lines where each line has the
+question (`Input`, `prompt` or `question`), the functions on offer (`Function`, `functions` or
+`tools`) and the reference call written the way a person writes one, `get_weather(city="Paris")`
+(`Output`, `call` or `reference`). Several spellings are accepted because the sets in the wild
+differ. A question is right when the call actually made has the right function name and every
+argument the reference names; marking looks at the tool calls the task really made first, and falls
+back to a call written out in the answer. Extra arguments are not held against it, because a
+reference call rarely lists the optional ones.
+
 Web tasks are run against pages you have saved next to the dataset. A task that points at a live
 website is refused by name: a score against today's version of a shopping site is not a score
 anybody can repeat. terminal-bench tasks are marked by running their `tests.sh`, which needs a bash
@@ -907,11 +951,26 @@ on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the o
 ### What is not supported, and why
 
 OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
-environments are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+environments — MiniWoB, WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
 throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
 Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
 what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
 what each would need, rather than half-supported.
+
+Two more things in this area are deliberately not built, for the same reason and written down here
+so nobody has to guess:
+
+- **A live browser-benchmark environment.** MiniWoB, WebArena and WorkArena are not datasets; they
+  are servers that have to be running, whose pages change as the agent works and whose scoring reads
+  the server's own state. Branch Agent downloads nothing and starts no server, so what it can do
+  honestly is the `web-tasks` adapter: the same task shapes run against pages you have saved to
+  disk. A task that points at a live site is refused by name.
+- **Generating tests for you.** Branch Agent runs tests; it does not write your test suite for you
+  and then claim the result. What exists is the execution half: `data/tool-evaluations/*.json` is a
+  set of tool checks kept as plain data that anyone can read and add to, run with `POST
+  /api/evaluation/tools`, and suites in `data/evaluation/*.json` are the same idea one level up.
+  Asking the assistant to draft a test is an ordinary task like any other, and its output is yours
+  to read before it becomes a check.
 
 ### Studies
 
@@ -961,7 +1020,74 @@ very likely to be in, worked out by resampling the tasks two thousand times. Whe
 zero, nothing is claimed.
 
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
-result per line), and `branch study compare <result id> <result id>`.
+result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
+
+### The journal: repeating a study and seeing what changed
+
+A number on its own is not evidence. "78% on twenty GAIA questions" means nothing without which
+twenty, which model choices, how many repeats, which scorers, and which version of Branch Agent —
+and those are exactly the things that drift between one month and the next. So every study run
+writes a **journal entry** beside its result: the study exactly as it was written, the task ids that
+actually ran, the scorer kinds the tasks used, the benchmarks folder, and the version that ran it.
+Those are boiled down to one short fingerprint. Two entries with the same fingerprint measured the
+same thing; two that do not are not comparable until you know why.
+
+`branch study replay <id>` reads the two newest entries for a study and prints, in this order:
+whether they measured the same thing, a table of every input that changed with its before and
+after, the accuracy on each side, and — when the two results share tasks — the same interval
+`compare` works out, so a small win on a handful of tasks is still not read as a real one. When
+something changed it ends with the only advice that helps: change one thing at a time. `--json`
+gives the entry itself, including the study to save and run to repeat it exactly.
+
+### Scoring the real work as it finishes
+
+A suite tells you how the assistant does on questions somebody wrote down. It does not tell you how
+it is doing on the tasks you actually gave it today, which is where a quiet break shows up first.
+Switch this on and every task that finishes is held to a few checks of your choosing.
+
+`GET /api/evaluation/live` gives the settings, the fifty newest verdicts, and "this many of the last
+hundred passed" with the reasons the failures gave. `POST /api/evaluation/live` sets:
+
+- `enabled` — off until you turn it on. Nothing is scored and nothing is written while it is off.
+- `scorers` — the checks, written exactly as a suite writes them, at most four so a task is never
+  slowed down. `rubric` is refused here by name: scoring every ordinary task with a model would put
+  a second bill on your everyday work, and being told that is better than wondering why. A `budget`
+  scorer carrying `maxDollars` is refused for the same reason in reverse: what a finished task cost
+  is worked out where usage is priced, not here, so a money limit set here would be a bar that never
+  applied. `maxSteps`, `maxMs` and `maxTokens` are all real here — the time comes from the task's own
+  timestamps and the tokens from its usage.
+- `keep` — how many verdicts are kept, from 10 to 2000; 200 unless you say otherwise. The oldest are
+  dropped once there are more than that.
+
+A task never waits for its own verdict, and a check that fails to run is the verdict's problem
+rather than the task's.
+
+### Marking a search rather than an answer
+
+`nDCG@k`, `Recall@k`, `Precision@k`, `MRR` and `MAP` are worked out in `src/retrieval-metrics.ts`,
+which also reads the BEIR layout from a folder already on this computer: `corpus.jsonl` (`_id`,
+`title`, `text`), `queries.jsonl` (`_id`, `text`), and `qrels/<split>.tsv` (question, document,
+grade, after a header line). Nothing is downloaded — you put a set in a folder as with every other
+benchmark here. The search itself is handed in, so these mark any search rather than deciding how
+searching is done.
+
+### Reading back what one task actually did
+
+`runs.export` hands back a finished task's whole record. With `"as": "report"` it hands back the
+same record written out for a person instead: what it was asked, the plan it wrote, then every
+action numbered with what it was given and what came back, the rounds that failed, what the
+reviewer said, the tokens, and the answer. Long inputs and outputs are cut short with the number of
+characters dropped said out loud, so it never hides that there was more.
+
+**Working out why a task went wrong.** That report is the first place to look, because it shows the
+action that failed and the error it came back with rather than the assistant's summary of it.
+Around it: a task's own completion checks are retried a set number of times before it gives up
+(`reliability`), a model call that goes quiet is stopped by the stall watchdog rather than hanging,
+a small script is checked before it runs, and a program can be run under a real debugger you
+already have (Settings → debug adapters) to stop it on a line and look at what every name holds.
+What Branch Agent does **not** have is a separate troubleshooting assistant that goes away and
+fixes a failing command on its own; asking it to look at the report and try again is an ordinary
+task, and you see each step.
 
 **Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
 by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and

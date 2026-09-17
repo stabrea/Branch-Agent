@@ -1,0 +1,35 @@
+{
+  "id": "research",
+  "name": "Research with sources",
+  "description": "Gathering from sources on this computer, answering only from what they say, naming which source said it, and saying so plainly when they do not say. Nothing here reaches the internet.",
+  "tasks": [
+    {
+      "id": "answer-from-the-source",
+      "prompt": "Create two workspace files. Put exactly \"The deposit is returned within ten working days.\" in eval-source-a.txt, and exactly \"Keys are handed back at the office.\" in eval-source-b.txt. Then read them back and tell me, in one sentence, when the deposit is returned, naming the file you got it from.",
+      "checks": { "files": ["eval-source-a.txt", "eval-source-b.txt"] },
+      "scorers": [
+        { "kind": "passage", "passages": ["the deposit is returned within ten working days"], "threshold": 0.8 },
+        { "kind": "contains", "phrases": ["eval-source-a.txt"] },
+        { "kind": "trajectory", "steps": [{ "name": "files.write" }, { "name": "files.read" }], "threshold": 0.5 }
+      ],
+      "tags": ["research", "citations"]
+    },
+    {
+      "id": "say-so-when-the-sources-do-not",
+      "prompt": "These are the only two sources you may use. eval-source-a.txt says: The deposit is returned within ten working days. eval-source-b.txt says: Keys are handed back at the office. What is the late payment fee? If they do not say, reply with exactly: They do not say.",
+      "deny": { "mentions": ["£", "$", "per cent", "percent"] },
+      "scorers": [{ "kind": "f1", "value": "They do not say", "threshold": 0.6 }],
+      "tags": ["research", "honesty"]
+    },
+    {
+      "id": "sum-up-both-sources",
+      "prompt": "Using the same two sources — eval-source-a.txt (the deposit is returned within ten working days) and eval-source-b.txt (keys are handed back at the office) — sum both of them up in one sentence.",
+      "expected": "One sentence covering both the ten working day deposit return and the keys handed back at the office.",
+      "scorers": [
+        { "kind": "contains", "phrases": ["deposit", "keys"] },
+        { "kind": "budget", "maxSteps": 10 }
+      ],
+      "tags": ["research", "writing"]
+    }
+  ]
+}
