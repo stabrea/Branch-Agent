@@ -1,4 +1,5 @@
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
@@ -368,7 +369,7 @@ test("the Schedules screen shows both automations, with a web address and recent
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "Schedules", exact: true }).click();
+  await openPlace(page, "automations:triggers");
 
   const panel = page.locator("#automations-container");
   await panel.getByText("From the shop").waitFor();
@@ -380,8 +381,8 @@ test("the Schedules screen shows both automations, with a web address and recent
   assert.match(await panel.locator(".automations-log").first().innerText(), /completed/);
 
   await panel.getByRole("button", { name: "Send a test", exact: true }).click();
-  await page.locator("#toast").waitFor({ state: "visible" });
-  assert.match(await page.locator("#toast").innerText(), /answered: HTTP 200/);
+  /* Another toast may still be on screen, so "visible" is already true: wait for these words. */
+  await page.locator("#toast").filter({ hasText: "answered: HTTP 200" }).waitFor();
   assert.deepEqual(errors, []);
 });
 

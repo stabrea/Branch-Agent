@@ -1,4 +1,6 @@
-import { clearRunning, readRunning } from "./running.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { clearRunning, readRunning, sessionTokenFileName } from "./running.js";
 import { runTool, systemTool, type RunTool } from "./windows.js";
 
 /**
@@ -35,6 +37,12 @@ export interface StopDeps {
   systemRoot?: string;
   /** How long to wait for the engine to go, each time it is asked. */
   waitMs?: number;
+  /** Which system this is; defaults to this computer's. Only Windows uses `taskkill`. */
+  platform?: NodeJS.Platform;
+  /** macOS and Linux: sends a signal to a process. Tests hand in a fake. */
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** macOS and Linux: the call that asks the engine to close over its own local address. */
+  fetch?: typeof fetch;
 }
 export interface StopReport {
   /** The engine's process id, so the hand-over script can wait for it too. */
@@ -67,16 +75,76 @@ export async function stopBackgroundEngine(dataDir: string, deps: StopDeps = {})
   const instance = await readRunning(dataDir);
   if (!instance || instance.mode !== "daemon" || instance.pid === process.pid)
     return { pid: null, stopped: false, forced: false, message: "Nothing was working in the background." };
+  if ((deps.platform ?? process.platform) !== "win32") return stopPosixEngine(dataDir, instance, deps);
   const run = deps.run ?? runTool, taskkill = systemTool("taskkill.exe", deps.systemRoot);
   const pid = instance.pid;
   const asked = await run(taskkill, ["/PID", String(pid), "/T"]).then(() => true, () => false);
   if (asked && (await waitForExit(pid, deps))) return finish(dataDir, pid, false);
   await run(taskkill, ["/PID", String(pid), "/T", "/F"]).catch(() => undefined);
   if (await waitForExit(pid, deps)) return finish(dataDir, pid, true);
-  return {
-    pid, stopped: false, forced: true,
-    message: "The background engine did not close in time; the update will close it before swapping the files.",
+  return notInTime(pid);
+}
+
+const notInTime = (pid: number): StopReport => ({
+  pid, stopped: false, forced: true,
+  message: "The background engine did not close in time; the update will close it before swapping the files.",
+});
+
+/** macOS and Linux wait a few seconds at each step rather than Windows' twelve. */
+const posixWaitMs = 3000;
+
+/**
+ * macOS and Linux: the engine is asked over its own local address first, then sent the ordinary
+ * "please stop" signal, and only then ended outright. Each step waits a few seconds at most. No
+ * signal is ever sent to a process id that cannot be shown to still be this engine: a note left
+ * behind by a crash may name an id the system has since given to an unrelated program.
+ */
+async function stopPosixEngine(
+  dataDir: string, instance: { pid: number; url: string }, deps: StopDeps,
+): Promise<StopReport> {
+  const pid = instance.pid, bounded = { ...deps, waitMs: deps.waitMs ?? posixWaitMs };
+  const kill = deps.kill ?? ((target: number, signal: NodeJS.Signals) => { process.kill(target, signal); });
+  const send = (signal: NodeJS.Signals): boolean => {
+    try { kill(pid, signal); return true; } catch { return false; }
   };
+  const closing = await engineCall(dataDir, instance.url, "POST", "/api/deployment/close", deps);
+  if (closing?.ok && (await waitForExit(pid, bounded))) return finish(dataDir, pid, false);
+  if (!closing?.ok && !(await stillTheEngine(dataDir, instance, deps))) {
+    await clearRunning(dataDir).catch(() => undefined);
+    return { pid: null, stopped: false, forced: false, message: "Nothing was working in the background." };
+  }
+  if (send("SIGTERM") && (await waitForExit(pid, bounded))) return finish(dataDir, pid, false);
+  send("SIGKILL");
+  if (await waitForExit(pid, bounded)) return finish(dataDir, pid, true);
+  return notInTime(pid);
+}
+
+/**
+ * True when the noted process is still Branch's engine: its address answers as Branch with the saved
+ * key, or the system says that process id is running Branch's engine script.
+ */
+async function stillTheEngine(dataDir: string, instance: { pid: number; url: string }, deps: StopDeps): Promise<boolean> {
+  const state = await engineCall(dataDir, instance.url, "GET", "/api/state", deps);
+  const body = state?.ok ? ((await state.json().catch(() => null)) as { version?: unknown } | null) : null;
+  if (typeof body?.version === "string") return true;
+  const run = deps.run ?? runTool;
+  const command = await run("/bin/ps", ["-p", String(instance.pid), "-o", "command="]).catch(() => "");
+  return /[\\/]dist[\\/]cli\.js\b/.test(command);
+}
+
+/** One call to the engine's own loopback address with the saved key; null when it could not be made. */
+async function engineCall(
+  dataDir: string, url: string, method: "GET" | "POST", path: string, deps: StopDeps,
+): Promise<Response | null> {
+  try {
+    if (new URL(url).hostname !== "127.0.0.1") return null;
+    const token = (await readFile(join(dataDir, sessionTokenFileName), "utf8")).trim();
+    if (!/^[a-f0-9]{64}$/.test(token)) return null;
+    const call = deps.fetch ?? globalThis.fetch;
+    return await call(`${url}${path}`, {
+      method, headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(posixWaitMs),
+    });
+  } catch { return null; }
 }
 
 async function finish(dataDir: string, pid: number, forced: boolean): Promise<StopReport> {

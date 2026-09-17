@@ -43,7 +43,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### ChatGPT plan sign-in
 
-`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.5`, `GPT-5.6` and `GPT-5.4` presets and makes ChatGPT the default when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
+`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
 
 ### Provider catalog and testing
 
@@ -2318,10 +2318,22 @@ version in beside the old one, keeps the old one as `Branch Agent.app.previous` 
 previous one is put back and opened. A copy running from its source code says so and points to
 `branch update` instead. `branch doctor --fix` gives Mac and Linux steps for installing Git.
 
+**Closing the background engine for an update (macOS and Linux).** When the window joined an engine
+working in the background, the update first asks that engine to close over its own local address
+(`POST /api/deployment/close`, answered only on this computer's loopback address and only with the
+master key, never a short-lived key or the phone door; Windows refuses it and keeps using
+`taskkill`). If it has not gone within three seconds it is sent the ordinary stop signal (SIGTERM,
+the same as Ctrl+C), then, three seconds later, ended outright (SIGKILL). Where the app is installed
+is worked out one way for the engine and the updater: the program's folder on Windows and Linux,
+the `.app` bundle on a Mac, whose engine script is `Contents/Resources/app/dist/cli.js`. A built Mac
+app that is not inside an `.app` bundle is asked to move into Applications instead of being told it
+runs from source. The engine's own answers say "start by itself when you sign in to your Mac" (or "to
+this computer" on Linux) where Windows says "start with Windows".
+
 Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
 `POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
-`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
 ## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched

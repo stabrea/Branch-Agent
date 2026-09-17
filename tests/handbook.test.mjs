@@ -4,6 +4,7 @@
  * chapter to itself, and that Help opens the right chapter for the section a person is looking at.
  */
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
@@ -122,7 +123,7 @@ test("H4 Help opens the chapter for the section you are on", async (t) => {
 
   /* Documents is answered by "Everyday tasks", which is what the owner menu should open there. */
   assert.equal(chapterForView("documents").id, "02-everyday-tasks");
-  await page.locator('.nav[data-view="documents"]').first().click();
+  await openPlace(page, "documents");
   await page.locator("#owner-menu-button").click();
   await page.locator("#menu-help").click();
   await page.locator("#context-help").waitFor({ state: "visible" });
