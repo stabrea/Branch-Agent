@@ -196,6 +196,8 @@ import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
+import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
+import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -268,7 +270,8 @@ export async function createBranch(options: {
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
-  files.scope = () => store.projects.active(options.owner ?? "local").folder;
+  // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
+  files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {
@@ -979,6 +982,10 @@ export async function createBranch(options: {
       ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
   };
   // ── end R17-A ──
+  // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
+  const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
+  runtime.coding = coding;
+  // ── end mac7/r17-d ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -1029,6 +1036,8 @@ export async function createBranch(options: {
     autonomy,
     /** R17-A: Trunks, named long-lived agents (src/trunks/); every part ships off. */
     trunks,
+    /** mac7/r17-d: coding polish (src/coding/); every part ships off. */
+    coding,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

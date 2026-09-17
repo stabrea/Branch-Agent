@@ -56,6 +56,8 @@ import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 // Wave mac2 (guards): a workspace folder the owner has not trusted is not read.
 import { folderAllows } from "./folder-trust.js";
+import { expandImports, importReader } from "./coding/imports.js"; // mac7/r17-d
+import { codingOn } from "./coding/settings.js"; // mac7/r17-d
 
 /** How much of one file is ever carried, and how much of the prompt all of them may take together. */
 export const perFileBytes = 8000;
@@ -184,6 +186,8 @@ export interface Folders {
    * workspace is asked; the owner's own folder is theirs and is always read. Absent means yes.
    */
   allows?: ((folder: string) => boolean) | undefined;
+  /** mac7/r17-d: the file's text with its `@file` imports brought in (src/coding/imports.ts). */
+  expand?: ((text: string, folder: string) => string) | undefined;
 }
 /** Wave mac2 (guards): true when the workspace holds this slot's file but the owner has not trusted it. */
 function heldBack(where: Folders, names: readonly string[]): boolean {
@@ -207,6 +211,8 @@ export function findFile(folders: Folders | string, key: SlotKey): LoadedFile | 
   const roots = slot.scope === "owner" && where.owner ? [...workspace, where.owner] : workspace;
   for (const folder of roots) {
     const found = inFolder(folder, slot.names, key);
+    // mac7/r17-d: `@file` imports inside the file, when the owner switched them on (src/coding/imports.ts).
+    if (found && where.expand && found.text) return measured(key, found.name, where.expand(found.text, folder));
     if (found) return found;
   }
   return null;
@@ -219,13 +225,16 @@ function inFolder(folder: string, names: readonly string[], key: SlotKey): Loade
     } catch {
       continue;
     }
-    if (!raw.trim()) return { key, name, text: "", bytes: 0, trimmed: false, permissionShaped: [] };
-    const { text, trimmed } = trimToBytes(raw, perFileBytes);
-    const flagged = text.split("\n").map((line) => line.trim())
-      .filter((line) => line && permissionShaped.some((pattern) => pattern.test(line)));
-    return { key, name, text, bytes: Buffer.byteLength(text, "utf8"), trimmed, permissionShaped: flagged };
+    return measured(key, name, raw);
   }
   return null;
+}
+function measured(key: SlotKey, name: string, raw: string): LoadedFile {
+  if (!raw.trim()) return { key, name, text: "", bytes: 0, trimmed: false, permissionShaped: [] };
+  const { text, trimmed } = trimToBytes(raw, perFileBytes);
+  const flagged = text.split("\n").map((line) => line.trim())
+    .filter((line) => line && permissionShaped.some((pattern) => pattern.test(line)));
+  return { key, name, text, bytes: Buffer.byteLength(text, "utf8"), trimmed, permissionShaped: flagged };
 }
 
 /** What the assembly decided about one slot, which is also what the owner is shown. */
@@ -320,6 +329,8 @@ const foldersFor = (store: Store, owner: string, workspace: string): Folders => 
   workspace, owner: store.folder,
   // Wave mac2 (guards): folder trust decides whether the workspace's own files are read.
   allows: (folder) => folderAllows(store, owner, folder),
+  // mac7/r17-d: `@file` imports, only while that part is switched on.
+  ...(codingOn(store, owner, "mentions") ? { expand: (text: string, folder: string) => expandImports(text, folder, importReader(folder)) } : {}),
 });
 
 /** What happened when text from elsewhere was written into one of these files. */

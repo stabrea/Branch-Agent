@@ -111,6 +111,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -427,6 +428,7 @@ async function staticFile(
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2700,6 +2702,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the r17-b block ----
+        // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
+        if (handlesCodingPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await codingApi({
+            coding: app.coding, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof CodingHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-d block ----
         // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
         if (handlesTrunksPath(path)) {
           app.store.profiles.requireOwner("Trunks");
@@ -3255,6 +3270,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesAutonomyPath(path))
     // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
     || (request.method !== "GET" && handlesTrunksPath(path))
+    // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
+    || (request.method !== "GET" && handlesCodingPath(path))
   );
 }
 function configureLimits(server: Server): void {

@@ -1,0 +1,61 @@
+# Branch in GitLab CI (mac7/r17-d, R17-038): a CI/CD component.
+#
+#   include:
+#     - component: $CI_SERVER_FQDN/<group>/branch-agent/branch@main
+#       inputs:
+#         prompt: "Review this merge request and list anything risky."
+#         provider: anthropic
+#         model: claude-sonnet-4-5
+#         endpoint: https://api.anthropic.com/v1
+#         api-key-variable: ANTHROPIC_API_KEY   # a masked CI/CD variable
+#
+# The job runs Branch with no window on the checked-out project and ends with the exit code
+# `branch run` uses (0 finished, 2 stopped to ask, 3 failed, 4 out of budget). Inputs reach the
+# script as variables, never pasted into a shell line.
+spec:
+  inputs:
+    stage:
+      default: test
+    prompt:
+      default: ""
+    script:
+      default: ""
+    preset:
+      default: read-only
+      options: [read-only, ask-before-changes, workspace, "off"]
+    provider:
+      options: [openai, anthropic]
+    model: {}
+    endpoint: {}
+    api-key-variable:
+      regex: ^[A-Z][A-Z0-9_]{0,127}$
+    budget:
+      default: ""
+    branch-ref:
+      default: main
+---
+branch-agent:
+  stage: $[[ inputs.stage ]]
+  image: node:24
+  variables:
+    BRANCH_PROMPT: $[[ inputs.prompt ]]
+    BRANCH_SCRIPT: $[[ inputs.script ]]
+    BRANCH_JOB_PRESET: $[[ inputs.preset ]]
+    BRANCH_JOB_BUDGET: $[[ inputs.budget ]]
+    BRANCH_PROVIDER: $[[ inputs.provider ]]
+    BRANCH_MODEL: $[[ inputs.model ]]
+    BRANCH_ENDPOINT: $[[ inputs.endpoint ]]
+    BRANCH_API_KEY_ENV: $[[ inputs.api-key-variable ]]
+    BRANCH_REF: $[[ inputs.branch-ref ]]
+  script:
+    - export BRANCH_WORKSPACE="$CI_PROJECT_DIR" BRANCH_DATA_DIR="$(mktemp -d)" PROGRAM="$(mktemp -d)/branch-agent"
+    - git clone --depth 1 --branch "$BRANCH_REF" https://github.com/stabrea/Branch-Agent.git "$PROGRAM"
+    - (cd "$PROGRAM" && npm ci --no-audit --no-fund --ignore-scripts && npm run build)
+    - export BRANCH_API_KEY="$(printenv "$BRANCH_API_KEY_ENV")"
+    - set -- headless --json --preset "$BRANCH_JOB_PRESET"
+    - if [ -n "$BRANCH_JOB_BUDGET" ]; then set -- "$@" --budget "$BRANCH_JOB_BUDGET"; fi
+    - if [ -n "$BRANCH_SCRIPT" ]; then set -- "$@" --script "$BRANCH_SCRIPT"; else set -- "$@" "$BRANCH_PROMPT"; fi
+    - node "$PROGRAM/dist/cli.js" "$@" > branch-job.jsonl
+  artifacts:
+    when: always
+    paths: [branch-job.jsonl]
