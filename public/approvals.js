@@ -54,11 +54,14 @@ function renderRules() {
 }
 
 /** A task that has stopped and is waiting to be told whether to go ahead. */
-/** The three ways a rule can say a program should be held, in the same words the settings use. */
+/**
+ * The three ways a rule can say a program should be held. The page may be open on another computer
+ * than the one that runs the program, so it names no system; the server's own sentence does.
+ */
 const HELD = {
-  "no-internet": "in a box Windows holds to its memory and processor limits, with no way out to the internet",
-  "limits-only": "in a box Windows holds to its memory and processor limits",
-  none: "with no box around it",
+  "no-internet": "in a box the computer holds to its memory and processor limits, with no way out to the internet",
+  "limits-only": "in a box the computer holds to its memory and processor limits",
+  none: "with no extra box beyond what the settings already hold",
 };
 
 function renderWaiting() {

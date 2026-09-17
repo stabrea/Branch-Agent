@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { watchUsage } from './process-usage.js';
-import type { Job } from './job-object.js';
+import { startedThrough, type Job } from './job-object.js';
+import { endProcessGroup, heldBySystemOn, posixLimitSupport, type HeldBySystem } from './posix-limits.js';
 
 export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes' | 'memory_limit' | 'cpu_limit';
 export interface ProcessResult {
@@ -19,12 +20,20 @@ export interface ProcessResult {
   usage: { peakMemoryMb: number; cpuSeconds: number };
   /** Whether Windows itself held the limits for this command, or Branch Agent sampled them. */
   isolation: 'job-object' | 'sampling';
+  /**
+   * macOS and Linux: what the system itself held for this command, when it was started in a
+   * limited process group. Absent on Windows and where only sampling was used.
+   */
+  heldBySystem?: HeldBySystem;
 }
 export interface ProcessOptions {
   executable: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv;
   signal: AbortSignal; timeoutMs: number; maxOutputBytes: number;
   maxMemoryMb?: number; maxCpuSeconds?: number; usageIntervalMs?: number;
-  /** A Windows job, already created and waiting, that this command is put into as it starts. */
+  /**
+   * A Windows job, already created and waiting, that this command is put into as it starts. On
+   * macOS and Linux, a limited process group the command is started through.
+   */
   job?: Job | undefined;
 }
 
@@ -49,7 +58,8 @@ export class ShellProcess {
   private readonly held: Promise<boolean>;
   private inJob = false;
   constructor(private readonly options: ProcessOptions) {
-    this.child = spawn(options.executable, options.args, { cwd: options.cwd, env: options.env,
+    const start = startedThrough(options.job, { executable: options.executable, args: options.args });
+    this.child = spawn(start.executable, start.args, { cwd: options.cwd, env: options.env,
       shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     // The job is created before the command starts, so it takes it over within a moment of spawning.
     this.held = options.job && this.child.pid ? options.job.assign(this.child.pid).catch(() => false) : Promise.resolve(false);
@@ -120,21 +130,32 @@ export class ShellProcess {
     const rawTruncated = this.observed > this.kept;
     const stdout = boundedUtf8(decodeOutput(this.stdout, rawTruncated), this.options.maxOutputBytes);
     const stderr = boundedUtf8(decodeOutput(this.stderr, rawTruncated), this.options.maxOutputBytes - Buffer.byteLength(stdout.text));
+    const windowsJob = this.inJob && this.options.job?.kind !== 'process-group';
     return {
       status: this.reason ?? (this.failed || this.child.exitCode !== 0 ? 'failed' : 'completed'),
       stdout: stdout.text, stderr: stderr.text,
       exitCode: this.child.exitCode, signal: this.child.signalCode, durationMs: Math.round(performance.now() - this.started),
       truncated: rawTruncated || stdout.truncated || stderr.truncated, observedOutputBytes: this.observed,
       usage: (() => { const peak = this.watcher?.peak() ?? { memoryMb: 0, cpuSeconds: 0 }; return { peakMemoryMb: Math.round(peak.memoryMb), cpuSeconds: Math.round(peak.cpuSeconds * 10) / 10 }; })(),
-      isolation: this.inJob ? 'job-object' : 'sampling',
-      cleanup: { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
+      isolation: windowsJob ? 'job-object' : 'sampling',
+      ...(this.inJob && !windowsJob ? { heldBySystem: heldByGroup() } : {}),
+      cleanup: this.inJob && !windowsJob ? this.groupCleanup() : { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
         strategy: this.inJob ? 'Windows job object, killed on close' : process.platform === 'win32' ? 'taskkill /T /F' : 'POSIX process group',
         limitation: this.inJob
           ? 'Windows holds the memory and processor limits and kills the whole job when it is let go. This is a resource cap, not OS isolation: the command still reaches the host filesystem and the network, and anything it started outside the job may survive.'
           : 'Trusted host execution, not OS isolation. Escaped descendants or children whose parent already exited may survive; process-tree cleanup is not guaranteed.' },
     };
   }
+  /** macOS and Linux: the group was ended as the command finished, whatever it left behind. */
+  private groupCleanup(): ProcessResult['cleanup'] {
+    return { status: this.incomplete ? 'incomplete' : this.reason ? 'tree_termination_requested' : 'parent_exited',
+      strategy: 'POSIX process group with system limits, ended when the command finishes',
+      limitation: posixLimitSupport(hostPosix()).sentence };
+  }
 }
+
+const hostPosix = (): 'darwin' | 'linux' => process.platform === 'darwin' ? 'darwin' : 'linux';
+const heldByGroup = (): HeldBySystem => heldBySystemOn(hostPosix());
 
 function decodeOutput(chunks: Buffer[], truncated: boolean): string {
   const decoder = new StringDecoder('utf8');
@@ -169,13 +190,7 @@ export async function killWindowsTree(pid: number): Promise<boolean> {
   if (!(await settledWithin(done, 5000))) { child.kill('SIGKILL'); child.unref(); }
   return succeeded;
 }
+/** Ends a command's whole process group on macOS and Linux: SIGTERM, then a bounded SIGKILL. */
 export async function killProcessGroup(pid: number): Promise<void> {
-  const kill = (signal: NodeJS.Signals) => {
-    try { process.kill(-pid, signal); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-    }
-  };
-  kill('SIGTERM');
-  await new Promise(resolve => setTimeout(resolve, 150));
-  kill('SIGKILL');
+  await endProcessGroup(pid);
 }
