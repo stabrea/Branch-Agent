@@ -164,3 +164,27 @@ test("the Voice screen lists the engines, and a spoken command comes back with t
   });
   assert.equal((await heard.json()).command, "stop");
 });
+
+test("integrator: a short-lived key cannot choose the video programs, the speech services, or the reading-aloud program", async (t) => {
+  const { app, root } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const acting = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 60 });
+  const host = new URL(server.url).host;
+  const post = (path, body, key) => fetch(server.url + path, {
+    method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", host }, body: JSON.stringify(body),
+  });
+  for (const [path, body] of [
+    ["/api/media/programs", { mode: "on", ffmpeg: "/bin/sh" }],
+    ["/api/voice/engines", { mode: "on", speak: "program", program: "/bin/sh", programArgs: ["-c", "{out}"] }],
+  ]) {
+    const refused = await post(path, body, acting.token);
+    assert.equal(refused.status, 401, path);
+    assert.match((await refused.json()).error, /cannot choose which programs/);
+  }
+  assert.equal(app.voice.engines.settings("local").program, "", "nothing was saved");
+  assert.equal(app.voice.engines.settings("local").mode, "off");
+  assert.equal((await post("/api/voice/engines", { mode: "on" }, server.token)).status, 200, "the app window still can");
+  const commands = builtInSpeech().intentList().map((intent) => intent.id);
+  assert.deepEqual(commands, ["stop", "repeat", "slower", "faster"], "spoken commands only stop, repeat or change the speed");
+});
