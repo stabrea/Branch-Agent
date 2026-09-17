@@ -37,6 +37,7 @@ import { registerSessions } from "./sessions.js";
 import { SessionTree, registerSessionTree } from "./session-tree.js";
 import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
+import { registerContextFiles } from "./context-files.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
@@ -150,6 +151,7 @@ import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
+import { redactLeaksIn } from "./leak-guard.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -352,6 +354,7 @@ export async function createBranch(options: {
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
+  registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
   runtime.documents = documents;
@@ -445,7 +448,8 @@ export async function createBranch(options: {
   // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
   channels.liveAllowed = () => !lockedDown(store, runtime.owner);
   runtime.hideSecrets = (value) => {
-    const scrubbed = store.secrets.scrubber.deep(value);
+    // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
+    const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
     // The privacy settings live in the database; a failure reported while the app is closing
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
@@ -1023,6 +1027,7 @@ export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
+export * from "./context-files.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";

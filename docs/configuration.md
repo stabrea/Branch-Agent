@@ -43,7 +43,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### ChatGPT plan sign-in
 
-`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.5`, `GPT-5.6` and `GPT-5.4` presets and makes ChatGPT the default when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
+`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
 
 ### Provider catalog and testing
 
@@ -728,6 +728,16 @@ Every value that has ever been looked up is remembered by **one scrubber** for a
 **Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
 
 **macOS and Linux.** `secret://bitwarden/...` and `secret://1password/...` work the same way on a Mac and on Linux: `bw` and `op` are looked for by their bare names on the search path. On a Mac there is one more source, **the Keychain**: `secret://keychain/<name>` names one of the entries you listed (setting `keychain-entries`: `enabled`, off by default, and `entries`, each `{ name, service, account? }`), and Branch runs `/usr/bin/security find-generic-password -s <service> [-a <account>] -w` at the moment the value is needed. Only listed entries can be read, so a tool call cannot go looking through the rest of your Keychain; it waits for the same unlock as the locker, the value is scrubbed like every other, and each read is written into the audit by name only. If the Keychain is locked, or you turn down your Mac's question about the item, Branch says so in one sentence. There is no settings route for these entries yet. On any other computer a Keychain reference is refused plainly.
+
+### Keys Branch never looked up
+
+The scrubber above only knows the secrets Branch took out of the locker itself. A second check looks for anything **shaped** like a key, wherever it came from: a key a command printed, one sitting in a file, one pasted into a message. It knows the shapes of OpenAI, Anthropic, OpenRouter, AWS, GitHub, Slack, Google and Stripe keys, sign-in tokens, private key blocks, the value after `password:` or `Authorization:`, and a password written into an address (`postgres://me:…@host`). Every tool's answer is checked before the model reads it, and every request is checked before it goes to a model service; a match is replaced with a note such as `[hidden key-like value: OpenAI key]`, and the task's record gets one plain line saying a key-like value was hidden, never the value. Ordinary text is left alone: hashes, commit ids, ids, version numbers and code such as `password: z.string()` pass untouched.
+
+A web address that carries a key or password itself (`?api_key=`, `?token=`, `?password=` and similar names however they are written, `user:pass@` or a bare `token@`) is not fetched until you say yes, even where your rules would allow the website. This holds for the assistant's own calls, saved recipes and workflows, voice, and other AI tools connected to Branch. The yes is for that exact address in that conversation only.
+
+The file tools also refuse more places keys live, as they already refused `.env` and `.ssh`: `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, the `.docker`, `.kube`, `.gnupg`, `.azure` and `.gcloud` folders, the GitHub command line's `gh/hosts.yml`, `.vault-token`, and shell history files (`.bash_history`, `.zsh_history`, `fish_history`, PowerShell's `ConsoleHost_history.txt`). File search skips them too.
+
+**macOS and Linux.** The check is the same on every computer. The refused names cover what those systems keep in your home folder — the `.zsh_history` a Mac's Terminal writes, `.bash_history` on Linux, `~/.config/gh/hosts.yml` — so a workspace that is, or contains, a home folder never hands them to the assistant.
 
 ## Locking the app
 
@@ -2185,6 +2195,20 @@ Ubuntu 24.04 and other systems that restrict Chromium's sandbox, the app may ref
 `.sha256` beside it; a version tag builds all four and attaches them to the release
 (`.github/workflows/package.yml`).
 
+**What is still needed for a signed installer on every computer.** The code for signing is written;
+what is missing is paperwork and keys, which only the owner can get. On a Mac: an Apple Developer ID
+Application certificate, saved in the repository's secrets as `APPLE_CERTIFICATE_P12` (base64) with
+`APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`, and an App Store Connect API key as
+`APPLE_API_KEY_P8`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`; with those the release workflow signs,
+notarises and staples both Mac downloads, and without them it still builds them unsigned. The Mac
+download is a zip to drag into Applications, not a disk image or a `.pkg`. On Windows the installer
+writes only to this person's own folders, so it needs no signature to run, but it is not
+Authenticode-signed, so SmartScreen can still warn about a new download until a code-signing
+certificate is bought and a signing step added to the workflow. On Linux the download is a folder in a
+`.tar.gz`; there is no `.deb`, `.rpm`, AppImage or Flatpak, and no package repository, so the menu
+entry is copied by hand and updates come from Branch's own updater. Checksums (`.sha256`) are
+published for every download on every system.
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.
@@ -2269,10 +2293,22 @@ version in beside the old one, keeps the old one as `Branch Agent.app.previous` 
 previous one is put back and opened. A copy running from its source code says so and points to
 `branch update` instead. `branch doctor --fix` gives Mac and Linux steps for installing Git.
 
+**Closing the background engine for an update (macOS and Linux).** When the window joined an engine
+working in the background, the update first asks that engine to close over its own local address
+(`POST /api/deployment/close`, answered only on this computer's loopback address and only with the
+master key, never a short-lived key or the phone door; Windows refuses it and keeps using
+`taskkill`). If it has not gone within three seconds it is sent the ordinary stop signal (SIGTERM,
+the same as Ctrl+C), then, three seconds later, ended outright (SIGKILL). Where the app is installed
+is worked out one way for the engine and the updater: the program's folder on Windows and Linux,
+the `.app` bundle on a Mac, whose engine script is `Contents/Resources/app/dist/cli.js`. A built Mac
+app that is not inside an `.app` bundle is asked to move into Applications instead of being told it
+runs from source. The engine's own answers say "start by itself when you sign in to your Mac" (or "to
+this computer" on Linux) where Windows says "start with Windows".
+
 Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
 `POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
-`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
 ## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched
@@ -2369,6 +2405,19 @@ approve, receipts, activity), sessions, memory, documents, schedules, policy, th
 "ask me questions first", combined search and issue context; anything else goes through
 `branch.get` / `branch.post`. It needs the local session key, which is the whole of the app's
 security — see `packages/sdk/README.md` for three worked examples.
+### A client for Python programs
+`packages/sdk-python/` is the same client for Python 3.9 or later, using only the standard library
+(`urllib` and `json`), so it runs the same on Windows, macOS and Linux with nothing to install. It
+covers the same groups with Python names (`runs.start`, `runs.stream`, `runs.get`, `runs.approve`,
+`memory.search`, `search`, `audit`, and the rest); `from_data_dir(folder)` reads the session key the
+app wrote. It streams a task's events but does not open the run socket, because the standard library
+has no client for one. To keep the key safe it sends it over plain `http` only to this computer's own
+address (anything else must be `https`), never follows a redirect, and ignores proxy settings in the
+environment. It is not on the package index yet (`pip install ./packages/sdk-python` works from a
+copy of the source). Its tests run against a fake server
+(`python3 -m unittest discover -s packages/sdk-python/tests`); `tests/sdk-python.test.mjs` runs them as
+part of `npm test` and also drives a real Branch Agent with it, and is skipped where no Python is
+installed. See `packages/sdk-python/README.md`.
 ### Issues as context
 `{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
 settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
@@ -5028,3 +5077,128 @@ and building the other two would be building something nobody would run:
   as structured objects from every provider's own API, not as tags to be parsed out of prose, and
   the one place a reply's shape matters is covered by JSON above. An XML adapter would add a
   parser, a failure mode and a setting for a format no part of the app reads.
+
+## The smaller asks, the Python client and installing: where each one stands (wave mac2)
+
+The last three buckets of the public list (#103: 21 "A library other people can build on", 22
+"Installing it should be boring", 23 "The smaller asks") were checked row by row against the code,
+because several of the audit's notes were out of date. Each row below says **verified** (it already
+works; the file and the test that proves it are named), **built**, **partly** (what exists and what
+does not), **not built** (and why) or **not applicable**. `tests/bottom-buckets.test.mjs` checks that
+every row is listed here and that every file named here exists.
+
+### A library other people can build on (bucket 21)
+
+- **sdk-python** — built: `packages/sdk-python/branch_agent/client.py`, tested by
+  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python programs").
+- **framework-adapters** (Python API SDK) — built: the same Python client.
+- **A1509** (TypeScript, Python and Go clients) — partly: the TypeScript client is `packages/sdk/client.mjs`
+  (`packages/sdk/test/sdk.test.mjs`) and the Python one is above. There is no Go client; the OpenAPI
+  description below is what a Go program would generate one from.
+- **A2353** (REST API) and **A0758** (HTTP API) — verified: `src/server.ts` serves it and
+  `src/api-openapi.ts` describes it at `GET /api/openapi.json`, with `docs/api.md` written from the same
+  description. `tests/other-2.test.mjs` checks the description is well formed, that every route it
+  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` checks the routes
+  the Python client calls are in it.
+- **sdk-react** — not applicable: a front-end library for somebody else's page (see "What Branch is not").
+  An outside page uses `packages/sdk/client.mjs` or the OpenAPI description.
+- **app-building** (an MCP server for building apps with an SDK) — not built: Branch's own MCP server
+  (`src/mcp-server.ts`) offers Branch's tools to other programs; a server for writing somebody else's
+  app is a different product.
+- **serialization** (pipelines written as YAML) — partly: skills are YAML (`src/skill-document.ts`),
+  flows are JSON (`src/flows.ts`), and a whole assistant goes out and back as one file
+  (`src/agent-export.ts`, `tests/code-ide.test.mjs`). Flows are not written as YAML because JSON is what
+  the flow editor saves and reads; a second format would be a second thing to keep in step.
+
+### Installing it should be boring (bucket 22)
+
+- **installers** — partly: Windows has a real installer with an uninstall entry
+  (`src/install/installer.ts`); macOS and Linux have downloads you unzip or unpack
+  (`scripts/package-macos.mjs`, `scripts/package-linux.mjs`, `tests/packaging.test.mjs`) and a
+  start-at-sign-in file (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`).
+  What is still needed for signed installers is written under "What is still needed for a signed
+  installer on every computer".
+- **desktop-packaging** — verified: `scripts/package-desktop.mjs` builds the download for Windows, macOS
+  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag.
+  `tests/packaging.test.mjs` checks every name, option, signing step and the menu entry;
+  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree.
+- **platform-support** — verified for macOS and Linux: the same downloads and sign-in files
+  (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`); WSL is not a target, because on Windows
+  the Windows download is the one to use.
+- **distributions** (custom distributions) — not built: there is no rebranded or trimmed-down build.
+  Portable copies (`portable.txt`) and the settings file cover running one copy differently.
+
+### The smaller asks (bucket 23)
+
+- **A0794** (project bookkeeping) — partly: projects hold instructions, a model, a folder and knowledge
+  bases, each task records its project, and cost adds up per project (`src/projects.ts`,
+  `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
+  filed under a project.
+- **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
+  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
+  Changing an artifact means keeping the changed file as the next version; there is no editor for it.
+- **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
+  Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
+  read folders (`src/knowledge-bases.ts`).
+- **A2221** (Hindsight memory) — not applicable: it is an outside memory service. Memory stays in this
+  computer's own database behind the contract in `src/memory-backend.ts` (`tests/docs-memory-2.test.mjs`).
+- **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
+  services that offer it, and says plainly when a model cannot (`tests/media.test.mjs`).
+- **examples** (an MCP example, a Notion MCP example) — partly: connecting an MCP server is shown under
+  "MCP tools" and the app hands out ready-made connection snippets (`src/mcp-server.ts`,
+  `tests/mcp-server.test.mjs`); Notion is shown as an OpenAPI connection (`src/openapi-tools.ts`), not as
+  an MCP server.
+- **integration-blocks** (a catalogue of third-party blocks) — partly: GitHub, GitLab and Linear are built
+  in (`src/integrations/github.ts`, `src/integrations/gitlab.ts`, `src/integrations/linear.ts`) and
+  plugins install from files (`src/plugin-catalog.ts`); there is no online catalogue of blocks.
+- **A0355** (pages that stay shared) — partly: a share link needs its code, works once and expires
+  (`src/conversation-share.ts`, `tests/collab-workflows.test.mjs`); a lasting public page is not offered
+  on purpose, because Branch only listens on this computer and its private address.
+- **A0354** (an answer engine) — verified: `knowledge.ask` answers from a knowledge base and numbers its
+  sources (`src/knowledge-tools.ts`, `src/knowledge-bases.ts`, `tests/rag-vector.test.mjs`).
+- **A2375** (a configurable intent pipeline) — not built: requests are not sorted into intents first; the
+  model picks tools itself, and the one configurable pipeline is for searching
+  (`src/retrieval-pipeline.ts`, `tests/retrieval-2.test.mjs`).
+- **A1012** (a model gateway) — partly: OpenRouter, LiteLLM, Portkey and Cloudflare's gateway are
+  connections in `data/providers.json` (`src/provider-catalog.ts`, `tests/providers-2.test.mjs`); Vercel's
+  AI SDK is a JavaScript library, not a service, so there is nothing to connect to.
+- **A2258** (several agent runtimes) — partly: Claude Code, Codex and the Copilot command line, when
+  installed here, can answer as a model (`src/providers/cli-agent.ts`, `tests/auth-tracing-cli.test.mjs`);
+  they answer in words only, without Branch's tools.
+- **A0032** (an app-server protocol) — partly, in its shared form: `branch acp-serve` speaks the Agent
+  Client Protocol to editors (`src/acp.ts`, `tests/interop-agents.test.mjs`), alongside the OpenAI-shaped
+  way in (`src/openai-compat.ts`, `tests/interop.test.mjs`), the MCP server (`src/mcp-server.ts`) and
+  agent-to-agent (`src/a2a.ts`). Codex's own app-server protocol is not spoken (A0601).
+- **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
+  (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
+  the shared one.
+- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
+  same app and server, and a conversation coming back after a restart is proven for that shared core
+  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
+- **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
+  page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
+  Windows-only.
+- **research-pipeline** (STORM-style articles) — partly: research splits the question, reads several
+  pages, compares them and cites them (`src/research.ts`, `tests/data-research.test.mjs`); there are no
+  persona, outline or polishing stages.
+- **gateway** — partly: one local router fronts every chat channel (`src/channels/router.ts`,
+  `tests/channels.test.mjs`); there is no gateway spread over several computers, because Branch runs on one.
+- **A0504** (analytics collected only with consent) and **A1620** (optional analytics) — not applicable:
+  Branch collects nothing, so there is nothing to consent to (see "There is no telemetry, and there never
+  will be"; `tests/tracing-policy.test.mjs` checks the promise is written where the owner reads it). No
+  analytics will be added, with or without a switch.
+- **A1611** (a side-panel chat) — not built: the browser extension (`extras/browser-extension/`) opens a
+  small window from its button. A side panel would need one more browser permission for the same job.
+- **A2240** (live app surfaces inside a reply) — partly: pages from MCP servers and artifacts are shown,
+  but with no scripts, forms or network (`src/mcp-apps.ts`, `tests/mcp-mode.test.mjs`,
+  `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
+- **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
+  (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
+- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
+  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
+  refuses this computer's own address, but no test drives the popup sending a page.
+- **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
+  the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
+  meant for putting in front of the public.
+- **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
+  (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).

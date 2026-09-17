@@ -16,7 +16,7 @@ import { acceptKey, frame, readFrame } from "../dist/ws.js";
 import { startServer } from "../dist/server.js";
 
 const discordToken = "MTIz.SECRET-DISCORD-TOKEN";
-const slackBotToken = "xoxb-SECRET-SLACK-BOT";
+const slackBotToken = "xoxb-SECRET-SLACK-BOT";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 const slackAppToken = "xapp-SECRET-SLACK-APP";
 const whatsAppToken = "SECRET-WHATSAPP-GRAPH-TOKEN";
 const whatsAppSecret = "SECRET-WHATSAPP-APP-SECRET";

@@ -1,4 +1,5 @@
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -546,7 +547,7 @@ test("Settings offers sharing with a switch, a tool list and copyable settings",
   await page.goto(url);
   await page.getByLabel("Session token", { exact: true }).fill(token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator('[data-view="settings"]').click();
+  await openPlace(page, 'customize:connections');
 
   const card = page.locator("#mcp-card");
   await card.locator("#mcp-status").filter({ hasText: "Off." }).waitFor();

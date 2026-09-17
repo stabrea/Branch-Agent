@@ -6,12 +6,19 @@
 export function showCollab(state, helpers) {
   const collab = state.collab ?? {};
   const panel = helpers.el("div", undefined, "collab-panel");
-  panel.appendChild(labelsSection(collab.labels ?? [], helpers));
-  panel.appendChild(workflowsSection(collab.workflows ?? [], helpers));
-  panel.appendChild(queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers));
-  panel.appendChild(daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers));
-  panel.appendChild(sharesSection(collab.shares ?? [], helpers));
-  panel.appendChild(peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers));
+  /* Each part is named, so the window can show it where it belongs (public/layout.js). */
+  const parts = [
+    ["labels", labelsSection(collab.labels ?? [], helpers)],
+    ["workflows", workflowsSection(collab.workflows ?? [], helpers)],
+    ["queue", queueSection(collab.queue ?? { waiting: [], settings: { atOnce: 3 } }, helpers)],
+    ["days-off", daysOffSection(collab.calendar ?? { settings: {}, countries: [] }, helpers)],
+    ["shares", sharesSection(collab.shares ?? [], helpers)],
+    ["people", peopleSection(collab.profile ?? { all: [], active: null, isOwner: true }, helpers)],
+  ];
+  for (const [name, node] of parts) {
+    node.dataset.part = name;
+    panel.appendChild(node);
+  }
   return panel;
 }
 

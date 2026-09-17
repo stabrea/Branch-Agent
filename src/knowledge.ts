@@ -9,7 +9,7 @@ import { TemplateSchema, exportTemplate, importTemplate } from "./templates.js";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
-import type { Runtime } from "./runtime.js";
+import { argumentFingerprint, type Runtime } from "./runtime.js";
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { SpecialistStyleSchema, styleShape, styledPermissions, type SpecialistStyle } from "./specialist-styles.js";
@@ -203,12 +203,14 @@ export class Knowledge {
    */
   private gateSteps(context: ToolContext, definition: Procedure, source: ToolSource): void {
     for (const [index, step] of definition.steps.entries()) {
-      const check = this.runtime.checkPolicy(step.tool, step.args, context);
+      // The yes is bound to this step's exact arguments, as it is for a tool the model calls itself.
+      const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      const check = this.runtime.checkPolicy(step.tool, step.args, context, fingerprint);
       if (check.decision === "allow") continue;
       this.store.event(context.runId, check.decision === "deny" ? "policy.denied" : "policy.ask",
         { name: step.tool, label: check.label, target: check.target, source: { ...source, index } });
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool, check.label);
-      throw new ApprovalRequiredError(step.tool, check.target, check.label, check.remember);
+      throw new ApprovalRequiredError(step.tool, check.target, check.label, check.remember, fingerprint);
     }
   }
   private async executeProcedure(

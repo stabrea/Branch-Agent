@@ -90,6 +90,7 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -328,6 +329,12 @@ async function staticFile(
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
+    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
+    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
+    "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
@@ -705,6 +712,14 @@ async function api(
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
+  // The owner's own instruction files: what each one is set to, and what that produced this time.
+  if (request.method === "GET" && path === "/api/context-files")
+    return {
+      settings: contextFileSettings(app.store, app.runtime.owner),
+      files: contextFileStatus(app.store, app.runtime.owner, app.runtime.workspace),
+    };
+  if (request.method === "POST" && path === "/api/context-files")
+    return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
@@ -2582,11 +2597,13 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   if (method === "GET") return null;
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
+  if (path === "/api/deployment/close")
+    return "A short-lived key cannot close Branch. Only the app on this computer can.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

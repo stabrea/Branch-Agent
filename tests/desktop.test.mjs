@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,8 +10,8 @@ import { _electron } from "playwright";
 import { desktopOptions } from "./fixtures/desktop-options.mjs";
 
 async function appearance(page, value) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("Appearance", { exact: true }).selectOption(value);
+  await openSettingFor(page, "#appearance");
+  await page.locator(`.lx-seg-button[data-t="look.mode.${value === "daylight" ? "light" : "dark"}"]`).click();
   await page
     .getByRole("button", { name: "Save appearance", exact: true })
     .click();
@@ -114,7 +115,7 @@ test(
       );
       await appearance(page, "forest");
       await page
-        .getByRole("button", { name: "Conversation", exact: true })
+        .locator(".lx-back")
         .click();
       await page.screenshot({ path: join(home, "desktop.png") });
       await appearance(page, "daylight");
