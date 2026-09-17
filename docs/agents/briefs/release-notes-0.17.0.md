@@ -23,4 +23,8 @@
 **Under the hood.** Short-lived keys that expire and can be revoked, secrets fetched from your own password manager instead of copied, traces and logs that can be exported on your terms, and the command line documented and installable as a package. Opening a large toolbox now costs a bounded amount however many tools it holds. Nothing that looks like a real credential can be committed to the source, which is checked on every machine rather than relying on the host to notice.
 
 **Install**
-Download `Branch-Agent-windows-x64.zip`, unzip it, and run `Branch Agent.exe`. From 0.7.3 onward the in-app update is silent. The checksum is in `Branch-Agent-windows-x64.zip.sha256`.
+- **Windows:** download `Branch-Agent-windows-x64.zip`, unzip it, and run `Branch Agent.exe`. From 0.7.3 onward the in-app update is silent.
+- **macOS:** download `Branch-Agent-macos-arm64.zip` for an Apple Silicon Mac or `Branch-Agent-macos-x64.zip` for an Intel one, unzip it and move `Branch Agent` to Applications. This copy is not yet signed by Apple, so the first time macOS will refuse to open it: open System Settings → Privacy & Security and choose "Open Anyway".
+- **Linux:** download `Branch-Agent-linux-x64.tar.gz`, unpack it, and run `branch-agent` inside the folder. Keeping an API key needs a keyring (GNOME Keyring or KWallet); without one, Branch says so and asks you to set the model in the launch environment instead of storing the key in plain text.
+
+Every download has its checksum beside it, in a file of the same name ending `.sha256`.
