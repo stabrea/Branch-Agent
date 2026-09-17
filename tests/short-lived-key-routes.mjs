@@ -605,6 +605,7 @@ export const ROUTES = {
   "/api/triggers/:id/log": "look",
   "/api/triggers/:id/remove": "owner POST,DELETE",
   "/api/triggers/:id/rotate-secret": "owner POST",
+  "/api/troubleshoot": "owner POST", // w911 (A0374) hook.
   "/api/usage": "look",
   "/api/usage/budget": "owner POST",
   "/api/usage/counters": "owner POST",

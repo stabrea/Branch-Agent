@@ -1999,9 +1999,35 @@ Around it: a task's own completion checks are retried a set number of times befo
 (`reliability`), a model call that goes quiet is stopped by the stall watchdog rather than hanging,
 a small script is checked before it runs, and a program can be run under a real debugger you
 already have (Settings → debug adapters) to stop it on a line and look at what every name holds.
-What Branch Agent does **not** have is a separate troubleshooting assistant that goes away and
-fixes a failing command on its own; asking it to look at the report and try again is an ordinary
-task, and you see each step.
+
+**Fixing a failed command** (w911, A0374; `src/troubleshoot.ts`). A three-way switch, off by
+default, kept under the settings key `troubleshoot` and changed with `GET`/`POST /api/troubleshoot`
+(`{ "mode": "off" | "when-needed" | "on", "maxTries": 1-5 }`, two tries by default; a short-lived key
+cannot change it). It looks at a `shell.execute` or `code.run` that came back with a non-zero exit
+code (or a script that timed out). The model is asked, with no tools, for JSON
+`{ "diagnosis", "fix": { "tool", "arguments" } | null }`; the reply is checked, and a fix may only be
+`files.write`, `files.edit` or `shell.execute`. The fix is checked against your approval rules
+first: a rule that refuses it, or one that says "ask first", stops the loop there, nothing is
+changed, and the task is not left waiting on a question it never asked. An allowed fix runs, then the
+original command runs again, both through the same path a task's own calls take (so each shows up
+as a call of its own in the record, with its receipt). This repeats until the command works, the
+limit is reached, the same fix is suggested twice, or no fix is suggested. Every try is written down
+as a `troubleshoot.attempt` event (the diagnosis, the fix, what became of it, the new exit code),
+the end as `troubleshoot.finished`, and a readable record of the whole thing is listed by
+`GET /api/troubleshoot`.
+
+- **on**: runs by itself right after a failed command inside a task (one marked hook in
+  `src/runtime.ts`). The model is handed the latest result of the command plus a short account of
+  what was tried.
+- **when needed**: nothing runs by itself. The assistant can call the `troubleshoot.run` tool with
+  the command; the tool runs it once through the approval rules (as a hand-run tool,
+  `src/tool-gate.ts`), and only a failure goes on to the loop.
+- **off**: nothing happens, `troubleshoot.run` is not offered, and calling it anyway is refused.
+
+Limits: a command that could not be started at all (an unknown program name, say) is an error
+rather than an exit code, and is not looked at automatically. The fix list is deliberately short;
+anything else the model suggests is treated as no fix. Each diagnosis is a model call and costs
+tokens (at most 8,000 each).
 
 **Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
 by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and

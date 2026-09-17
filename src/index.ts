@@ -96,6 +96,7 @@ import { VoiceService, registerVoice } from "./voice-service.js";
 // Bucket 17.
 import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
 import { SpeechEngineService } from "./speech-engine-service.js";
+import { registerTroubleshoot } from "./troubleshoot.js"; // w911 (A0374) hook.
 import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
@@ -540,6 +541,7 @@ export async function createBranch(options: {
   // Bucket 17 hook: videos understood through the owner's own ffmpeg and yt-dlp, and speech plug-ins.
   const understanding = new MediaUnderstanding({ store, media, policy: web.policy });
   registerMediaUnderstanding(registry, understanding);
+  registerTroubleshoot(registry, runtime); // w911 (A0374) hook: the troubleshoot.run tool (switched, off by default).
   voice.engines = new SpeechEngineService({
     store, registry: builtInSpeech(), policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
     secret: async (owner, name, purpose) =>
@@ -1488,6 +1490,7 @@ export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
+export * from "./troubleshoot.js"; // w911 (A0374) hook.
 export * from "./voice.js";
 export * from "./voice-stt.js";
 export * from "./voice-tts.js";
