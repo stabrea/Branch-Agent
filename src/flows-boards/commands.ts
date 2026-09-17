@@ -76,7 +76,8 @@ const described = (item: InstallRequest, n: number): string => {
 const installs: Handler = async (call) => {
   const boards = reach(call, "install-requests");
   if (typeof boards === "string") return say(boards);
-  const items = boards.installs.list().slice(-20);
+  // Integration review: on a chat, only the requests chats made are listed (and so can be numbered).
+  const items = boards.installs.list().filter((item) => call.surface !== "chat" || item.by === "chat").slice(-20);
   const text = call.argument.trim();
   if (!text) return say(items.length ? items.map((item, i) => described(item, i + 1)).join("\n") : "No requests for packages or tool servers.");
   const request = /^request\s+(npm|pypi)\s+(\S+)(?:\s+(.+))?$/i.exec(text);
@@ -88,7 +89,7 @@ const installs: Handler = async (call) => {
       : call.access === "full" ? ["owner", "the owner"] as const : ["other", "a short-lived key"] as const;
     const made = await boards.installs.request({ kind: "package", ecosystem: npm ? "npm" : "PyPI", name: spec[1]!,
       ...(spec[2] ? { version: spec[2] } : {}), why: request[3] ?? "asked for with /installs" }, by, from);
-    const shown = boards.installs.list().slice(-20);
+    const shown = boards.installs.list().filter((item) => call.surface !== "chat" || item.by === "chat").slice(-20);
     return say(`Asked. ${described(made, shown.findIndex((entry) => entry.id === made.id) + 1)}`);
   }
   const answer = /^(approve|decline)\s+(\d+)(\s+anyway)?$/i.exec(text);

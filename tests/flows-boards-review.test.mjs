@@ -282,3 +282,22 @@ test("review: a household person's task or a chat sees none of the owner's cards
   const mine = await callAs(app, ownersRun(app), "board.cards", {});
   assert.equal(mine.lanes.todo[0].title, "The owner's private errand", "the owner's own work still reads it");
 });
+
+test("review: a chat sees only the requests a chat made, never the owner's own", async (t) => {
+  const { app, on } = await fixture(t);
+  on("install-requests");
+  saveCommandSettings(app.store, app.runtime.owner, { mode: "on" });
+  const offline = { kind: "mcp", server: { transport: "http", url: "https://mcp.example.com/mcp" } };
+  await app.flowsBoards.installs.request({ ...offline, name: "owner-secret-server", why: "the owner's plan" }, "owner", "the owner");
+  const chat = app.store.createRun(app.runtime.owner, "from a chat").id;
+  app.store.event(chat, "channel.inbound", { channel: "telegram", chatId: "1", messageId: "1" });
+  await callAs(app, chat, "install.request", { ...offline, name: "chat-notes", why: "notes" });
+  const seen = JSON.stringify(await callAs(app, chat, "install.requests", {}));
+  assert.match(seen, /chat-notes/);
+  assert.doesNotMatch(seen, /owner-secret-server/);
+  const host = commandHost(app.runtime, app);
+  const listed = await executeCommand(host, { surface: "chat", line: "/installs", access: "run" });
+  assert.match(listed.text, /chat-notes/);
+  assert.doesNotMatch(listed.text, /owner-secret-server/);
+  assert.match(JSON.stringify(await callAs(app, ownersRun(app), "install.requests", {})), /owner-secret-server/, "the owner still sees all");
+});

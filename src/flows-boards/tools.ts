@@ -96,7 +96,12 @@ const installs: Registrar = (registry, boards) => {
   registry.register({ name: "install.requests", permission: "installs.read",
     description: "The requests for packages and tool servers, and the owner's answers. An approved one says exactly what to run or add; it is not installed.",
     parameters: z.object({}).strict(),
-    execute: async (_args, context) => (reader(boards, context, false), { requests: boards.installs.list().slice(-30) }) });
+    execute: async (_args, context) => {
+      reader(boards, context, false);
+      // Integration review: a chat sees only what chats asked for, never the owner's own requests.
+      const chat = Boolean(context.runId) && fromChat(boards.store, context.runId);
+      return { requests: boards.installs.list().filter((item) => !chat || item.by === "chat").slice(-30) };
+    } });
 };
 
 export const registrars: Record<BoardPart, Registrar | null> = {
