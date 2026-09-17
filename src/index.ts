@@ -54,6 +54,7 @@ import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { startAccounts } from "./accounts/service.js"; // mac6/accounts
 import { People } from "./people/index.js"; // bucket 19
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { SessionLock } from "./session-lock.js";
@@ -781,6 +782,12 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
+  // ---- mac6/accounts: several accounts per connection (src/accounts/); off by default ----
+  await startAccounts({
+    store, owner: runtime.owner, models: runtime.models, policy: web.policy, dataDir, userAgent,
+    ...(chatgpt ? { chatgpt } : {}),
+  });
+  // ---- end mac6/accounts ----
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
   mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };

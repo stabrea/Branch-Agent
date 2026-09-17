@@ -105,6 +105,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("health", ["doctor"], "", "a quick check of the database, models, chat apps and schedules", [...W, "terminal", "dashboard"], "look"),
   // bucket 12: the owner's saved prompts and procedures; their own commands are laid over this table in saved.ts
   entry("prompts", ["procedures", "workflows"], "[name]", "your saved prompts and procedures; with a name, one of them in the message box", ALL, "look"),
+  // mac6/accounts: which account the model answers through; switching is the owner's, so not in chat apps
+  entry("account", ["accounts"], "[name|default name]", "which account the model uses; with a name, switch this conversation to it", [...W, "terminal", "dashboard"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/accounts/switch" } }),
   // mac7/r17-d: the project's instruction file, written by the model (src/coding/init.ts); follows that part's switch
   entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
 ];

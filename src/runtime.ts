@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { withAccountCall } from "./accounts/context.js"; // mac6/accounts
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
@@ -1653,10 +1654,11 @@ ${run.output.slice(0, 6000)}`;
       // mac2/leak-guard: the copy that is sent has key-shaped values hidden; `messages` stays as it was.
       const request = { messages: this.leakGuard.request(run.id, messages), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
-      const raw = onTextDelta
+      // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
+      const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data) }, async () => onTextDelta
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
-        : await preset.provider.complete({ ...request, signal: context.signal });
+        : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
