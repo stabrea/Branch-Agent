@@ -365,7 +365,8 @@ test("every media tool is registered with a permission and a target the approval
   const names = registry.names();
   for (const tool of ["media.image", "media.describe", "media.compare", "media.transcribe", "media.speak", "media.trim", "media.info"])
     assert.ok(names.includes(tool), `${tool} is registered`);
-  assert.ok(!names.includes("media.frames"), "frame extraction is not offered, because it cannot be done here");
+  assert.ok(!names.includes("media.frames"), "the plain media toolbox has no frame tool; it comes with the video switch (tests/media-understand.test.mjs)");
+  assert.ok(app.registry.names().includes("media.frames"), "the app registers it; the switch in Settings decides whether it is offered");
   assert.equal(registry.permissionOf("media.describe"), "media.read");
   assert.equal(registry.permissionOf("media.image"), "media.write");
 });

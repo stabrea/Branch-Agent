@@ -7,7 +7,7 @@ import { readWav } from "./media-audio.js";
  * is enough to reason about length and shape, and told plainly where the limit is.
  */
 export const videoLimits =
-  "This app does not make videos and cannot pull still frames out of one; that needs a video decoder it does not ship. It can read a video's length and tracks from the file's own headers.";
+  "This app does not make videos and cannot pull still frames out of one by itself; that needs a video decoder it does not ship. It can read a video's length and tracks from the file's own headers. With ffmpeg on this computer and \"Watching and saving videos\" switched on, media.watch and media.frames can.";
 
 export interface MediaInfo {
   format: "mp4" | "wav";
