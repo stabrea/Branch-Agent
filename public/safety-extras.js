@@ -18,6 +18,8 @@ function plain(tag, text, className) {
   const node = document.createElement(tag);
   node.textContent = text;
   if (className) node.className = className;
+  // Fingerprints, keys and links have no spaces; they wrap anywhere rather than widen the card at 400 px.
+  node.style.overflowWrap = "anywhere";
   return node;
 }
 /** A label, the control, and one sentence describing it, tied together for screen readers. */

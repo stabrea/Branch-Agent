@@ -73,6 +73,13 @@ test("the cards sit in Permissions, every control is named and described, the sw
   await page.locator("#safety-chain-card").getByText("The record is unbroken.").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   assert.equal(wide, false, "no sideways scrolling in Permissions");
+  // Integration review: the reading column itself must not scroll sideways either, even with the long
+  // fingerprint and a new app's key link showing.
+  await page.evaluate(() => { const link = document.querySelector("#safety-codes-card p.field-note:not([id])");
+    if (link) link.textContent = `${"A".repeat(32)} · otpauth://totp/Branch%20Agent%3Alocal?secret=${"A".repeat(32)}&issuer=Branch%20Agent`; });
+  const column = () => page.evaluate(() => { const c = document.querySelector("#settings-window:not([hidden]) .lx-settings-body") ?? document.getElementById("workspace");
+    return c.scrollWidth - c.clientWidth; });
+  assert.ok((await column()) <= 1, `the reading column scrolls sideways by ${await column()}px`);
 
   // Integration review: switching the language re-words every button's name and description.
   const fr = JSON.parse(await readFile(new URL("locales/fr.json", PUBLIC), "utf8"));
