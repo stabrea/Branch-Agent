@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { once } from "node:events";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -15,6 +16,8 @@ test("shutdown closes browser preconnections after draining runtime work", async
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const socket = connect(Number(new URL(server.url).port), "127.0.0.1");
+  // Closing the server resets this idle connection; macOS and Linux report that as an error event.
+  socket.on("error", () => {});
   let timer;
   try {
     await once(socket, "connect");
@@ -27,6 +30,6 @@ test("shutdown closes browser preconnections after draining runtime work", async
     clearTimeout(timer);
     socket.destroy();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   }
 });

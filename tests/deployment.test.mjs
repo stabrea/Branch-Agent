@@ -19,6 +19,7 @@ import { Pairing, maximumAttempts } from "../dist/remote/pairing.js";
 import { RemoteAccess, assertPrivateAddress } from "../dist/remote/remote-access.js";
 import { hostAllowed, pairingRequest, startServer } from "../dist/server.js";
 import { Readable } from "node:stream";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { doctorFix, doctorText } from "../dist/doctor-fix.js";
 import { backupsToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
@@ -29,7 +30,7 @@ const windows = process.platform === "win32";
 
 async function scratch(t, prefix = "branch-deploy-") {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return root;
 }
 /** A running app whose database is closed before the folder is removed, or Windows holds the file. */
@@ -159,7 +160,7 @@ test("the background engine is a sign-in task that opens no window, and is never
   const options = {
     executable: "C:\\App\\Branch Agent.exe", script: "C:\\App\\resources\\app\\dist\\cli.js",
     dataDir: "C:\\Data", workspace: "C:\\Work", port: 3210,
-    launcherPath: join(root, "branch-daemon.vbs"), systemRoot: "C:\\Windows",
+    launcherPath: join(root, "branch-daemon.vbs"), systemRoot: "C:\\Windows", platform: "win32",
   };
   const report = await daemonCommand("install", options, {
     run: fake, write: async (path, content) => { written.push({ path, content }); },
@@ -193,7 +194,7 @@ test("a second launch joins the engine that is already running, and ignores a no
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
 
   const note = await readRunning(join(root, "data"));
   assert.equal(note.pid, process.pid);
@@ -350,7 +351,7 @@ test("the pairing door is shut on this computer's own address", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const response = await fetch(`${server.url}/api/pair`, {
     method: "POST", headers: { "content-type": "application/json", origin: server.url },
     body: JSON.stringify({ id: "anything", code: "000000" }),
@@ -407,7 +408,7 @@ test("an update takes a safety copy first, keeps three, and stops when the copy 
       await mkdir(join(into, "app"), { recursive: true });
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
     },
-    backup,
+    backup, platform: "win32",
   });
   const good = await updater(async () => { taken.push("copy"); }).install();
   assert.deepEqual(taken, ["copy"], "the copy is taken before the hand-over script is written");
@@ -431,7 +432,7 @@ test("a version that did not come up cleanly is remembered, so the update screen
 test("putting back a safety copy replaces what is there; an ordinary restore still refuses to", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const owner = app.runtime.owner;
   await app.runtime.run({ prompt: "say hello" }); // a real conversation, so this copy is not empty
   app.store.save("settings", owner, "before-update", { kept: true });
@@ -450,7 +451,7 @@ test("putting back a safety copy replaces what is there; an ordinary restore sti
 
 test("doctor --fix reports each problem in plain words and repairs what it can", async () => {
   const report = await doctorFix(
-    { fix: false, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false },
+    { fix: false, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false, platform: "win32" },
     { run: async (file) => { if (file === "git") throw new Error("not found"); return ""; }, portFree: async (port) => port !== 3210 },
   );
   assert.equal(report.ok, false);

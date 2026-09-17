@@ -9,20 +9,28 @@ page — the three columns are flush, as the KeepOak portal is.
 
 ## The shell
 
+Wave 9 rebuilt the window around five places. **Where a feature goes, and how a new screen puts
+itself there, is in [places.md](places.md); read it before adding anything the owner can see.**
+
 | Part | What it holds |
 | --- | --- |
-| Rail head (`public/shell.css`, `.rail-head`) | The mark and the assistant's name with a chevron that switches project, a search icon, an appearance icon |
-| Rail body (`.rail-scroll`) | "New conversation", "Find anything", then three groups that fold and are remembered for whoever this workspace belongs to: **Sections** (every screen as a row with an icon; Activity carries a small count while tasks are running), **Projects** (the workspace folders, the active one marked), **Recents** (conversations grouped by Today / Yesterday / Earlier, each row lighting up under the pointer in both themes) |
-| Conversation row (`.rail-line`) | One line. Hovering reveals rename, pin and "take off this list"; those are this browser's own labels and never change the saved conversation |
-| Rail foot (`.rail-foot`) | The owner row — initial, project, the connection dot — opening a menu with Settings and connections, Change the appearance, Lock session, Check for updates, About. Underneath, the quiet "Branch Agent by KeepOak" line |
-| Main pane (`main`) | A title bar with the rail switch, the section name, the open conversation's name, the connection pill and the context switch; below it one 760 px column |
-| Messages (`.message`) | Left-aligned prose with a small role marker. The owner's own messages sit in a soft tinted bubble on the right. Tool work is one quiet row, "Worked with 2 tools · files list, files read", that opens in place |
-| Composer (`.composer-dock`) | A rounded box floating at the foot of the main pane with attach, microphone, Temporary and Send inside it, and one quiet helper line underneath. Send is a single-line pill with the arrow after the word |
-| Context pane (`.context-panel`) | The model — a plain "Connect a model" button while nothing is connected, a link to change it once something is — what is running now, the receipts for this conversation in plain language, recently saved memory, three counts, and the dithered acorn, which takes the room left over and never pushes the pane taller |
+| Sidebar head | The mark and the assistant's name (switches project), search, appearance, and the Settings gear |
+| Sidebar body | New conversation, Find anything, then **Inbox** (with a count of what waits for a yes), **Automations**, **Library**, **Customize**, then **Projects** and **Recents**, which fold and are remembered |
+| Sidebar foot | The owner row. Its menu starts with seven quick themes and "All 44 themes", then Settings, Lock session, Help, Updates, About. The initial turns into a moving ring while work runs and glows amber while something waits |
+| Title bar | The sidebar switch, a way back to the conversation from any place, the page and tab, and in a conversation the side-pane tabs (Activity, Plan, Files, Memory). Then Clear the view, the Lockdown shield and the connection pill |
+| Lockdown | The shield opens the one switch. While Lockdown is on, a red banner under the title bar says so on every page, with Turn it off |
+| A place | A condensed title, one sentence saying what the place holds, tabs, the tab's cards, and an ask box at the foot that sends a question straight to a conversation |
+| Settings | A floating window: twelve pages down the left with search above them, one page at a time; Models has five tabs of its own. Escape, the close button or the scrim closes it |
+| Side pane | Only in a conversation, only when opened, on one of four tabs |
+| Composer | A rounded, nearly solid box at the foot of the conversation with the model chip first, then attach, voice, Temporary, Ask me first, who answers, and Send |
 
-The rail and the context pane each fold away from the title bar, and the choice is remembered on
-the device. Under 1180 px the context pane steps aside; under 860 px the rail slides over the
-page instead of taking a column. The page itself never scrolls sideways, down to 400 px.
+The panes are glass over a pixel oak (`public/grove.js`) drawn in the season of the year or the one
+the owner picked, from the theme's own colours. **Clear the view** fades every pane away and leaves
+the oak; a click anywhere or Escape brings them back.
+
+Under 1180 px the side pane floats over the conversation and starts closed; under 860 px the
+sidebar slides over the page and Settings becomes full screen with its pages in a strip along the
+top. The page never scrolls sideways, down to 400 px.
 
 The composer floats over the reading column rather than sitting in it. `public/shell.js` measures
 the dock with a `ResizeObserver` and writes its height to `--composer-h`; `#chat` keeps exactly
@@ -68,6 +76,51 @@ Two rules matter more than the rest because they were the two faults this pass w
 - **An empty screen says what the screen is for and what to do next.** `list()` in
   `public/app.js` takes `["what this is", "what to do about it"]` and draws an `.empty-state`, not
   a bare "No skills installed."
+
+### The artifact card (wave 8)
+
+An artifact — a page, a drawing, a chart or a script the assistant wrote — sits **inside a reply**,
+not on a section screen, so it deliberately breaks two of the rules above:
+
+- It is **not a `.card`**, and its title is **not a heading**. A reply is already a document with a
+  shape of its own; an `<h2>` in the middle of one would push its way into that shape and be read
+  out as part of it. The title is `<p class="artifact-title"><strong>`, and the card rule in
+  `tests/shell-ui.test.mjs` therefore does not apply to it.
+- It carries **several equal buttons** rather than one filled one — Open larger, Copy code, Save to
+  workspace, Run this script. None of them is "the thing this card is for": the artifact is.
+  They are all `.quiet`.
+
+What it keeps: the one-sentence purpose line under the title, which here says what the frame can and
+cannot do ("Shown in a sealed frame: it cannot run a script, reach this page, or reach the
+internet"), and the reading face throughout. The code that produced it is folded away behind a
+`<details>`, because it is the thing the card exists to spare the owner from reading.
+
+The frame is `width: 100%` with a `min-height`, and the chart's SVG is `width: 100%; height: auto`
+inside a wrapper that hides its overflow, so at 400 px neither makes the reading column scroll
+sideways. The chart's data table gets the ordinary `.md-table-scroll` wrapper, which is the one
+place a sideways scroll is allowed.
+
+Chart colours come from eight `--series-N` tokens in `public/tokens.css` — Forest first, Daylight
+darkened so text on a slice stays readable. Nothing in `public/charts.js` writes a colour down: the
+values are read off the running page, which is also how they reach a sandboxed artifact, since a
+frame under `default-src 'none'` cannot link a stylesheet.
+
+### The flow editor (wave 8)
+
+The editor keeps the wave-7 picture and puts the list under it, in that order, because the picture is
+the thing the owner is reasoning about and the list is how they change it. The picture redraws on
+every keystroke from the steps being edited, so a change is seen before it is saved — the one place
+in the app where drawing on every input is worth the work, because the whole point is watching the
+shape change.
+
+The side form under each step shows **only the boxes that kind of step needs**. This is not tidiness:
+`WorkflowStepSchema` refuses a prompt step with no prompt and a branch step with no words to look
+for, so a form offering every box for every kind would produce a refusal the owner could not read.
+The rules live in one table, `STEP_FIELDS` in `public/flow-editor.js`, beside the kinds they belong
+to.
+
+Move up, Move down and Take it out are `.text-button`s on the row they act on; Add a step, Save and
+Run are `.quiet` in a row of their own under the list, because they act on the whole flow.
 
 ## The glossary
 
@@ -158,12 +211,18 @@ locally; the appearance screen can swap the body and display faces for this comp
 
 ## Appearance
 
-Settings → Appearance carries seven controls: theme (Forest, Daylight, or follow this
-computer), highlight colour, text size, spacing, lettering, "keep things still", and "show the
-acorn". Every change shows at once by writing `data-theme`, `data-accent`, `data-text-size`,
-`data-density`, `data-font`, `data-motion` and `data-acorn` onto `<html>`; Save keeps the record
-through `POST /api/preferences` (`PreferencesSchema` in `src/preferences.ts`). Reduced motion is
-also honoured from the operating system unless the owner asks for full motion.
+Settings → Appearance opens on the theme gallery: 44 themes in two groups (KeepOak's own, and ones
+from editors and terminals), each drawn as a small preview in the mode showing. Under it, light or
+dark (or follow this computer), the oak's season, and more contrast; then text size, spacing,
+lettering, "keep things still", "show the acorn", and language.
+
+Light or dark is saved with the workspace through `POST /api/preferences`, as Forest and Daylight
+always were. The theme, the season and the contrast are this computer's own choice, kept in local
+storage. A theme arrives as finished colours from `public/theme-catalogue.js`; `public/layout.js`
+writes them onto `<html>` and hands each to Branch's own token name, so every rule that already
+reads `--panel`, `--muted` or `--copper` follows the theme with no change. The old five highlight
+colours still exist in `tokens.css` for anything that sets `data-accent`, but the gallery replaces
+them on screen.
 
 Appearance also carries the language. English is the source of truth; every other language file
 answers the same keys and falls back to English where it does not. The choice is this browser's,

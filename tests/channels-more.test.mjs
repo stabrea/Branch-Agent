@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, DiscordAdapter, SlackAdapter, WhatsAppAdapter, EmailAdapter,
   toMrkdwn, taggedEnd, parseFetched, sendMail, ImapClient, handle,
@@ -15,7 +16,7 @@ import { acceptKey, frame, readFrame } from "../dist/ws.js";
 import { startServer } from "../dist/server.js";
 
 const discordToken = "MTIz.SECRET-DISCORD-TOKEN";
-const slackBotToken = "xoxb-SECRET-SLACK-BOT";
+const slackBotToken = "xoxb-SECRET-SLACK-BOT";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 const slackAppToken = "xapp-SECRET-SLACK-APP";
 const whatsAppToken = "SECRET-WHATSAPP-GRAPH-TOKEN";
 const whatsAppSecret = "SECRET-WHATSAPP-APP-SECRET";
@@ -35,7 +36,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-channels-more-"));
   const provider = scripted();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 

@@ -1,8 +1,13 @@
+import { timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
-import { join } from "node:path";
+import { posix, win32 } from "node:path";
 import { z } from "zod";
 import { autostartState, setAutostart } from "./install/autostart.js";
-import { daemonCommand, daemonLauncherName, type DaemonAction, type DaemonOptions } from "./install/daemon.js";
+import { daemonCommand, daemonLauncherName, daemonTaskName, type DaemonAction, type DaemonOptions } from "./install/daemon.js";
+import { launchdLabel } from "./install/launchd.js";
+import { systemdUnitName } from "./install/systemd.js";
+import { readRunning, sessionTokenFileName } from "./install/running.js";
 import { listUpdateBackups, readFirstStart, readUpdateBackup, writeUpdateBackup } from "./install/update-backup.js";
 import { doctorFix } from "./doctor-fix.js";
 import type { RemoteAccess } from "./remote/remote-access.js";
@@ -10,8 +15,8 @@ import type { QrMatrix } from "./remote/qr.js";
 import type { createBranch } from "./index.js";
 
 /**
- * The screens behind "how Branch runs on this computer": start with Windows, keep working with the
- * window closed, reach it from a phone, and the safety copies taken before an update.
+ * The screens behind "how Branch runs on this computer": start when the person signs in, keep working
+ * with the window closed, reach it from a phone, and the safety copies taken before an update.
  */
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 
@@ -21,6 +26,7 @@ export interface DeploymentContext {
   port: number;
   /** The installed app's own program file, or null when Branch runs from a source checkout. */
   executable: string | null;
+  /** Where the app is installed (see `installTarget`): the program's folder, or the `.app` bundle on a Mac. */
   installRoot: string | null;
   remote: RemoteAccess;
 }
@@ -37,18 +43,50 @@ export function qrRows(matrix: QrMatrix): { size: number; version: number; rows:
   };
 }
 
-function daemonOptions(context: DeploymentContext): DaemonOptions {
+/** macOS and Linux differ from Windows here; tests pass the system in, the server uses this computer's. */
+export interface DeploymentDeps {
+  platform?: NodeJS.Platform;
+  /** Sends a signal to a process; only used to close this engine after it has answered. */
+  signal?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/**
+ * The engine's own script inside an installed copy. `installRoot` is the program's folder on Windows
+ * and Linux, and the `.app` bundle on a Mac, which keeps its files in Contents/Resources.
+ */
+export function engineScriptPath(platform: NodeJS.Platform, installRoot: string): string {
+  if (platform === "win32") return win32.join(installRoot, "resources", "app", "dist", "cli.js");
+  if (platform === "darwin") return posix.join(installRoot, "Contents", "Resources", "app", "dist", "cli.js");
+  return posix.join(installRoot, "resources", "app", "dist", "cli.js");
+}
+
+/** "Start with Windows", in the words that fit this computer. */
+export function startsBySelfWords(platform: NodeJS.Platform): string {
+  if (platform === "win32") return "start with Windows";
+  if (platform === "darwin") return "start by itself when you sign in to your Mac";
+  return "start by itself when you sign in to this computer";
+}
+
+function notInstalledDaemon(platform: NodeJS.Platform): { action: "status"; taskName: string; installed: false; message: string } {
+  if (platform === "darwin")
+    return { action: "status", taskName: launchdLabel, installed: false, message: "Move Branch into your Applications folder and open it from there to keep it working with the window closed. It then starts by itself when you sign in to your Mac." };
+  if (platform === "linux")
+    return { action: "status", taskName: systemdUnitName, installed: false, message: "Install Branch on this computer to keep it working with the window closed. It then starts by itself when you sign in." };
+  return { action: "status", taskName: daemonTaskName, installed: false, message: "Install Branch on this computer to keep it running with the window closed." };
+}
+
+export function daemonOptions(context: DeploymentContext, platform: NodeJS.Platform = process.platform): DaemonOptions {
   if (!context.executable || !context.installRoot)
     throw new Error("Branch has to be installed on this computer before it can keep running in the background.");
   return {
     executable: context.executable,
-    script: join(context.installRoot, "resources", "app", "dist", "cli.js"),
+    script: engineScriptPath(platform, context.installRoot),
     dataDir: context.dataDir, workspace: context.workspace, port: context.port,
-    launcherPath: join(context.dataDir, daemonLauncherName),
+    launcherPath: (platform === "win32" ? win32 : posix).join(context.dataDir, daemonLauncherName),
   };
 }
 
-async function overview(app: Branch, context: DeploymentContext): Promise<unknown> {
+async function overview(app: Branch, context: DeploymentContext, platform: NodeJS.Platform): Promise<unknown> {
   const installed = Boolean(context.executable);
   return {
     installed,
@@ -56,8 +94,8 @@ async function overview(app: Branch, context: DeploymentContext): Promise<unknow
     dataDir: context.dataDir,
     autostart: installed ? await autostartState() : { enabled: false, minimized: false, command: null },
     daemon: installed
-      ? await daemonCommand("status", daemonOptions(context))
-      : { action: "status", taskName: "Branch Agent daemon", installed: false, message: "Install Branch on this computer to keep it running with the window closed." },
+      ? await daemonCommand("status", daemonOptions(context, platform))
+      : notInstalledDaemon(platform),
     remote: context.remote.status(),
     restorePoints: await listUpdateBackups(context.dataDir),
     firstStart: await readFirstStart(context.dataDir),
@@ -70,22 +108,53 @@ async function setRemote(app: Branch, context: DeploymentContext, body: unknown,
   return enabled ? context.remote.enable(handler) : context.remote.disable();
 }
 
+const loopback = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+/** True only for the master key of this data folder, never a short-lived key. */
+async function carriesMasterKey(request: IncomingMessage, dataDir: string): Promise<boolean> {
+  const supplied = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "";
+  const saved = (await readFile(posix.join(dataDir, sessionTokenFileName), "utf8").catch(() => "")).trim();
+  return Boolean(saved) && supplied.length === saved.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(saved));
+}
+
+/**
+ * macOS and Linux: an update asks the engine working in the background to close. Only this computer,
+ * holding the master key, may ask, and only the background engine itself closes; the answer is sent
+ * before it goes. Windows closes it its own way, so there it is refused.
+ */
+async function closeEngine(request: IncomingMessage, context: DeploymentContext, deps: DeploymentDeps): Promise<unknown> {
+  if ((deps.platform ?? process.platform) === "win32")
+    throw new Error("On Windows the update closes the background engine by itself.");
+  if (!loopback.has(request.socket?.localAddress ?? "") || !(await carriesMasterKey(request, context.dataDir)))
+    throw new Error("Only the app on this computer can close the background engine.");
+  const note = await readRunning(context.dataDir);
+  if (note?.mode !== "daemon" || note.pid !== process.pid)
+    throw new Error("This copy of Branch is not the one working in the background.");
+  const signal = deps.signal ?? ((pid: number, name: NodeJS.Signals) => { process.kill(pid, name); });
+  // The same stop as pressing Ctrl+C: work is saved and the address is released.
+  setTimeout(() => signal(process.pid, "SIGTERM"), 200);
+  return { closing: true, message: "Branch is closing in the background so the new version can replace the files." };
+}
+
 /** Handles everything under /api/deployment; returns undefined when the path is not one of ours. */
 export async function deploymentApi(
   app: Branch, request: IncomingMessage, path: string, context: DeploymentContext,
   readBody: (request: IncomingMessage) => Promise<unknown>,
   remoteHandler: Parameters<RemoteAccess["enable"]>[0],
+  deps: DeploymentDeps = {},
 ): Promise<unknown | undefined> {
-  if (request.method === "GET" && path === "/api/deployment") return overview(app, context);
+  const platform = deps.platform ?? process.platform;
+  if (request.method === "GET" && path === "/api/deployment") return overview(app, context, platform);
   if (request.method === "POST" && path === "/api/deployment/autostart") {
     const { enabled, minimized } = EnabledSchema.parse(await readBody(request));
-    if (!context.executable) throw new Error("Branch has to be installed on this computer before it can start with Windows.");
+    if (!context.executable) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);
     return setAutostart(enabled, { executable: context.executable, minimized: minimized ?? true });
   }
   if (request.method === "POST" && path === "/api/deployment/daemon") {
     const { action } = DaemonSchema.parse(await readBody(request));
-    return daemonCommand(action as DaemonAction, daemonOptions(context));
+    return daemonCommand(action as DaemonAction, daemonOptions(context, platform));
   }
+  if (request.method === "POST" && path === "/api/deployment/close") return closeEngine(request, context, deps);
   if (request.method === "POST" && path === "/api/deployment/remote")
     return setRemote(app, context, await readBody(request), remoteHandler);
   if (request.method === "POST" && path === "/api/deployment/remote/invite") {

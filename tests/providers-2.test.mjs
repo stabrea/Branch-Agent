@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { CatalogSchema, catalogEntries, catalogEntry, catalogPrices, providerCatalog, resolveBaseUrl, missingExtras, modelsAddress } from "../dist/provider-catalog.js";
 import { buildConnection, capabilityRefusal } from "../dist/provider-factory.js";
@@ -642,7 +643,7 @@ test("the catalog supplies prices for models pricing.ts does not list, and never
 
 test("the documentation table regenerates to exactly what is checked in", () => {
   const before = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
-  execFileSync(process.execPath, ["scripts/docs-providers.mjs"], { cwd: new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1") });
+  execFileSync(process.execPath, ["scripts/docs-providers.mjs"], { cwd: fileURLToPath(new URL("..", import.meta.url)) });
   const after = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
   assert.equal(after, before, "run `npm run docs:providers` and commit the result");
   assert.ok(before.includes("tested against a fake of the"), "the honest line about fakes is in the docs");

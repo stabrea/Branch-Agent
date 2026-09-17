@@ -17,6 +17,9 @@ const byExtension: Record<string, DocumentType> = {
 export function documentType(name: string): DocumentType {
   return byExtension[name.toLowerCase().split(".").pop() ?? ""] ?? "txt";
 }
+/** Every file ending read as one kind, so a filter can name the kind instead of listing the endings. */
+export const extensionsFor = (type: DocumentType): string[] =>
+  Object.entries(byExtension).filter(([, value]) => value === type).map(([ending]) => ending);
 /** Whether the name ends in an extension this build actually knows, rather than falling back. */
 export const knownExtension = (name: string): boolean =>
   byExtension[name.toLowerCase().split(".").pop() ?? ""] !== undefined;

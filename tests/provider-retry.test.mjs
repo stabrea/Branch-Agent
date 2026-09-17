@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import {
   createBranch,
@@ -65,7 +66,7 @@ async function fixture(t, kind, handler, policy = fastPolicy) {
   t.after(async () => {
     await app.close();
     await new Promise((resolve) => server.close(resolve));
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, requests, provider, options };
 }
@@ -395,7 +396,7 @@ test("stream wrapper with observed usage cannot retry even when cause is typed H
   });
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   assert.equal(
     (await app.runtime.run({ prompt: "no retry" })).status,

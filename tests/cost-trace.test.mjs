@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { discardTemp } from "./temp-dir.mjs";
 import { UsageStore } from "../dist/usage.js";
 import { estimateCost, formatCost, normalizeModelId, pricedAt } from "../dist/pricing.js";
 import { buildTraceDocument, resolveTraceFolder, traceRoots, saveTraceSettings, writeRunTrace } from "../dist/trace.js";
@@ -12,13 +13,13 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 /** A key that must never survive into a diagnostics folder. */
-const fixtureKey = "sk-testonly0000ZZZZ1111secretvalue";
+const fixtureKey = "sk-testonly0000ZZZZ1111secretvalue";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 
 async function scratch(t, label) {
   const base = join(tmpdir(), "Codex-session-files");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, `branch-${label}-`));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return root;
 }
 
@@ -137,7 +138,7 @@ async function app(t, label) {
   t.after(async () => {
     await server.close();
     await branch.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const call = async (path, body, raw = false) => {
     const response = await fetch(server.url + path, {

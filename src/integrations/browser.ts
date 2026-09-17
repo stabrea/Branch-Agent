@@ -9,12 +9,14 @@ import type { RunArtifacts } from '../artifacts.js';
 import { BrowserSession, type DownloadRecord } from './browser-session.js';
 import { BrowserProfiles, profileNameSchema, type StorageState } from './browser-profiles.js';
 import { ExtractSchema, ScreenshotSchema, WaitSchema, extract, safeDownloadName, screenshot, waitFor } from './browser-page.js';
-import { AnnotateSchema, MarkRegistry, annotate, clearMarks } from './browser-marks.js';
+import { AnnotateSchema, MarkRegistry, annotate, clearMarks, liveMarkKey } from './browser-marks.js';
 import { ExtractSchemaSchema, extractSchema } from './browser-schema.js';
 import { resolve as healResolve, type HealTarget } from './browser-heal.js';
+import { SiteSkills, applyQuirks, type QuirksApplied } from './browser-sites.js';
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
+import { audit } from '../audit.js';
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -93,6 +95,11 @@ export class BranchBrowser {
   store: Store | undefined;
   /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
   connect: typeof attach = attach;
+  /**
+   * The site skills this owner has installed: the quirks of particular websites, kept in the skill
+   * that knows about the site rather than in this tool. Left unset, no site has any quirks.
+   */
+  siteSkills: ((owner: string) => SiteSkills) | undefined;
 
   private allowed(value: string): boolean {
     try { return this.origins.has(new URL(value).origin); } catch { return false; }
@@ -162,7 +169,34 @@ export class BranchBrowser {
       // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
       entry.host = new URL(url).host;
-      return { url: page.url(), title: await page.title() };
+      const site = await this.quirks(context, page, url);
+      return { url: page.url(), title: await page.title(), ...(site ? { site } : {}) };
+    });
+  }
+  /** The quirks of this website, when a skill knows any, applied the moment the page has opened. */
+  private async quirks(context: ToolContext, page: Page, url: string): Promise<QuirksApplied | null> {
+    const known = this.siteSkills?.(context.owner)?.forUrl(url);
+    // Pressing a notice is not reading, so a task allowed only to read is told what it would have
+    // pressed rather than having a press made on its behalf.
+    return known ? applyQuirks(page, known, context.permissions.has('browser.interact')) : null;
+  }
+  /**
+   * Site skills: which websites a skill knows the quirks of, and the readings one of them names.
+   * A reading is an ordinary shaped extraction the skill wrote down, so a task asks for "basket"
+   * rather than working out the selectors of that site again.
+   */
+  async site(input: { action: 'list' | 'read'; name?: string | undefined }, context: ToolContext) {
+    const skills = this.siteSkills?.(context.owner);
+    if (!skills) throw new Error('Site skills are switched off for this launch');
+    if (input.action === 'list') return { sites: skills.list() };
+    const name = input.name ?? '';
+    return this.operation(context, async page => {
+      const known = skills.forUrl(page.url());
+      if (!known) throw new Error(`No installed skill knows this website. Ask browser.site for the list of sites that have one.`);
+      const reading = known.site.readings[name];
+      if (!reading) throw new Error(`The skill "${known.skill}" has no reading called "${name}". `
+        + `It has: ${Object.keys(known.site.readings).join(', ') || 'none'}.`);
+      return { skill: known.skill, reading: name, ...await extractSchema(page, reading) };
     });
   }
   async snapshot(context: ToolContext) {
@@ -237,7 +271,8 @@ export class BranchBrowser {
   async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
     const entry = this.entry(context);
     return this.operation(context, async page => {
-      const found = await healResolve(page, input);
+      const found = await healResolve(page, input, 2000,
+        { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) });
       if (input.action === 'fill') {
         if ((await found.locator.getAttribute('type'))?.trim().toLowerCase() === 'password')
           throw new Error('Password fields require a dedicated credential integration');
@@ -288,6 +323,10 @@ export class BranchBrowser {
     entry.session.options.attached = { context: attached.context, detach: () => attached.detach() };
     // Every request Branch's own tab makes is checked, not only the addresses it is asked to open.
     entry.session.options.guardUrl = url => attachedAddressRefusal(url, '', settings.extraRefusedHosts);
+    // Batch 20 (wave 8): reaching into the owner's own browser window widens what Branch can see,
+    // so it is written into the record of what the assistant was allowed to do, both ways.
+    audit(this.store, context.owner, { action: 'browser.borrowed', actor: 'a task', runId: context.runId,
+      subject: 'your own browser window', reason: 'A task asked to work in the browser you already have open', outcome: 'borrowed' });
     return this.borrowedReport(entry);
   }
   /** The extra websites the owner added to the refused list; none, when settings are not kept. */
@@ -304,6 +343,9 @@ export class BranchBrowser {
     const entry = this.sessions.get(this.key(context));
     if (!entry?.borrowed) return { released: false };
     await this.closeRun(context);
+    if (this.store)
+      audit(this.store, context.owner, { action: 'browser.borrowed', actor: 'a task', runId: context.runId,
+        subject: 'your own browser window', reason: 'The task finished with it', outcome: 'given back' });
     return { released: true };
   }
   /** Starts keeping a recording of this task's browser window. */
@@ -559,6 +601,11 @@ function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowse
     description: 'Work in the browser the person already has open, so websites they are signed in to know them. Only when they turned this on for this task in Settings. Banks and password sites are always refused, and their own tabs are never touched.',
     parameters: z.object({ action: z.enum(['borrow', 'give back']) }).strict(),
     execute: (a, c) => a.action === 'borrow' ? browser.borrow(c) : browser.giveBack(c), target: host });
+  registry.register({ name: 'browser.site', permission: 'browser.read',
+    description: 'What an installed skill knows about this website: list the sites that have a skill, or read this page by the name of a reading that skill wrote down.',
+    parameters: z.object({ action: z.enum(['list', 'read']),
+      name: z.string().min(1).max(40).optional() }).strict(),
+    execute: (a, c) => browser.site(a, c) });
   registry.register({ name: 'browser.recording', permission: 'browser.read',
     description: 'Keep a recording of what the browser does in this task, to look at afterwards. Start it, then keep it when the work is done.',
     parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),

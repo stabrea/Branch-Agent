@@ -55,7 +55,9 @@ function drawEdge(edge, positions) {
       "font-size": 10, fill: "var(--muted, #666)" }, edge.when === "matched" ? "as expected" : "otherwise"));
   return group;
 }
-function drawGraph(graph) {
+/* Wave 8: the editor draws the same picture from the steps being edited, so a change is seen
+   before it is saved. */
+export function drawGraph(graph) {
   const positions = new Map(graph.nodes.map((entry) => [entry.id, entry.index]));
   const height = box.top * 2 + graph.nodes.length * (box.height + box.gapY);
   const svg = node("svg", { viewBox: `0 0 ${box.width + 140} ${height}`, width: "100%",
@@ -108,4 +110,6 @@ export async function drawFlows() {
 }
 
 $("flows-refresh")?.addEventListener("click", () => { void drawFlows(); });
-document.querySelector('[data-view="procedures"]')?.addEventListener("click", () => { void drawFlows(); });
+document.addEventListener("branch-place", (event) => {
+  if (["procedures", "automations:procedures"].includes(event.detail.view)) void drawFlows();
+});

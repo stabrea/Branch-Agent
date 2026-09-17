@@ -1,11 +1,13 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
-import { desktopOptions } from './fixtures/desktop-options.mjs';
+import { connected, desktopOptions } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
   messages: [{ role: 'user', content: 'Export fixture' }, { role: 'assistant', content: 'Saved response' }] };
@@ -16,7 +18,7 @@ const memoryArchive = { format: 'branch-agent-memory', version: 1, exportedAt: a
 test('native export validates text before choosing a file and writes only a chosen destination', async (t) => {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'branch-export-')), path = join(root, 'conversation.json');
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   let dialogs = 0;
   const choose = async () => { dialogs++; return path; };
   for (const value of [archive, '{broken', '{}', '☃'.repeat(1500000), JSON.stringify({ ...archive, path })])
@@ -32,7 +34,7 @@ test('native export validates text before choosing a file and writes only a chos
 test('native memory export validates archive and raw UTF8 size before opening the save dialog', async t => {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'branch-memory-export-')), path = join(root, 'memory.json');
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   let dialogs = 0; const choose = async () => { dialogs++; return path; };
   for (const value of [memoryArchive, '{}', JSON.stringify(archive), '☃'.repeat(5600000), JSON.stringify({ ...memoryArchive, path })])
     await assert.rejects(saveMemoryExport(value, choose));
@@ -43,12 +45,12 @@ test('native memory export validates archive and raw UTF8 size before opening th
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), memoryArchive);
 });
 
-test('native conversation export uses guarded IPC and leaves the blanket download blocker enabled', { timeout: 90000 }, async () => {
+test('native conversation export uses guarded IPC and leaves the blanket download blocker enabled', { timeout: 360000 }, async () => {
   const { home, options } = await desktopOptions(), path = join(home, 'exported-conversation.json');
   const electron = await _electron.launch(options);
   try {
     const page = await electron.firstWindow(); page.setDefaultTimeout(10000);
-    await page.getByText('Connected', { exact: true }).waitFor();
+    await connected(page);
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];
       dialog.showSaveDialog = async (_window, options) => {
@@ -60,7 +62,12 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     assert.notEqual(invalid, 'allowed');
     assert.equal(await electron.evaluate(() => globalThis.fixtureExportDialogs.length), 0);
     await page.getByLabel('Your message', { exact: true }).fill('Export the demo conversation');
-    await page.locator('#send').click(); await page.waitForFunction(() => !document.getElementById('send').disabled);
+    await page.locator('#send').click();
+    // Waiting for a whole task to finish, not for the page to paint: the model answers, the reply is
+    // written down and the conversation is saved before Send comes back. Ten seconds is enough on a
+    // desktop and not on a loaded build machine, where this timed out at 32 seconds having done
+    // nothing wrong. The wait is widened here rather than anything in the app being made faster.
+    await page.waitForFunction(() => !document.getElementById('send').disabled, undefined, { timeout: 120000 });
     await page.locator('#saved-conversations summary').click();
     await page.locator('#saved-list').getByRole('button', { name: 'Export JSON', exact: true }).first().click();
     await page.locator('#toast').filter({ hasText: 'Conversation exported.' }).waitFor();
@@ -79,7 +86,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
 async function exportNativeMemory(electron, page, path) {
   const invalid = await page.evaluate(() => window.branchDesktop.exportMemory('{}').then(() => 'allowed', error => error.message));
   assert.notEqual(invalid, 'allowed');
-  await page.locator('[data-view="memory"]').click();
+  await openPlace(page, 'memory');
   await page.locator('#memory-text').fill('Native exported memory');
   await page.getByRole('button', { name: 'Save memory', exact: true }).click();
   await page.locator('#memory-count').filter({ hasText: '1 of 500' }).waitFor();

@@ -5,9 +5,12 @@ import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
+import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
+import { ShellSessions, registerShellSessions } from '../shell-session.js';
+import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
 import { DiscordAdapter } from '../channels/discord.js';
@@ -190,7 +193,12 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
   /** The live browser, when one is configured, so Settings can offer the sign-in-once window. */
-  const hosted: { browser?: BranchBrowser; issues?: IssueAccess } = {};
+  const hosted: {
+    browser?: BranchBrowser; issues?: IssueAccess;
+    /** Batch 26 (wave 8): what the firewall card reads back — the sites the browser may open, and
+     * whether host commands are pointed at a dead address. Both are launch settings, not stored ones. */
+    browserOrigins?: string[]; commandsNetless?: boolean;
+  } = {};
   const before = new Set(registry.names());
   const close = async () => {
     for (const name of registry.names()) if (!before.has(name)) registry.unregister(name);
@@ -219,20 +227,34 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.profiles = channels?.browserProfiles;
       browser.store = channels?.store as never;
       browser.tracer = channels?.tracer as never;
+      // The quirks of particular websites live in the skills the owner installed, not in the
+      // browser tool, so they are read fresh each time: installing a skill needs no restart.
+      const skillStore = channels?.store as SiteSkillSource | undefined;
+      if (skillStore) browser.siteSkills = owner => siteSkillsFor(skillStore, owner);
       // The page half of the shared "look at this, press that" tools is this browser.
       if (channels?.computer) channels.computer.page = browser;
       // Locking Branch gives back any browser of the owner's a task had borrowed, so a locked
       // Branch is never still holding the door to their signed-in windows open.
       channels?.onLock?.(() => browser.releaseBorrowed());
       hosted.browser = browser;
+      hosted.browserOrigins = [...config.browser.allowedOrigins];
       registerBrowser(registry, browser); closers.push(() => browser.close());
     }
     let shell: BranchShell | undefined;
     if (config.shell) {
+      hosted.commandsNetless = config.shell.netless === true;
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
+      // A command line the owner can keep open, from the very same list of programs. It is closed
+      // with everything else here, so nothing it started outlives the app.
+      const store = channels?.store as Store | undefined;
+      const owner = channels?.context?.('bootstrap').owner;
+      if (store && owner) {
+        const kept = new ShellSessions(config.shell, store, owner, env);
+        registerShellSessions(registry, kept); closers.push(() => kept.closeAll());
+      }
     }
     if (config.git) enableGit(registry, config.git, channels, policy);
     if (config.issues) hosted.issues = enableIssues(registry, config.issues, config.git, channels, policy);

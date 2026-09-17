@@ -4,10 +4,12 @@
  * installable-app files, and switching the language.
  */
 import test from "node:test";
+import { openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -30,7 +32,7 @@ async function fixture(t, provider) {
     await browser.close();
     await server.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
@@ -117,7 +119,7 @@ test("U1 a reply written in markdown is rendered in the conversation, not shown 
 test("U1 a saved note keeps its inline formatting and still cannot carry markup", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await openPlace(page, "memory");
   await page.getByLabel("Remember something").fill("Prefer **short** answers and `npm start`, never <script>alert(1)</script>.");
   await page.getByRole("button", { name: "Save memory", exact: true }).click();
   const card = page.locator("#memory-list article h3").first();
@@ -146,7 +148,7 @@ test("U2 Look inside shows a scripted task's tool rows and saves as JSON", async
   await page.locator(".message.assistant").waitFor();
   /* The route answers whatever the panel will draw, so check it directly as well as on screen. */
   const runId = app.store.runs(app.runtime.owner).at(0).id;
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await openPlace(page, "runs");
   await page.locator("#runs-list").getByRole("button", { name: "Look inside" }).first().click();
   await page.locator("#inspect-panel").waitFor({ state: "visible" });
   await page.locator(".inspect-call").first().waitFor();
@@ -280,7 +282,7 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
 test("U5 the playground runs a read-only tool and shows what came back", async (t) => {
   const { page, errors } = await fixture(t);
   await settle(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#playground");
   await page.locator("#playground summary").click();
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
@@ -303,7 +305,7 @@ test("U5 a tool the settings say to ask about stops and asks before it runs", as
     await fetch("/api/policy", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ preset: "ask-before-changes" }) });
   }, await page.evaluate(() => sessionStorage.getItem("branch-token")));
   await settle(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#playground");
   await page.locator("#playground summary").click();
   await page.waitForFunction(() => document.getElementById("play-tool").options.length > 1);
   await page.locator("#play-tool").selectOption("files.write");
@@ -399,11 +401,12 @@ test("U7 switching the language changes a visible label and English stays the fa
   assert.deepEqual(missing, [], "the second language answers every key English does");
   await settle(page);
   assert.equal(await page.locator('[data-view="memory"]').innerText(), "Memory");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingFor(page, "#appearance-language");
   await page.locator("#appearance-language").selectOption("fr");
   await page.waitForFunction(() => document.getElementById("appearance-language").value === "fr" && document.documentElement.lang === "fr");
   assert.equal(await page.locator('[data-view="memory"]').innerText(), "Mémoire");
-  assert.equal(await page.locator('[data-view="usage"]').innerText(), "Consommation");
+  assert.equal(await page.locator('.lx-place-link[data-place="library"]').innerText(), "Bibliothèque");
+  assert.equal(await page.locator('.lx-settings-link[data-page="data"]').innerText(), "Données et consommation");
   /* A key with no French on file falls back to English rather than showing a blank. */
   const fallback = await page.evaluate(async () => {
     const { t } = await import("/i18n.js");
@@ -472,4 +475,39 @@ test("Q6 each of the ten sections has its own words on file", async (t) => {
     const mine = Object.keys(english).filter((key) => key.startsWith(`${view}.`));
     assert.ok(mine.length > 0, `${view} has no words of its own behind a key`);
   }
+});
+
+/* Wave 8: the coverage test is tightened. It used to ask only that every key in the markup had
+   English words; now it asks the other way round — that no button, field label or tick box on the
+   page says anything that is not behind a key, so switching the language leaves nothing in English. */
+test("Q6 every button and field label on the page says its words through a key", async (t) => {
+  const html = await readFile(join(PUBLIC, "index.html"), "utf8");
+  const nameless = [];
+  /* A button or label whose whole content is plain words must carry the key for those words. */
+  for (const [whole, attributes, text] of html.matchAll(/<(?:button|label)\b([^>]*)>([^<]{1,200})<\/(?:button|label)>/g))
+    if (!/\bdata-t[=\s]/.test(attributes) && text.trim()) nameless.push(text.trim().slice(0, 60));
+  /* A tick box carries its words after the input; they belong in a span with a key of their own. */
+  for (const [, attributes, , text] of html.matchAll(/<label\b([^>]*)>(<input[^>]*?\/?>)\s*([^<]{2,200})<\/label>/g))
+    if (!/\bdata-t[=\s]/.test(attributes) && text?.trim()) nameless.push(text.trim().slice(0, 60));
+  assert.deepEqual(nameless, [], "these controls still say their words in English only");
+
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  assert.ok(Object.keys(english).filter((key) => key.startsWith("action.")).length > 80,
+    "the buttons on the page are not all behind keys");
+  assert.ok(Object.keys(english).filter((key) => key.startsWith("field.")).length > 80,
+    "the field labels on the page are not all behind keys");
+});
+
+/* Words that are genuinely the same in both languages — proper names, and words French borrowed
+   whole. Anything else left in English is a translation that was never written. */
+const SHARED_WITH_FRENCH = new Set([
+  "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
+]);
+test("Q6 French is a real translation, not the English file under another name", async (t) => {
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  const french = JSON.parse(await readFile(join(PUBLIC, "locales", "fr.json"), "utf8"));
+  const copied = Object.keys(english).filter((key) =>
+    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]));
+  assert.deepEqual(copied, [], "these keys still answer in English when French is chosen");
+  assert.ok(Object.keys(french).length >= Object.keys(english).length, "French answers every key");
 });

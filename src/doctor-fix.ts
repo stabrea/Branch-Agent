@@ -36,6 +36,8 @@ export interface DoctorOptions {
   /** True when Branch is already listening on that address, so it is in use by design. */
   portIsOurs?: boolean;
   browsersInstalled?: () => Promise<boolean>;
+  /** Which system the advice is for; defaults to this computer's. */
+  platform?: NodeJS.Platform;
 }
 
 const runCommand = (file: string, args: string[]): Promise<string> =>
@@ -50,7 +52,16 @@ export const portIsFree = (port: number): Promise<boolean> =>
     probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
   });
 
-async function checkGit(deps: DoctorDeps): Promise<DoctorCheck> {
+/** How to get Git on each kind of computer; Branch never runs these itself. */
+export function gitInstallAdvice(platform: NodeJS.Platform): string {
+  if (platform === "darwin")
+    return "Open the Terminal app, type xcode-select --install and press Return, then follow the steps on screen and reopen Branch. Branch cannot install it for you because macOS asks you to agree first.";
+  if (platform === "linux")
+    return "Install Git with your system's software tool (on Ubuntu: sudo apt install git), then reopen Branch. Branch cannot install it for you because it needs your password.";
+  return "Download Git for Windows from git-scm.com, run the installer, accept every default, then close and reopen Branch. Branch cannot install it for you because the installer asks questions.";
+}
+
+async function checkGit(options: DoctorOptions, deps: DoctorDeps): Promise<DoctorCheck> {
   const run = deps.run ?? runCommand;
   try {
     const version = (await run("git", ["--version"])).trim();
@@ -59,7 +70,7 @@ async function checkGit(deps: DoctorDeps): Promise<DoctorCheck> {
     return {
       name: "Git", ok: false,
       summary: "Git is not installed. Branch still works; keeping versions of code files and the Git screen do not.",
-      fix: "Download Git for Windows from git-scm.com, run the installer, accept every default, then close and reopen Branch. Branch cannot install it for you because the installer asks questions.",
+      fix: gitInstallAdvice(options.platform ?? process.platform),
     };
   }
 }
@@ -119,7 +130,7 @@ async function checkWorkspace(options: DoctorOptions): Promise<DoctorCheck> {
 /** Runs every setting-up check; with `fix` on, repairs what can be repaired from here. */
 export async function doctorFix(options: DoctorOptions, deps: DoctorDeps = {}): Promise<DoctorFixReport> {
   const checks = [
-    await checkGit(deps), await checkBrowser(options, deps),
+    await checkGit(options, deps), await checkBrowser(options, deps),
     await checkPort(options, deps), await checkWorkspace(options),
   ];
   return {

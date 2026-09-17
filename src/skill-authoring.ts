@@ -72,7 +72,7 @@ export async function testSkill(store: Store, owner: string, runtime: Runtime, s
   const results: { example: number; prompt: string; runId: string; status: string; passed: boolean; output: string; ms: number }[] = [];
   for (const [index, example] of examples.entries()) {
     const started = Date.now();
-    const run = await runtime.delegate(example, context, [...context.permissions].filter((p) => !["shell.execute", "git.remote", "github.manage"].includes(p)),
+    const run = await runtime.delegate(example, context, [...context.permissions].filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage"].includes(p)),
       `Skill under test (v${version}):\n${document}`, { timeoutMs: 120000 });
     results.push({ example: index, prompt: example, runId: run.id, status: run.status, passed: run.status === "completed", output: run.output.slice(0, 600), ms: Date.now() - started });
   }

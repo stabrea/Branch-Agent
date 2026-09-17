@@ -1,10 +1,12 @@
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, backoffMs } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -41,7 +43,7 @@ async function fixture(t, { allowLocal = true } = {}) {
   app.webhooks.retryDelays = [1, 1]; // three attempts, no real waiting
   t.after(async () => {
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root, provider, context: app.runtime.context() };
 }
@@ -367,7 +369,7 @@ test("the Schedules screen shows both automations, with a web address and recent
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "Schedules", exact: true }).click();
+  await openPlace(page, "automations:triggers");
 
   const panel = page.locator("#automations-container");
   await panel.getByText("From the shop").waitFor();
@@ -379,8 +381,8 @@ test("the Schedules screen shows both automations, with a web address and recent
   assert.match(await panel.locator(".automations-log").first().innerText(), /completed/);
 
   await panel.getByRole("button", { name: "Send a test", exact: true }).click();
-  await page.locator("#toast").waitFor({ state: "visible" });
-  assert.match(await page.locator("#toast").innerText(), /answered: HTTP 200/);
+  /* Another toast may still be on screen, so "visible" is already true: wait for these words. */
+  await page.locator("#toast").filter({ hasText: "answered: HTTP 200" }).waitFor();
   assert.deepEqual(errors, []);
 });
 

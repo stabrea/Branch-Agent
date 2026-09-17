@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn, execFile } from "node:child_process";
+import { spawn, spawnSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import {
-  completionScript, cliCommands, usageText,
+  completionScript, completionInstallHint, completionShells, cliCommands, usageText,
 } from "../dist/cli-completion.js";
 import { exitCodeFor, parseRunArgs } from "../dist/cli-run.js";
 import { resolveStyle, stripAnsi, wrap } from "../dist/terminal-style.js";
@@ -17,7 +18,7 @@ const clean = (text) => stripAnsi(text);
 
 async function workspace(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-tui-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return {
     root,
     env: { ...process.env, BRANCH_WORKSPACE: join(root, "ws"), BRANCH_DATA_DIR: join(root, "data"), NO_COLOR: undefined },
@@ -31,6 +32,11 @@ async function branch(env, args) {
   } catch (error) {
     return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
   }
+}
+/** Reads `branch status --json`, and says what the command printed when it did not succeed. */
+function statusJson(result) {
+  assert.equal(result.code, 0, `status failed: ${result.stderr || "(nothing on stderr)"}`);
+  return JSON.parse(result.stdout);
 }
 /** Drives the terminal view in a child process that believes it has a terminal. */
 function chat(t, env, extra = {}) {
@@ -46,8 +52,10 @@ function chat(t, env, extra = {}) {
     raw: () => raw,
     text: () => clean(raw),
     type: (text) => child.stdin.write(text),
+    /* Waits for the words themselves. The deadline is only there so a hang ends with the screen
+       printed; a loaded build machine can take far longer than a laptop to draw the same thing. */
     async until(pattern) {
-      for (let attempt = 0; attempt < 600; attempt++) {
+      for (const end = Date.now() + 60_000; Date.now() < end;) {
         if (pattern.test(view.text())) return;
         await delay(25);
       }
@@ -95,8 +103,10 @@ test("the terminal view asks for a yes with the exact path, and a y carries the 
   await view.until(/when to check with me: Ask before changes/);
   view.type("write the demo file\r");
   await view.until(/Branch needs your yes/);
+  /* The question is drawn a line at a time, so wait for its last line rather than reading the
+     screen the moment the first one appears. */
+  await view.until(/Exactly: branch-demo\.txt/);
   assert.match(view.text(), /Tool: files\.write/);
-  assert.match(view.text(), /Exactly: branch-demo\.txt/);
   view.type("q\r");
   await view.until(/Please answer y, n, a or s/);
   view.type("y\r");
@@ -195,11 +205,11 @@ test("--preset holds for one task only; --save-preset is the one that keeps the 
   const once = await branch(env, ["run", "write something", "--preset", "ask-before-changes", "--json"]);
   assert.equal(once.code, 2, "the task did stop to ask, so the preset was in force while it ran");
   assert.match(once.stderr, /for this task only/);
-  const after = JSON.parse((await branch(env, ["status", "--json"])).stdout);
+  const after = statusJson(await branch(env, ["status", "--json"]));
   assert.equal(after.approvalPreset, "off", "the owner's saved setting was put back");
   const kept = await branch(env, ["run", "write something", "--save-preset", "ask-before-changes", "--json"]);
   assert.equal(kept.code, 2);
-  const later = JSON.parse((await branch(env, ["status", "--json"])).stdout);
+  const later = statusJson(await branch(env, ["status", "--json"]));
   assert.equal(later.approvalPreset, "ask-before-changes", "--save-preset left the change in place");
 });
 
@@ -241,7 +251,7 @@ test("status, logs and approve give scripts the same picture the app shows", asy
   assert.match(refused.stderr, /No task with that id/);
 });
 
-test("completion writes a script for bash and for PowerShell and refuses anything else", async (t) => {
+test("completion writes a script for bash, zsh, fish and PowerShell and refuses anything else", async (t) => {
   const { env } = await workspace(t);
   const bash = await branch(env, ["completion", "bash"]);
   assert.equal(bash.code, 0);
@@ -251,12 +261,63 @@ test("completion writes a script for bash and for PowerShell and refuses anythin
   assert.equal(powershell.code, 0);
   assert.match(powershell.stdout, /Register-ArgumentCompleter -Native -CommandName branch/);
   assert.match(powershell.stdout, /'run' = @\('--json'/);
-  const wrong = await branch(env, ["completion", "fish"]);
+  const zsh = await branch(env, ["completion", "zsh"]);
+  assert.equal(zsh.code, 0);
+  assert.match(zsh.stdout, /^#compdef branch/);
+  assert.match(zsh.stdout, /compdef _branch branch/);
+  const fish = await branch(env, ["completion", "fish"]);
+  assert.equal(fish.code, 0);
+  assert.match(fish.stdout, /complete -c branch -n "__fish_seen_subcommand_from run" -l json/);
+  const wrong = await branch(env, ["completion", "tcsh"]);
   assert.equal(wrong.code, 1);
-  assert.match(wrong.stderr, /Completion is available for: bash, powershell/);
-  for (const command of cliCommands) assert.match(bash.stdout, new RegExp(`\\b${command.name}\\b`));
+  assert.match(wrong.stderr, /Completion is available for: bash, zsh, fish, powershell/);
+  for (const shell of completionShells) {
+    const script = completionScript(shell);
+    for (const command of cliCommands) assert.match(script, new RegExp(`\\b${command.name}\\b`), `${shell} offers ${command.name}`);
+    for (const option of new Set(cliCommands.flatMap((command) => command.options)))
+      assert.ok(script.includes(shell === "fish" ? `-l ${option.slice(2)}` : option), `${shell} offers ${option}`);
+    assert.match(script, /To load it in every new terminal: /, `${shell} says how to install it`);
+    assert.match(completionInstallHint(shell), new RegExp(`branch completion ${shell}`));
+  }
   assert.ok(usageText().includes("Exit codes for scripts"));
-  assert.throws(() => completionScript("zsh"), /bash, powershell/);
+  assert.throws(() => completionScript("tcsh"), /bash, zsh, fish, powershell/);
+});
+
+const hasShell = (name) => spawnSync("sh", ["-c", `command -v ${name}`]).status === 0;
+
+test("the bash script suggests commands and only that command's options", { skip: !hasShell("bash") }, () => {
+  const probe = `${completionScript("bash")}
+COMP_WORDS=(branch ru); COMP_CWORD=1; _branch_complete; echo "one:\${COMPREPLY[*]}"
+COMP_WORDS=(branch run --ve); COMP_CWORD=2; _branch_complete; echo "two:\${COMPREPLY[*]}"
+COMP_WORDS=(branch completion f); COMP_CWORD=2; _branch_complete; echo "three:\${COMPREPLY[*]}"`;
+  const out = spawnSync("bash", ["--norc", "--noprofile", "-c", probe], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^one:run$/m);
+  assert.match(out.stdout, /^two:--verify$/m);
+  assert.match(out.stdout, /^three:fish$/m);
+});
+
+test("the zsh script suggests commands and only that command's options", { skip: !hasShell("zsh") }, () => {
+  // compadd and _files are zsh's own completion helpers; stand-ins print what would be offered.
+  const probe = `compadd() { local a; if [[ $1 == -a ]]; then a=(\${(P)2}); else a=("$@"); fi; print -r -- "offer:\${a[*]}"; }
+_files() { print -r -- "offer:files"; }
+compdef() { print -r -- "registered:$*"; }
+${completionScript("zsh")}
+words=(branch ""); CURRENT=2; PREFIX=""; _branch
+words=(branch run --); CURRENT=3; PREFIX="--"; _branch
+words=(branch completion ""); CURRENT=3; PREFIX=""; _branch`;
+  const out = spawnSync("zsh", ["-f", "-c", probe], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^registered:_branch branch$/m);
+  assert.match(out.stdout, new RegExp(`^offer:${cliCommands.map((c) => c.name).join(" ")}$`, "m"));
+  assert.match(out.stdout, /^offer:--json --attach --plan .*--fork$/m);
+  assert.match(out.stdout, /^offer:bash zsh fish powershell$/m);
+});
+
+test("the fish script loads in fish", { skip: !hasShell("fish") }, () => {
+  const out = spawnSync("fish", ["--no-config", "-c", `${completionScript("fish")}\ncomplete -C "branch ru"`], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^run\t/m);
 });
 
 test("the flag reader, the exit code table and the wrapper behave on their own", () => {

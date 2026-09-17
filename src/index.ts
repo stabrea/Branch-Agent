@@ -17,6 +17,7 @@ import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
+import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -36,6 +37,7 @@ import { registerSessions } from "./sessions.js";
 import { SessionTree, registerSessionTree } from "./session-tree.js";
 import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
+import { registerContextFiles } from "./context-files.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
@@ -65,12 +67,15 @@ import { Triggers } from "./triggers.js";
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { SessionTokens } from "./session-tokens.js";
+import { CommandSecrets, KeychainSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
 import { SkillPackages } from "./skill-packages.js";
 import { Plugins } from "./plugins.js";
 import { Evaluation } from "./evaluation.js";
 import { SuiteRunner } from "./evaluation-runner.js";
 import { StudyRunner } from "./study.js";
+import { liveScores, liveScoreSummary, liveScoringSettings, saveLiveScoringSettings, watchFinishedRuns } from "./evaluation-live.js";
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
@@ -83,6 +88,10 @@ import { VoiceService, registerVoice } from "./voice-service.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
+import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
+import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
+import { SessionLimiter } from "./session-limits.js";
+import { ConversationRetention } from "./retention.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
@@ -93,6 +102,8 @@ import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
 import { Research, registerResearch } from "./research.js";
 import { Monitors, registerMonitors } from "./monitors.js";
+// Wave 8: watching a rectangle of the screen for a change, off unless the owner asks twice.
+import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
@@ -101,8 +112,21 @@ import { audit } from "./audit.js";
 import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 // Knowledge bases: whole folders read into passages, searched by words and by meaning at once.
 import { KnowledgeBases } from "./knowledge-bases.js";
+import { chooseVectorStore } from "./vector-store-file.js";
+import { ContextProviders, providerFrom, RepositoryContextProvider,
+  repositoryContextSettings } from "./context-providers.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
 import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
+// Batch 20 (wave 8): writing Office files, a map of what a knowledge base mentions, summaries,
+// pictures described in words, a Markdown mirror of what is remembered, and text held for one job.
+import { DocumentAuthoring, registerDocumentAuthoring } from "./document-authoring.js";
+import { GraphRetriever, KnowledgeGraph } from "./knowledge-graph.js";
+import { KnowledgeSummaries } from "./knowledge-summary.js";
+import { KnowledgeManagement } from "./knowledge-manage.js";
+import { KnowledgePictures } from "./knowledge-pictures.js";
+import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
+import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
+import { EphemeralDocuments, EphemeralRetriever, registerEphemeralDocuments } from "./memory-ephemeral.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -111,6 +135,10 @@ import type { IssueAccess } from "./integrations/issue-tools.js";
 // Wave 6 (collaboration and workflows): labels, durable workflows, the waiting line and days off.
 import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
+// Wave 8: the to-do list, and reports saved in several forms.
+import { Todos, registerTodos } from "./todos.js";
+import { MemoryLearning } from "./memory-learning.js";
+import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
 import { CalendarSettingsStore } from "./calendar.js";
@@ -123,6 +151,10 @@ import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
+import { redactLeaksIn } from "./leak-guard.js";
+// mac2/fly-core: the learning core switch and its on-demand tool.
+import { flyCoreSettings } from "./fly-core/settings.js";
+import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -193,6 +225,14 @@ export async function createBranch(options: {
   const projectMap = new ProjectMap(files);
   registerProjectMap(registry, projectMap);
   const editor = new CodeEditor(files, writeObserver);
+  // Wave 9: a patch going in is its own event, so a hook can fire on it (issue #55, workflow-hooks).
+  editor.onPatched = (changed, context) => {
+    if (!context.runId) return;
+    store.event(context.runId, "patch.applied", { files: changed.length,
+      paths: changed.map((file) => file.path).slice(0, 20),
+      added: changed.reduce((total, file) => total + file.added, 0),
+      removed: changed.reduce((total, file) => total + file.removed, 0) });
+  };
   registerCodeEdit(registry, files, editor);
   // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
   // followed by the check the owner set up for this project.
@@ -205,6 +245,8 @@ export async function createBranch(options: {
   registerLanguageServers(registry, languageServers, codeChanges);
   const debugAdapters = new DebugAdapters(store, options.owner ?? "local", files);
   registerDebug(registry, debugAdapters);
+  // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
+  syncSuggestTool(registry, store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -229,8 +271,30 @@ export async function createBranch(options: {
   });
   registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
-  const git = new GitTools(files, new GitRunner());
+  const gitRunner = new GitRunner();
+  const git = new GitTools(files, gitRunner);
   registerGit(registry, git);
+  // Batch 26 (wave 8): a way back to before a set of changes was written, a project that carries
+  // its own line of work, and folders on other computers reached with the OpenSSH client Windows
+  // already has. All three are the owner's own tools, borrowed rather than installed.
+  const gitRun: GitRun = async (cwd, args, signal) => {
+    const out = await gitRunner.run({ cwd, args }, signal);
+    return { status: out.status, stdout: out.stdout, stderr: out.stderr, exitCode: out.exitCode };
+  };
+  const checkpoints = new GitCheckpoints(store, options.owner ?? "local", gitRun);
+  codeChanges.checkpoints = checkpoints;
+  const gitWorkspaces = new GitWorkspaces(checkpoints, gitRun);
+  store.projects.onSwitched((owner, project) => {
+    if (!project.branch) return;
+    void gitWorkspaces.switchTo(join(workspace, project.folder), project.branch, AbortSignal.timeout(30_000))
+      .catch(() => undefined);
+  });
+  const remotes = new RemoteWorkspaces(store, options.owner ?? "local", sshRunner());
+  registerRemoteWorkspaces(registry, remotes);
+  // Batch 26 (wave 8): how much one conversation, or one person messaging from outside, may ask for
+  // in a minute and in an hour; and letting conversations older than the owner's cut-off go.
+  const sessionLimiter = new SessionLimiter(store, options.owner ?? "local");
+  const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
@@ -263,6 +327,14 @@ export async function createBranch(options: {
   const credentials = new CredentialResolver(store, runtime.owner, store.secrets.scrubber);
   credentials.gate = () => sessionLock.require();
   store.secrets.credentials = credentials;
+  // Batch 20 (wave 8): a password fetched by a command of the owner's own, behind the same lock.
+  const commandSecrets = new CommandSecrets(store, runtime.owner, store.secrets.scrubber);
+  commandSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(commandSecrets);
+  // Wave mac1: the Keychain on a Mac, for the entries the owner listed, behind the same lock.
+  const keychainSecrets = new KeychainSecrets(store, runtime.owner, store.secrets.scrubber);
+  keychainSecrets.gate = () => sessionLock.require();
+  store.secrets.sources.push(keychainSecrets);
   const knowledge = new Knowledge(store, registry, runtime);
   // Facts are found by their words and, where the provider allows it, by meaning; the most useful come first.
   const memory = {
@@ -287,6 +359,7 @@ export async function createBranch(options: {
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
+  registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
   runtime.documents = documents;
@@ -304,6 +377,7 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
   // that sorts a request to the one specialist it belongs to.
   registerOrchestrationModes(registry, runtime, knowledge);
+  registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -377,7 +451,8 @@ export async function createBranch(options: {
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
   runtime.hideSecrets = (value) => {
-    const scrubbed = store.secrets.scrubber.deep(value);
+    // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
+    const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
     // The privacy settings live in the database; a failure reported while the app is closing
     // must still go out scrubbed rather than throw a second time from inside the error path.
     try { return privacy.inbound(scrubbed); } catch { return scrubbed; }
@@ -446,12 +521,21 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
+  // outside is told in one sentence and their message is let go. Both are written into the record.
+  runtime.sessionCeiling = (sessionId, tokens) =>
+    sessionLimiter.check({ scope: "conversation", id: sessionId, tokens }, "owner");
+  channels.senderCeiling = (channel, senderId) =>
+    sessionLimiter.check({ scope: "sender", id: `${channel}:${senderId}` }, "stranger");
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Writing Word, spreadsheet, slide, Markdown and web-page files, and changing Word and
+  // spreadsheet files in place with every untouched part kept byte for byte.
+  registerDocumentAuthoring(registry, new DocumentAuthoring(files, dataTables, artifacts, writeObserver));
   // Asking a question of one document, and holding two up against each other. Tables inside a
   // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
   const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
@@ -460,6 +544,11 @@ export async function createBranch(options: {
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
+  // Wave 8: watching one rectangle of the screen for a change. Off unless the owner switches it on
+  // AND has using the screen switched on; the picture is never kept, only a fingerprint of it.
+  const screenWatches = new ScreenWatches(store, (region) => desktop.captureRegion(region),
+    () => desktop.enabled(runtime.owner), deliverMessage);
+  registerScreenWatches(registry, screenWatches);
   const brief = new MorningBrief(store, monitors, documents, deliverMessage);
   registerBrief(registry, brief);
   // Sending on the assistant's own initiative: one message to several chats, and the brief on demand.
@@ -472,16 +561,34 @@ export async function createBranch(options: {
   scheduler.evaluations = evaluationSuites;
   // Wave 7: written-down experiments — a benchmark or suite across several model choices, run
   // several at a time, checkpointed so a stopped study carries on rather than starting again.
-  const studies = new StudyRunner(store, runtime);
+  const studies = new StudyRunner(store, runtime, version);
+  // Wave 9: the same scorers held against real work rather than a test set. Off until switched on,
+  // and never the scorer that asks a model, so ordinary tasks are never billed twice.
+  const stopLiveScoring = watchFinishedRuns(store, runtime.owner, () => runtime.workspace);
   // Wave 6: labels and project notes, durable workflows, the waiting line, and days off and quiet hours.
   registerLabels(registry, store.labels);
   const workflows = new Workflows(store, runtime, knowledge);
   registerWorkflows(registry, workflows);
   // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
   // each box finishes.
-  const flows = new Flows(store, runtime.owner, workflows);
+  const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
+  // the schedules toolbox does not grow a second tool that says the same thing.
+  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
+  // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
+  // items in one place, with a due day handed on to the schedules rather than timed here.
+  const todos = new Todos(store.sqlite);
+  registerTodos(registry, todos, runtime.owner);
+  // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
+  // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
+  const obsidian = new ObsidianBridge(store, runtime.owner);
+  registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
   const runQueue = new RunQueue(store, runtime, executions);
@@ -517,6 +624,8 @@ export async function createBranch(options: {
   registerRemoteAgents(registry, remoteAgents);
   // Documents and saved facts are both asked the same way, and the best answer is put first.
   const retrieval = new Retrieval(store, runtime.owner, runtime.models);
+  // What is put in front of a task, in order: see src/context-providers.ts.
+  const contextProviders = new ContextProviders();
   retrieval.add(new DocumentRetriever(documents));
   retrieval.add(new MemoryRetriever(memory.retrieval));
   documents.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
@@ -531,13 +640,43 @@ export async function createBranch(options: {
   const knowledgeBases = new KnowledgeBases(store, files, runtime.models,
     { charge: (runId, tokens) => store.addUsage(runId, tokens, 0, undefined, false) }, undefined, guardedFetch);
   knowledgeBases.reranker = (owner, query, passages, signal) => retrieval.order(owner, query, passages, signal);
+  // Wave 9: the vectors go wherever the owner asked. A file that cannot be opened is one sentence on
+  // the Documents panel and Branch's own database carries on holding them, so nothing is ever lost.
+  {
+    const chosen = chooseVectorStore(knowledgeBases.vectorStoreSettings(runtime.owner), knowledgeBases.vectors);
+    knowledgeBases.vectors = chosen.backend;
+    knowledgeBases.backendNote = chosen.note;
+  }
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
   // What was said in a conversation, written up as fact cards the owner can accept into a
   // knowledge base. Accepting one indexes it exactly like a passage from a file.
-  registerKnowledgeCards(registry, new KnowledgeCards(store, knowledgeBases, runtime.models));
+  const knowledgeCards = new KnowledgeCards(store, knowledgeBases, runtime.models);
+  registerKnowledgeCards(registry, knowledgeCards);
   store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
     { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // A summary of a whole knowledge base, a map of the names it mentions, pictures described in
+  // words, and the housekeeping: renaming, merging, splitting, saving out and bringing back.
+  const knowledgeGraph = new KnowledgeGraph(store, knowledgeBases, runtime.models);
+  const knowledgeSummaries = new KnowledgeSummaries(store, knowledgeBases, runtime.models);
+  const knowledgeManagement = new KnowledgeManagement(store, knowledgeBases, knowledgeSummaries);
+  const knowledgePictures = new KnowledgePictures(store, knowledgeBases, files, runtime.models);
+  const knowledgeParts: KnowledgeParts = { bases: knowledgeBases, graph: knowledgeGraph,
+    summaries: knowledgeSummaries, management: knowledgeManagement, pictures: knowledgePictures,
+    cards: new KnowledgeCards(store, knowledgeBases, runtime.models) };
+  registerKnowledgeExtras(registry, knowledgeParts, store);
+  // One hop through that map is another way of finding passages, beside words and meaning.
+  retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
+  // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
+  const taskText = new EphemeralDocuments();
+  registerEphemeralDocuments(registry, taskText);
+  retrieval.add(new EphemeralRetriever(taskText));
+  // What the assistant remembers, mirrored into the workspace as Markdown it may read but not change.
+  const memoryMirror = new MemoryMirror(store, files);
+  registerMemoryMirror(registry, memoryMirror);
+  files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
+  // And a knowledge base never reads those notes back in: they are the assistant's own writing.
+  knowledgeBases.skip = (path) => memoryMirror.owns(path);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
@@ -545,14 +684,23 @@ export async function createBranch(options: {
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
   registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
+  // Wave 9: what the assistant notices for itself from what actually happened. It only ever
+  // suggests; every suggestion carries what it was learned from, and turning one down is final.
+  const learning = new MemoryLearning(store);
   const documentContext = documents;
-  // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
-  // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
+  // A knowledge base the owner ticked is put in front of a task first; documents follow, and the
+  // files of the project last when the owner asked for them. They are stages of one list now rather
+  // than one expression, so a fourth can be added without editing this line. Turning "Use my
+  // documents when answering" off deliberately turns all of them off, so one switch means one thing.
+  contextProviders.add(providerFrom("knowledge", "Your knowledge bases",
+    (owner, prompt, signal) => knowledgeBases.contextFor(owner, prompt, signal)));
+  contextProviders.add(providerFrom("documents", "Your documents",
+    (owner, prompt, signal) => documentContext.contextFor(owner, prompt, signal)));
+  contextProviders.add(new RepositoryContextProvider(projectMap, (owner) => repositoryContextSettings(store, owner)));
   runtime.documents = {
     contextFor: async (owner, prompt, signal) => {
       if (documentContext.settings(owner).useDocuments === false) return null;
-      return (await knowledgeBases.contextFor(owner, prompt, signal).catch(() => null))
-        ?? documentContext.contextFor(owner, prompt, signal);
+      return contextProviders.contextFor(owner, prompt, signal);
     },
   };
   // Finding a tool by meaning, through the same reader and the same store of already-read
@@ -587,6 +735,9 @@ export async function createBranch(options: {
     fillSecrets: (headers) =>
       store.secrets.fill(runtime.owner, store.projects.active(runtime.owner).id, headers, { purpose: "sending traces" }),
   });
+  // Short-lived, scoped keys for anything that is not the app window. The master session key is
+  // never one of these; see src/session-tokens.ts.
+  const sessionTokens = new SessionTokens(store.sqlite, store);
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -597,6 +748,13 @@ export async function createBranch(options: {
     if (!spans.length) return;
     const crashes = settings.includeErrors ? store.spans.recent(runtime.owner, 50).filter((span) => span.kind === "error") : [];
     const results = await traceExport.sendSpans([...spans, ...crashes], "A finished task's steps were sent to the address you chose");
+    // Batch 20 (wave 8): the same send carries the task's own story as OpenTelemetry log records,
+    // tied to the trace by its id, so a collector shows the words beside the shape.
+    const root = spans.find((span) => !span.parentSpanId) ?? spans[0];
+    await traceExport.sendLogs(store.events(runId).map((event) => ({
+      runId, kind: event.kind, createdAt: event.createdAt, data: event.data,
+      ...(root ? { traceId: root.traceId, spanId: root.spanId } : {}),
+    }))).catch(() => null);
     const failed = results.find((result) => !result.ok);
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
@@ -606,6 +764,11 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
+    learningCore: {
+      settings: () => flyCoreSettings(store, options.owner ?? "local"),
+      configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+    },
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
     files,
@@ -621,8 +784,20 @@ export async function createBranch(options: {
     memory,
     /** Documents and saved facts behind one interface, with the best answer put first. */
     retrieval,
+    /** What is put in front of a task before the model reads it, in order. */
+    contextProviders,
     /** Named sets of folders and files, read into passages and searched by words and by meaning. */
     knowledgeBases,
+    /** Writing conversations up as fact cards, and the refresh that shows its cost before it runs. */
+    knowledgeCards,
+    /** Facts noticed from what actually happened, offered as suggestions and never written. */
+    learning,
+    /** Wave 8: summaries, the map of names, pictures in words, and knowledge-base housekeeping. */
+    knowledgeParts,
+    /** Wave 8: what the assistant remembers, written into the workspace as Markdown. */
+    memoryMirror,
+    /** Wave 8: text held for one job only. */
+    taskText,
     /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
     consolidation,
     /** The practice workspace: made-up files to try tools on safely. */
@@ -653,12 +828,29 @@ export async function createBranch(options: {
     desktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
     osPermissions,
+    /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
+    remotes,
+    /** A way back to how a folder was just before a set of changes was written. */
+    checkpoints,
+    /** Switching a folder to the line of work a project names. */
+    gitWorkspaces,
+    /** How much one conversation, or one person messaging from outside, may ask for. */
+    sessionLimiter,
+    /** Letting conversations older than the owner's cut-off go, with a saved copy first. */
+    retention,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
      * offer the sign-in-once window. It stays null when no browser is configured.
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
+    /**
+     * Batch 26 (wave 8): what the firewall card needs that only the launch knows — the sites the
+     * browser may open at all, and whether commands on this computer are pointed at a dead address.
+     * Filled in by the launcher; the defaults say "no browser, and commands can reach out", which is
+     * what a launch with no integrations file actually is.
+     */
+    reach: { browserOrigins: [] as string[], commandsMayReachInternet: true },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: async (context: ToolContext, names: string[]) => {
       const project = store.projects.active(context.owner).id;
@@ -716,6 +908,12 @@ export async function createBranch(options: {
     calendar,
     /** The same workflows as boxes and arrows, for the API and the picture in Procedures. */
     flows,
+    /** Wave 8: the things still to be done, written down where the owner can see them. */
+    todos,
+    /** Wave 8: notes written into the owner's own notes folder, and the tagged ones read back. */
+    obsidian,
+    /** Wave 8: watches on one rectangle of the screen, off unless the owner switches them on. */
+    screenWatches,
     /** Multi-file changes and the check the owner set up for this project. */
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
@@ -768,11 +966,23 @@ export async function createBranch(options: {
     },
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
+    /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
+    sessionTokens,
+    /** Wave 9: scoring the real work as it finishes, and the recent verdicts. */
+    liveScoring: {
+      settings: () => liveScoringSettings(store, runtime.owner),
+      configure: (input: unknown) => saveLiveScoringSettings(store, runtime.owner, input),
+      recent: (limit?: number) => liveScores(store, runtime.owner, limit),
+      summary: (limit?: number) => liveScoreSummary(liveScores(store, runtime.owner, limit)),
+    },
     close: () => (closing ??= (async () => {
       stopWatchingErrors();
+      stopLiveScoring();
       // Wave 8: a connection that stays open must not outlive the app either.
       live.closeAll("Branch closed");
       plugins.stop();
+      // A file of the owner's own holding the vectors is let go of; the app's own database is not.
+      knowledgeBases.vectors.close?.();
       skillPackages.stop();
       mcpServer.close();
       await mcpConnections.closeAll();
@@ -825,6 +1035,7 @@ export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
+export * from "./context-files.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";
@@ -851,6 +1062,7 @@ export * from "./channels/ws-client.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
 export * from "./orchestration.js";
+export * from "./plan-act.js";
 export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";
@@ -907,7 +1119,16 @@ export * from "./benchmark-adapters.js";
 export * from "./benchmark-shell.js";
 export * from "./study.js";
 export * from "./tool-evaluations.js";
+export * from "./answer-metrics.js";
+export * from "./html-state.js";
+export * from "./trajectory-compare.js";
+export * from "./trajectory-report.js";
+export * from "./study-journal.js";
+export * from "./retrieval-metrics.js";
+export * from "./evaluation-live.js";
+export * from "./benchmark-nexus.js";
 export * from "./testing.js";
+export * from "./testing-doubles.js";
 export * from "./channels/deliveries.js";
 export * from "./channels/catalog.js";
 export * from "./channels/webhook-chat.js";
@@ -919,6 +1140,11 @@ export * from "./channels/docs-table.js";
 export * from "./json-template.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
+// Bucket 8 (wave 9): long jobs that survive being interrupted.
+export * from "./session-carry.js";
+export * from "./shell-session.js";
+export * from "./headless.js";
+export * from "./dispatch-fallback.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";
@@ -948,6 +1174,10 @@ export * from "./memory-hygiene.js";
 export * from "./memory-consolidate.js";
 export * from "./embeddings.js";
 export * from "./vector-store.js";
+export * from "./vector-store-file.js";
+export * from "./retrieval-filters.js";
+export * from "./retrieval-pipeline.js";
+export * from "./context-providers.js";
 export * from "./chunking.js";
 export * from "./bm25.js";
 export * from "./knowledge-bases.js";
@@ -976,7 +1206,20 @@ export * from "./os-permissions.js";
 export * from "./profile-roles.js";
 export * from "./replay.js";
 export * from "./orchestration-modes.js";
+export * from "./answer-shape.js";
+export * from "./second-opinion.js";
 export * from "./flows.js";
+export * from "./flow-graph.js";
+export * from "./flow-graph-run.js";
+// Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
+export * from "./todos.js";
+export * from "./reports.js";
+export * from "./artifact-pages.js";
+export * from "./dashboards.js";
+export * from "./memory-learning.js";
+export * from "./obsidian.js";
+export * from "./embeds.js";
+export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
@@ -1041,9 +1284,37 @@ export * from "./integrations/mcp-oauth.js";
 // identical requests, whole sets of questions at once, Lockdown, the shape branched conversations
 // make, what each project has cost, and watching a folder.
 export * from "./api-openapi.js";
+// The owner's handbook, which the app serves to itself so Help opens beside the screen you are on.
+export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
+export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
+export * from "./document-package.js";
+export * from "./document-write.js";
+export * from "./document-docx.js";
+export * from "./document-xlsx.js";
+export * from "./document-pptx.js";
+export * from "./document-edit.js";
+export * from "./document-authoring.js";
+export * from "./knowledge-graph.js";
+export * from "./knowledge-summary.js";
+export * from "./knowledge-manage.js";
+export * from "./knowledge-pictures.js";
+export * from "./knowledge-more.js";
+export * from "./memory-mirror.js";
+export * from "./memory-ephemeral.js";
+// Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
+// may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
+export * from "./session-tokens.js";
+export * from "./vault-sources.js";
+export * from "./channels/allowlist.js";
+export * from "./remote/gateway-auth.js";
+export * from "./providers/cli-agent.js";
+export * from "./cli-attach.js";
+export * from "./cli-completion.js";
+export * from "./cli-run.js";

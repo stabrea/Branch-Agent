@@ -13,6 +13,7 @@ import { resolveDataLocation } from "../install/layout.js";
 import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
+import { installedAppRoot } from "./install-root.js";
 import { startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
@@ -107,6 +108,20 @@ async function createWindow(
   createTray();
 }
 
+/**
+ * macOS only: the menu bar every Mac app has. Edit gives copy and paste their usual keys, the app
+ * menu gives Cmd+Q, and closing the window keeps Branch in the dock (see the "close" handler).
+ * Windows and Linux keep Electron's own menu, hidden by `autoHideMenuBar`, exactly as before.
+ */
+function setMacMenu(): void {
+  if (process.platform !== "darwin") return;
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "editMenu" },
+    { role: "windowMenu" },
+  ]));
+}
+
 function createTray(): void {
   tray = new Tray(branchIcon());
   tray.setToolTip("Branch Agent");
@@ -194,7 +209,7 @@ async function start(): Promise<void> {
     const server = await startServer(branch, {
       dataDir, port: 0, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
-      installRoot: app.isPackaged ? dirname(process.execPath) : null,
+      installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
     });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
@@ -259,7 +274,7 @@ else {
   });
   void app
     .whenReady()
-    .then(start)
+    .then(() => { setMacMenu(); return start(); })
     .catch((error) => {
       console.error("Branch Agent could not start:", error.message);
       app.quit();

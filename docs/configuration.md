@@ -43,7 +43,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### ChatGPT plan sign-in
 
-`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.5`, `GPT-5.6` and `GPT-5.4` presets and makes ChatGPT the default when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
+`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
 
 ### Provider catalog and testing
 
@@ -180,6 +180,8 @@ A download takes minutes, far longer than one web request may last, so `pull` st
 
 **Recommendations by hardware.** Memory and processor cores come from Node; on Windows the graphics card is read once with `powershell Get-CimInstance Win32_VideoController` and remembered until restart. Three sizes are offered — small (about 2 GB, fast, good for notes), medium (about 5 GB, a steady all-rounder) and large (about 9 GB, slower but better at reasoning) — each marked as fitting this computer or not, with a plain reason.
 
+**macOS and Linux.** On a Mac the graphics are read once from `system_profiler SPDisplaysDataType -json`. A Mac with Apple silicon has no separate video memory: its graphics share the computer's own memory, and the summary says so ("Apple M4 graphics, which share that memory"), so a model that fits in memory is described as quick rather than as running on the processor. An Intel Mac with its own card reports that card's memory. On Linux `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits` is asked first; without it, `lspci` gives the card's name but no memory figure. Anything unexpected simply means "no card reported".
+
 **Routing rules** (`settings/routing`, off by default): `enabled`, `localForPrivate` (a task mentioning personal details stays here), `cloudForHard` (long or tool-heavy tasks go to the cloud model), `costCeilingDollars` (a simple task that would cost more than this in the cloud uses the free local model instead), and optional `localPreset` / `cloudPreset`. What you explicitly choose for a run or a conversation always wins; when routing does pick, the run records a `model.routed` event with the reason. The rule itself also has a "local server is not answering, use the cloud one" branch, but nothing probes the local server before a run yet: a task sent to a local model that does not answer falls back the ordinary way, through the connection's configured fallbacks and the provider cooldown. `POST /api/local-models/routing/preview` is the one caller that can set `localUp` today.
 
 **Reading passages by meaning.** When the connected model is Ollama on this computer, document and memory search use Ollama's own `/api/embeddings` instead of the OpenAI-shaped route, one passage per request, and `text-embedding-3-small` is swapped for `nomic-embed-text`, which is what exists here.
@@ -301,7 +303,17 @@ A number belongs to the *thing*, not to its place. It is worked out from what th
 
 The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
 
-**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
+**A number is checked, not trusted.** The number is written onto the thing as an attribute, which
+is something the page itself could also write, so before a number is acted on three things are
+checked: that it was really given out by this task, that exactly one thing on the page is wearing
+it, and that the thing wearing it is still the *same* thing it was given to — worked out again from
+what it is, what it is called and the kinds of boxes it sits inside. A page that quietly moves a
+number from the Save button onto something else gets a plain refusal naming the number, and nothing
+is pressed. The four refusals read: "Number 4 was never given out on this page", "Number 4 is no
+longer on this page", "Number 4 is on more than one thing, so it was not used", and "Number 4 is now
+on a different thing from the one it was given to, so it was not used".
+
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
 ### Data in the shape you asked for
 
@@ -313,7 +325,7 @@ What comes back has already been checked. A field marked `required` that is miss
 
 Websites are rewritten constantly and remembered selectors rot. `browser.act { action: click | fill | check, selector?, name?, mark?, value? }` tries up to four ways in order: the exact selector, the thing's name as a button, the words showing on it, then its number from `browser.annotate`. The result says which way worked (`foundBy`) and how many were tried, and the same goes into the task's trace with `healed: true` when it was not the selector — so a step that keeps healing shows up and can be fixed properly.
 
-It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. Typing into a password box is refused here as everywhere else.
+It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. A number is the one way whose answer comes off something the page could have written itself, so it is the one way that is checked rather than trusted (above); when the check fails, the refusal says which of the four reasons it was, and nothing is pressed. Typing into a password box is refused here as everywhere else.
 
 ### Using the browser you already have open
 
@@ -327,7 +339,7 @@ Branch normally uses a fresh browser that no website knows you in. **Settings �
 
 To use it, close Chrome or Edge and start it yourself with `--remote-debugging-port=9222`, then put that number on the settings card and tick the switch. The task asks with `browser.borrow { action: "borrow" }` and gives it back with `{ action: "give back" }`.
 
-Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`.
+Routes: `GET /api/browser/attach`, `POST /api/browser/attach` with `{ "enabled": true, "port": 9222, "runId": "…" }`. `extraRefusedHosts` is your own list of further websites your browser may never be pointed at; it is added to the built-in list of banks and password sites, and nothing you can put there takes one off that list.
 
 **The honest limits:** this only works with Chrome or Edge, only on this computer, and only when you started the browser with that door open — Branch never starts it for you and never opens one you can see. A browser started the ordinary way cannot be borrowed.
 
@@ -347,15 +359,113 @@ A recording photographs **every tab in the window it is made in**, so a recordin
 
 Nothing is bypassed: each one goes through the very method the underlying tool uses, so the same limits are counted and the same refusals apply. Reaching a window needs the screen permission **as well**, checked separately, so a task allowed to browse cannot reach your windows through the short way. Whichever half is not configured in this launch says so plainly when it is asked for.
 
+### Skills for the sites you actually use
+
+Most of the trouble with a browser task is one website's habits: the cookie notice that covers
+everything, the table that is drawn a moment after the page says it has loaded, the same three
+columns you pull off it every time. Those belong in a skill about that site, not in Branch.
+
+A skill package may carry a **`site.json`** beside its `SKILL.md`:
+
+```json
+{
+  "site": {
+    "hosts": ["shop.example.com"],
+    "dismiss": ["#cookie-notice .accept"],
+    "waitFor": "#results",
+    "settleMs": 200,
+    "readings": {
+      "basket": {
+        "rows": "tr.line",
+        "fields": {
+          "item": {"selector": ".name", "required": true},
+          "price": {"selector": ".price", "type": "number", "required": true}
+        }
+      }
+    },
+    "notes": "The basket table is drawn after the page loads, so wait for #results first."
+  }
+}
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `hosts` | required | The websites this skill knows, one to ten. A page on any of them, or under one of them, gets its quirks. |
+| `dismiss` | none | Up to five things to press once when a page opens, such as a cookie notice. One that is not on the page is skipped. |
+| `waitFor` | none | Something to wait up to five seconds for before the page counts as ready. A wait that never comes is reported, not thrown. |
+| `settleMs` | 0 | How long to let the page settle once it has opened, up to five seconds. |
+| `readings` | none | Named readings of this site, each an ordinary `browser.shape` request written down once. |
+| `notes` | empty | What is odd about this site, in plain words, for the person reading the skill. |
+
+With one installed and switched on, `browser.navigate` to that website applies the quirks by itself
+and **says in its answer that it did** — which notice it pressed, whether the wait came, and the
+skill's own note. `browser.site { action: "list" }` says which websites have a skill and what each
+one knows; `browser.site { action: "read", name: "basket" }` reads the page by the name of a
+reading, and refuses by name when there is no such reading.
+
+**Pressing is not reading.** Opening a page is a reading permission and pressing something is not,
+so a task that may only read gets the waiting and the settling but never the pressing: what it
+would have pressed comes back in the answer as `notPressed`, so it can ask for what it needs
+instead of wondering why the notice is still there.
+
+**What a site skill may not do.** It is data and only data: selectors, a wait, a pause and named
+readings. There is deliberately nowhere to put a piece of script, because a skill can arrive from
+anybody and a script in one would run inside the page. The selectors it will press are named in the
+card you read before installing the skill — "presses #cookie-notice .accept when a page opens" —
+because a cookie notice and a confirm-delete button look the same until somebody writes them down.
+And it can never widen anything: it cannot
+add a website to `allowedOrigins`, and a bank, broker, password manager or mailbox is refused as a
+site skill outright, in the same words the browser refuses one everywhere else. A skill that is
+installed but switched off brings no quirks, in the same way it brings no instructions. Site skills
+are read fresh each time, so installing one needs no restart.
+
 ### Browser skills that come with Branch
 
-Three ready-made skills are shipped as ordinary skill packages: **search and summarise the top results**, **fill a form from a document**, and **watch a page for a change** (which tells the assistant to use the existing watcher rather than browse in a loop). They are instructions and nothing else — no web calls, no recipes — and arrive switched off like any other skill.
+Five ready-made skills are shipped as ordinary skill packages: **search and summarise the top
+results**, **fill a form from a document**, **watch a page for a change** (which tells the assistant
+to use the existing watcher rather than browse in a loop), **read several pages of one site** (how
+to follow a site's own links a bounded number of times instead of crawling), and **write a site
+skill** (how to write the `site.json` above). They are instructions and nothing else — no web calls,
+no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Not built
+### Not built, and what stands in for it
 
-Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer. There is no Python `browser-use` runtime and no sandboxed remote computer either.
+Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer.
+
+**Three audit rows describe one thing under three project names.** `A2172` (browser-use
+automation), `A2042` (browser-use integration) and `A2019` (browser/computer-use tools) all ask for
+the same capability: an assistant that looks at a page, points at a thing on it and acts. That is
+built, and it is what this whole section describes — `src/integrations/browser.ts` with
+`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts`, asserted in
+`tests/browser-2.test.mjs` and `tests/browser-3.test.mjs`. What is **not** built, and deliberately
+so, is the Python `browser-use` runtime those rows name, and the hosted sandbox backend `A2019`
+names: Branch is TypeScript and drives the browser on this computer, the same reason the
+`hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
+One implementation satisfies all three rows; none of them needs building again.
+
+**`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
+library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
+private addresses refused) and `browser.shape` (the same page in an exact shape) — both built and
+tested. Branch would not gain a capability by adding a Python library, only a dependency.
+
+**`A1452` (web crawling) — not applicable as a crawler; the capability is covered.** It names
+Crawl4AI. Following a site's own links is `web.fetch` or `browser.navigate`, then `browser.shape`
+for the addresses, then reading a bounded handful of them — which is what the shipped
+**read several pages of one site** skill sets out, with the rules that keep it from becoming a
+crawl: the same website only, one level deep, at most five pages, never in a loop. A page to be
+checked again and again is the `monitors` tool's job, not a crawler's. No crawler is built, and a
+task's caps on actions and websites (above) already stop one being improvised.
+
+**The two document rows filed under the browser (`family: doc-processing`, `family:
+document-processing` in #62) are stale.** PDF text extraction and document extraction are both
+built with no extra software: `src/document-pdf.ts` unpacks the streams, reads the text operators
+and applies the file's own character tables; `src/document-readers.ts` routes `pdf` to it alongside
+Word, spreadsheets, PowerPoint, EPUB, RTF, HTML, CSV and JSON. Asserted in
+`tests/docs-memory-2.test.mjs` (compressed streams unpacked, lines in the order they sit on the
+page, a locked PDF refused in one sentence, a PDF of pictures saying so rather than pretending) and
+`tests/docs-3.test.mjs`. Nothing here needs building.
 
 ## Channels (Telegram)
 
@@ -458,7 +568,7 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. The date itself is `oldAddressesEndOn`, written down the first time this copy of Branch makes an address, so the card can name a day rather than say "soon". After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -536,6 +646,8 @@ Costs are estimated the same honest way as everything else: published per-minute
 
 Routes: `GET /api/voice/plan` (which service would do the work, where the sound goes, and the prices), `GET|POST /api/voice/settings`, `GET /api/voice/voices` (the voices installed on this computer), `POST /api/voice/transcribe?seconds=<length>`, `POST /api/voice/speak`.
 
+**macOS and Linux.** "The voice that comes with your computer" keeps its saved name (`windows`) but means the system voice wherever Branch runs. On a Mac that is `say`, started with a list of arguments, the words read from a file (`-f`) and the sound written to a WAV file (`--file-format=WAVE --data-format=LEI16@22050 -o …`); the voice list comes from `say -v ?`. On Linux it is `espeak-ng` (`-w <file> -s <words a minute> -f <file>`, voices from `espeak-ng --voices`) when it is installed. `spd-say` can only speak through the loudspeaker and cannot make a sound file, so a computer that has only `spd-say` is told to install `espeak-ng`; with neither, reading aloud says "there is no system voice on this computer" and the voice list is empty. A voice name that starts with a dash is refused. These flags follow each program's own documentation; the tests use stand-ins, so no sound is ever played.
+
 ### Live conversation (wave 8)
 
 A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
@@ -583,6 +695,18 @@ Every value that has ever been looked up is remembered by **one scrubber** for a
 **Replacing a secret and being reminded.** `POST /api/secrets/:project/:NAME/rotate` with `{ "value": "the new one" }` writes the new value and records the day it happened; the reminder rhythm is kept, so a secret you set to be replaced every 90 days is due again 90 days later. Set `expiresInDays` when you save or replace a secret (0 means never remind). Anything due within a week, or overdue, appears as `secretReminders` in the app's state and under `reminders` in the audit.
 
 **Who used what.** `GET /api/secrets/audit` lists, newest first, every time a secret was taken out of the locker: which secret, which project, which task, what for and when. Values never appear there either.
+
+**macOS and Linux.** `secret://bitwarden/...` and `secret://1password/...` work the same way on a Mac and on Linux: `bw` and `op` are looked for by their bare names on the search path. On a Mac there is one more source, **the Keychain**: `secret://keychain/<name>` names one of the entries you listed (setting `keychain-entries`: `enabled`, off by default, and `entries`, each `{ name, service, account? }`), and Branch runs `/usr/bin/security find-generic-password -s <service> [-a <account>] -w` at the moment the value is needed. Only listed entries can be read, so a tool call cannot go looking through the rest of your Keychain; it waits for the same unlock as the locker, the value is scrubbed like every other, and each read is written into the audit by name only. If the Keychain is locked, or you turn down your Mac's question about the item, Branch says so in one sentence. There is no settings route for these entries yet. On any other computer a Keychain reference is refused plainly.
+
+### Keys Branch never looked up
+
+The scrubber above only knows the secrets Branch took out of the locker itself. A second check looks for anything **shaped** like a key, wherever it came from: a key a command printed, one sitting in a file, one pasted into a message. It knows the shapes of OpenAI, Anthropic, OpenRouter, AWS, GitHub, Slack, Google and Stripe keys, sign-in tokens, private key blocks, the value after `password:` or `Authorization:`, and a password written into an address (`postgres://me:…@host`). Every tool's answer is checked before the model reads it, and every request is checked before it goes to a model service; a match is replaced with a note such as `[hidden key-like value: OpenAI key]`, and the task's record gets one plain line saying a key-like value was hidden, never the value. Ordinary text is left alone: hashes, commit ids, ids, version numbers and code such as `password: z.string()` pass untouched.
+
+A web address that carries a key or password itself (`?api_key=`, `?token=`, `?password=` and similar names however they are written, `user:pass@` or a bare `token@`) is not fetched until you say yes, even where your rules would allow the website. This holds for the assistant's own calls, saved recipes and workflows, voice, and other AI tools connected to Branch. The yes is for that exact address in that conversation only.
+
+The file tools also refuse more places keys live, as they already refused `.env` and `.ssh`: `.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, the `.docker`, `.kube`, `.gnupg`, `.azure` and `.gcloud` folders, the GitHub command line's `gh/hosts.yml`, `.vault-token`, and shell history files (`.bash_history`, `.zsh_history`, `fish_history`, PowerShell's `ConsoleHost_history.txt`). File search skips them too.
+
+**macOS and Linux.** The check is the same on every computer. The refused names cover what those systems keep in your home folder — the `.zsh_history` a Mac's Terminal writes, `.bash_history` on Linux, `~/.config/gh/hosts.yml` — so a workspace that is, or contains, a home folder never hands them to the assistant.
 
 ## Locking the app
 
@@ -736,6 +860,21 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## A conversation that survives a restart
+
+Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end
+of every task, the conversation's model choice, how hard it was asked to think, the project it was
+under, the toolboxes it had opened for itself (at most three) and the standing yeses given in it are
+written down beside it. The first task in that conversation after a restart puts them back and records
+a `session.restored` line on itself saying what came back.
+
+Anything that could not be put back is **said plainly instead of papered over**: a model that is no
+longer set up names the one being used in its place, a project that has been removed names the one the
+conversation is in now, a toolbox nothing offers any more is named, and a standing permission that had
+already run out while the app was closed is named as needing to be asked for again. A permission that
+is still in date comes back with the moment it was always going to run out, never a fresh hour: a
+restart cannot lengthen a permission you gave.
+
 ## Long conversations and questions for you
 
 When a conversation's working context passes about 11,000 estimated tokens, Branch asks the model for a short handoff summary of the older turns (facts, decisions, file paths, open tasks, next step), keeps at least the six most recent turns plus everything from the current task, and continues with the summary in place. The run records a `context.compacted` event with sizes before and after; the summary is saved per conversation and reused; the complete transcript stays stored and searchable.
@@ -824,7 +963,42 @@ them on a task in a suite file as `"scorers": [...]`:
 you can say a tool must have been used with particular arguments), `budget` (`maxSteps`, `maxMs`,
 `maxTokens`, `maxDollars` — the rounds, time, tokens and money a task may use), `finished` (did it
 actually do the work, or did it say it could not — the completion checks you already use, plus the
-phrases an answer uses when it has quietly given up), and `rubric`.
+phrases an answer uses when it has quietly given up), `f1`, `passage`, `html`, `trajectory`, and
+`rubric`.
+
+**`f1`** — how many words the answer and your reference answer have in common, which is how
+published question sets mark an answer that is right but worded differently. `{"kind": "f1",
+"value": "the Eiffel Tower", "threshold": 0.6}`. Before comparing, both are lower-cased, stripped of
+punctuation, and stripped of the three articles "a", "an" and "the"; word order does not count. So
+"The Eiffel Tower." and "eiffel tower" score 1, and an answer that gets half the words right scores
+about a half. `threshold` is the bar it has to clear, 0.6 unless you say otherwise.
+
+**`passage`** — does the answer *carry* the right piece of a document rather than equal it.
+`{"kind": "passage", "passages": ["the deposit is returned within ten working days"], "threshold":
+0.8, "verbatim": false}`. The score is the share of the passage's words that are in the answer, so
+a sentence with the passage inside it passes. List more than one passage when a question has more
+than one right source; the best one wins. Set `verbatim` when the words must also appear back to
+back, in the passage's own order.
+
+**`html`** — the page itself rather than a description of it, for a task whose result is a changed
+page. `{"kind": "html", "selector": "input#agree", "attribute": "checked"}` says the tick box has to
+be ticked. `source` is `"answer"` (the markup is in the answer, the default) or `"file"` with a
+`path` inside your workspace. Then: `absent` for "there must be none of these", `count` for exactly
+how many, `text` for words the first one must contain, and `attribute` with an optional `value`.
+
+The way an element is named is deliberately small, and that is the whole of it: a tag (`button`),
+an id (`#total`), a class (`.row`), an attribute (`[disabled]`), an attribute with a value
+(`[type=checkbox]`), any of those stuck together for one element (`input.tick[checked]`), and
+spaces between them for "somewhere inside" (`form.order button#send`). Anything else — a comma, a
+`>`, `:first-child` — is refused by name rather than half-understood.
+
+**`trajectory`** — the path taken rather than the answer, for a task where guessing the right answer
+is still wrong. `{"kind": "trajectory", "steps": [{"name": "files.read"}, {"name": "files.write",
+"arguments": {"path": "notes.md"}}], "threshold": 0.6, "ordered": true}`. Only the arguments you
+name are checked. The score is how much of the two paths line up, counting both the steps that did
+not happen and the calls that were not asked for, so one extra call in the middle costs one call
+rather than everything after it. With `ordered` (the default) every named step must also have
+happened in the order you wrote.
 
 `rubric` is the only one that costs money: it asks the model in use to grade a free-text answer
 against words you write. It refuses to guess when no model connection has been chosen, and the same
@@ -884,6 +1058,15 @@ Four rules hold for every benchmark that decides by running something:
 - **Same limits as any other command**: the same time, memory, processor and output ceilings, in a
   job the operating system enforces, with no way out to the internet.
 
+**Nexus** (`nexus`) is the published function-calling set: JSON Lines where each line has the
+question (`Input`, `prompt` or `question`), the functions on offer (`Function`, `functions` or
+`tools`) and the reference call written the way a person writes one, `get_weather(city="Paris")`
+(`Output`, `call` or `reference`). Several spellings are accepted because the sets in the wild
+differ. A question is right when the call actually made has the right function name and every
+argument the reference names; marking looks at the tool calls the task really made first, and falls
+back to a call written out in the answer. Extra arguments are not held against it, because a
+reference call rarely lists the optional ones.
+
 Web tasks are run against pages you have saved next to the dataset. A task that points at a live
 website is refused by name: a score against today's version of a shopping site is not a score
 anybody can repeat. terminal-bench tasks are marked by running their `tests.sh`, which needs a bash
@@ -892,11 +1075,26 @@ on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the o
 ### What is not supported, and why
 
 OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
-environments are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+environments — MiniWoB, WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
 throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
 Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
 what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
 what each would need, rather than half-supported.
+
+Two more things in this area are deliberately not built, for the same reason and written down here
+so nobody has to guess:
+
+- **A live browser-benchmark environment.** MiniWoB, WebArena and WorkArena are not datasets; they
+  are servers that have to be running, whose pages change as the agent works and whose scoring reads
+  the server's own state. Branch Agent downloads nothing and starts no server, so what it can do
+  honestly is the `web-tasks` adapter: the same task shapes run against pages you have saved to
+  disk. A task that points at a live site is refused by name.
+- **Generating tests for you.** Branch Agent runs tests; it does not write your test suite for you
+  and then claim the result. What exists is the execution half: `data/tool-evaluations/*.json` is a
+  set of tool checks kept as plain data that anyone can read and add to, run with `POST
+  /api/evaluation/tools`, and suites in `data/evaluation/*.json` are the same idea one level up.
+  Asking the assistant to draft a test is an ordinary task like any other, and its output is yours
+  to read before it becomes a check.
 
 ### Studies
 
@@ -946,7 +1144,74 @@ very likely to be in, worked out by resampling the tasks two thousand times. Whe
 zero, nothing is claimed.
 
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
-result per line), and `branch study compare <result id> <result id>`.
+result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
+
+### The journal: repeating a study and seeing what changed
+
+A number on its own is not evidence. "78% on twenty GAIA questions" means nothing without which
+twenty, which model choices, how many repeats, which scorers, and which version of Branch Agent —
+and those are exactly the things that drift between one month and the next. So every study run
+writes a **journal entry** beside its result: the study exactly as it was written, the task ids that
+actually ran, the scorer kinds the tasks used, the benchmarks folder, and the version that ran it.
+Those are boiled down to one short fingerprint. Two entries with the same fingerprint measured the
+same thing; two that do not are not comparable until you know why.
+
+`branch study replay <id>` reads the two newest entries for a study and prints, in this order:
+whether they measured the same thing, a table of every input that changed with its before and
+after, the accuracy on each side, and — when the two results share tasks — the same interval
+`compare` works out, so a small win on a handful of tasks is still not read as a real one. When
+something changed it ends with the only advice that helps: change one thing at a time. `--json`
+gives the entry itself, including the study to save and run to repeat it exactly.
+
+### Scoring the real work as it finishes
+
+A suite tells you how the assistant does on questions somebody wrote down. It does not tell you how
+it is doing on the tasks you actually gave it today, which is where a quiet break shows up first.
+Switch this on and every task that finishes is held to a few checks of your choosing.
+
+`GET /api/evaluation/live` gives the settings, the fifty newest verdicts, and "this many of the last
+hundred passed" with the reasons the failures gave. `POST /api/evaluation/live` sets:
+
+- `enabled` — off until you turn it on. Nothing is scored and nothing is written while it is off.
+- `scorers` — the checks, written exactly as a suite writes them, at most four so a task is never
+  slowed down. `rubric` is refused here by name: scoring every ordinary task with a model would put
+  a second bill on your everyday work, and being told that is better than wondering why. A `budget`
+  scorer carrying `maxDollars` is refused for the same reason in reverse: what a finished task cost
+  is worked out where usage is priced, not here, so a money limit set here would be a bar that never
+  applied. `maxSteps`, `maxMs` and `maxTokens` are all real here — the time comes from the task's own
+  timestamps and the tokens from its usage.
+- `keep` — how many verdicts are kept, from 10 to 2000; 200 unless you say otherwise. The oldest are
+  dropped once there are more than that.
+
+A task never waits for its own verdict, and a check that fails to run is the verdict's problem
+rather than the task's.
+
+### Marking a search rather than an answer
+
+`nDCG@k`, `Recall@k`, `Precision@k`, `MRR` and `MAP` are worked out in `src/retrieval-metrics.ts`,
+which also reads the BEIR layout from a folder already on this computer: `corpus.jsonl` (`_id`,
+`title`, `text`), `queries.jsonl` (`_id`, `text`), and `qrels/<split>.tsv` (question, document,
+grade, after a header line). Nothing is downloaded — you put a set in a folder as with every other
+benchmark here. The search itself is handed in, so these mark any search rather than deciding how
+searching is done.
+
+### Reading back what one task actually did
+
+`runs.export` hands back a finished task's whole record. With `"as": "report"` it hands back the
+same record written out for a person instead: what it was asked, the plan it wrote, then every
+action numbered with what it was given and what came back, the rounds that failed, what the
+reviewer said, the tokens, and the answer. Long inputs and outputs are cut short with the number of
+characters dropped said out loud, so it never hides that there was more.
+
+**Working out why a task went wrong.** That report is the first place to look, because it shows the
+action that failed and the error it came back with rather than the assistant's summary of it.
+Around it: a task's own completion checks are retried a set number of times before it gives up
+(`reliability`), a model call that goes quiet is stopped by the stall watchdog rather than hanging,
+a small script is checked before it runs, and a program can be run under a real debugger you
+already have (Settings → debug adapters) to stop it on a line and look at what every name holds.
+What Branch Agent does **not** have is a separate troubleshooting assistant that goes away and
+fixes a failing command on its own; asking it to look at the report and try again is an ordinary
+task, and you see each step.
 
 **Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
 by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and
@@ -1032,11 +1297,74 @@ The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|defa
 
 `branch status` lists the tasks working now, the ones waiting for an answer, and the health summary (`--json` for the same thing as JSON). `branch logs <task id>` prints that task's timeline one line per step (`--json` for the stored events). `branch approve <task id> yes|no` answers a task that stopped to ask. It cannot answer just this once: the program run that stopped has already ended, so the answer is **saved as a standing rule** for that tool and that exact target and applies to every future task, not only this one. The command says so when it runs, and the rule can be changed under **Settings → When to check with me**. For a one-time yes, use the terminal view (`branch chat`) or the settings screen instead.
 
-**Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+**No window at all.** `branch headless` runs a scripted job with nothing on the screen: no web page, no
+terminal conversation, no window. Give it one request, or `--script <file>` with one request per line
+(blank lines and lines starting with `#` are notes, at most 100 requests). Every request after the
+first joins the conversation the first one made, so a script reads as one job. `--stop-early` stops at
+the first request that does not finish; without it the rest still run. It takes the same `--json`,
+`--budget`, `--timeout`, `--session` and `--preset` flags as `branch run`, and **the exit code is the
+same contract as the table above** — 0 finished, 2 stopped to ask you something, 3 failed, 4 out of
+budget. For a whole job, the first request that did not finish decides the code. A summary line goes
+to stderr; with `--json` the last line of stdout is `{"type":"headless.finished", ...}`.
+
+**A command line kept open.** An ordinary command starts a program, waits for it and lets it go, so
+nothing carries from one command to the next. `shell.session.open` opens one of the same programs your
+host command settings allow and **keeps it open**, so a later command lands in the same folder with the
+same loaded state, in a later task of the same conversation. `shell.session.run` sends one command and
+reads what it printed, `shell.session.list` lists the ones this conversation has open (name one to read
+what it has printed lately), and `shell.session.close` closes it and everything it started. It is held
+to exactly what any other command is held to: the same allowed programs, the same environment built
+from an allowlist, the same Windows job enforcing the limits, and the same approval rules — asked again
+for **every** command sent, not once when it was opened. The limits are the ones under **programs left
+running** (`maxRunning`, `maxMinutes`, `maxMemoryMb`, `maxCpuSeconds`, `bufferBytes`); it is never a
+window on your screen, and every kept-open command line is closed when the app closes.
+
+**When a task cannot be placed.** A task that cannot start is never left to hang in silence. The
+waiting line answers every `submit` with where the task went and why: started, waiting (with its place
+in the line and what would let it start sooner), moved to another model because the one it asked for is
+no longer set up, or refused because something it needs is not on this computer — each with the next
+best thing you can actually do about it.
+
+**Completion.** `branch completion bash`, `branch completion zsh`, `branch completion fish` and `branch completion powershell` print a completion script. Nothing is installed for you and the script never runs a Branch command to work out its suggestions. The first lines of each script say how to load it in every new terminal:
+
+| Shell | Install |
+| --- | --- |
+| bash | `branch completion bash > ~/.branch-completion.bash`, then add `source ~/.branch-completion.bash` to `~/.bashrc` |
+| zsh (the Mac's own shell) | `mkdir -p ~/.zfunc && branch completion zsh > ~/.zfunc/_branch`, then add `fpath=(~/.zfunc $fpath); autoload -Uz compinit; compinit` to `~/.zshrc` |
+| fish | `branch completion fish > ~/.config/fish/completions/branch.fish` |
+| PowerShell | `branch completion powershell >> $PROFILE` |
+
+## A queue service, and why there is not one
+
+Some assistants put a queue service such as Redis in the middle: tasks go into it, separate workers
+take them out, and the two halves talk over the network. Branch does not, and this is a decision
+rather than an omission. The waiting line is already here, in `src/run-queue.ts`: it is kept in the
+same private database as everything else, it orders what you asked for ahead of anything automatic,
+it holds one task at a time per conversation, it shares one count of what is working with the app's
+own screen, and it marks anything that was working when the app closed instead of quietly replaying
+it. A queue service would add a second program to keep running and a second place your work can sit,
+for a single computer that has no second worker to coordinate with. That is the same reason the
+audit's other middle-men were turned down (see the "not going to be built" list). If Branch ever runs
+across more than one computer, this is the paragraph to come back to.
 
 ## Other programs and streams
 
 `POST /v1/chat/completions` accepts the OpenAI chat shape with the local session token as the bearer token. The last user message becomes the task, system/developer messages travel as caller instructions, `model` may name a preset id, `x-branch-session` (or `metadata.session_id`) continues a conversation, and `stream: true` returns `chat.completion.chunk` events. Every response carries `branch.{run_id, session_id, status}`. `GET /v1/models` lists presets. `GET /api/runs/:id/stream?after=<id>` streams a run's events in order over Server-Sent Events until it ends.
+
+## Schedules that repeat, and ones that keep failing
+
+`schedules.create` writes down a reminder, a task, a check or an evaluation with a due moment, and
+optionally an interval (`intervalMs`, at least a minute) or a daily time in a timezone (`dailyAt` plus
+`timezone`). It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook
+(`webhook`), and be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns
+while the app was closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list`
+do what they say, and each schedule keeps the last fifty turns with what happened on each.
+
+A repeating job that **fails** a turn now moves on to its next turn rather than stopping for good, and
+the failures in a row are counted on the record as `consecutiveFailures`. After three in a row the job
+is paused and the reason is written down in plain words under `pausedBecause`, so a job that is broken
+rather than unlucky does not fail quietly every day for ever; start it again with `schedules.pause` set
+to false once whatever it needs is working. One turn finishing clears the count.
 
 ## Follow-ups and background specialists
 
@@ -1067,6 +1395,14 @@ Ignored files: put a `.branchignore` in the workspace (or the project folder) an
 ## What it learns
 
 `GET|POST /api/memory/settings` holds `review` (after each finished task a separate, bounded model call may suggest memories or skill notes; suggestions wait for you) and `requireApproval` (memory changes the model makes on its own become suggestions instead of writes). `GET /api/memory/proposals`, `POST /api/memory/proposals/:id/accept|reject`. Every memory edit or deletion keeps an exact earlier version: `GET /api/memory/versions?id=`, `POST /api/memory/versions/restore { id, revision }`. Checkpoints freeze every memory and each skill's active version: `GET|POST /api/memory/checkpoints`, `POST /api/memory/checkpoints/:id/restore`. Each conversation starts with a memory snapshot (up to 20 recent facts) that stays the same until a new conversation begins.
+
+### The learning core
+
+Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it. With `mode: "on"`, every task also has its suggestions worked out as it starts and written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`). Temporary conversations are never learned from. From code, `app.learningCore.settings()` and `app.learningCore.configure({ mode })` read and change the switch; changing it adds or removes the tool at once. There is no screen or web route for it yet.
+
+When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. The core gives advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
+
+**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
 
 ## Trust
 
@@ -1212,7 +1548,21 @@ Everything in this section is off until you turn it on, so a task behaves exactl
 
 **A plan for one task.** `POST /api/run { prompt, plan: true }` asks the model for two to six numbered steps before any work starts. The steps are saved for the conversation and carried out in order: each one is given to the model on its own, and a step that comes back without the word its plan entry asked for is tried once more before the task stops. Events: `plan.created`, `plan.step.started`, `plan.step.retry`, `plan.step.finished`, `plan.completed`, and `plan.failed` when the model's plan cannot be read (the task then simply runs as usual). A planned task gets four extra rounds per step, up to forty.
 
-**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task.
+**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan made this way to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task. A plan made in "Show me the plan first" mode is kept instead, and picked up where it stopped; see the next section.
+
+## Plan first, show me the plan, then act
+
+Asking about one tool call at a time is not the same as agreeing what is going to happen. This section is the other way round: you see the whole plan in plain words, change a step if you want to, and only then does anything run.
+
+**The two modes.** `GET|POST /api/plan-act` holds `planMode` — `just-do-it` (what Branch has always done, and still the default) or `show-plan` (make a plan, show it, and wait) — and `autonomy`, which says how far a task carrying out an agreed plan may go before it checks back: `every-step`, `changes-only` (only steps that change something) or `at-the-end` (the default: not until the whole plan is done). Both live per conversation **and** per project: `POST /api/plan-act { sessionId, planMode }` sets one conversation, `POST /api/plan-act { scope: "project", planMode }` sets what every new conversation in the project starts from, and `{ sessionId, followProject: true }` puts a conversation back on the project's choice. A conversation's own choice always wins. The switch is in the conversation itself, beside the model picker, not in Settings.
+
+**What a plan says.** In `show-plan` mode the first round of the model produces two to six numbered steps in plain words. Each step carries `title` (what it will do), `touches` (the one file, website or program it uses) and `changes` (whether it changes anything; a step that does not say is taken to change something). The plan is stored with the task — run id, conversation, the prompt it was made for, the mode and the autonomy setting — and shown with one sentence naming which steps change something. Events: `plan.created` and `plan.awaiting_approval` carry the titles, what each step touches, which of them change something, and that one sentence.
+
+**Agreeing it.** The task stops with status `needs_input` and the plan as its question. `POST /api/runs/:id/plan {}` agrees to it as it stands; `POST /api/runs/:id/plan { steps }` agrees to it with the wording you changed, and the changed wording is what runs; `POST /api/runs/:id/plan { decision: "reject", reason }` sends it back, and the model is asked for another plan straight away with your reason in front of it. Saying "go ahead" in the conversation also agrees to it. Nothing that changes anything runs before you have agreed. Events: `plan.approved`, `plan.rejected`, `plan.decided`. Every answer is written into the record of what the assistant was allowed to do, against the task, with the numbered plan, the autonomy setting and who answered.
+
+**Following it.** Each step shows as waiting, doing, done or failed against the plan you agreed (`plan.step.started`, `plan.step.finished`). With `autonomy` set to `every-step` or `changes-only`, the task stops before the next step and says which one is coming (`plan.check_back`); your "go ahead" carries it on from exactly there. And if a step that said it would change nothing turns out to need something that does, the task stops and names the difference rather than quietly doing it (`plan.off_plan`), through the same question card as every other approval.
+
+**Debugging a command.** When a command does not work — it failed, or it came back with a complaint — and the assistant then wants to run the same program again, you are shown both commands and what changed between them before anything runs (`command.correction`). You are asked once per command, so agreeing lets the corrected one through.
 
 **Several specialists at once.** `delegate.parallel` runs up to six specialist branches together (at most four are in flight at a time, the same limit as other children). What is left of the task's token budget is split evenly between them, and a branch never costs the task more than its share. One branch failing leaves the others running unless `failFast` is true. The answers come back for the model to combine into one, and the whole thing is recorded as a `delegation.parallel` event. `delegate.handoff { specialist, brief }` hands the rest of a piece of work to a named specialist and brings its answer back, recorded as `delegation.handoff`.
 
@@ -1804,6 +2154,38 @@ appears and nothing has to be signed. Saved work from an older folder layout (`%
 that already holds a database. Uninstalling removes the program, the shortcuts, the sign-in entry
 and the background task; conversations and files are left alone.
 
+**macOS and Linux.** `npm run package:desktop` builds the download for the computer it runs on.
+On a Mac that is `Branch Agent.app` (bundle id `com.keepoak.branch-agent`), zipped as
+`Branch-Agent-macos-arm64.zip` or, with `-- --arch x64`, `Branch-Agent-macos-x64.zip`; unzip it and
+drag the app into Applications. Closing the window keeps Branch in the dock, Cmd+Q quits, and the
+Edit menu gives copy and paste their usual keys. When `APPLE_SIGNING_IDENTITY` is set the app is
+signed, and with `APPLE_NOTARY_PROFILE` (a `notarytool` keychain profile) or `APPLE_API_KEY_PATH`,
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER` it is also notarised; no password is ever put on a command
+line. Without an identity the copy is unsigned and macOS warns the first time it is opened: allow it
+under System Settings, Privacy & Security, Open Anyway. On Linux the download is
+`Branch-Agent-linux-x64.tar.gz`, a folder you unpack anywhere and start with `./branch-agent`. It
+holds `branch-agent.desktop` and `branch-agent.png`; to see Branch in your applications menu, copy the
+entry to `~/.local/share/applications/` and change `Exec` and `Icon` to the folder's full path. On
+Ubuntu 24.04 and other systems that restrict Chromium's sandbox, the app may refuse to start until
+`chrome-sandbox` in that folder is owned by root with mode 4755
+(`sudo chown root chrome-sandbox && sudo chmod 4755 chrome-sandbox`). Every download has a
+`.sha256` beside it; a version tag builds all four and attaches them to the release
+(`.github/workflows/package.yml`).
+
+**What is still needed for a signed installer on every computer.** The code for signing is written;
+what is missing is paperwork and keys, which only the owner can get. On a Mac: an Apple Developer ID
+Application certificate, saved in the repository's secrets as `APPLE_CERTIFICATE_P12` (base64) with
+`APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`, and an App Store Connect API key as
+`APPLE_API_KEY_P8`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`; with those the release workflow signs,
+notarises and staples both Mac downloads, and without them it still builds them unsigned. The Mac
+download is a zip to drag into Applications, not a disk image or a `.pkg`. On Windows the installer
+writes only to this person's own folders, so it needs no signature to run, but it is not
+Authenticode-signed, so SmartScreen can still warn about a new download until a code-signing
+certificate is bought and a signing step added to the workflow. On Linux the download is a folder in a
+`.tar.gz`; there is no `.deb`, `.rpm`, AppImage or Flatpak, and no package repository, so the menu
+entry is copied by hand and updates come from Branch's own updater. Checksums (`.sha256`) are
+published for every download on every system.
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.
@@ -1867,10 +2249,43 @@ computer, and a writable files folder. With `--fix` it installs the browser
 (`npx playwright install chromium --only-shell`); the rest come with a plain-language step, because
 installing Git asks questions a script should not answer for someone.
 
+**macOS and Linux.** `branch daemon install` on a Mac writes
+`~/Library/LaunchAgents/com.keepoak.branch-agent.plist` (starts when you sign in to your Mac,
+starts again only after a crash, no window, output in `logs/background.log` and
+`logs/background-errors.log` inside the data folder) and loads it for you alone with
+`launchctl bootstrap gui/<your user id>`; `uninstall` runs `launchctl bootout` and deletes the file,
+and `status` asks `launchctl print`. On Linux it writes `~/.config/systemd/user/branch-agent.service`
+(or under `$XDG_CONFIG_HOME`) and runs `systemctl --user daemon-reload` and `enable --now`;
+`uninstall` runs `disable --now` and removes the file; `status` asks `is-enabled`. No administrator
+password is needed on either. The update downloads are `Branch-Agent-macos-arm64.zip`,
+`Branch-Agent-macos-x64.zip` and `Branch-Agent-linux-x64.tar.gz` (Windows keeps
+`Branch-Agent-windows-x64.zip`), each with its `.sha256`; the names live in
+`src/desktop/release-assets.ts`. After the checksum matches, the download is unpacked with `ditto`
+(Mac, which keeps the links inside the app) or `tar` (Linux), and a small `sh` script is started on
+its own with nothing attached, so no terminal window appears. It waits about a minute for the app
+and the background engine to close, then asks them to stop and finally ends them, copies the new
+version in beside the old one, keeps the old one as `Branch Agent.app.previous` (Mac) or
+`<folder>.previous` (Linux), swaps them, and opens the new version (`open -n` on a Mac, the
+`branch-agent` program on Linux). If the new version is not still running twenty seconds later the
+previous one is put back and opened. A copy running from its source code says so and points to
+`branch update` instead. `branch doctor --fix` gives Mac and Linux steps for installing Git.
+
+**Closing the background engine for an update (macOS and Linux).** When the window joined an engine
+working in the background, the update first asks that engine to close over its own local address
+(`POST /api/deployment/close`, answered only on this computer's loopback address and only with the
+master key, never a short-lived key or the phone door; Windows refuses it and keeps using
+`taskkill`). If it has not gone within three seconds it is sent the ordinary stop signal (SIGTERM,
+the same as Ctrl+C), then, three seconds later, ended outright (SIGKILL). Where the app is installed
+is worked out one way for the engine and the updater: the program's folder on Windows and Linux,
+the `.app` bundle on a Mac, whose engine script is `Contents/Resources/app/dist/cli.js`. A built Mac
+app that is not inside an `.app` bundle is asked to move into Applications instead of being told it
+runs from source. The engine's own answers say "start by itself when you sign in to your Mac" (or "to
+this computer" on Linux) where Windows says "start with Windows".
+
 Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
 `POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
-`POST /api/deployment/restore-point`, and `POST /api/pair`. Interface files: `/deployment.js`,
+`POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
 ## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched
@@ -1897,6 +2312,18 @@ layer first — a button is pressed by its name, text is placed into a box direc
 to a real mouse click or key press only when the program offers nothing better. The script runs
 through the same bounded runner the host-command tool uses, so it is stopped by time, by output
 size, or the moment the task is cancelled. No new dependency; nothing is installed.
+**macOS and Linux.** The commands are built and tested for both, and switched off on both for now.
+On a Mac every action would go through one fixed JavaScript for Automation script run by
+`osascript -l JavaScript <script> <action> <request as JSON>`, so what was asked for is only ever a
+separate argument read as data; pictures through `screencapture -x`, programs and files through
+`open`, and "ctrl" in a key chord means Command. On Linux the same actions are `xdotool` argument
+lists (typed words after `--`), on an X11 session only; Wayland, no session, or no `xdotool` is one
+plain sentence. Reading a window's contents, pictures, the clipboard and starting a program by name
+are not built for Linux yet. The reason both are off: the notice with its **Stop** button is still a
+Windows program, and screen control does not run anywhere without a way to stop it. Until that
+notice works there, every screen tool on a Mac or Linux answers "not available on this computer
+yet". A refusal from macOS names the page to change (Automation, Accessibility, or Screen & System
+Audio Recording).
 While any of this is happening a small notice sits on top of everything with a **Stop** button on
 it. Pressing Stop ends that notice's own process, which Branch takes as "let go of the screen now":
 the action in flight is cut off and every later one in the same task is refused. `POST
@@ -1955,6 +2382,19 @@ approve, receipts, activity), sessions, memory, documents, schedules, policy, th
 "ask me questions first", combined search and issue context; anything else goes through
 `branch.get` / `branch.post`. It needs the local session key, which is the whole of the app's
 security — see `packages/sdk/README.md` for three worked examples.
+### A client for Python programs
+`packages/sdk-python/` is the same client for Python 3.9 or later, using only the standard library
+(`urllib` and `json`), so it runs the same on Windows, macOS and Linux with nothing to install. It
+covers the same groups with Python names (`runs.start`, `runs.stream`, `runs.get`, `runs.approve`,
+`memory.search`, `search`, `audit`, and the rest); `from_data_dir(folder)` reads the session key the
+app wrote. It streams a task's events but does not open the run socket, because the standard library
+has no client for one. To keep the key safe it sends it over plain `http` only to this computer's own
+address (anything else must be `https`), never follows a redirect, and ignores proxy settings in the
+environment. It is not on the package index yet (`pip install ./packages/sdk-python` works from a
+copy of the source). Its tests run against a fake server
+(`python3 -m unittest discover -s packages/sdk-python/tests`); `tests/sdk-python.test.mjs` runs them as
+part of `npm test` and also drives a real Branch Agent with it, and is skipped where no Python is
+installed. See `packages/sdk-python/README.md`.
 ### Issues as context
 `{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
 settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
@@ -2031,10 +2471,179 @@ interface. What they find is merged and then put in order by a second pass. By d
 counts how much of your question each passage uses — it costs nothing, happens on this computer,
 and gives the same order every time. Set `mode` to `model` and it instead asks the model once to
 read the top twenty and pick the best five.
-`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`.
+`GET`/`POST /api/retrieval` holds `mode` (`words` or `model`), `candidates` and `keep`; the same
+`GET` also returns the named pipelines and which knowledge base uses which, and
+`POST /api/retrieval/pipelines` sets them.
 `POST /api/retrieval/search {"query": "..."}` returns the passages with `reranked` and
 `rerankCalls`, which is 0 for the word count and 1 for the model. The same ordering is used for the
 passages put in front of an ordinary task.
+### Narrowing a search before anything is ranked (wave 9)
+
+A question about this year's invoices should not drag last year's in behind it. Every search of a
+knowledge base — the `knowledge.search` tool and `POST /api/knowledge/search` — takes an optional
+`filter` made of things a passage already carries, so the unwanted ones are left out of the
+comparison rather than pushed down it:
+
+| In `filter` | What it means |
+| --- | --- |
+| `collections` | Knowledge bases, by name or by id. |
+| `files` | Files, by workspace path or by the file's own name. A folder path matches everything under it. |
+| `kinds` | Kinds of document: `pdf`, `docx`, `xlsx`, `pptx`, `md`, `csv`, `txt`, `html`, `json`, `odt`, `ods`, `epub`, `rtf`. |
+| `changedAfter` | Only files Branch last saw change on or after this date, written `2026-01-01`. |
+| `changedBefore` | Only files Branch last saw change before this date. |
+
+**Filters combine.** Naming a kind and a date means both must be true, not either. The narrowing is
+done in the database, in **both** ways Branch finds candidates — the full-text one and the plain scan
+it falls back to — so a filter is never quietly dropped when full-text search happens to find
+nothing.
+
+**A filter that matches nothing says so.** The answer carries a `note` naming what you asked for and
+saying plainly that the search was not widened and no answer was taken from outside the filter. An
+empty list on its own cannot tell "nothing in those invoices" from "nothing anywhere", and the
+difference is the whole point of having a filter. A knowledge base you named that does not exist is
+named back to you in the same sentence.
+
+"Last changed" means the last time Branch saw that file's contents differ from what it had. Reading
+a folder where nothing changed does not move the date.
+
+In the **Knowledge** card, the two boxes under the search row set a kind and a date.
+
+### Naming an order for the places Branch looks (wave 9)
+
+Branch looks in several places for passages: your documents, your saved notes, your knowledge bases,
+one hop through the map of a knowledge base, and text pasted in for this job alone. By default all of
+them are asked at once, their answers merged, and the best put first. That is still exactly what
+happens unless you write down something else, and `tests/retrieval-2.test.mjs` asserts that the
+default and the old code give the identical answer.
+
+The picker on each knowledge base's card is what the assistant uses when it looks something up for
+you; the search box on that same card always searches that one knowledge base directly.
+
+A **named pipeline** is an order for those places, with a ceiling on each, and the pass that puts the
+best first at the end. `POST /api/retrieval/pipelines` holds two things. `pipelines` is the list of
+orders you have written, each `{ name, stages: [{ retriever, cap }] }`; `byCollection` says which of
+them a search aimed at one knowledge base uses, keyed by that knowledge base's name or id. Anything
+not named there uses the usual way.
+
+`retriever` is one of `documents`, `memory`, `knowledge`, `knowledge-graph`, `ephemeral`, or
+`rerank`. `cap` is the most that step may bring back — or, for `rerank`, the most it may keep. The
+rerank always runs last whether or not you write it down; writing it down is how you set its number.
+A step naming something Branch has no retriever for is skipped and said so in the answer's `note`,
+rather than failing the search.
+
+```
+POST /api/retrieval/pipelines
+{
+  "pipelines": [
+    { "name": "the contract in front of me",
+      "stages": [ { "retriever": "ephemeral", "cap": 8 },
+                  { "retriever": "documents", "cap": 2 },
+                  { "retriever": "rerank", "cap": 3 } ] }
+  ],
+  "byCollection": { "Contracts": "the contract in front of me" }
+}
+```
+
+`POST /api/retrieval/search` takes `query` and optionally `pipeline` (a name) or `collection` (which
+picks the pipeline through `byCollection`). The answer carries `pipeline` and a `stages` list saying
+what each step was allowed and what it actually brought back, so you can see where an answer came
+from. Each knowledge base's card in **Documents** has the same picker.
+
+### A retrieval, end to end, that you can actually run
+
+This is the whole path, from nothing to a quoted answer with its source, on one computer. Every step
+is a real request.
+
+1. **Make a knowledge base and point it at a folder of your own.**
+
+   ```
+   POST /api/knowledge  { "name": "Invoices", "sources": [ { "kind": "folder", "path": "invoices" } ] }
+   ```
+
+2. **Read it.** Every file is cut into passages and kept for word search. With no model connected
+   that is all that happens, and the answer says so — word search on its own is enough for this
+   example.
+
+   ```
+   POST /api/knowledge/reindex  { "collection": "Invoices" }
+   ```
+
+   The answer is a progress line: `files`, `filesDone`, `chunks`, `unchanged`, `tokens` and a
+   `status` in words.
+
+3. **Ask it something, narrowed to this year's spreadsheets.**
+
+   ```
+   POST /api/knowledge/search
+   { "query": "what did we pay Dane Heating",
+     "limit": 5,
+     "filter": { "kinds": ["xlsx"], "changedAfter": "2026-01-01" } }
+   ```
+
+   Each result names its `collectionName`, `documentName`, `heading` and `page`, so the answer can be
+   quoted and checked. If the filter left nothing, `note` says so and the list is empty — Branch does
+   not widen it.
+
+4. **Have the assistant answer in sentences, with numbered sources.**
+
+   ```
+   POST /api/knowledge/ask  { "collection": "Invoices", "question": "what did we pay Dane Heating" }
+   ```
+
+5. **Change the order it looks in, and check it.** Say you want the map of the knowledge base asked
+   first for this one, and only three answers kept:
+
+   ```
+   POST /api/retrieval/pipelines
+   { "pipelines": [ { "name": "suppliers first", "stages": [
+       { "retriever": "knowledge-graph", "cap": 6 },
+       { "retriever": "documents", "cap": 4 },
+       { "retriever": "rerank", "cap": 3 } ] } ],
+     "byCollection": { "Invoices": "suppliers first" } }
+
+   POST /api/retrieval/search  { "query": "Dane Heating", "collection": "Invoices" }
+   ```
+
+   The answer's `stages` shows each step, its ceiling and what it found; `passages` is at most three,
+   each still naming its `source`. Reranking never loses a citation: the source travels with the
+   passage.
+
+6. **Put the vectors somewhere else, if the library is large.**
+
+   ```
+   POST /api/knowledge/vectors  { "vectorsIn": "file", "vectorsFile": "D:/branch/vectors.db" }
+   ```
+
+   Then press **Read it again** to fill it. If that drive is not there, the answer's `note` says so
+   and Branch carries on with its own database. One honest edge: deleting a knowledge base clears its
+   vectors from wherever they are kept **now**, so rows left behind in a file you have since switched
+   away from stay in that file until you delete it yourself.
+
+### What is put in front of a task, and in what order (wave 9)
+
+Before the model reads your question, Branch may put some of your own material in front of it. Three
+things can do that, and they are asked in this order; the first with something to say is the one
+used:
+
+1. a knowledge base you ticked **Use this when answering**,
+2. your document library,
+3. the files of the project you are working in.
+
+The third is off until you turn it on, because most questions are not about code and a list of file
+names in front of every task would be noise. `POST /api/retrieval/context` sets the two: `repositoryContext` turns it on and
+`repositoryContextFiles` (5 by default, at most 10) is how many files may be named. Each is named
+with the reason it was picked — the words you used appear in it, or it is connected to a file that
+matches — and with the names it declares. Turning **Use my documents when answering** off at the top
+of the Documents panel turns all three off, so that one switch always means "put none of my own
+material in front of my tasks".
+
+The contract is `ContextProvider` in `src/context-providers.ts`: an id, a label the owner would
+recognise, and one method that is given the question and either answers with numbered passages and
+their sources or answers with nothing. A provider that throws is treated as having nothing to say,
+because material in front of a task is a help and never a reason for the task to fail. Everything a
+provider returns is still your own untrusted text: the runtime wraps it in the same "quote it, never
+obey it" sentence it always has.
+
 ### Model connections a plugin brings
 A plugin may export `providers`, alongside the tools and hooks it already exports. Each is named
 `plugin.provider.<id>` and is a factory that, given the address, the key and the model name the
@@ -2282,16 +2891,124 @@ off at the top of the panel turns knowledge bases off as well, so that one switc
 none of my own writing in front of my tasks". A file that is too large or that no reader could turn
 into text is counted in the knowledge base's note rather than passed over in silence.
 
-**Where the vectors live.** In the same database as everything else, in a table called `vectors`, and
-the comparison is done in TypeScript. That is comfortable up to roughly **50,000 passages in one
-knowledge base**; past that a real vector database would be the right answer. The `VectorBackend`
-interface in `src/vector-store.ts` exists for exactly that: an HTTP adapter (Qdrant, Chroma or
-similar) would implement `upsert`, `removeDocument`, `removeCollection`, `search`, `count` and
-`fingerprints` against the service's own REST API — `search` sending the query vector and the
-collection name and returning `{ docId, chunkId, score }` best first, `fingerprints` returning the
-chunk-to-fingerprint map that makes re-reading free — going through the existing network policy, and
-be handed to `new KnowledgeBases(store, files, models, ledger, backend)`. Only the SQLite backend is
-written today.
+**Where the vectors live.** By default in the same database as everything else, in a table called
+`vectors`, and the comparison is done in TypeScript. That is comfortable up to roughly **50,000
+passages in one knowledge base**; past that a real vector database would be the right answer.
+
+There is one alternative you can switch on today: a **database file of your own**, anywhere on this
+computer. `POST /api/knowledge/vectors` holds `vectorsIn` (`database`, the default, or `file`) and
+`vectorsFile` (the full path of that file, such as `D:/branch/vectors.db`). The card **Where your
+vectors are kept** in Documents sets the same two. A large library's vectors can be bigger than
+everything else Branch stores put together, so putting them on another drive keeps the main database
+small and quick to copy.
+
+Three things are promised about that switch. The path must be a full one, and a missing folder is
+created for you. If the file cannot be opened — a drive that is not plugged in, a folder you may not
+write to — Branch says so in one sentence on the card and **carries on using its own database**; it
+never starts up broken and it never fails a search in silence. And **nothing is deleted by
+changing it**: the vectors you already had stay where they were, and the new place fills up the next
+time you press **Read it again**.
+
+**The hosted vector services are deliberately not built.** Qdrant, Chroma, Pinecone, Weaviate and
+the rest are all real products, and an adapter for each was asked for in the capability audit. None
+is built here, for one reason: nobody running Branch on their own computer is also running one of
+them, an adapter could not be tested on this machine without a network, and each one would be a new
+dependency to talk to a service you do not have. What exists instead is the contract, a second real
+implementation of it, and the worked example below. If you do run one, that example is enough to
+write the adapter in an afternoon.
+
+### Writing your own place to keep the vectors, end to end
+
+`VectorBackend` in `src/vector-store.ts` is seven methods, six of them required. Here is a complete
+one, for a service that speaks HTTP. Nothing is left out; this compiles.
+
+```ts
+import type { VectorBackend, VectorMatch, VectorRecord } from "branch-agent";
+
+/** Your service, behind the same contract the shipped SQLite one implements. */
+export class MyVectors implements VectorBackend {
+  readonly name = "my vector service";
+  constructor(private readonly base: string, private readonly call: typeof fetch) {}
+
+  /** `POST` the passages. Returns how many were written, which the progress line shows. */
+  async upsert(owner: string, records: VectorRecord[]): Promise<number> {
+    if (!records.length) return 0;
+    const body = records.map((record) => ({
+      id: `${owner}:${record.collection}:${record.chunkId}`,
+      vector: Array.from(record.vector),
+      payload: { owner, collection: record.collection, docId: record.docId,
+        model: record.model, textHash: record.textHash },
+    }));
+    const answer = await this.call(`${this.base}/points`, { method: "PUT",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ points: body }) });
+    if (!answer.ok) throw new Error(`The vector service refused the write: ${answer.status}`);
+    return records.length;
+  }
+
+  async removeDocument(owner: string, collection: string, docId: string): Promise<number> {
+    return this.deleteWhere({ owner, collection, docId });
+  }
+  async removeCollection(owner: string, collection: string): Promise<number> {
+    return this.deleteWhere({ owner, collection });
+  }
+  private async deleteWhere(match: Record<string, string>): Promise<number> {
+    const answer = await this.call(`${this.base}/points/delete`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ filter: match }) });
+    if (!answer.ok) throw new Error(`The vector service refused the delete: ${answer.status}`);
+    return Number(((await answer.json()) as { deleted?: number }).deleted ?? 0);
+  }
+
+  /** Best first. `scanAtMost` may be ignored where the service does the comparison itself. */
+  async search(owner: string, collection: string, query: Float32Array, limit: number): Promise<VectorMatch[]> {
+    const answer = await this.call(`${this.base}/points/search`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vector: Array.from(query), limit, filter: { owner, collection } }) });
+    if (!answer.ok) return [];
+    const found = (await answer.json()) as { result?: { payload: { docId: string }; id: string; score: number }[] };
+    return (found.result ?? []).map((row) => ({
+      docId: row.payload.docId, chunkId: String(row.id).split(":").slice(2).join(":"),
+      score: Number(row.score.toFixed(6)),
+    }));
+  }
+
+  async count(owner: string, collection?: string): Promise<number> {
+    const answer = await this.call(`${this.base}/points/count`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filter: collection ? { owner, collection } : { owner } }) });
+    return answer.ok ? Number(((await answer.json()) as { count?: number }).count ?? 0) : 0;
+  }
+
+  /** Chunk id to fingerprint, so a passage that has not changed is never read again. */
+  async fingerprints(owner: string, collection: string, model: string): Promise<Map<string, string>> {
+    const answer = await this.call(`${this.base}/points/scroll`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filter: { owner, collection, model }, with_payload: true, limit: 50000 }) });
+    if (!answer.ok) return new Map();
+    const found = (await answer.json()) as { result?: { id: string; payload: { textHash: string } }[] };
+    return new Map((found.result ?? []).map((row) =>
+      [String(row.id).split(":").slice(2).join(":"), row.payload.textHash]));
+  }
+}
+```
+
+Three rules that are not in the type and that a wrong adapter will break. **Every call takes an
+owner and must scope to it**: two people on one computer never see each other's passages. **Lists of
+different lengths score zero rather than throwing** — a knowledge base read by two different models
+has both, and a search must not fall over. And **the network policy is not optional**: hand your
+adapter the guarded `fetch`, never `globalThis.fetch`, so the owner's address rules are checked
+before anything leaves.
+
+Then hand it over where the knowledge bases are made, in `src/index.ts`:
+
+```ts
+const knowledgeBases = new KnowledgeBases(store, files, runtime.models, ledger,
+  new MyVectors("http://127.0.0.1:6333/collections/branch", guardedFetch), guardedFetch);
+```
+
+`countNow` is the seventh method and the only optional one: the Documents panel draws its cards in
+one pass and cannot wait, so a backend that can answer a count without waiting implements it and one
+that cannot leaves it out — the card then says nothing about how many passages are compared by
+meaning rather than showing a wrong zero.
 
 **In a backup.** The knowledge bases themselves — their names, the folders they point at and whether
 each is in use — are in the whole-application backup (`kb_collections`). Their passages (`kb_chunks`,
@@ -2309,9 +3026,10 @@ in **Memory**, the same as every other tidying suggestion. Settings live under `
 
 Routes: `GET /api/knowledge` (the list, which model reads passages, and anything being read right
 now), `POST /api/knowledge` with `{ name, sources }`, `POST /api/knowledge/reindex` with
-`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit }`,
+`{ collection }`, `POST /api/knowledge/search` with `{ collection?, query, limit, filter? }`,
 `POST /api/knowledge/ask` with `{ collection?, question }`, `POST /api/knowledge/attach` with
 `{ collection, attached }`, `POST /api/knowledge/settings` with `{ maxIndexTokens?, compareAtMost? }`,
+`POST /api/knowledge/vectors` with `{ vectorsIn?, vectorsFile? }`,
 `POST /api/knowledge/source` with `{ collection, source }` or
 `{ collection, remove }`, and `DELETE /api/knowledge/{id}`. The tools are `knowledge.collections`,
 `knowledge.search` and `knowledge.ask` under `documents.read`, and `knowledge.create`,
@@ -2832,8 +3550,9 @@ Branch Agent is one person's assistant on one Windows computer. A number of thin
 for belong to a hosted product with many customers, or to another operating system, and they are not
 going to be built. They are written down here so nobody goes looking for them.
 
-- **No macOS screen control.** The screen and keyboard tools drive Windows windows through UI
-  Automation; there is no macOS accessibility equivalent, and this app only ships for Windows.
+- **No macOS screen control yet.** The screen and keyboard tools drive Windows windows through UI
+  Automation. The macOS and Linux commands are built but switched off until the Stop notice works
+  there; see "Using this computer's screen and keyboard".
 - **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
   to the room waiting for its name, because that means a microphone open all day.
 - **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
@@ -2919,6 +3638,16 @@ sentence naming the page that turns it on (`ms-settings:privacy-microphone`,
 Only an outright "no" stops anything: a computer that keeps no such setting answers "nothing to say"
 and Branch carries on exactly as before. New route: `GET /api/os-permissions`. Branch never asks
 Windows to grant a permission — only you can do that.
+
+**macOS and Linux.** Merely asking a Mac about one of these switches can put a question on the
+screen, so on a Mac nothing is asked. The permissions route lists four switches — Microphone,
+Camera, Screen & System Audio Recording, and Accessibility (pressing keys and clicking in other
+apps) — each with an `explanation` in plain words and a `settingsLink` that opens its page
+(`x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`, `?Privacy_Camera`,
+`?Privacy_ScreenCapture`, `?Privacy_Accessibility`). Every entry now carries `explanation`, on
+Windows too. On Linux the desktop session is what decides: with an X11 session screen control can
+work (with `xdotool`); on Wayland, or with no desktop session at all, the screen is reported as
+unavailable with the reason, and the microphone and camera are explained as having no single switch.
 
 ## Commands nobody has ruled on (batch 26, wave 8)
 
@@ -3035,6 +3764,11 @@ would replay whatever that tool does — only plain text answers are. **Nothing 
 or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
 the app, so a second person in the household never reads one of the owner's answers back out.
 
+A secret is named as `secret://project/NAME`, and the place it most often appears is not the words of
+a message but the **arguments of a tool call** the model asked for earlier in the same conversation —
+a deploy command, a header, a sign-in. Those arguments are part of the request, so they are read by
+the same rule: a conversation carrying one anywhere is never kept.
+
 A request is only the same request when everything the model was shown is the same: the messages
 (your instructions among them), the model, the effort, and every tool by name *and* by the words
 describing it. Change any of those and the question is asked afresh.
@@ -3052,25 +3786,62 @@ switch the cache off. `POST /api/request-cache/clear` is what throws them away.
 ### A whole set of questions at once (A1351, A1352)
 
 Off until you turn it on. OpenAI and Anthropic will both take a large set of questions at once, work
-through it in their own time and charge about half. Evaluation sets and reading a knowledge base are
-exactly that shape.
+through it in their own time and charge about half. Reading a whole knowledge base is exactly that
+shape: each part of it is summarised on its own before the parts are drawn together, and those parts
+do not depend on each other.
 
 - `GET /api/batch` — the settings, and which of your connections can take a whole set.
-- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000 }`.
+- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000, "discount": 0.5 }`.
 - `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
   waits for it, and gives the answers back.
+- `GET /api/batch-sets` — every set handed over, what it cost and what handing it over saved. This
+  is what the **What asking a whole set at once saved** panel on the Usage screen reads.
 
-Anything that goes wrong on that road — the connection cannot do it, the hand-over is refused, the
-set fails or never finishes — falls back to one ordinary call per question rather than losing the
-work, and the answer says in one line why. What the set cost is read from what the service reported,
-never guessed.
+`discount` is how much less a set costs than the same questions asked one at a time. Both services
+charge half at the time of writing, so it is `0.5`. The price tables price a model at its ordinary
+rate, so this is the number that turns that rate into what a set actually cost and into what handing
+it over saved; change it if your agreement with a service says something else.
 
-**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
-submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
-yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
-Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
-`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
-Turning the setting on today changes nothing except the sentence you get back.
+**Which connections can take one.** A set only goes over where the address really is the service
+that offers one: `api.openai.com` and any `*.openai.azure.com` deployment for an OpenAI-shaped
+connection, and `api.anthropic.com` for an Anthropic one. Plenty of services speak the OpenAI shape
+for ordinary questions without having a set endpoint at all, and claiming they do would only make
+every set fail and fall back. `GET /api/batch` says `takesWholeSets` per connection so you can see
+which of yours can.
+
+**The two roads are different underneath.** OpenAI wants the questions uploaded as a file of one
+question per line, then a set created against that file, then the answers fetched back as another
+file — and the questions that failed on their own come back in a second file, which is read too.
+Anthropic takes the questions in the request itself and hands back an address to read the answers
+from; that address is checked against the address you configured before anything is fetched from it,
+so a service that answered with somewhere else cannot make this app fetch from somewhere else. Both
+are reduced to the same three steps, so nothing above has to know which service it is talking to.
+
+**A set that only half works keeps the half that worked.** Whatever came back is collected first,
+even when the service called the whole set failed, and only the questions with no answer are asked
+again one at a time. Nothing already answered is paid for twice. The answer says how many were
+answered in the set, how many had to be asked again, and how many nothing could answer at all — and
+the ids of each, so a caller can say which part of the work is missing rather than quietly dropping
+it. Anything that goes wrong before that — the connection cannot do it, the hand-over is refused,
+nothing at all came back — falls back to one ordinary call per question and says in one line why.
+
+**A set carries words only.** A question with a picture in it would reach the service without the
+picture, which is a different question, so a set containing one is asked one at a time instead and
+says so. Being stopped part-way is not treated as a failure either: a cancelled set stops rather
+than quietly asking every question again on its own.
+
+What a set cost is read from what the service reported, never guessed.
+
+### Chat engines (A0847) — not applicable
+
+This row asks for "chat engines": a way of plugging in different chat back-ends behind one
+interface. Branch already has exactly that and has had since the first release, under a different
+name. `Provider` in `src/contracts.ts` is the interface; `src/providers.ts` and `src/providers/`
+hold the implementations (OpenAI-shaped, Anthropic, Gemini, Azure, Bedrock, Cohere, Ollama, the
+signed-in ChatGPT connection, a command-line agent, and the demo); `src/models.ts` picks between
+them, falls back when one is failing, and keeps a cooldown. Adding a second name for the same idea
+would mean a wrapper with no caller, so nothing was built for this row. If you want to add a chat
+back-end, implement `Provider` and register a preset — that is the whole contract.
 
 ### Lockdown: one switch (A0615)
 
@@ -3209,3 +3980,1202 @@ These rows of the audit are done, by a feature that exists under another name.
   (`src/plugins.ts`, `src/plugin-catalog.ts`) with fingerprints and an explicit switch.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
+
+## Writing documents, and a knowledge base that knows what is in it (batch 27, wave 8)
+
+Branch could already read a Word file, a spreadsheet, a slide deck, a PDF and an e-book. This batch
+is the other half of that: writing them, changing them, and knowing what a whole knowledge base
+holds rather than only which passage answers one question. Nothing new was installed to do any of
+it — an Office file is a folder of XML inside a zip, and Node already packs and unpacks zips.
+
+### Writing a document (A2145, A2263)
+
+`documents.write` saves a file into your workspace: `.docx` for Word, `.xlsx` for a spreadsheet,
+`.pptx` for slides, or `.md` and `.html` for a note and a web page. You describe what goes in it in
+pieces — a heading, a paragraph, a list, a table; sheets of figures for a spreadsheet; a title and
+bullet points for a slide, with a picture the assistant made earlier able to take a slide of its
+own. Figures in a spreadsheet stay figures, so you can add them up, and a cell the assistant worked
+out is written as the sum it stands for with the answer beside it, so the spreadsheet recalculates
+the moment you change a figure. Columns can be shown as plain numbers, money, a percentage or a
+date. A sheet can be filled straight from a table the task already opened with `data.load`.
+
+`documents.edit` changes a Word or spreadsheet file that already exists: replace some wording, add a
+section at the end, replace a table, or add or replace a sheet. The promise it keeps is narrow and
+worth stating: every part of the file the change did not touch comes back as the very same bytes,
+not as a re-saved copy that happens to say the same thing. A Word file with your company template, a
+footer and a picture in it still has all of those, untouched, after one sentence in it is changed.
+The one case that cannot be silent is a phrase spread across differently formatted pieces — half of
+it bold, say: that paragraph is rewritten as one piece and the answer says so, so you can look.
+
+Both are under the same permission as any other change to your files, and both go through the same
+before-and-after the ordinary file tools use, so a document the assistant wrote can be undone like
+anything else it did.
+
+**What this is not.** There is no live document that two people type in at once. Branch writes a
+file, or changes one, and hands it back. It does not know what anybody else is doing in that file
+while it is open in front of them, and it says so in every answer it gives.
+
+### Pictures as documents (A0946)
+
+A photograph of a meter, a screenshot of an error, a scan of a receipt: these used to be listed as
+files that could not be read, because there are no words in them to lift out. `knowledge.pictures`
+asks a model that can see to describe each one in plain words — including any words, numbers and
+readings visible in it, which is what makes a screenshot or a scan worth having — and indexes that
+description beside the picture, so a search finds it and the answer cites the picture itself.
+
+Each picture is described once and once only: the description is kept against a fingerprint of the
+picture's own bytes, so the same picture in two knowledge bases, or the same folder read again next
+month, costs nothing. Ask with `estimateOnly` first and it says how many pictures would be sent and
+to which model, and sends nothing. When none of your connected models can look at a picture it says
+so in one sentence and sends nothing at all.
+
+### Summing up a knowledge base (A1668, A2362)
+
+`knowledge.summarise` writes a short account of everything in one knowledge base, or of one subject
+in it. A knowledge base does not fit in one request, so each batch of passages is summarised on its
+own and the batches are then drawn together; every point carries the number of the passage it came
+from, and the sources are listed underneath. The answer is kept against a fingerprint of the
+collection's passages, so asking twice costs nothing and one changed file is enough to make it be
+written again. With nothing connected, or when the model cannot be reached, it still answers — with
+the opening of each passage and its number — and says why it reads as it does.
+
+### Looking after a knowledge base (A1867, A2036)
+
+`knowledge.manage` renames one, merges one into another, or splits one folder out into a knowledge
+base of its own. The passages move; nothing is read again and nothing is charged. The Documents
+panel can save a whole knowledge base out as a plain zip of Markdown with a small list of facts
+beside it, and bring one back from that zip as a new knowledge base — which is a backup, and also
+how you move one between computers. The panel shows what each holds and what reading it has cost.
+
+`knowledge.refresh` reads your last few conversations and suggests fact cards for one knowledge
+base. It adds nothing: each card waits in the Memory screen until you accept it, exactly as with
+everything else the assistant proposes to remember. Accepting one indexes it like a passage from a
+file, so a search finds it and can cite it.
+
+### A light map of what a knowledge base mentions (A0994)
+
+`knowledge.map` builds a map of the names a knowledge base talks about and which of them are
+mentioned together; `knowledge.graph` answers for one name with everything linked to it, one or two
+hops out. It answers the question a passage search is bad at — "everything you know about this
+supplier", where the answer is spread over eight files that never use the same words twice — and one
+hop through it is another way of finding passages, beside words and meaning. The Documents panel
+draws the neighbourhood as a simple read-only picture with the file behind each link named under it.
+
+**The limits, said plainly.** The map is built from names as they are written in the files, not from
+understanding. Two spellings of one company are two entries. A name that is also an ordinary word
+shows up as both. With nothing connected, "mentioned together in the same passage" is the only link
+it can find, and that does not say how the two are related — which the answer states every time.
+Where a model is connected and you allow it, the model names the relations properly instead. Either
+way, every link carries the passage it came from, so nothing here has to be taken on trust.
+
+### Age and size limits for knowledge
+
+You can set how long a knowledge base may keep files and how large it may get. Nothing is removed by
+a limit: each knowledge base over one becomes a suggestion in the Memory screen that says to save it
+out first. A knowledge base built over months should never quietly shrink because a number was
+crossed while nobody was looking. These are the same two figures the conversation-retention setting
+uses — how long, and how much — so there is one idea in the product rather than two; that setting had
+not landed when this was written, so this keeps the minimal shape and will read from it when it does.
+
+The three figures (`src/knowledge-manage.ts`, `RetentionSchema`, saved under the settings key
+`knowledge-retention`, read and written through `POST /api/knowledge/retention`): `keepDays` is how
+many days a file may go unread before it is suggested for removal, `maximumDocuments` how many files
+one collection may hold, and `maximumChunks` how many passages. **Zero means no limit**, and all
+three are zero until you set them, so nothing is suggested until you ask for it.
+
+### What the assistant remembers, as Markdown in your workspace (A2185)
+
+Everything the assistant remembers is written into a `memory/` folder in your workspace as ordinary
+Markdown: one note per kind of fact, rewritten from scratch each time. The database stays the real
+store; this is a window onto it, which makes what the assistant knows readable in any editor,
+searchable with any tool, and — because it is a folder of Markdown — usable by a notes app such as
+Obsidian pointed at the same workspace.
+
+The folder is read-only to the assistant's own file tools. A change made in it would be undone the
+next time the mirror is written, and a change nobody can keep is worse than a plain refusal, so
+`files.write` refuses it in one sentence that says where to change the fact instead.
+
+For the same reason **there is no tool that writes the mirror**: giving the assistant a second way
+into the one folder it may not edit would take the refusal back. Instead:
+
+- The folder does not appear until you ask for it. `POST /api/memory/mirror` — the button on the
+  Memory screen — writes it the first time. Nobody's workspace grows a folder they never asked for.
+- After that it keeps itself up to date: every task that finishes writes the notes again if what is
+  remembered has changed, and skips the writing when it has not.
+- Deleting the folder is how you stop it. Nothing puts it back until you ask again.
+- Send `{"force": true}` to write the notes even when nothing has changed.
+
+A knowledge base never reads these notes back in. A collection pointed at your whole workspace skips
+the mirror folder (`KnowledgeBases.skip`, wired in `src/index.ts`), because otherwise the assistant
+would end up quoting its own notes back to you as though they were a document of yours.
+
+This is *not* the [notes-folder bridge](#your-notes-folder-the-obsidian-bridge-batch-22-wave-8).
+That bridge writes tagged notes into a vault folder you name, through `insideVault`; the mirror
+writes into your workspace, through the ordinary workspace checks, and never resolves a vault path.
+One caution if you use both: if you point the notes folder at your workspace and call its folder
+`memory`, the bridge writes straight to disk and does not go through the read-only rule above, so a
+note it syncs there would be wiped the next time the mirror is written. Give the bridge a folder of
+its own.
+
+### Text pasted in for one job (A1117)
+
+`scratch.text.add` holds a piece of pasted text for one job only: it is cut into passages,
+searchable while the job runs, and dropped the moment the job ends. Nothing is written to the
+database and nothing is sent anywhere to be compared by meaning. It is for the three pages of a
+contract you want to ask four questions about and then be done with — which does not belong in the
+document library, where it would sit for good, nor in the conversation, where it would fill the
+space in front of every later turn with text that stopped mattering an hour ago.
+
+### Worked examples: finding the right passage (A1144)
+
+Three whole runs through, from nothing to a cited answer. Everything here is on this computer unless
+a step says otherwise.
+
+**A folder of your own work.** Put the files in `workspace/house`. `POST /api/knowledge` with
+`{"name":"House","sources":[{"kind":"folder","path":"house"}]}` makes the collection;
+`POST /api/knowledge/reindex` with `{"collection":"<id>"}` reads it once, cutting each file into
+passages that keep their
+headings, sheets, slides and pages. Then `knowledge.search` with `{"query":"who services the boiler"}`
+searches by words and, where comparing by meaning is switched on, by meaning as well, and returns
+passages each naming its file and heading. `knowledge.ask` does the same and writes the answer, with
+`[1]`-style marks and the numbered list of sources underneath. Reading the folder again compares each
+file by its contents, so only the changed ones are read a second time, and files that look like
+secrets are never read in at all.
+
+**Something said in a conversation.** With review switched on, a finished task is read back by the
+model and anything worth keeping becomes a *suggestion*, never a saved fact. Accepting a knowledge
+card (`POST /api/memory/proposals/{id}/accept`) puts it into the collection named on the card through
+`KnowledgeBases.putDocument`, cut and stored exactly like a file. A later question finds it through
+the same search, with the knowledge base named as where it came from — that whole round trip is
+`tests/docs-3.test.mjs` D18.
+
+**Three pages you will not need tomorrow.** `scratch.text.add` with `{"name":"Contract","text":"…"}`
+holds it for this job: `scratch.text.search` finds passages in it, the common retriever offers them
+beside every other source, and when the job ends the store is dropped on `onRunFinished`. Nothing
+reaches the database and nothing is sent away to be compared by meaning.
+
+Which retriever answered is always on the passage, in `from`: `knowledge`, `documents`, `memory`,
+`knowledge-graph` for one hop through the map, or `task-text` for the third example. They all sit
+behind the one `Retriever` interface in `src/retrieval.ts`.
+
+### Routes
+
+`POST /api/knowledge/summarise`, `/api/knowledge/graph`, `/api/knowledge/map`,
+`/api/knowledge/pictures`, `/api/knowledge/manage`, `/api/knowledge/refresh`,
+`/api/knowledge/export`, `/api/knowledge/import`, `/api/knowledge/retention`,
+`/api/knowledge/retention/check`, and `GET /api/knowledge/extras` for the panel.
+`POST /api/memory/mirror` writes the Markdown mirror of what is remembered.
+
+### Already covered, and not applicable
+
+- **A1013 pluggable storage domains** — VERIFIED as already built: `src/vector-store.ts` defines the
+  `VectorBackend` contract and `src/memory-backend.ts` the memory one, both with the shipped SQLite
+  backend behind them, and `src/retrieval.ts` puts every way of finding passages behind one
+  `Retriever` interface that this batch adds two more to.
+- **A2264 PDF processing** — VERIFIED as already built in wave 7: `src/document-pdf.ts` lifts text
+  out of a PDF, marks its pages, and says plainly when a PDF is pictures of text rather than text.
+  This batch adds the other half of that sentence: pictures can now be described.
+- **A1144 worked examples of finding the right passage** — this section, with the examples above.
+- **A1426 RAGFlow knowledge search** and **A2343 embedded knowledge base** — not applicable: both are
+  external services to run alongside. The knowledge bases here do the same job on the SQLite file
+  that is already there, with nothing else to install or keep running.
+- **A2168 long-term memory with QMD retrieval** — not applicable, for the same reason: it needs an
+  external retrieval service. Memory here is searched by words, by meaning and now through the map,
+  all on this computer.
+- **A1425 pluggable memory backends** and **A1475 pluggable session storage** — already documented;
+  the contracts exist and one backend is shipped.
+
+## What Branch is not (batch 22, wave 8)
+
+Some rows of the audit describe a *demonstration written for one Python or Rust toolkit*, not a
+capability. Branch is a local Windows desktop assistant with one web app of its own, so these are
+recorded here as deliberately out of scope rather than left open for ever.
+
+- **A1131 Gradio UI**, **A1536 Gradio web application** — Gradio is a Python notebook-style web
+  toolkit. Branch's own web app is the interface; adding Gradio would mean running Python beside the
+  app to draw a second, worse one.
+- **A1676 Streamlit demo UI**, **A2198 Streamlit web UI** — the same, for Streamlit.
+- **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
+- **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
+  this one. The web app here is plain modules served by the app itself, with no build step.
+- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
+  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
+  in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
+  and update for no new behaviour.
+- **A2200 Desktop pet UI** — a floating animated character on the desktop. Branch's desktop presence
+  is a window and a tray icon; a pet is charm, not capability, and it would need the always-on-top
+  overlay the screen-control rules deliberately forbid.
+- **A1984 Multi-user web chat** — Branch is single-owner by design: one person, one workspace, one
+  set of keys on their own computer. Sharing is a read-only page (`src/conversation-share.ts`) and a
+  paired remote listener, never a second account.
+
+### Already covered, under another name (batch 22, wave 8)
+
+- **A0527 chat web UI**, **A0704 local web UI**, **A0956 web UI example**, **A1192 development web UI
+  and API**, **A1774 web control UI and WebChat**, **A2033 web console**, **A2157 web management
+  panel** — all one thing: the app shell in `public/index.html` with the rail, the conversation
+  column and the ten sections (see docs/design.md), served by `src/server.ts` on this computer and
+  covered by `tests/shell-ui.test.mjs` and `tests/web-ui.test.mjs`.
+- **A2015 Web dashboard and webchat** — the audit's "no file upload UI" is out of date: the Documents
+  section takes a file from disk and accepts one dropped on the page (`public/documents.js`).
+- **A0401 Dashboard and desktop** — the desktop app is `src/desktop/main.ts` with its own settings,
+  updater and conversation export; see "The desktop app" above.
+- **A1585 Cross-platform GUI control** — screen and keyboard control is
+  `src/integrations/desktop.ts`, behind its own switch and the Stop banner. It is Windows-only on
+  purpose: this is a Windows desktop assistant, and a cross-platform layer would mean three
+  untestable back ends.
+- **A1452 Web crawling** — `src/integrations/web.ts` fetches and reads a page through the network
+  policy, and `src/integrations/browser.ts` drives a real browser when a page needs one. There is no
+  Crawl4AI: it is a Python library, and a whole-site crawler is not something a personal assistant
+  should be able to start on its own.
+- **A2197 Terminal UIs** — the terminal interface is `src/terminal-tui.ts`: the conversation, the
+  live task, approvals and the token figures for each round, drawn with the app's own style helpers.
+  It is Node, not Rust, and that is the whole of the difference the audit found.
+- **A1522 Browser recording artifacts** — `src/integrations/browser-trace.ts` keeps everything the
+  browser did during one task as a single Playwright trace file, off unless the owner asks.
+- **A1637 Live WebSocket run channel** — `src/ws.ts` carries the run lifecycle and is authenticated:
+  the session token travels in `Sec-WebSocket-Protocol` as `bearer, <token>` and is compared in
+  constant time.
+- **A0500 Tracing and debugging**, **A1677 pipeline logging and usage accounting**, **A0798 run and
+  vertex monitoring** — `src/tracing.ts` opens a span for the run and for every model round, tool
+  call, retrieval, delivery and sub-task inside it, with the usage figures on the model spans; the
+  inspector draws them.
+- **A0400 Usage analytics**, **A0367 usage analytics and reports** — the Usage section's month view
+  (`src/usage.ts`, `src/pricing.ts`) plus "Save as report" below, which writes the same figures out
+  as Markdown, a page, or print.
+- **A0605 Approval-gated plans** — the approval gate (`src/approvals.ts`) holds a task at a step and
+  keeps the answer; the to-do list below is where a plan's steps are now written down and ticked.
+- **app-building (App-builder SDK MCP server)** — Branch is itself an MCP server (`branch mcp-serve`,
+  `src/mcp-server.ts`), so another tool can drive it; and the artifact frame below is the same
+  sandbox that shows a small page an MCP server sends back.
+
+## Artifacts: what a reply can show as well as say (batch 22, wave 8)
+
+When a reply carries a fenced `html`, `svg` or `chart` block, Branch shows it as a card beside the
+words rather than leaving markup to read. Four buttons sit under it: **Open larger**, **Copy code**,
+**Save to workspace**, and — for a `javascript` or `python` block — **Run this script**.
+
+**A page or a drawing goes into a frame that is sealed shut.** It is served from Branch's own
+address at `/artifact/<name>`, under the same content policy an MCP app gets (`src/mcp-apps.ts`):
+`sandbox` with nothing after it, which gives the page an origin of its own and stops every script,
+plus `default-src 'none'`, which refuses every fetch. The frame itself carries `sandbox=""` — no
+`allow-same-origin` — so it cannot reach the page around it, the session key, or the network.
+Unlike an MCP app's address, an artifact's is **not** used up by the first fetch: a frame may
+reload and "Open larger" may show the same one again. It expires after ten minutes.
+
+The app's own colours are passed in as CSS variables, read off the running page, so an artifact
+matches the theme instead of fighting it. Every value is checked against a short pattern first.
+
+**A script is never run by the frame.** The frame runs nothing at all. The button is a button on
+Branch's own page, and it goes through `POST /api/tools/try` to `code.run`, which is off until the
+owner switches it on in Settings → Developer and which stops to ask like any other tool.
+
+**Charts** are drawn in the page from a `chart` block — `{"type":"bar|line|pie","title":…,"data":
+[{"label":…,"value":…}]}`. The number under the pointer is written out in words, the same numbers
+can be shown as a table instead, and **Save as a picture** turns the drawing into a PNG using the
+browser's own canvas. Nothing is drawn on this computer's side and no drawing library is loaded.
+
+**Save to workspace** keeps the artifact beside the task it came out of (`POST /api/artifacts/save`),
+where the Documents section lists it under "Made by the assistant".
+
+Routes: `POST /api/artifacts/page` mints an address, `GET /artifact/<name>` serves it,
+`POST /api/artifacts/save` keeps one. Files: `src/artifact-pages.ts`, `public/artifacts.js`,
+`public/charts.js`.
+
+## Save as report (batch 22, wave 8)
+
+Any task can be written out to keep or hand on, from Activity → **Save a task as a report**:
+
+- **Save as notes** — Markdown: headings and prose, nothing a reader needs a program to open.
+- **Save as a page** — one self-contained HTML page with its colours written into it and no script
+  at all, the same renderer a shared conversation uses (`src/conversation-share.ts`).
+- **Open the print view** — the same page with print rules, opened in a window of its own. This is
+  how a PDF is made: the browser's own "Save as PDF". Branch never draws a PDF on this computer.
+- **Save every step** — one task's whole trajectory as a page: every step it took, what came back,
+  and how it ended.
+
+Every form goes through the same redaction pass that guards a shared conversation, so a key that
+appeared in a tool result does not leave in a file the owner emails on; the result says how many
+things were blanked out. Routes: `POST /api/reports`, `GET /api/reports/episode/<task>`. Files:
+`src/reports.ts`, `public/reports.js`.
+
+## The to-do list (batch 22, wave 8)
+
+A plain list of what is still to be done, in the context pane beside the conversation. The
+assistant writes its plan there as it works (`todos.add`, `todos.done`, `todos.list`) and the owner
+can type a line of their own. An item with a day on it can be turned into a **reminder**, which puts
+it in the schedules — the one part of the app that keeps time. The to-do list grows no clock of its
+own.
+
+Routes: `GET`/`POST /api/todos`, `POST /api/todos/<id>/done`, `POST /api/todos/<id>/remind`,
+`DELETE /api/todos/<id>`. Files: `src/todos.ts`, `public/todos.js`.
+
+## The flow editor (batch 22, wave 8)
+
+Under Procedures, **Change a flow** turns the wave-7 picture into something the owner can change.
+Add a step, take one away, move one earlier or later, and fill in the boxes that kind of step needs —
+the side form shows only those, because the saved shape (`src/workflows.ts`) refuses a prompt step
+with no prompt and a branch step with no words to look for. The picture above the list redraws as
+you type; nothing is saved until Save, which sends exactly a name, a line about it and the steps to
+`PUT /api/flows/<id>`.
+
+Under the picture, **While it runs** shows each step, where it has got to and when it started. It is
+read from `GET /api/flows/<id>` while a flow is working. The note each finished step sends goes out
+over a webhook to whoever asked to hear about it (`flow.node`), not to this page, so asking the app
+how the flow is getting on is the honest way to keep the timeline current.
+
+Beside it, **How often should it repeat?** offers a rhythm and a time and writes the answer out in
+plain words — "every weekday at 09:00" — before filling in the schedule boxes below. Files:
+`public/flow-editor.js`.
+
+## Your notes folder (the Obsidian bridge) (batch 22, wave 8)
+
+The owner uses Obsidian, and Obsidian's own files are ordinary Markdown in an ordinary folder. So
+this is a **folder bridge and nothing more**: there is no Obsidian plugin here, nothing is installed
+into Obsidian, and Obsidian does not have to be running.
+
+Switch it on in Settings → **Your notes folder**, name the folder in full, and name the subfolder
+Branch may write into. Branch then writes memory facts, knowledge cards, saved reports and
+conversation exports there as Markdown notes with front matter carrying Branch's own numbers, and
+reads back the notes tagged `#branch` as documents it can search.
+
+Three rules make it safe to point at a folder full of the owner's own writing:
+
+1. **Confined.** Every path is resolved for real — following any shortcut — and must still sit inside
+   the folder named, with the separator part of the comparison, so `notes-other` is never mistaken
+   for `notes`.
+2. **Never overwritten.** Each note carries a hash of what Branch wrote. If the file no longer
+   matches it, the owner has edited it, and the new version is written beside it as
+   `<name>.branch-conflict.md`. Nothing the owner typed is lost.
+3. **Only what it is given.** Reading back takes only notes carrying `#branch`, so pointing at a
+   whole vault does not pull private writing into the assistant's documents.
+
+Tools: `obsidian.sync`, `obsidian.read`. Routes: `GET`/`POST /api/obsidian`,
+`POST /api/obsidian/write`, `GET /api/obsidian/notes`. File: `src/obsidian.ts`.
+
+## Reaching Branch from other pages (batch 22, wave 8)
+
+Two ways in from outside Branch's own window, both **off until the owner switches them on** in
+Settings → **Reaching Branch from other pages**, and both for the owner's own pages and their own
+browser. Neither is for publishing anywhere.
+
+Both obey the same rule: they may only talk to the **paired remote listener**, with the key pairing
+gave the owner, and they refuse a loopback address outright. The key the app's own page uses on this
+computer is the whole of Branch's authority here, and a page next door must not be able to borrow it.
+
+- **The small ask box** — `public/widget.js`, included by a page of the owner's own:
+
+      <script src="http://your-machine.tailnet.ts.net:8765/widget.js"
+              data-branch="http://your-machine.tailnet.ts.net:8765"
+              data-key="the key pairing gave you"></script>
+
+  It reads its address and key off that tag and nowhere else — never out of the page it sits on, and
+  never out of any storage.
+
+  **List the pages that may carry it.** A browser asks Branch for permission before letting a page of
+  yours send anything to it, and Branch names back only a website you listed in `widgetSites` (for
+  example `https://notes.example.com`), spelled exactly, never with a star. An empty list means no
+  page may ask, so the box has to be allowed as well as switched on. The key alone is deliberately
+  not enough: a star there would let any page that ever got hold of your key spend it. The script
+  itself is not served at all while the switch is off, so turning the switch off takes the box off
+  your page rather than only hiding the setting.
+
+  **The extension asks for one address, when you name it.** It requests no website when you install
+  it. The first time you press Send, Chrome asks whether it may reach the address you typed, and a no
+  leaves everything as it was.
+
+- **The browser extension** — `extras/browser-extension/`, an unsigned Manifest V3 folder with a
+  popup that sends the current page's address, title and selection to Branch as a task. Load it by
+  hand: `chrome://extensions` → Developer mode → **Load unpacked**. Install steps and the reasons
+  behind them are in that folder's README.
+
+Route: `GET`/`POST /api/embeds`. File: `src/embeds.ts`.
+
+## The record, how busy a connection is, and what asking twice saved (batch 22, wave 8)
+
+Three readings of things the app already writes down:
+
+- **The record** (Activity → *The record of what happened*): every step every task took, narrowed by
+  the kind of step, by the task, or by when it happened, and saved as a file of one line each — the
+  shape a log file has, so it opens in anything. `GET /api/log`, `GET /api/log/export`.
+- **How busy each connection is** (Usage): how many calls went to each model service in the last
+  minute and the last hour, beside the allowance that service reports in its own answers
+  (`x-ratelimit-*`). `GET /api/request-rates`.
+- **What asking twice saved** (Usage): every round answered out of the kept-answers store, with what
+  it would have cost had it been sent. `GET /api/cached-answers`.
+
+The terminal view now says what each finished task used as well, and what it cost, so the figures
+are not the web app's alone. File: `src/dashboards.ts`, `public/logs.js`.
+
+## Watches that tell you something (batch 22, wave 8)
+
+A page watch already sends its news wherever the owner asked — the activity list, or a chat they
+have connected (`monitor.create`, `notifyVia: {channel, chatId}`). Wave 8 adds a **screen watch**:
+Branch takes a picture of one rectangle every so often and says when it looks different.
+
+This is the most intrusive thing in the app, so it is fenced three ways: it is off until the owner
+switches it on, it refuses to run unless **using your screen** is switched on as well, and it keeps a
+fingerprint of the picture rather than the picture — nothing that was on screen is written to disk.
+A password manager showing on screen stops it outright, as it stops any other picture of the screen.
+
+Tools: `monitors.screen.create`, `monitors.screen.check`. File: `src/screen-watch.ts`.
+
+## Asking a specialist one question (batch 22, wave 8)
+
+The composer has a **Who should answer** picker beside the Temporary toggle. Leave it on "Your
+assistant" and nothing changes. Choose a specialist and that one message goes to it; the reply is
+signed with that specialist's name instead of the assistant's, and the next message goes back to the
+assistant unless the specialist is chosen again. What the owner typed is what they see: the
+delegation is machinery and is not shown back to them. File: `public/app.js`.
+
+## Short-lived keys, where a password comes from, who may message, and the command line (batch 20, wave 8)
+
+This section closes the open rows of the secrets-and-auth (#69), tracing-and-telemetry (#63) and
+cli-and-tui (#72) themes. Some of it is new, some points at a feature that already does the job,
+and some is written down here as deliberately not built.
+
+### Short-lived keys for a script (A0100, A1930)
+
+The local session key the app prints when it starts never runs out and may do everything. That is
+right for the app's own window and wrong for anything you paste into a script, a browser extension
+or the client library. So there is a second kind of key, made from the command line:
+
+```
+branch token create --scope read --minutes 60 --name "My dashboard"
+branch token list
+branch token revoke <id>
+```
+
+- `--scope read` may look at things only: any request that is not a GET is refused, in those words.
+  `--scope run` may also start a task. Neither may ever become the master key.
+- The key is shown once. Only its hash is kept (`session_tokens` in the database), so nothing can
+  read it back out of Branch afterwards.
+- It stops working at the minute you named, and `branch token revoke` stops it sooner.
+- Making one and taking one back are both written into the record of what the assistant was allowed
+  to do, as "A short-lived key for a script was made or taken back".
+- The master key is checked **first** on every request, so a mistake in this feature can hold up a
+  script and never you. A wrong short-lived key is counted by the same rate limit as a wrong master
+  key. See `src/session-tokens.ts` and `authorize` in `src/server.ts`.
+
+These are one feature answering two audited rows: A0100 ("session API-key authentication") and
+A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
+
+### Where a saved password can come from (A1807, A0221)
+
+`src/vault-sources.ts` writes down the contract every source follows: a scheme (the part after
+`secret://`), a label, and one method that turns a reference into a value at the moment it is
+needed. Every source obeys the same three rules — nothing is looked up early, every look-up is
+scrubbed out of results and logs, and every look-up is written into the record.
+
+| Reference | Where the value comes from |
+| --- | --- |
+| `secret://<project>/NAME` | Branch's own locker, encrypted on this computer. |
+| `secret://cmd/<name>` | A command **you listed in Settings** that prints the password. |
+| `secret://bitwarden/<item>`, `secret://1password/<path>` | Your password manager's own command line, when you have switched that on. |
+| `env`, `file` | A value already in a program's environment, or in a file you pointed at. |
+
+The command source is new. It is off until you turn it on, and the command is never free text —
+`secret-commands` in your settings holds the list:
+
+```json
+{
+  "enabled": true,
+  "commands": [
+    { "name": "deploy", "command": "C:/tools/get-deploy-key.exe", "args": ["--quiet"], "note": "the deploy key" }
+  ]
+}
+```
+
+`secret://cmd/deploy` then runs exactly that program — no shell, no window, a stripped environment
+(only `PATH`, `TEMP` and the few a program needs to find itself), a ten-second limit, and a 64 KiB
+cap on what it may print. A name that is not in your list never starts a process at all. A missing
+program, a non-zero exit and an empty answer each get their own plain sentence.
+
+### One list of who may message the assistant (A0686)
+
+Each chat app carried a list of its own. `src/channels/allowlist.ts` is the one shape for all of
+them: a rule names a channel (or `*`) and a sender (or `*`) and says `allow` or `block`.
+
+- **A block anywhere wins**, so "never this person" cannot be undone by a broader rule.
+- `unknown` says what happens to somebody no rule covers: `pair` offers them a code to be approved
+  with (as before), `block` turns them away.
+- The per-channel lists still work and are read after this one, so nothing you already set up stops
+  working.
+
+### What a phone must satisfy (A1003, A1004, A1804)
+
+The extra door that faces your private Tailscale address has a chain of named steps, and **every
+step in it must pass** — so adding a step can only make the door harder to open:
+
+- `token` — the same local key the window on this computer uses.
+- `pairing` — at least one phone has been let in on this computer. This step is a switch rather
+  than a check on who is calling; `device` below is the one that tells one phone from another.
+- `device` — the phone must send back the secret it was given when it paired
+  (`x-branch-device` and `x-branch-device-key`), so a key copied off one phone is no use on another.
+
+The default chain is `token, pairing`. Set it in `remote-gateway-auth`; the phones that have been
+let in are in `remote-devices`, and only the fingerprint of each secret is kept.
+
+**Signing in through somebody else's identity service (OIDC, a social login, WebAuthn against an
+outside authenticator) is deliberately not one of the steps** — A1897, A2003, A2074, A2095, A2216.
+There is one owner, the door faces their own private network, and putting an outside company on the
+path a phone takes to reach this computer would make it less private, not more.
+
+### The third OpenTelemetry signal, the logs route, and one task's trace (A0056, A0800, A1440)
+
+- **Logs.** When sending traces is on and the destination is a collector that speaks
+  OpenTelemetry, each finished task's own story goes out as OTLP **log records** to `/v1/logs`
+  beside the spans at `/v1/traces` and the counters at `/v1/metrics`. Each record carries the trace
+  id, so a viewer shows the words beside the span they came from. Langfuse and LangSmith have no
+  logs signal, so for those nothing is sent.
+- **The logs route.** `GET /api/logs` answers one JSON object per line (`application/x-ndjson`),
+  filtered with `run`, `kind` and `limit`, behind the same local key as everything else. That is
+  the "logs API" a log shipper reads. **There is no Grafana or Loki client here on purpose**: a
+  collector of yours already reads OpenTelemetry, so the way to Grafana is to point one at the OTLP
+  address above rather than to teach Branch a second protocol.
+- **One task's trace.** `branch trace <task id>` prints the trace id, how many steps were recorded
+  and of what kinds, whether sending is on and where to, and whether the last send arrived. The
+  same trace id is what Langfuse and LangSmith are given, so the number you read here is the number
+  you search for there.
+
+### What a task's spans cover (A1149, A0856, A1498, A1583, A0799, A1287, A1523)
+
+One implementation, in `src/tracing.ts` and `src/tracing-shapes.ts`, projected into three shapes.
+A task now has a span for each of: the task itself (`run`), each model round (`model`), each tool
+call (`tool`), looking something up in your own documents (`retrieval`), the answer going back out
+to a chat app (`delivery`), and each sub-task (`child`). A delivery happens after the task has
+settled, so it is joined back to the task's own trace rather than floating on its own.
+
+### The record of what the assistant was allowed to do, widened (A1931)
+
+Four more kinds of moment are written down: a short-lived key made or taken back
+(`token.issued`), a connection to a model service added or removed (`connection.changed`),
+Lockdown turned on or off (`lockdown.changed`), and your own browser window borrowed and given back
+(`browser.borrowed`). Handing the whole assistant over as one file and switching who is using the
+computer now write a line too.
+
+### Installing the `branch` command (A1159)
+
+`package.json` carries `"bin": { "branch": "./dist/cli.js" }`, so the command line can be installed
+like any npm command:
+
+```
+npm run pack:cli          # builds, then writes branch-agent-<version>.tgz — publishes nothing
+npm install -g ./branch-agent-0.15.0.tgz
+branch --help
+```
+
+`scripts/pack-cli.mjs` only reads this folder and writes one file. Installing is your own step,
+because it writes outside this folder.
+
+### More of the command line (A0012, A0306, A0910, A2103)
+
+- `branch <command> --help` says what one command does, and stops. Asking is never the same thing
+  as doing: no workspace, database or connection is opened.
+- `branch run` takes `--session <id>` to carry on in a conversation, `--resume <task id>` to pick a
+  stopped task up where it left off (with no new words needed), and `--fork <session id>` to work in
+  a copy so the conversation it came from is left exactly as it was.
+- `branch chat --attach` joins the conversation the engine already running in the background is
+  having: it lists the conversations, picks one (`--session`), prints what has been said, and either
+  says something or just watches. Two terminals can be in one conversation at once and each sees
+  what the other said. It goes through the same door, with the same key, as the app window.
+- `branch schedule add --prompt "..." [--at <moment>] [--every <ms>] | list | remove <id>` works
+  against that same running engine over `/api/schedules`.
+- **A coding assistant you already have, used as a model.** `cli-agent` is a provider shape that
+  runs an installed tool's own command line: Claude Code (`claude -p --output-format json`), Codex
+  (`codex exec --json`) or the GitHub Copilot CLI. The prompt goes in on standard input, the answer
+  comes out of the tool's JSON where it prints JSON. Nothing is stored, no key is asked for, and
+  **the tool's own sign-in is the only sign-in there is** — which is what each row says beside it.
+  `GET /api/providers/cli-agents` lists them; `POST` the same address offers one in the model list.
+  It never asks for tool calls: it answers in words and Branch decides what to do.
+
+### Already true, and checked (A0284, A0383, A0425, A0488, A0551, A0723, A0793, A1191, A0137, A2404, A0614, A2177, A1497)
+
+- **A command line exists**, and has since the first release: `src/cli.ts`, with every command in
+  one list (`cliCommands` in `src/cli-completion.ts`) that drives the checking, `branch help`, the
+  per-command help and the bash and PowerShell completion scripts. A test runs `--help` for every
+  command in that list.
+- **A local web client** is the app itself: the pages in `public/` served by `src/server.ts` on
+  `http://127.0.0.1:3210`, behind the local key.
+- **An interactive terminal view** is `branch chat` — the full drawn view from wave 4
+  (`src/terminal-tui.ts`) where the terminal can be drawn on, the plain stream otherwise.
+- **Session authentication and pairing** is the local key plus the invitation flow above.
+- **A profile needs its PIN**, and five wrong ones in a row are made to wait five minutes
+  (`src/profiles.ts`).
+- **LangSmith** is one of the three destinations traces can be sent to (`src/tracing-export.ts`).
+
+### Not applicable, and why
+
+- **A2003, A2095, A2216, A1897, A2074 (social login, web-UI password reset, multi-user accounts,
+  OIDC, WebAuthn)** — Branch is one person's assistant on their own computer. There is nobody to
+  register, no password to reset, and no second account to keep apart. What protects it is that it
+  listens on this computer only, behind a key on disk. See the chain above.
+- **A0566 Sentry error telemetry** — nothing about you is collected or sent anywhere, which is a
+  written non-goal. A crash is already recorded as an error span (`recordUncaughtErrors` in
+  `src/tracing.ts`) and goes to **your** collector when you turn sending on.
+- **A1620, A1751 (optional analytics, execution telemetry)** — the same non-goal. The counters page
+  and the usage ledger are yours and stay here.
+- **A0681 tracing/logging** is a Rust library for a Rust program; this is TypeScript.
+- **A1334 application logging guidance** — `GET /api/logs` and the OTLP logs signal above are the
+  answer for this tree.
+- **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
+  separately; `secret://cmd/<name>` above is the general form of the same idea.
+- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
+  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
+  become a task. Still open.
+
+## Sandboxes: where a script actually runs (batch 26, wave 8)
+
+"How tightly a program is held" above is about the ceilings on a program. This is about *where* it
+runs. Nothing here is ever installed: each one is looked for on this computer and offered only if it
+is already there. **Settings → Approvals → Where scripts run** shows all four with a plain sentence
+each, and says what to install for any that is missing.
+
+| Where | What it protects you from | What it does **not** do |
+| --- | --- | --- |
+| **On this computer** (`job-object`) | A runaway script using all the memory or the processor. Always available; it is what everything did before. | It does not stop the script reading your files. |
+| **In a container** (`docker`) | Your files and your programs: nothing of this computer is visible inside except the one folder it is given. | Needs Docker Desktop or Podman already installed. Branch installs neither. |
+| **On the Linux side** (`wsl`) | The original folder: the script works on a copy, and only the files you name come back. | Needs Windows Subsystem for Linux already set up. |
+| **In Windows' throwaway desktop** (`windows-sandbox`) | Everything: a fresh Windows that is deleted when it closes. | **It opens a window on your screen**, so it is never chosen for you — you switch it on yourself. |
+
+A rule picks one with `backend`, next to `sandbox` and `paths`. A backend that is not on this
+computer is a plain refusal naming what to install; it never quietly falls back to something weaker,
+because that would be the opposite of what the rule asked for. `paths` on the rule is the only part
+of your workspace a sandboxed script can see — one folder, given relative to the workspace.
+
+Before anything is started at all, the script itself is read: a forbidden call for its language, a
+size over the cap, or an import that would reach the network when the rule does not allow it, is
+refused before any container, distribution or desktop is prepared.
+
+`GET /api/sandboxes` answers the settings and what this computer can offer; `POST /api/sandboxes`
+saves them. The settings are `SandboxBackendSettingsSchema` (`src/sandbox-backends.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `image` | The container image a script runs in. Nothing is ever pulled; it must already be on this computer. |
+| `distro` | Which Linux this computer already has, by name. Empty means the default one. |
+| `windowsSandbox` | Let Branch use Windows' throwaway desktop. Off, because it opens a window on your screen. |
+| `pulled` | Whether Branch has confirmed the image is already here. Branch writes this; it is not for you to set. |
+
+## Remote computers over SSH (batch 26, wave 8)
+
+A project's work can live on another computer — a machine in the cupboard, a server at work — and
+Branch reaches it with the OpenSSH client Windows already ships. Nothing is installed and **no
+password is ever handled**.
+
+Two things have to be true before a computer can be added, and both are read from files that are
+yours, not Branch's:
+
+1. Its short name must already be a `Host` in your own `~/.ssh/config`. You cannot type a hostname
+   here; if it is not in your config, Branch has no way to reach it and says so.
+2. Its key must already be in your own `known_hosts`. A computer Branch has never seen is refused,
+   not trusted: connect to it once yourself, look at the key it shows you, and then add it here.
+   Branch never passes `StrictHostKeyChecking=no`, and forces `BatchMode=yes`,
+   `PasswordAuthentication=no` and `NumberOfPasswordPrompts=0` on every call.
+
+A computer starts able to hold files and **nothing else**. You add the programs it may run one at a
+time; anything else is refused by name. Paths are kept inside that computer's own folder exactly as
+they are inside your workspace: `..`, a path starting at `/`, and a drive letter are all refused
+before anything is sent. The approval card names the computer, so a yes is never given blind.
+
+`ssh` itself is the boundary here. Every byte goes through the child process, so nothing on a remote
+computer can be used to reach an address the web rules refuse — but equally, the web rules do not
+see inside that connection. That is the trade, said out loud.
+
+The tools are `remote.list`, `remote.files`, `remote.read` and `remote.run` (their own toolbox,
+`remote`, because everything in it is somewhere else). `remote.run` has a permission of its own,
+`remote.execute`: allowing commands on *this* computer must never quietly allow them on another, and
+the "ask before changes" rules ask about it every time whatever the rule for commands here says. The screen is **Settings → Remote computers**:
+`GET /api/remotes` lists them, `POST /api/remotes` adds one, `POST /api/remotes/remove` takes one
+off. Each computer is `RemoteComputerSchema` (`src/remote/ssh-workspace.ts`): `alias` the short name
+from your SSH config, `root` the folder on that computer everything is kept inside, `label` a name
+you will recognise, `executables` the programs it may run, and `addedAt` when you added it.
+
+## A way back to before a change (batch 26, wave 8)
+
+Before Branch writes a set of changes, it makes a mark of how the folder is right now — but only
+when the folder is kept in Git. The mark is a real commit, made with `git stash create`, which builds
+a commit object without touching your working folder, your index, or the shared stash list. It is
+kept on a ref of Branch's own under `refs/branch/checkpoints/`, so nothing else trips over it, and
+the twenty most recent are kept.
+
+The answer to a change now carries an `undo` you can ask for: "Ask to undo this, and the files go
+back to how they were just before." A folder that is not kept in Git simply has no mark and says so
+plainly; the change is still written. `GET /api/marks` lists them, `POST /api/marks/undo` puts one
+back, `POST /api/marks/forget` lets one go.
+
+A project may also name a **line of work** (`branch` on the project, in `src/projects.ts`). Switching
+to that project switches the folder to it. Work you have not saved yet stops the switch rather than
+being carried across — Branch says so and leaves the folder exactly as it was.
+
+## Firewall: what can reach outside this computer (batch 26, wave 8)
+
+The network rules have been enforced for a long time; what was missing was anywhere to read them
+back. **Settings → Approvals → What can reach out** says them in sentences — "Branch may only reach
+example.com and docs.rs, and nowhere else on the internet", "Scripts cannot reach the internet: they
+are pointed at an address that goes nowhere", "The browser may visit https://example.com. Any other
+address is refused before the page opens."
+
+The card is only a reading of the rules; nothing in it decides anything, so it cannot say one thing
+while the app does another. The **test** button asks the same check every real request asks, so
+pressing it cannot reach the address you asked about — and when an address is on Branch's list but
+not on the browser's, it says both halves.
+
+`GET /api/firewall` is the card; `POST /api/firewall/test` takes `{"address": "https://…"}`.
+
+## How much one person may ask for (batch 26, wave 8)
+
+A fixed window, deliberately, because "twenty a minute" is something you can reason about and watch
+reset. **Settings → Approvals → Ceilings** sets four numbers (`SessionLimitsSchema`,
+`src/session-limits.ts`; 0 means no limit):
+
+| Setting | What it is |
+| --- | --- |
+| `requestsPerMinute` | Most questions one conversation may ask in a minute. |
+| `tokensPerHour` | Most thinking one conversation may spend in an hour. |
+| `senderRequestsPerMinute` | The same per minute, for one person messaging Branch through a chat app. |
+| `senderTokensPerHour` | The same per hour, for one person messaging Branch through a chat app. |
+
+Reaching a ceiling means two different things on purpose. **Your own** task waits for the window to
+free up and then carries on — nothing is refused and nothing is lost. **Somebody messaging from
+outside** is told in one sentence ("That is as much as Branch will do for one person right now…")
+and their message is let go rather than queued behind everybody else's, because a stranger waiting
+silently for a minute looks exactly like Branch being broken. Both are written into the record as
+"Something reached the limit you set for a minute or an hour".
+
+`GET /api/limits` reads them, `POST /api/limits` saves them.
+
+## Carrying a sign-in to another computer (batch 26, wave 8)
+
+"Sign in once" already kept a browser profile per project. A saved sign-in can now be exported as a
+single sealed file and read back somewhere else: it is encrypted with a passphrase you choose, and
+the cookies inside are nowhere in the bytes that leave this computer. The wrong passphrase, and a
+file that is not one of ours, both refuse plainly. The alternative, if you would rather not move a
+sign-in at all, is to borrow your own browser window for the task instead.
+
+## Letting old conversations go (batch 26, wave 8)
+
+Nothing was ever deleted unless you deleted it one conversation at a time. **Settings → Retention**
+sets a rule, and the rule never acts on its own: Branch works out what it would sweep up, shows you
+the list, and only a plain yes deletes anything. Every conversation is handed back as a saved copy
+first, so nothing is lost to a rule you set months ago and forgot; one that cannot be copied is not
+deleted. Every sweep is written into the record as "Old conversations were offered for deletion,
+exported, or deleted".
+
+`RetentionSettingsSchema` (`src/retention.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `enabled` | Off until you ask for it. Off means nothing is ever proposed. |
+| `keepDays` | Conversations older than this many days are proposed. 0 means age is not a reason. The same name a knowledge base uses for the same idea (`RetentionSchema`, `src/knowledge-manage.ts`), so there is one vocabulary for "how long is this kept". |
+| `megabytes` | When everything together is bigger than this, the oldest are proposed until it fits. 0 means size is not a reason. |
+| `exportBeforeDeleting` | Hand back a saved copy of everything before it goes. On, and it is meant to stay on. |
+
+`GET /api/retention` is the rule and what it would sweep up; `POST /api/retention` saves the rule;
+`POST /api/retention/prune` takes `{"approve": true}` and, optionally, the exact conversations.
+
+A knowledge base has a retention rule of its own, counted in documents and passages rather than in
+megabytes, and it proposes rather than deletes in exactly the same way. The two share `keepDays`.
+
+## What an add-on asked for, and what holds it to that (batch 26, wave 8)
+
+A skill package and a plugin both declare the permissions they need, and you see that list before
+anything is switched on. What the list now *does*: the tools are narrowed to what you allowed. A tool
+asking for a permission you did not grant is never registered at all — it is not in the catalog, so
+nothing can call it, and you are told which ones were left out and why.
+
+A skill package also declares every web address it will call, worked out from the package itself. You
+see them by name before installing, and they are held to at the moment of each call, not only when
+the package was read: a declared address can carry a value from the request, so an address outside
+the manifest is refused there and then.
+
+`POST /api/skills/package/install` takes `allow` — the permissions you ticked — alongside `approve`;
+`POST /api/plugins/<id>/enable` takes the same `allow`. Leave it out and the add-on gets exactly what
+its own manifest declared, as switching one on always did. Naming a permission the add-on never asked
+for grants nothing.
+
+## One list of who may reach Branch, phones included (batch 26, wave 8)
+
+The one allowlist (`src/channels/allowlist.ts`) already covered every chat app: a rule names a
+channel — or `*` for all of them — and a sender, and says `allow` or `block`, with `block` winning.
+It now covers a paired phone too, under the channel name `remote` with the device's id as the sender.
+
+A rule that says never is asked **first**, before the door's own chain of checks, so it holds whatever
+that chain is set to. Only a "never" is acted on for a phone: one that has already been let in stays
+let in unless you write a rule against it, so switching the list on never quietly locks your own
+phone out. A phone turned away this way is still paired — it is the rule stopping it, and taking the
+rule off lets it straight back in. Each refusal is written into the record.
+
+## Every setting named, so nothing is only in the code (batch 26, wave 8)
+
+`scripts/check-docs.mjs` reads every settings schema in `src/` and fails if a field is not named
+here. These were only in the code until it started running.
+
+### Voice
+
+Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings → Voice** writes:
+
+| Setting | What it is |
+| --- | --- |
+| `autoReadAloud` | Read every reply aloud as it arrives. |
+| `voiceId` | Which voice reads aloud. Which ones exist depends on this computer. |
+| `speechRate` | How fast it reads, from 0.5 to 2 times normal speed. |
+| `useProviderVoice` | Prefer the connected service's higher-quality voice over the browser's. |
+| `sttRoute` | Who writes out what you say: `auto`, `openai`, `gemini`, or `local` (a speech program here). |
+| `sttModel` | The model name to use for writing speech out, when the route wants one. |
+| `ttsRoute` | Who reads replies aloud: `auto`, `openai`, `gemini`, or `windows` (the voices Windows ships). |
+| `ttsModel` | The model name to use for reading aloud, when the route wants one. |
+| `keepAudioOnThisComputer` | Nothing containing sound may leave. Both cloud routes then refuse in plain words, and so does a live conversation. |
+| `replyWithVoiceOnChannels` | Answer a voice note on a chat app with a voice note back. Telegram only, today. |
+| `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
+| `localSpeechModel` | The model file that program should use. |
+| `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
+| `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
+| `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
+| `keepLiveRecordings` | Note in the task's record how much sound a live conversation carried — the size of each piece and nothing else. The sound itself is never kept either way. |
+
+### The rest
+
+- **Connections** (`src/connections-preset.ts`): `activePreset` is which connection answers by
+  default in this workspace, `fallbackOrder` the connections to try in order when one fails, and
+  `cooldownMs` how long a failed connection rests before it is tried again.
+- **Pictures** (`src/media-settings.ts`): `imageModel` is which model makes them (leave it empty for
+  the connection's own default) and `imagePrices` your own corrections to the per-picture prices,
+  for a service whose price Branch does not know.
+- **The waiting line** (`POST /api/queue/settings`): `atOnce` is how many tasks may work at the same
+  time.
+- **A standing brief** (`src/briefs.ts`): `lastSentAt` is when it last went out and `nextAt` when it
+  is next due. Branch writes both; they are not for you to set.
+- **Programs left running** (`src/processes.ts`): `maxRunning` is how many at once, `maxMinutes` how
+  long one may live before it is stopped, and `bufferBytes` how much of what it printed is kept to
+  show you.
+
+## It gets better the more you use it (wave 9)
+
+Three pieces, and one rule over all of them: **it proposes, you dispose.** Nothing in this section
+deletes, rewrites or adds a remembered fact on its own. Everything becomes a suggestion in the
+**What it learns** queue, and turning a suggestion down is itself something learned.
+
+### Facts noticed from what actually happened
+
+Until now, the assistant only learned from what you typed at it. **What it has noticed by itself**,
+on the Memory screen, works the other way round: it reads the record of tasks that have already
+finished — which is kept anyway — and notices three things, all worked out on this computer with no
+model involved and nothing sent anywhere.
+
+| What it notices | When it counts | What it offers |
+| --- | --- | --- |
+| A file you keep coming back to | The same workspace file opened in three separate finished tasks | A project note naming that file |
+| A name that keeps turning up | The same capitalised name in three separate task requests | A project note naming it |
+| A correction you made | A message of yours that begins "no", "actually", "I meant", "that's wrong" and the like | A fact about the world, in your own words |
+
+Every suggestion carries **what it was learned from** — how many tasks, the last date, and an
+example — so you can see why it is being offered before you decide. A suggestion that reads like an
+order to the assistant rather than something to remember is dropped before it is ever offered.
+
+The file signal needs the path of the file a call was about. That is now written beside the call in
+the task's own record (`tool.started` events gain a `path` field for the file tools listed in
+`src/activity.ts`). The path only — never what was in the file.
+
+**Turning one down is final.** Each suggestion keeps a fingerprint of the noticing behind it. When
+you reject one, that fingerprint is remembered on the rejected suggestion, and the same thing is
+never offered again however many times it recurs. See `src/memory-learning.ts`.
+
+Routes: `GET /api/memory/learned` says what it has noticed and changes nothing at all;
+`POST /api/memory/learned` turns those into suggestions. Neither writes a fact.
+
+### Refresh from recent conversations, with the cost shown first
+
+**Refresh from recent conversations**, on the Memory screen, reads your recent conversations again
+and writes up what is worth keeping as fact cards for a knowledge base. Accepting a card folds it
+into that collection, where it is cut into passages, searched and cited exactly like a passage from
+one of your own files — so a thing said in passing in March is quotable in October, with the
+knowledge base named as the source.
+
+Because reading conversations means sending them to your model service, the cost is shown first and
+is worked out **entirely on this computer with no model call**: how many conversations, how many
+turns, and roughly how many units of text would be sent. `GET /api/memory/refresh` gives that
+figure, and it is the only route in this section that the Memory screen's first button calls. The
+reading itself is `POST /api/knowledge/refresh` (or the `knowledge.refresh` tool), which answers with
+the same reckoning of what it actually read — and even then adds nothing: every card waits in **What
+it learns** until the owner accepts it.
+
+### Where facts are kept, and what a second place would have to do
+
+This is the honest state of it, because the ledger asks for pluggable storage several times over
+and the answer differs for each.
+
+**Saved facts.** The contract is `MemoryBackend` in `src/memory-backend.ts` — `read`, `list`,
+`write`, `search`, `forget`, `count` — with two rules for every implementation: owners never see
+each other's facts, and nothing leaves this computer unless the owner plainly asked for it. The one
+implementation that ships is `SqliteMemoryBackend`, wired in at `src/index.ts` as `memory.backend`.
+Writing a second one is a small piece of work; installing it today means changing that one line,
+because there is no chooser and no setting for it. A worked example, in full:
+
+```ts
+import type { MemoryBackend } from "branch-agent";
+
+/** A second place to keep facts. This one holds them in this process and forgets them at exit. */
+export class ScratchMemoryBackend implements MemoryBackend {
+  readonly name = "a scratch store in memory";
+  private readonly rows = new Map<string, Map<string, MemoryRecord>>();
+  private of(owner: string) { return this.rows.get(owner) ?? new Map(); }
+  read(owner: string, id: string) { return this.of(owner).get(id); }
+  list(owner: string) {
+    return [...this.of(owner).values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  write(owner: string, id: string, data: Record<string, unknown>) {
+    const now = new Date().toISOString(), before = this.read(owner, id);
+    const record = { id, owner, data, createdAt: before?.createdAt ?? now, updatedAt: now,
+      revision: (before?.revision ?? 0) + 1 };
+    const mine = this.of(owner); mine.set(id, record); this.rows.set(owner, mine);
+    return record;
+  }
+  search(owner: string, query: string) {
+    const wanted = query.toLowerCase();
+    return this.list(owner).filter((r) => String(r.data.text).toLowerCase().includes(wanted));
+  }
+  forget(owner: string, id: string) { return this.of(owner).delete(id); }
+  count(owner: string) { return this.of(owner).size; }
+}
+```
+
+Note what the contract does **not** promise: it says nothing about full-text ranking, about
+comparing by meaning, or about the version history — those live above it, in
+`src/memory-retrieval.ts` and `src/memory.ts`, and a backend that only answers the six methods gets
+the plain behaviour for the rest.
+
+**Conversations.** There is no equivalent contract, and this is worth saying plainly rather than
+leaving people to look for one. Conversations, their messages and their tasks are tables in the one
+SQLite file that `Store` opens (`src/store.ts`), and every part of the app reaches them through
+`Store` directly. Swapping that for a file store, an in-process store or a database on a server
+would mean giving `Store` an interface of its own first. That has not been done, and a file-backed
+or server-backed conversation store is not planned: one person, one computer, one file that the
+backup and the diagnostics folder both already understand is the whole design.
+
+**What is not applicable, and why.** Written down here so nobody goes looking.
+
+- **A memory service reached over the network** (the QMD-style long-term store). Not applicable:
+  it is another product's hosted service, and pointing Branch at it would mean everything the
+  assistant remembers about you living on somebody else's computer. That is the one thing this app
+  promises not to do.
+- **MongoDB, or any other database server, for conversations.** Not applicable, for the same
+  reason and for a second one: there is no server to run and no second machine in this design.
+- **A graph database for a personal knowledge base.** Not applicable as a *database*: the map of
+  what is mentioned with what is built in the same SQLite file (`src/knowledge-graph.ts`), which is
+  what a house-sized knowledge base actually needs. A separate graph server would be a service to
+  install, run and back up for no gain here.
+
+## A second opinion before it commits (wave 9)
+
+Three separate things, all of them off or opt-in, because a second opinion costs a second model call.
+
+### An advisor that reads the answer
+
+When it is on, a connection of your choosing reads each finished answer and says whether it stands
+up and what it would check. **Its words go beside the answer and are never written into it.** The
+answer you were given is the answer the model gave; the advice is a second thing you read next to
+it, and you decide. The pass runs on its own budget and its cost lands on the task like any other
+model call, so you can see what it came to on the Usage screen.
+
+Settings, saved under `second-opinion` and set on the Settings screen:
+
+- `advisor` — whether a second connection checks each finished answer. Off by default.
+- `advisorPreset` — which connection advises. Empty means whichever one answered, which is a
+  weaker check: a model rarely argues with itself.
+- `advisorMaxTokens` — the most the pass may spend on one task.
+
+It never runs for a specialist's sub-task, and it can never fail a task that has already answered:
+an advisor that errors, times out or runs out of its own tokens is written down as
+`advice.failed` and the answer is given exactly as it was.
+
+### Two connections arguing
+
+`delegate.debate` puts two of your model connections on one question. Each answers on its own, then
+each reads the other and says where it disagrees and why, and a short verdict says what was argued
+and what is still open. Nothing here decides anything for you — two models arguing is evidence to
+read, not a ruling to act on.
+
+It is bounded twice over, and it says which bound stopped it:
+
+- `debateExchanges` — how many times each side may answer the other. One unless you raise it.
+- `debateMaxTokens` — the most a whole debate may spend. The running total is checked before every
+  single call, so reaching the ceiling means nothing more is sent.
+
+### Answers in a shape the app can rely on
+
+A task can declare the shape it wants back in zod, the same way a tool declares its arguments
+(`declareShape("weather", z.object({ city: z.string(), temperature: z.number() }))`). The model is
+asked for exactly that shape, and the reply goes through the same check every delegated answer
+already goes through. A reply that does not fit is re-asked **once** with its own validation error,
+and a second reply that still does not fit is refused in a plain sentence naming what was wrong.
+Nothing is half-parsed: a shape that could not be met produces no answer rather than a guess.
+
+Where this uses a service's own setting and where it does not, honestly:
+
+- **OpenAI** (and the OpenAI-compatible adapters that share `openaiBody`): its own
+  `response_format: {"type":"json_schema"}` is sent, so the model is genuinely constrained. `strict`
+  is deliberately left off — it would demand that every property be required and no extras be
+  allowed anywhere, which a shape written in zod need not be, and a refused request is worse than a
+  reply that has to be checked.
+- **Anthropic**: there is no response-format setting. Anthropic's own way of fixing a reply's shape
+  is a tool the model is made to call, so the shape is sent as one tool with `tool_choice` naming
+  it, and the reply arrives as that tool's arguments. This only works when the request carries no
+  other tools — true of the shaped pass, which runs with no permissions and so an empty catalog. A
+  request that does carry tools keeps them and falls back to asking in words.
+- **Every other adapter** (Gemini, Bedrock, Cohere, Ollama, Azure through its own body, the CLI
+  agents): the shape is asked for in the words of the question and checked afterwards. That is the
+  re-ask path, not a native one. It works; it is just not enforced by the service.
+
+### Pydantic: not applicable, and what stands in for it
+
+The capability audit asks for Pydantic model validation of structured output. Pydantic is a Python
+library and Branch is TypeScript, so there is nothing to integrate. The equivalent is zod, which
+Branch already uses to declare every tool's arguments and every setting on this page, and which is
+what a declared shape is written in above. A shape goes from zod through zod's own `toJSONSchema`
+into the same check every delegated answer already passes through, so a declared shape is validated
+the same way a tool's arguments are. Nothing further is needed, and adding a Python dependency to a
+TypeScript app to satisfy the letter of the row would be worse than not having it.
+
+### The adapter family (`adapter-system` in #55): chat and XML are not applicable
+
+The audit's `adapter-system` family asks for three adapters. Only one of them means anything here,
+and building the other two would be building something nobody would run:
+
+- **JSON adapter — built.** That is the shaped answer above, native where a service offers it.
+- **Chat adapter — not applicable.** Every connection Branch has already speaks the one chat shape:
+  `Message[]` in, `Completion` out, through `openaiMessage`, `anthropicMessages` and their
+  equivalents. A "chat adapter" is the `Provider` contract itself, which has existed since the
+  first release. Adding a thing called a chat adapter on top of it would be a second name for the
+  same object.
+- **XML adapter — not applicable.** Nothing in Branch consumes XML from a model. Tool calls arrive
+  as structured objects from every provider's own API, not as tags to be parsed out of prose, and
+  the one place a reply's shape matters is covered by JSON above. An XML adapter would add a
+  parser, a failure mode and a setting for a format no part of the app reads.
+
+## The smaller asks, the Python client and installing: where each one stands (wave mac2)
+
+The last three buckets of the public list (#103: 21 "A library other people can build on", 22
+"Installing it should be boring", 23 "The smaller asks") were checked row by row against the code,
+because several of the audit's notes were out of date. Each row below says **verified** (it already
+works; the file and the test that proves it are named), **built**, **partly** (what exists and what
+does not), **not built** (and why) or **not applicable**. `tests/bottom-buckets.test.mjs` checks that
+every row is listed here and that every file named here exists.
+
+### A library other people can build on (bucket 21)
+
+- **sdk-python** — built: `packages/sdk-python/branch_agent/client.py`, tested by
+  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python programs").
+- **framework-adapters** (Python API SDK) — built: the same Python client.
+- **A1509** (TypeScript, Python and Go clients) — partly: the TypeScript client is `packages/sdk/client.mjs`
+  (`packages/sdk/test/sdk.test.mjs`) and the Python one is above. There is no Go client; the OpenAPI
+  description below is what a Go program would generate one from.
+- **A2353** (REST API) and **A0758** (HTTP API) — verified: `src/server.ts` serves it and
+  `src/api-openapi.ts` describes it at `GET /api/openapi.json`, with `docs/api.md` written from the same
+  description. `tests/other-2.test.mjs` checks the description is well formed, that every route it
+  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` checks the routes
+  the Python client calls are in it.
+- **sdk-react** — not applicable: a front-end library for somebody else's page (see "What Branch is not").
+  An outside page uses `packages/sdk/client.mjs` or the OpenAPI description.
+- **app-building** (an MCP server for building apps with an SDK) — not built: Branch's own MCP server
+  (`src/mcp-server.ts`) offers Branch's tools to other programs; a server for writing somebody else's
+  app is a different product.
+- **serialization** (pipelines written as YAML) — partly: skills are YAML (`src/skill-document.ts`),
+  flows are JSON (`src/flows.ts`), and a whole assistant goes out and back as one file
+  (`src/agent-export.ts`, `tests/code-ide.test.mjs`). Flows are not written as YAML because JSON is what
+  the flow editor saves and reads; a second format would be a second thing to keep in step.
+
+### Installing it should be boring (bucket 22)
+
+- **installers** — partly: Windows has a real installer with an uninstall entry
+  (`src/install/installer.ts`); macOS and Linux have downloads you unzip or unpack
+  (`scripts/package-macos.mjs`, `scripts/package-linux.mjs`, `tests/packaging.test.mjs`) and a
+  start-at-sign-in file (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`).
+  What is still needed for signed installers is written under "What is still needed for a signed
+  installer on every computer".
+- **desktop-packaging** — verified: `scripts/package-desktop.mjs` builds the download for Windows, macOS
+  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag.
+  `tests/packaging.test.mjs` checks every name, option, signing step and the menu entry;
+  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree.
+- **platform-support** — verified for macOS and Linux: the same downloads and sign-in files
+  (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`); WSL is not a target, because on Windows
+  the Windows download is the one to use.
+- **distributions** (custom distributions) — not built: there is no rebranded or trimmed-down build.
+  Portable copies (`portable.txt`) and the settings file cover running one copy differently.
+
+### The smaller asks (bucket 23)
+
+- **A0794** (project bookkeeping) — partly: projects hold instructions, a model, a folder and knowledge
+  bases, each task records its project, and cost adds up per project (`src/projects.ts`,
+  `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
+  filed under a project.
+- **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
+  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
+  Changing an artifact means keeping the changed file as the next version; there is no editor for it.
+- **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
+  Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
+  read folders (`src/knowledge-bases.ts`).
+- **A2221** (Hindsight memory) — not applicable: it is an outside memory service. Memory stays in this
+  computer's own database behind the contract in `src/memory-backend.ts` (`tests/docs-memory-2.test.mjs`).
+- **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
+  services that offer it, and says plainly when a model cannot (`tests/media.test.mjs`).
+- **examples** (an MCP example, a Notion MCP example) — partly: connecting an MCP server is shown under
+  "MCP tools" and the app hands out ready-made connection snippets (`src/mcp-server.ts`,
+  `tests/mcp-server.test.mjs`); Notion is shown as an OpenAPI connection (`src/openapi-tools.ts`), not as
+  an MCP server.
+- **integration-blocks** (a catalogue of third-party blocks) — partly: GitHub, GitLab and Linear are built
+  in (`src/integrations/github.ts`, `src/integrations/gitlab.ts`, `src/integrations/linear.ts`) and
+  plugins install from files (`src/plugin-catalog.ts`); there is no online catalogue of blocks.
+- **A0355** (pages that stay shared) — partly: a share link needs its code, works once and expires
+  (`src/conversation-share.ts`, `tests/collab-workflows.test.mjs`); a lasting public page is not offered
+  on purpose, because Branch only listens on this computer and its private address.
+- **A0354** (an answer engine) — verified: `knowledge.ask` answers from a knowledge base and numbers its
+  sources (`src/knowledge-tools.ts`, `src/knowledge-bases.ts`, `tests/rag-vector.test.mjs`).
+- **A2375** (a configurable intent pipeline) — not built: requests are not sorted into intents first; the
+  model picks tools itself, and the one configurable pipeline is for searching
+  (`src/retrieval-pipeline.ts`, `tests/retrieval-2.test.mjs`).
+- **A1012** (a model gateway) — partly: OpenRouter, LiteLLM, Portkey and Cloudflare's gateway are
+  connections in `data/providers.json` (`src/provider-catalog.ts`, `tests/providers-2.test.mjs`); Vercel's
+  AI SDK is a JavaScript library, not a service, so there is nothing to connect to.
+- **A2258** (several agent runtimes) — partly: Claude Code, Codex and the Copilot command line, when
+  installed here, can answer as a model (`src/providers/cli-agent.ts`, `tests/auth-tracing-cli.test.mjs`);
+  they answer in words only, without Branch's tools.
+- **A0032** (an app-server protocol) — partly, in its shared form: `branch acp-serve` speaks the Agent
+  Client Protocol to editors (`src/acp.ts`, `tests/interop-agents.test.mjs`), alongside the OpenAI-shaped
+  way in (`src/openai-compat.ts`, `tests/interop.test.mjs`), the MCP server (`src/mcp-server.ts`) and
+  agent-to-agent (`src/a2a.ts`). Codex's own app-server protocol is not spoken (A0601).
+- **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
+  (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
+  the shared one.
+- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
+  same app and server, and a conversation coming back after a restart is proven for that shared core
+  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
+- **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
+  page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
+  Windows-only.
+- **research-pipeline** (STORM-style articles) — partly: research splits the question, reads several
+  pages, compares them and cites them (`src/research.ts`, `tests/data-research.test.mjs`); there are no
+  persona, outline or polishing stages.
+- **gateway** — partly: one local router fronts every chat channel (`src/channels/router.ts`,
+  `tests/channels.test.mjs`); there is no gateway spread over several computers, because Branch runs on one.
+- **A0504** (analytics collected only with consent) and **A1620** (optional analytics) — not applicable:
+  Branch collects nothing, so there is nothing to consent to (see "There is no telemetry, and there never
+  will be"; `tests/tracing-policy.test.mjs` checks the promise is written where the owner reads it). No
+  analytics will be added, with or without a switch.
+- **A1611** (a side-panel chat) — not built: the browser extension (`extras/browser-extension/`) opens a
+  small window from its button. A side panel would need one more browser permission for the same job.
+- **A2240** (live app surfaces inside a reply) — partly: pages from MCP servers and artifacts are shown,
+  but with no scripts, forms or network (`src/mcp-apps.ts`, `tests/mcp-mode.test.mjs`,
+  `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
+- **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
+  (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
+- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
+  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
+  refuses this computer's own address, but no test drives the popup sending a page.
+- **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
+  the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
+  meant for putting in front of the public.
+- **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
+  (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).

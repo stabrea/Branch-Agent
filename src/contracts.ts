@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SandboxChoice } from "./sandbox.js";
+import type { SandboxBackendName } from "./sandbox-backends.js";
 
 export const ToolCallSchema = z
   .object({
@@ -73,6 +74,12 @@ export interface CompletionRequest {
   reasoning?: "low" | "medium" | "high";
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
+  /**
+   * The exact shape the reply must take. An adapter with a setting of its own for this uses it;
+   * one without simply ignores the field, and whatever asked falls back to saying so in the words
+   * of the question and checking the reply afterwards. See src/answer-shape.ts.
+   */
+  responseFormat?: { name: string; schema: Record<string, unknown> };
 }
 export interface Completion {
   content: string;
@@ -235,6 +242,13 @@ export interface ToolContext {
    * behaves exactly as it did before rules could say.
    */
   sandbox?: SandboxChoice;
+  /**
+   * Where a program this call starts is to run, when an approval rule named somewhere other than
+   * this computer, and which folders of the workspace it may see there. Both are set by the
+   * runtime just before the tool runs, exactly as `sandbox` is.
+   */
+  sandboxBackend?: SandboxBackendName;
+  sandboxPaths?: readonly string[];
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

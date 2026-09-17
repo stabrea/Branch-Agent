@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, openApiDocument, apiMarkdown, apiRoutes,
   saveCacheSettings, requestHash,
@@ -23,7 +24,7 @@ function scripted(steps = []) {
   } };
   return provider;
 }
-const discard = (base) => rm(base, { recursive: true, force: true }).catch(() => undefined);
+const discard = (base) => discardTemp(base).catch(() => undefined);
 
 async function fixture(t, steps) {
   const base = await mkdtemp(join(tmpdir(), "branch-other2-"));
@@ -237,6 +238,7 @@ function batchProvider(plan = {}) {
       },
       async collect() {
         calls.collect += 1;
+        if (plan.collectFails) throw new Error("the answers could not be read");
         return provider.sent.map((request) => ({ id: request.id, content: `batched ${request.id}`, usage: { input: 10, output: 4 } }));
       },
     }),
@@ -304,13 +306,22 @@ test("batch mode falls back to ordinary calls when it cannot be used", async (t)
   assert.match(afterRefusal.reason, /would not take the set/);
   assert.equal(refused.calls.complete, 2);
 
-  // The set itself failed at the service.
-  const broken = batchProvider({ failsAfter: 1 });
+  // The set itself failed at the service, and nothing could be collected from it either.
+  const broken = batchProvider({ failsAfter: 1, collectFails: true });
   const afterFailure = await runBatch(app.store, owner, { id: "f", name: "F", provider: broken, model: "m" },
     questions, AbortSignal.timeout(5000), { sleep: noWait });
   assert.equal(afterFailure.route, "direct");
   assert.match(afterFailure.reason, /the set failed/);
   assert.equal(broken.calls.complete, 2, "the questions were still answered");
+
+  // A set the service called failed, but whose answers are still there, keeps them rather than
+  // asking everything again. See tests/faster-cheaper.test.mjs for the half-failed case in full.
+  const halfWorked = batchProvider({ failsAfter: 1 });
+  const harvested = await runBatch(app.store, owner, { id: "h", name: "H", provider: halfWorked, model: "m" },
+    questions, AbortSignal.timeout(5000), { sleep: noWait });
+  assert.equal(harvested.route, "batch");
+  assert.equal(halfWorked.calls.complete, 0, "nothing was paid for twice");
+  assert.deepEqual(harvested.answers.map((a) => a.content), ["batched q1", "batched q2"]);
 });
 
 /* ---- A0390: the shape branched conversations make, and carrying an answer back ---- */
@@ -458,7 +469,8 @@ test("Lockdown flips every switch, is written down, and puts back exactly what w
   // It is in the record of what the assistant was allowed to do.
   const written = store.audit.list(owner, { limit: 50 }).filter((entry) => entry.subject.startsWith("Lockdown"));
   assert.equal(written.length, 1);
-  assert.equal(written[0].action, "policy.changed");
+  // Batch 20 (wave 8): Lockdown has its own kind in the record rather than sharing "policy.changed".
+  assert.equal(written[0].action, "lockdown.changed");
   assert.equal(written[0].subject, "Lockdown on");
 
   const off = await call("/api/lockdown", { on: false });

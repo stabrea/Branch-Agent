@@ -87,6 +87,16 @@ await Promise.all([
   import("./tool-catalog.js").then((module) => {
     $("tool-catalog")?.addEventListener("toggle", () => void module.renderToolCatalog());
   }),
+  /* Wave 8: a page, a drawing or a chart the assistant wrote, shown rather than left as markup;
+     the flow editor; reports; the to-do list; and the event log with its filters. */
+  import("./artifacts.js"),
+  import("./reports.js"),
+  import("./todos.js"),
+  import("./logs.js"),
+  import("./flow-editor.js"),
+  import("./bridges.js"),
+  /* Wave 9: plan first or just do it, and the plan card that goes with it. */
+  import("./plan-act.js"),
 ]);
 wireOfflineBanner();
 registerServiceWorker();

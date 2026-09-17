@@ -1,13 +1,24 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { launchHandOver } from "./hand-over.js";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { Updater } from "./updater.js";
+import { appEntryName, releaseAssetName } from "./release-assets.js";
+import { installedAppRoot } from "./install-root.js";
 
 export const updateSource = {
   repo: "stabrea/Branch-Agent",
   assetName: "Branch-Agent-windows-x64.zip",
   executableName: "Branch Agent.exe",
 } as const;
+
+// mac1/service-update: the download, program and folder for this computer. On Windows these come
+// out as the same literals as above.
+const platformSource = {
+  repo: updateSource.repo,
+  assetName: releaseAssetName(process.platform, process.arch),
+  executableName: appEntryName(process.platform),
+};
+const signInPlace = process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "your Mac" : "this computer";
 const externalAllowed = ["https://auth.openai.com/", "https://github.com/stabrea/Branch-Agent"];
 
 /**
@@ -25,9 +36,10 @@ export function registerUpdaterIpc(
   hooks?: UpdateHooks,
 ): Updater {
   const updater = new Updater({
-    ...updateSource,
+    ...(process.platform === "win32" ? updateSource : platformSource),
     currentVersion: version,
-    installDir: app.isPackaged ? dirname(process.execPath) : null,
+    installDir: installedAppRoot(app.isPackaged, process.platform, process.execPath),
+    packaged: app.isPackaged,
     scratchDir: join(app.getPath("temp"), "branch-agent-update"),
     ...(hooks ? { backup: hooks.backup } : {}),
     ...(hooks?.stopDaemon ? { stopDaemon: hooks.stopDaemon } : {}),
@@ -48,7 +60,7 @@ export function registerUpdaterIpc(
     await launchHandOver(script, process.pid).catch((error: unknown) => {
       const why = error instanceof Error ? error.message : String(error);
       throw new Error(hooks?.stopDaemon
-        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to Windows.`
+        ? `The update could not be started: ${why}. Branch has stopped working in the background; it starts again next time you sign in to ${signInPlace}.`
         : `The update could not be started: ${why}.`);
     });
     const status = updater.applying();

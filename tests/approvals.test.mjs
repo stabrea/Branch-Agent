@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch,
   ApprovalGate,
@@ -43,7 +44,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-approvals-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }
 async function served(t, steps, options = {}) {
@@ -208,7 +209,7 @@ test("a read-only setting refuses a recipe's steps before any of them runs", asy
 });
 
 test("a saved password inside a tool call never reaches the question the person is shown", async (t) => {
-  const secret = "sk-live-do-not-print-me";
+  const secret = "sk-live-do-not-print-me";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const { app, api } = await served(t, [calls(write("c1", `notes-${secret}.txt`, "one")), say("done")]);
   app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
   await api("POST", "/api/policy", { preset: "ask-before-changes" });

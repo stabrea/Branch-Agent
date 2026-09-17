@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import {
   createBranch, ToolCatalog, anthropicBody, openaiBody, compactionThresholdFloor,
@@ -27,7 +28,7 @@ async function fixture(t, steps, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-catalog-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 const eventsOf = (app, runId, kind) => app.store.events(runId).filter((e) => e.kind === kind).map((e) => e.data);
@@ -69,7 +70,10 @@ test("a tool in a closed group is found and called through tools.expand, and per
   assert.equal(run.status, "completed");
   assert.equal(run.output, "Nothing is scheduled.");
   assert.ok(!provider.requests[0].tools.includes("schedules.list"), "the closed tool was not described at first");
-  assert.ok(provider.requests[1].tools.includes("schedules.list"), "opening the toolbox added its tools");
+  assert.ok(provider.requests[1].tools.includes("schedules.list"),
+    "opening the toolbox added its tools. If this broke after you registered a tool, it is the cap in "
+    + "src/tool-loading.ts (defaultMaxLoaded), not anything you did: a toolbox holding more tools than "
+    + "the cap has to drop some, and ties go by registration order. Do not raise the cap.");
   assert.ok(provider.requests[2].tools.includes("schedules.list"), "it stays open for the rest of the conversation");
   const [expanded] = eventsOf(app, run.id, "catalog.expanded");
   assert.deepEqual(expanded.opened, ["schedules"]);
@@ -83,6 +87,14 @@ test("a tool in a closed group is found and called through tools.expand, and per
   assert.deepEqual(Object.keys(result.tools[0]).sort(), ["description", "name"], "names and purposes only");
   // Comfortably inside the 12,000-character tool-result limit, so it is never clipped mid-JSON.
   assert.ok(JSON.stringify(result).length < 8000, `the answer is ${JSON.stringify(result).length} characters`);
+  // The size must be bounded by the number of tools, not by how carefully each description was
+  // worded. This crept to within 27 characters of the limit once, which meant the next tool anybody
+  // registered would have broken this test for a reason that had nothing to do with their work.
+  for (const tool of result.tools)
+    assert.ok(tool.description.length <= 90,
+      `"${tool.name}" lists ${tool.description.length} characters; the listing caps each one at 90`);
+  const perTool = JSON.stringify(result).length / result.tools.length;
+  assert.ok(perTool < 130, `${perTool.toFixed(0)} characters per tool leaves too little room to add one`);
 
   const { app: narrow, provider: narrowProvider } = await fixture(t, [
     call(expandToolName, { groups: ["schedules", "nonsense"] }),
@@ -268,4 +280,24 @@ test("a catalog of 150 tools stays small over a long conversation without thrash
   assert.ok(biggest > 8000, `the conversation really did grow (${biggest} tokens at its largest)`);
   assert.ok(compactions <= 6, `${compactions} compactions over 20 rounds is not thrashing`);
   assert.ok(compactions >= 1, "and the conversation was long enough for at least one");
+});
+
+test("registering another tool does not push an existing one out of an opened toolbox", async (t) => {
+  // A new tool used to displace an existing one whenever its name sorted earlier, which broke this
+  // file for whoever happened to add the next tool anywhere in the app. Ties now go by registration
+  // order instead, so what is already there keeps its place and anything new waits at the back.
+  const { app, provider } = await fixture(t, [
+    call(expandToolName, { groups: ["schedules"] }),
+    call("schedules.list", {}),
+    say("Nothing is scheduled."),
+  ]);
+  for (const name of ["schedules.aaa_added", "schedules.bbb_added", "schedules.ccc_added"])
+    app.registry.register({
+      name, description: `A tool named ${name}, registered after the ones already here, and sorting before schedules.list.`,
+      parameters: z.object({}).strict(), permission: "schedules.read",
+      execute: async () => ({ ok: true }),
+    });
+  await app.runtime.run({ prompt: "tidy the desk" });
+  assert.ok(provider.requests[1].tools.includes("schedules.list"),
+    "a newly registered tool pushed an existing one out of the opened toolbox");
 });

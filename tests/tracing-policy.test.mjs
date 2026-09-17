@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch,
   ApprovalGate,
@@ -59,7 +60,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider,
     web: { allowPrivateAddresses: true }, ...options,
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }
 
@@ -135,7 +136,7 @@ test("T1: a task's spans nest, and a sub-task sits inside the same trace", async
 });
 
 test("T1: a failed tool leaves a failed span, and an attribute cannot carry a saved key", async (t) => {
-  const secret = "sk-live-never-in-a-span-0000";
+  const secret = "sk-live-never-in-a-span-0000";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const { app } = await fixture(t, [calls({ id: "c1", name: "files.read", arguments: JSON.stringify({ path: "gone.txt" }) }), say("done")]);
   app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
   const run = await app.runtime.run({ prompt: "read it" });
@@ -361,7 +362,7 @@ test("T2: a finished task sends its own steps, and crashes go too when asked for
 });
 
 test("T2: a saved key inside a tool's request never reaches the steps that are sent out", async (t) => {
-  const sentinel = "sk-live-never-export-4242";
+  const sentinel = "sk-live-never-export-4242";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const written = "every line of the file the assistant was told to write, which is no step's business";
   const { app } = await fixture(t, [calls(write("c1", "keys.txt", `${written} ${sentinel}`)), say("done")]);
   const owner = app.runtime.owner;
@@ -675,7 +676,7 @@ test("P3: same tool, same target, different bytes — the old yes does not cover
   const root = await mkdtemp(join(tmpdir(), "branch-bytes-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
       method, headers: { authorization: `Bearer ${server.token}`, ...(body ? { "content-type": "application/json" } : {}) },

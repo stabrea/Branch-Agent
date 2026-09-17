@@ -5,6 +5,7 @@ import type { Runtime } from "../runtime.js";
 import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
 import { audit } from "../audit.js";
+import { decide, readSenderAllowlist } from "./allowlist.js";
 
 /**
  * Messaging channels (Telegram first) deliver messages from chats into conversations. Each chat
@@ -128,6 +129,13 @@ export class ChannelRouter {
    */
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
+  /**
+   * Batch 26 (wave 8): the ceiling the owner set for one person messaging from outside. `createBranch`
+   * connects the real counter; on its own nothing is limited. Somebody who reaches it is told so in
+   * one sentence and their message is let go rather than queued behind everybody else's, because a
+   * stranger waiting silently for a minute looks exactly like Branch being broken.
+   */
+  senderCeiling: ((channel: string, senderId: string) => { ok: boolean; reason: string }) | undefined;
   /**
    * Turns a voice note into words. `createBranch` connects the real voice service; on its own this
    * says plainly that nothing is set up, so a voice note is never silently dropped.
@@ -346,7 +354,7 @@ export class ChannelRouter {
         // A message from a chat app can read and change the local copy, but never publish it, and
         // never send to somebody else's chat: a paired person in one group must not be able to
         // make the assistant write to every chat it is linked to.
-        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
+        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
@@ -357,7 +365,14 @@ export class ChannelRouter {
         await this.askInChat(message, quoted + text, run.sessionId);
         return "replied";
       }
-      await this.deliver(message.channel, message.chatId, quoted + text, `reply:${run.id}`, message.messageId).catch(() => undefined);
+      // Batch 20 (wave 8): the message going back out is the last step of the task, so it hangs off
+      // the same trace even though the task itself has already settled.
+      const span = this.runtime.tracer.startAfter(run.id, "delivery", `branch.delivery ${message.channel}`, {
+        "branch.channel": message.channel, "branch.delivery.characters": (quoted + text).length,
+      });
+      await this.deliver(message.channel, message.chatId, quoted + text, `reply:${run.id}`, message.messageId)
+        .then((sent) => span?.end("ok", "", { "branch.delivery.queued": sent.queued }))
+        .catch((error) => span?.end("error", error instanceof Error ? error.message : String(error)));
       if (message.voice) await this.voiceReply(message, text).catch(() => undefined);
       return run.status === "completed" || run.status === "needs_input" ? "replied" : "failed";
     } catch (error) {
@@ -367,8 +382,15 @@ export class ChannelRouter {
     }
   }
   private access(message: InboundMessage, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
+    // Batch 20 (wave 8): the one list for every chat app is read first, so "never this person"
+    // holds everywhere at once. A channel's own list still works and is read after it.
+    const list = readSenderAllowlist(this.store, this.runtime.owner);
+    const said = decide(list, message.channel, message.senderId);
+    if (said === "block") return "rejected";
+    if (said === "allow") return "allowed";
     if (policy.allowlist.includes(message.senderId)) return "allowed";
     if (this.pair(message.channel, message.senderId)?.status === "approved") return "allowed";
+    if (list.unknown === "block") return "rejected";
     return policy.pairing ? "pairing" : "rejected";
   }
   private pairingCode(message: InboundMessage): string {

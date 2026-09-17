@@ -32,15 +32,25 @@ function smallButton(helpers, label, handler) {
   return onClick(helpers, helpers.el("button", label, "automations-btn-small"), handler);
 }
 
+/* The screen is drawn again on every refresh, and a list someone opened used to vanish with it.
+   What each open list last showed is kept here, so it is drawn again open. */
+const shownLogs = new Map();
+
 /** A place under one item where its recent activity is written, instead of a pop-up. */
-function logArea(helpers) {
+function logArea(helpers, key) {
   const area = helpers.el("pre", undefined, "automations-log");
-  area.hidden = true;
+  area.dataset.log = key;
+  area.hidden = !shownLogs.has(key);
+  if (shownLogs.has(key)) area.textContent = shownLogs.get(key);
   return area;
 }
 function writeLog(area, lines, empty) {
-  area.textContent = lines.length ? lines.join("\n") : empty;
-  area.hidden = false;
+  const text = lines.length ? lines.join("\n") : empty;
+  shownLogs.set(area.dataset.log, text);
+  /* The list may have been drawn again while the history was fetched; write into the one on screen. */
+  const current = document.querySelector(`.automations-log[data-log="${area.dataset.log}"]`) ?? area;
+  current.textContent = text;
+  current.hidden = false;
 }
 
 function section(helpers, title, description) {
@@ -83,7 +93,7 @@ function triggerItem(trigger, helpers) {
   item.appendChild(header);
   item.appendChild(el("div", `${window.location.origin}/api/triggers/${trigger.id}/fire`, "automations-url"));
 
-  const log = logArea(helpers);
+  const log = logArea(helpers, `trigger:${trigger.id}`);
   const controls = el("div", undefined, "automations-controls");
   controls.appendChild(smallButton(helpers, "Copy web address", async () => {
     await navigator.clipboard.writeText(`${window.location.origin}/api/triggers/${trigger.id}/fire`);
@@ -153,7 +163,7 @@ function webhookItem(webhook, helpers) {
   item.appendChild(el("div", "Tells it about: " + (webhook.events?.length ? webhook.events.join(", ") : "nothing yet"), "automations-events"));
   if (webhook.disabledReason) item.appendChild(el("div", webhook.disabledReason, "automations-events"));
 
-  const log = logArea(helpers);
+  const log = logArea(helpers, `webhook:${webhook.id}`);
   const controls = el("div", undefined, "automations-controls");
   controls.appendChild(smallButton(helpers, "Send a test", async () => {
     const result = await api(`webhooks/${webhook.id}/test`, {});

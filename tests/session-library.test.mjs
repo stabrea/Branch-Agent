@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { parseConversationArchive, maximumArchiveBytes } from "../dist/session-library.js";
@@ -17,7 +18,7 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, "branch-session-library-"));
   const options = { workspace: join(root, "workspace"), dataDir: join(root, "private"), provider };
   const app = await createBranch(options);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, options, root };
 }
 function seed(store, content = "Original cedar 🌳", owner = "local") {

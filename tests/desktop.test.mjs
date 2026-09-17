@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,11 +7,11 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { _electron } from "playwright";
 
-import { desktopOptions } from "./fixtures/desktop-options.mjs";
+import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 
 async function appearance(page, value) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("Appearance", { exact: true }).selectOption(value);
+  await openSettingFor(page, "#appearance");
+  await page.locator(`.lx-seg-button[data-t="look.mode.${value === "daylight" ? "light" : "dark"}"]`).click();
   await page
     .getByRole("button", { name: "Save appearance", exact: true })
     .click();
@@ -21,7 +22,7 @@ async function appearance(page, value) {
 }
 
 async function verifyWindow(electron, page, home) {
-  await page.getByText("Connected", { exact: true }).waitFor();
+  await connected(page);
   assert.match(await page.title(), /Branch Agent/);
   const isolation = await electron.evaluate(({ BrowserWindow }) => {
     const p =
@@ -75,7 +76,7 @@ async function verifyNetworkBoundary(electron, page) {
       ({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].loadURL(url),
       original,
     );
-    await page.getByText("Connected", { exact: true }).waitFor();
+    await connected(page);
     assert.equal(
       await page.evaluate(() => window.open("https://example.com") === null),
       true,
@@ -94,7 +95,7 @@ async function verifyNetworkBoundary(electron, page) {
 
 test(
   "native desktop authenticates locally, completes work, persists appearance, and hides to tray",
-  { timeout: 90000 },
+  { timeout: 360000 },
   async () => {
     const { home, options } = await desktopOptions();
     const electron = await _electron.launch(options);
@@ -107,15 +108,17 @@ test(
       await verifyNetworkBoundary(electron, page);
       await appearance(page, "daylight");
       await page.reload();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
       assert.equal(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
       await appearance(page, "forest");
-      await page
-        .getByRole("button", { name: "Conversation", exact: true })
-        .click();
+      /* Settings is a window over whatever place you were on, so after saving the appearance the
+         place behind it is still the conversation and .lx-back is hidden -- a click on it waits
+         thirty seconds and fails. Going back to the conversation is what this wants, and
+         places.mjs knows how: close the window, and only then use the back button if it is there. */
+      await openPlace(page, "chat");
       await page.screenshot({ path: join(home, "desktop.png") });
       await appearance(page, "daylight");
       await electron.evaluate(({ BrowserWindow }) =>
@@ -136,13 +139,13 @@ test(
     const restarted = await _electron.launch(options);
     try {
       const page = await restarted.firstWindow();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
       assert.equal(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
       await page.getByRole("link", { name: "Branch Agent home" }).click();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
     } finally {
       await restarted.close();
     }

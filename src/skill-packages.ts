@@ -3,10 +3,14 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import {
-  packSkill, readSkillPackage, requestedPermissions, SkillHooksSchema, SkillToolsSchema,
+  declaredHosts,
+  declaredSites, packSkill, readSkillPackage, requestedPermissions, SkillHooksSchema, SkillToolsSchema,
   type SkillPackageManifest,
 } from "./skill-package.js";
-import { registerHttpTools, secretsUsed, type HttpToolHost } from "./skill-http-tools.js";
+import {
+  grantAll, ManifestGrantSchema, narrowedSentence, narrowTools, type ManifestGrant,
+} from "./manifest-permissions.js";
+import { httpToolPermission, registerHttpTools, secretsUsed, type HttpToolHost } from "./skill-http-tools.js";
 
 /**
  * Installing and sharing skill packages. Opening a package shows the owner what it is and what it
@@ -21,12 +25,22 @@ export const PackageInstallSchema = z.object({
   file: z.string().min(1).max(1024 * 1024),
   /** Set once the owner has seen the list of what the package asks for. */
   approve: z.boolean().default(false),
+  /**
+   * Batch 26 (wave 8): the permissions the owner actually allowed. Left out, they allowed exactly
+   * what the package asked for. Anything the package asks for that is not here is not granted, and
+   * its tools are left out of the catalog entirely rather than registered and refused later.
+   */
+  allow: z.array(z.string().trim().max(64)).max(20).optional(),
 }).strict();
 export const PackagePackSchema = z.object({
   author: z.string().trim().min(1).max(120),
   packageVersion: z.string().max(20).default("1.0.0"),
 }).strict();
-interface PackageRecord { skillId: string; manifest: SkillPackageManifest; files: Record<string, string>; installedAt: string }
+interface PackageRecord {
+  skillId: string; manifest: SkillPackageManifest; files: Record<string, string>; installedAt: string;
+  /** What the owner allowed when they installed it. Missing on anything installed before wave 8. */
+  grant?: ManifestGrant;
+}
 
 export class SkillPackages {
   private readonly toolNames = new Map<string, string[]>();
@@ -45,7 +59,7 @@ export class SkillPackages {
     const { manifest, files } = readSkillPackage(bytes);
     const tools = files["tools.json"] ? SkillToolsSchema.parse(JSON.parse(files["tools.json"])).tools : [];
     return {
-      manifest, permissions: requestedPermissions(files),
+      manifest, permissions: requestedPermissions(files), hosts: declaredHosts(files), sites: declaredSites(files),
       tools: tools.map((tool) => ({ name: tool.name, description: tool.description, method: tool.method, address: tool.url, secrets: secretsUsed(tool) })),
       hooks: files["hooks.json"] ? SkillHooksSchema.parse(JSON.parse(files["hooks.json"])).hooks : [],
       document: files["SKILL.md"] ?? "",
@@ -57,15 +71,20 @@ export class SkillPackages {
     return this.records().filter((record) => skills.has(record.skillId));
   }
   /** Installs a package the owner has approved: the skill arrives switched off, its tools are registered. */
-  install(bytes: Buffer, approve: boolean) {
+  install(bytes: Buffer, approve: boolean, allow?: readonly string[]) {
     const preview = this.inspect(bytes);
     if (!approve) return { installed: false, ...preview };
+    // What the owner allowed: everything the package asked for unless they narrowed it themselves.
+    const asked = grantAll({ permissions: preview.permissions, hosts: preview.hosts });
+    const grant = allow
+      ? ManifestGrantSchema.parse({ permissions: asked.permissions.filter((name) => allow.includes(name)), hosts: asked.hosts })
+      : asked;
     if (this.live().some((record) => record.manifest.name === preview.manifest.name))
       throw new Error(`A package called "${preview.manifest.name}" is already installed. Remove that skill first, then install this one.`);
     const { files } = readSkillPackage(bytes);
     const skill = this.store.skills.install(this.owner, { document: preview.document });
     if (skill.activeVersion !== null) this.store.skills.disable(this.owner, skill.id, { expectedRevision: skill.revision });
-    const record: PackageRecord = { skillId: skill.id, manifest: preview.manifest, files, installedAt: new Date().toISOString() };
+    const record: PackageRecord = { skillId: skill.id, manifest: preview.manifest, files, installedAt: new Date().toISOString(), grant };
     // The tools go in first: if a name is taken, the half-installed skill is taken back out again.
     try { this.registerTools(record); }
     catch (error) {
@@ -74,7 +93,8 @@ export class SkillPackages {
       throw error;
     }
     this.store.save("settings", this.owner, this.key(skill.id), { ...record });
-    return { installed: true, ...preview, skill: this.store.skills.view(this.owner, skill.id) };
+    return { installed: true, ...preview, grant, leftOut: this.leftOut(record),
+      skill: this.store.skills.view(this.owner, skill.id) };
   }
   /** Rebuilds a package file from an installed skill, using its newest instructions. */
   pack(skillId: string, input: unknown): { filename: string; base64: string } {
@@ -90,7 +110,9 @@ export class SkillPackages {
     return this.records().filter((record) => skills.has(record.skillId)).map((record) => ({
       skillId: record.skillId, name: record.manifest.name, author: record.manifest.author,
       packageVersion: record.manifest.packageVersion, installedAt: record.installedAt,
-      permissions: requestedPermissions(record.files), tools: this.toolNames.get(record.skillId) ?? [],
+      permissions: requestedPermissions(record.files), hosts: declaredHosts(record.files),
+      grant: this.grantOf(record), leftOut: this.leftOut(record),
+      tools: this.toolNames.get(record.skillId) ?? [],
       enabled: skills.get(record.skillId)!.activeVersion !== null,
     }));
   }
@@ -119,11 +141,32 @@ export class SkillPackages {
   private enabled(skillId: string): boolean {
     return this.store.skills.list(this.owner).some((skill) => skill.id === skillId && skill.activeVersion !== null);
   }
+  /** What the owner allowed. A package installed before wave 8 kept exactly what it asked for. */
+  private grantOf(record: PackageRecord): ManifestGrant {
+    return record.grant ?? grantAll({ permissions: requestedPermissions(record.files), hosts: declaredHosts(record.files) });
+  }
+  /** The declared calls the owner's grant leaves out, said plainly so nobody wonders where they went. */
+  private leftOut(record: PackageRecord): string[] {
+    const file = record.files["tools.json"];
+    if (!file) return [];
+    const { tools } = SkillToolsSchema.parse(JSON.parse(file));
+    const { left } = narrowTools(tools.map((tool) => ({ name: tool.name, permission: httpToolPermission })), this.grantOf(record));
+    return left.map((tool) => narrowedSentence(tool.name, tool.permission));
+  }
+  /**
+   * Registers the calls a package declared — but only the ones the owner's grant covers. A call the
+   * grant does not cover never joins the catalog at all, which is what makes the list the owner read
+   * before installing mean something afterwards.
+   */
   private registerTools(record: PackageRecord): void {
     const file = record.files["tools.json"];
     if (!file) return;
+    const grant = this.grantOf(record);
     const { tools } = SkillToolsSchema.parse(JSON.parse(file));
-    this.toolNames.set(record.skillId, registerHttpTools(this.registry, this.host, record.manifest.name, tools, () => this.enabled(record.skillId)));
+    const { kept } = narrowTools(tools.map((tool) => ({ tool, permission: httpToolPermission })), grant);
+    if (!kept.length) { this.toolNames.set(record.skillId, []); return; }
+    this.toolNames.set(record.skillId, registerHttpTools(this.registry, this.host, record.manifest.name,
+      kept.map((entry) => entry.tool), () => this.enabled(record.skillId), grant));
   }
   /** Starts the recipe a package asked for when its event happens; a failure never disturbs the task. */
   private fire(event: string, runId: string): void {

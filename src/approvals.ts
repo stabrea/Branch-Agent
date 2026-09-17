@@ -124,11 +124,13 @@ export class ApprovalGate {
    * is supplied and the kept answer was given for a different one, there is no answer: the exact
    * bytes changed, so the person is asked again.
    */
-  answer(sessionId: string, tool: string, target: string, fingerprint?: string): "allow" | "deny" | undefined {
+  answer(sessionId: string, tool: string, target: string, fingerprint?: string, exact = false): "allow" | "deny" | undefined {
     const key = answerKey(tool, target);
     const grant = this.answers.get(sessionId)?.get(key);
     if (!grant) return undefined;
     if (Date.parse(grant.expiresAt) <= Date.now()) { this.answers.get(sessionId)?.delete(key); return undefined; }
+    // `exact`: only a yes given for these very bytes counts (an address carrying a key or password).
+    if (exact && (!grant.fingerprint || grant.fingerprint !== fingerprint)) return undefined;
     if (grant.fingerprint && fingerprint !== undefined && grant.fingerprint !== fingerprint) return undefined;
     return grant.decision;
   }
@@ -145,6 +147,18 @@ export class ApprovalGate {
       label: about.label ?? `${tool}${target ? ` on ${target}` : ""}`,
     });
     this.answers.set(sessionId, forSession);
+  }
+  /**
+   * Puts a kept answer back exactly as it was, after the app has been closed and opened again. The
+   * moment it runs out is the one it was given, never a fresh hour: a restart must not quietly
+   * lengthen a permission. One already out of date is refused here and named to the owner instead.
+   */
+  restoreGrant(sessionId: string, grant: SessionGrant): boolean {
+    if (Date.parse(grant.expiresAt) <= Date.now()) return false;
+    const forSession = this.answers.get(sessionId) ?? new Map<string, SessionGrant>();
+    forSession.set(answerKey(grant.tool, grant.target), { ...grant });
+    this.answers.set(sessionId, forSession);
+    return true;
   }
   /** What this conversation is allowed to do right now, for the "What is allowed" list. */
   grants(sessionId: string): SessionGrant[] {

@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { OpenAIProvider, AnthropicProvider } from "../dist/providers.js";
 import { createBranch } from "../dist/index.js";
 
@@ -44,7 +45,7 @@ async function runtimeFixture(t, provider) {
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-stream-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "private"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return app;
 }
 

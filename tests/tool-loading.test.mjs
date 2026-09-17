@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import {
   createBranch, ToolCatalog, ToolLoader, ToolIndex, ToolUsage, catalogHealthTick, catalogHealthId,
@@ -26,7 +27,7 @@ async function fixture(t, steps, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-tools-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 const eventsOf = (app, runId, kind) => app.store.events(runId).filter((e) => e.kind === kind).map((e) => e.data);
@@ -383,7 +384,11 @@ test("the toolbox opener still works, and is now a shortcut over the same index"
   const loader = new ToolLoader(tools, { groupOf: groupOf(app), signals: { prompt: "tidy the desk" } });
   loader.expand(["schedules"]);
   loader.nextRound();
-  const carried = loader.descriptions().filter((tool) => tool.name.startsWith("schedules.") || tool.name.startsWith("brief.") || tool.name.startsWith("monitor.") || tool.name.startsWith("workflows.") || tool.name.startsWith("flows."));
+  /* Counted by the box a tool is actually in, not by a hand-kept list of the prefixes that box
+     held on the day this was written: "monitors." joined it in wave 8 and a list like that goes
+     quietly wrong — it undercounts, and the test fails for a reason that is not the one it is
+     asking about. */
+  const carried = loader.descriptions().filter((tool) => groupOf(app)(tool.name) === "schedules");
   assert.equal(carried.length, defaultMaxLoaded, `opening it carried ${carried.length} of ${box.length}`);
   const missed = box.find((tool) => !carried.some((seen) => seen.name === tool.name));
   assert.ok((await loader.search(missed.name, 3)).matches.some((match) => match.name === missed.name),

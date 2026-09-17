@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -13,7 +14,7 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, "branch-memory-context-"));
   const options = { workspace: join(root, "workspace"), dataDir: join(root, "data") };
   const app = await createBranch(provider ? { ...options, provider } : options);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 const answering = (content) => ({ name: "answering", async complete() { return { content, toolCalls: [] }; } });

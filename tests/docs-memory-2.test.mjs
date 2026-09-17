@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateRawSync, deflateSync } from "node:zlib";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch } from "../dist/index.js";
 import { readDocument, tryReadDocument, picturesMessage, readableTypes } from "../dist/document-readers.js";
@@ -239,7 +240,7 @@ async function fixture(t, provider) {
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace };
 }
 

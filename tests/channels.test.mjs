@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, TelegramAdapter } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { loadIntegrations } from "../dist/integrations/bootstrap.js";
@@ -55,7 +56,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-channels-"));
   const provider = scripted();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 

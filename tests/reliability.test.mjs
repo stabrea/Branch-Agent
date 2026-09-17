@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, chunkText, backoffMs, clipToolResult, shrinkToolResults, evaluateChecks } from "../dist/index.js";
 
 /** A provider driven by a script of answers; each entry is a function of the request. */
@@ -21,7 +22,7 @@ async function fixture(t, steps, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-reliability-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 const kinds = (app, runId) => app.store.events(runId).map((e) => e.kind);
@@ -53,7 +54,7 @@ test("a silent model call is detected as stalled and recovered by retrying, then
   const provider = { name: "sleepy", async complete(request) { calls++; return calls === 1 ? hang(request) : { content: "awake now", toolCalls: [] }; } };
   const root = await mkdtemp(join(tmpdir(), "branch-stall-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, reliability: { modelStallMs: 5000 } });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   app.runtime.reliability.modelStallMs = 150;
   const run = await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
   assert.equal(run.status, "completed");

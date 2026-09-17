@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
+  BatchApi,
   Completion,
   CompletionRequest,
   Message,
   Provider,
   ToolCall,
 } from "./contracts.js";
+import { anthropicBatchApi, openaiBatchApi } from "./provider-batch.js";
 import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
@@ -113,6 +115,19 @@ function validateOptions(options: ProviderOptions): void {
  * Whether a connection can be shown a picture. Providers say so themselves; anything that does
  * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
  */
+/** The addresses known to take a whole set of questions at once. */
+export const openaiBatchHosts = ["api.openai.com", ".openai.azure.com"];
+export const anthropicBatchHosts = ["api.anthropic.com"];
+/**
+ * Whether this address is one of them. An exact host, or a suffix when the entry begins with a dot,
+ * so one Azure deployment of many matches without every other address matching too.
+ */
+export function offersBatch(endpoint: string, hosts: readonly string[]): boolean {
+  let host: string;
+  try { host = new URL(endpoint).host.toLowerCase(); } catch { return false; }
+  return hosts.some((known) => (known.startsWith(".") ? host.endsWith(known) : host === known));
+}
+
 export function supportsImages(provider: Provider): boolean {
   const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
   if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
@@ -268,6 +283,14 @@ export class OpenAIProvider implements Provider {
   supportsImages(): boolean {
     return true;
   }
+  /**
+   * A whole set of questions at once, but only where the address really is OpenAI's own or an Azure
+   * deployment of it. Plenty of services speak the OpenAI shape for ordinary questions without
+   * having a set endpoint at all, and saying they do would only make every set fail and fall back.
+   */
+  batch(): BatchApi | null {
+    return offersBatch(this.options.endpoint, openaiBatchHosts) ? openaiBatchApi(this.options) : null;
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);
     if (request.onTextDelta) {
@@ -316,10 +339,19 @@ export class OpenAIProvider implements Provider {
  * parts that do not change between rounds — the tools and the instructions — go first, and the
  * conversation, which grows every round, goes last.
  */
+/**
+ * OpenAI has a setting of its own for a fixed reply shape, so a declared shape is sent as the
+ * service's `json_schema` response format and the model is genuinely constrained rather than
+ * merely asked. `strict` is left off: it would require every property to be required and no extras
+ * anywhere, which a shape written in zod need not be, and a refused request is worse than a reply
+ * that has to be checked. The check afterwards runs either way.
+ */
 export function openaiBody(request: CompletionRequest, model: string): Record<string, unknown> {
+  const shape = request.responseFormat;
   return {
     model,
     max_tokens: request.maxTokens,
+    ...(shape ? { response_format: { type: "json_schema", json_schema: { name: shape.name, schema: shape.schema } } } : {}),
     ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
@@ -382,6 +414,10 @@ export class AnthropicProvider implements Provider {
   supportsImages(): boolean {
     return true;
   }
+  /** A whole set of questions at once, where the address really is Anthropic's own. */
+  batch(): BatchApi | null {
+    return offersBatch(this.options.endpoint, anthropicBatchHosts) ? anthropicBatchApi(this.options) : null;
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);
     if (request.onTextDelta) {
@@ -443,17 +479,28 @@ const cacheMarker = { cache_control: { type: "ephemeral" } } as const;
  * the body is written in that order and the two stable parts are marked. Rounds after the first are
  * billed as cache reads instead of a fresh copy of the whole catalog.
  */
+/**
+ * Anthropic has no response-format setting. Its own way of fixing a reply's shape is a tool the
+ * model is made to call, so a declared shape is sent as exactly that: one tool holding the shape,
+ * and `tool_choice` naming it. That only works when the request carries no other tools, which is
+ * true of the shaped pass — it runs with no permissions, so the catalog is empty. A request that
+ * does have tools keeps them and falls back to asking in words; see src/answer-shape.ts.
+ */
 export function anthropicBody(request: CompletionRequest, model: string): Record<string, unknown> {
   const instructions = request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
-  const tools = request.tools.map((t, at) => ({
-    name: wireName(t.name), description: t.description, input_schema: t.parameters,
-    ...(at === request.tools.length - 1 ? cacheMarker : {}),
-  }));
+  const shape = request.tools.length ? undefined : request.responseFormat;
+  const tools = shape
+    ? [{ name: shape.name, description: "Give your answer by calling this with the fields it asks for.", input_schema: shape.schema, ...cacheMarker }]
+    : request.tools.map((t, at) => ({
+        name: wireName(t.name), description: t.description, input_schema: t.parameters,
+        ...(at === request.tools.length - 1 ? cacheMarker : {}),
+      }));
   return {
     model,
     max_tokens: request.maxTokens,
     ...anthropicThinking(request),
     tools,
+    ...(shape ? { tool_choice: { type: "tool", name: shape.name } } : {}),
     ...(instructions ? { system: [{ type: "text", text: instructions, ...cacheMarker }] } : {}),
     messages: anthropicMessages(request.messages),
   };

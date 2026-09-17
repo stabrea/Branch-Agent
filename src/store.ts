@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -29,7 +30,7 @@ import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows" | "flow_graphs";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -68,7 +69,14 @@ export class Store {
   private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
+  /**
+   * The folder the database lives in, which is also where things that belong to the owner rather
+   * than to one piece of work are kept — their SOUL.md and USER.md, for instance, which should
+   * follow them from one workspace to the next instead of being rewritten in each.
+   */
+  readonly folder: string;
   constructor(path: string) {
+    this.folder = dirname(path);
     this.db = new DatabaseSync(path);
     try {
       this.db.exec(
@@ -91,7 +99,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS trigger_log(id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL, owner TEXT NOT NULL, run_id TEXT, payload_summary TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delivery_log(id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id TEXT NOT NULL, owner TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows"])
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows", "flow_graphs"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );
@@ -164,6 +172,20 @@ export class Store {
   }
   exportSession(owner: string, sessionId: string) {
     return this.library.export(owner, sessionId);
+  }
+  /** What a retention rule would sweep up, so the owner sees the list before anything is deleted. */
+  prunableSessions(owner: string, days: number, megabytes: number, now = Date.now()) {
+    return this.library.prunable(owner, days, megabytes, now);
+  }
+  /**
+   * Batch 26 (wave 8): removes one conversation for good, whether it was temporary or not. Only the
+   * owner of it may, and never while a task of its own is still running.
+   */
+  forgetSession(owner: string, sessionId: string): { discarded: boolean; messages: number } {
+    if (!this.ownsSession(owner, sessionId)) throw new Error("Conversation not found");
+    if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status='running'").get(sessionId))
+      throw new Error("Wait for the active task before deleting this conversation");
+    return this.purgeSession(sessionId);
   }
   importSession(owner: string, input: unknown) {
     return this.library.import(owner, input);

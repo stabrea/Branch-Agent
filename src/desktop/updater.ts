@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { posixHandOverScript } from "./hand-over.js";
+import { checksumAssetName } from "./release-assets.js";
 
 /**
  * One-button updates from GitHub Releases. The app downloads the published archive, checks it
@@ -16,9 +18,15 @@ export interface UpdaterOptions {
   currentVersion: string;
   /** Folder that holds the running executable, or null when not running from an installed copy. */
   installDir: string | null;
+  /** Windows and Linux: the program file. macOS: the `.app` bundle's folder name. */
   executableName: string;
-  assetName: string;
+  /** The download for this computer, or null when none is published for it. */
+  assetName: string | null;
   scratchDir: string;
+  /** True for a built app (not a source checkout), even when it is not where updates can reach it. */
+  packaged?: boolean;
+  /** Which system the update is for; defaults to this computer's. */
+  platform?: NodeJS.Platform;
   fetch?: typeof fetch;
   extract?: (archive: string, into: string) => Promise<void>;
   /**
@@ -84,11 +92,15 @@ export class Updater {
   get inProgress(): boolean { return this.busy; }
   private readonly fetch: typeof fetch;
   private readonly extract: (archive: string, into: string) => Promise<void>;
+  private readonly platform: NodeJS.Platform;
   constructor(private readonly options: UpdaterOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
-    this.extract = options.extract ?? expandArchive;
-    if (!options.installDir)
-      this.status = { phase: "unsupported", message: "Updates apply to the installed app only.", progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
+    this.platform = options.platform ?? process.platform;
+    const platform = this.platform;
+    this.extract = options.extract ?? ((archive, into) => expandArchive(archive, into, platform));
+    const reason = unsupportedReason(options, platform);
+    if (reason)
+      this.status = { phase: "unsupported", message: reason, progress: null, release: null, bytes: null, updatedAt: new Date().toISOString() };
   }
   async check(): Promise<UpdateStatus> {
     if (this.busy) return this.status;
@@ -103,7 +115,8 @@ export class Updater {
   }
   /** Downloads, verifies and unpacks the release; returns the hand-over script for the caller to launch. */
   async install(): Promise<{ script: string; stagedDir: string }> {
-    if (!this.options.installDir) throw new Error("Updates apply to the installed app only.");
+    const reason = unsupportedReason(this.options, this.platform);
+    if (reason) throw new Error(reason);
     if (this.busy) throw new Error("An update is already in progress.");
     const release = this.status.release?.available ? this.status.release : (await this.check()).release;
     if (!release?.available) throw new Error("There is no newer version to install.");
@@ -111,7 +124,8 @@ export class Updater {
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
-      const archive = join(this.options.scratchDir, this.options.assetName);
+      if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
+      const archive = join(this.options.scratchDir, this.options.assetName!);
       await this.download(release, archive);
       await this.verify(archive, release);
       const stagedDir = await this.unpack(archive);
@@ -154,8 +168,8 @@ export class Updater {
     if (!response.ok) throw new Error(`GitHub did not answer (HTTP ${response.status}). Try again later.`);
     const data = releaseSchema.parse(await response.json());
     const asset = data.assets.find((entry) => entry.name === this.options.assetName);
-    const checksum = data.assets.find((entry) => entry.name === `${this.options.assetName}.sha256`);
-    if (!asset || !checksum) throw new Error("The newest release is missing its Windows download or checksum.");
+    const checksum = data.assets.find((entry) => entry.name === checksumAssetName(this.options.assetName ?? ""));
+    if (!asset || !checksum) throw new Error(`The newest release is missing its ${systemName(this.platform)} download or checksum.`);
     const latestVersion = data.tag_name.replace(/^v/i, "");
     return {
       currentVersion: this.options.currentVersion, latestVersion, tag: data.tag_name,
@@ -197,9 +211,11 @@ export class Updater {
     const into = join(this.options.scratchDir, "unpacked");
     await mkdir(into, { recursive: true });
     await this.extract(archive, into);
+    if (this.platform === "darwin") return findBundle(into, this.options.executableName);
     return findExecutableDir(into, this.options.executableName);
   }
   private async writeScript(stagedDir: string, daemonPid: number | null = null): Promise<string> {
+    if (this.platform !== "win32") return this.writePosixScript(stagedDir, daemonPid);
     const script = join(this.options.scratchDir, "apply-update.cmd");
     const install = this.options.installDir!, image = this.options.executableName;
     const exe = join(install, image), previous = `${install}.previous`, log = join(this.options.scratchDir, "apply-update.log");
@@ -235,6 +251,17 @@ export class Updater {
     ].join("\r\n"), "utf8");
     return script;
   }
+  /** macOS and Linux: the shell hand-over from hand-over.ts, written beside the download. */
+  private async writePosixScript(stagedDir: string, daemonPid: number | null): Promise<string> {
+    const script = join(this.options.scratchDir, "apply-update.sh");
+    await writeFile(script, posixHandOverScript({
+      platform: this.platform === "darwin" ? "darwin" : "linux",
+      target: this.options.installDir!, staged: stagedDir,
+      log: join(this.options.scratchDir, "apply-update.log"),
+      executableName: this.options.executableName, daemonPid,
+    }), { encoding: "utf8", mode: 0o700 });
+    return script;
+  }
   private set(phase: UpdatePhase, message: string, progress: number | null = null, release: ReleaseInfo | null = this.status.release, bytes: UpdateStatus["bytes"] = null): UpdateStatus {
     this.status = { phase, message, progress, release, bytes, updatedAt: new Date().toISOString() };
     return this.status;
@@ -244,6 +271,46 @@ export class Updater {
     this.busy = true;
     return this.set("applying", "Closing to finish the update. The app opens again by itself in a moment.", 1, this.status.release);
   }
+}
+
+const systemName = (platform: NodeJS.Platform): string =>
+  platform === "win32" ? "Windows" : platform === "darwin" ? "macOS" : platform === "linux" ? "Linux" : "this computer's";
+
+/** Why this copy cannot update itself, in plain words, or null when it can. */
+function unsupportedReason(options: UpdaterOptions, platform: NodeJS.Platform): string | null {
+  if (!options.assetName) return "Automatic updates are not available for this kind of computer yet. Download the newest version from GitHub instead.";
+  if (options.installDir) return null;
+  if (platform === "win32") return "Updates apply to the installed app only.";
+  if (options.packaged && platform === "darwin")
+    return "Updates apply to the installed app only. Move Branch Agent into your Applications folder, open it from there, and try again.";
+  return "Updates apply to the installed app only. This copy is running from its source code, so update it with `branch update` instead.";
+}
+
+/**
+ * macOS and Linux: the scratch folder can sit in a temp folder other people can write to (/tmp on
+ * Linux), so it must be a real folder owned by this person and closed to everyone else before the
+ * download and the hand-over script go into it.
+ */
+export async function ensurePrivateDir(dir: string): Promise<void> {
+  const info = await lstat(dir);
+  const uid = process.getuid?.();
+  if (!info.isDirectory() || info.isSymbolicLink() || (uid !== undefined && info.uid !== uid))
+    throw new Error("The update folder is not safe to use (it belongs to someone else). Restart the computer and try again.");
+  await chmod(dir, 0o700);
+}
+
+/** macOS: the unpacked `.app` bundle itself, wherever it sits in the download. */
+async function findBundle(root: string, bundleName: string): Promise<string> {
+  const queue = [root];
+  while (queue.length) {
+    const dir = queue.shift()!;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === bundleName) return join(dir, entry.name);
+      if (!entry.name.endsWith(".app")) queue.push(join(dir, entry.name));
+    }
+  }
+  throw new Error("The download did not contain the app.");
 }
 
 async function findExecutableDir(root: string, executableName: string): Promise<string> {
@@ -256,9 +323,30 @@ async function findExecutableDir(root: string, executableName: string): Promise<
   }
   throw new Error("The download did not contain the app.");
 }
+type RunFile = (file: string, args: string[]) => Promise<unknown>;
+const runFile: RunFile = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1048576 });
+
+/**
+ * The unpack command for macOS and Linux. macOS uses ditto, which keeps the links and permissions
+ * inside an app bundle that plain unzip would break.
+ */
+export function posixExtractCommand(platform: NodeJS.Platform, archive: string, into: string): [string, string[]] {
+  if (platform === "darwin") return ["/usr/bin/ditto", ["-x", "-k", archive, into]];
+  return ["tar", ["-xzf", archive, "-C", into]];
+}
+
+export async function expandArchive(archive: string, into: string, platform: NodeJS.Platform = process.platform, run: RunFile = runFile): Promise<void> {
+  if (platform !== "win32") {
+    const [file, args] = posixExtractCommand(platform, archive, into);
+    await run(file, args);
+    await stat(into);
+    return;
+  }
+  await expandWindowsArchive(archive, into);
+}
+
 /** Unpacks with the built-in tar (fast) and falls back to PowerShell's Expand-Archive when tar is missing. */
-async function expandArchive(archive: string, into: string): Promise<void> {
-  if (process.platform !== "win32") throw new Error("Automatic updates are available on Windows only.");
+async function expandWindowsArchive(archive: string, into: string): Promise<void> {
   const root = process.env.SystemRoot ?? "C:\\Windows";
   const tar = join(root, "System32", "tar.exe");
   try {

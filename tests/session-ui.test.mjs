@@ -1,8 +1,10 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { chromium } from 'playwright';
 import { createBranch } from '../dist/index.js';
 import { startServer } from '../dist/server.js';
@@ -29,7 +31,7 @@ async function fixture(t, complete) {
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close(); await server.close(); await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -40,7 +42,7 @@ async function fixture(t, complete) {
   return { app, page, source, original, errors };
 }
 async function readCheckpoint(page, query = 'Juniper checkpoint') {
-  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await openPlace(page, 'memory');
   await page.getByLabel('Search past conversations', { exact: true }).fill(query);
   await page.getByRole('button', { name: 'Search conversations', exact: true }).click();
   await page.locator('#history-results').getByRole('button', { name: 'Read message', exact: true }).first().click();
@@ -105,7 +107,7 @@ test('pending chat disables branching and conversation switching until its respo
   for (const selector of ['#new-session', '#send', '#conversation .conversation-switch', '#session-context .conversation-switch'])
     assert.equal(await f.page.locator(selector).first().isDisabled(), true);
   await f.page.locator('#new-session').evaluate(button => button.click());
-  await f.page.getByRole('button', { name: 'Memory', exact: true }).click();
+  await openPlace(f.page, 'memory');
   assert.equal(await f.page.locator('#history-message').getByRole('button', { name: 'Branch from here', exact: true }).isDisabled(), true);
   assert.equal(await f.page.locator('#history-message').getByRole('button', { name: 'Open conversation', exact: true }).isDisabled(), true);
   await f.page.locator('#chat-form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
@@ -120,15 +122,22 @@ test('pending chat disables branching and conversation switching until its respo
 
 test('failed branch view keeps its created ID and retry opens it without another branch', async (t) => {
   const f = await fixture(t, async () => ({ content: 'done', toolCalls: [] }));
-  let fail = true, branchRequests = 0;
+  let fail = false, branchRequests = 0;
   f.page.on('request', request => {
     if (request.url().endsWith('/api/action') && request.postDataJSON()?.tool === 'sessions.branch') branchRequests++;
   });
+  /* Only the view of the new branch is refused. The pattern also matches the conversation search
+     (and the label list, which searches in the background), and on a slow machine one of those
+     used to take the single refusal, so the branch opened fine and no retry ever appeared. */
   await f.page.route('**/api/sessions/*', route => {
-    if (fail) { fail = false; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture view unavailable"}' }); }
+    const view = route.request().method() === 'GET' && !route.request().url().endsWith('/api/sessions/search');
+    if (fail && view) { fail = false; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture view unavailable"}' }); }
     return route.continue();
   });
-  await branchCheckpoint(f.page);
+  await readCheckpoint(f.page);
+  fail = true;
+  await f.page.locator('#history-message').getByRole('button', { name: 'Branch from here', exact: true }).click();
+  await f.page.locator('#chat').waitFor({ state: 'visible' });
   const retry = f.page.getByRole('button', { name: 'Retry opening conversation', exact: true });
   await retry.waitFor(); await readyConversation(f.page);
   const id = await f.page.locator('#conversation').getAttribute('data-session-id');

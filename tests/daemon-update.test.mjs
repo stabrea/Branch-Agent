@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { discardTemp } from "./temp-dir.mjs";
 
 import { requestUpdateBackup, stopBackgroundEngine } from "../dist/install/background-engine.js";
 import { writeRunning, readRunning } from "../dist/install/running.js";
@@ -15,7 +16,7 @@ async function scratch(t) {
   const base = join(tmpdir(), "Codex-session-files");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "branch-daemon-update-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return root;
 }
 
@@ -49,6 +50,7 @@ async function updaterFor(root, name, extra = {}) {
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
     },
     backup: async () => {},
+    platform: "win32",
     ...extra,
   });
 }
@@ -107,6 +109,7 @@ test("the background engine is asked to close, forced if it will not, and the no
     run: async (file, args) => { calls.push([file, args]); living = false; return ""; },
     alive: () => living,
     sleep: async () => {},
+    platform: "win32",
   });
   assert.deepEqual(report, {
     pid: 40404, stopped: true, forced: false,
@@ -130,14 +133,14 @@ test("an engine that ignores the polite ask is ended, and one that never goes do
       living = false;
       return "";
     },
-    alive: () => living, sleep: async () => {},
+    alive: () => living, sleep: async () => {}, platform: "win32",
   });
   assert.deepEqual(args, [["/PID", "50505", "/T"], ["/PID", "50505", "/T", "/F"]]);
   assert.deepEqual([forced.pid, forced.stopped, forced.forced], [50505, true, true]);
 
   await noteFor(root, 60606);
   const stubborn = await stopBackgroundEngine(root, {
-    run: async () => "", alive: () => true, sleep: async () => {}, waitMs: 0,
+    run: async () => "", alive: () => true, sleep: async () => {}, waitMs: 0, platform: "win32",
   });
   assert.deepEqual([stubborn.pid, stubborn.stopped], [60606, false]);
   assert.match(stubborn.message, /did not close in time; the update will close it/);
@@ -159,7 +162,12 @@ test("waiting for the engine watches a real process until it is really gone", as
   t.after(() => { try { child.kill(); } catch { /* already gone */ } });
   await noteFor(root, child.pid);
   const ended = once(child, "exit");
-  const report = await stopBackgroundEngine(root, { run: async () => { child.kill(); return ""; } });
+  const report = await stopBackgroundEngine(root, {
+    // Windows: taskkill ends the child. macOS and Linux: the system names the engine script for that
+    // process id, nothing answers on the noted address, so the stop signal ends the child.
+    run: async (file) => { if (file === "/bin/ps") return "/opt/app/resources/app/dist/cli.js start"; child.kill(); return ""; },
+    fetch: async () => { throw new Error("nothing is listening"); },
+  });
   await ended;
   assert.deepEqual([report.pid, report.stopped], [child.pid, true]);
   assert.equal(await readRunning(root), null);

@@ -153,6 +153,33 @@ async function rules(
 }
 
 /**
+ * Batch 20 (wave 8): the logs route. Everything a task wrote down, newest first, as one JSON
+ * object per line — the shape a log shipper reads without being taught anything. It needs the same
+ * local key as every other route, it answers only the owner's own tasks, and it is filtered with
+ * `run`, `kind` (comma-separated) and `limit`. Saved passwords and keys are taken back out on the
+ * way, the same as everywhere else.
+ *
+ * There is deliberately no Grafana or Loki client here: a collector of the owner's already reads
+ * OpenTelemetry, so the way to Grafana is to point one at the OTLP address under Settings → Tracing
+ * rather than to teach Branch a second protocol. See docs/configuration.md.
+ */
+export function logsResponse(app: Branch, request: IncomingMessage, response: ServerResponse): void {
+  app.store.profiles.requireOwner("What your tasks wrote down");
+  const query = new URL(request.url ?? "/", "http://local").searchParams;
+  const kinds = (query.get("kind") ?? "").split(",").map((kind) => kind.trim()).filter(Boolean).slice(0, 20);
+  const limit = Math.min(Math.max(Number(query.get("limit") ?? 200) || 200, 1), 2000);
+  const runId = query.get("run");
+  const rows = runId ? app.store.events(runId) : app.store.recentEvents(app.runtime.owner, limit);
+  const mine = runId && app.store.run(runId)?.owner !== app.runtime.owner ? [] : rows;
+  const lines = mine
+    .filter((event) => !kinds.length || kinds.includes(event.kind))
+    .slice(0, limit)
+    .map((event) => app.runtime.hideSecrets(JSON.stringify(event)));
+  response.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" });
+  response.end(lines.length ? lines.join("\n") + "\n" : "");
+}
+
+/**
  * The counters, as the plain text a monitoring tool scrapes. It writes its own answer because the
  * format is text rather than JSON; the same local key protects it as every other route.
  */

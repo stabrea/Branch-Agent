@@ -1,6 +1,6 @@
 {
   "name": "branch-agent",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
   "type": "module",
@@ -11,6 +11,17 @@
   "exports": {
     ".": "./dist/index.js"
   },
+  "bin": {
+    "branch": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "public",
+    "data",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "scripts": {
     "build": "tsc && node scripts/copy-fonts.mjs && node scripts/copy-suites.mjs && node scripts/copy-data.mjs",
     "pretest": "node -e \"require('electron')\"",
@@ -20,8 +31,9 @@
     "demo": "npm run build && node dist/cli.js demo",
     "doctor": "npm run build && node dist/cli.js doctor",
     "desktop": "npm run build && electron .",
-    "package:desktop": "npm run build && electron scripts/prepare-icon.cjs && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs",
-    "docs:providers": "node scripts/docs-providers.mjs"
+    "package:desktop": "npm run build && node scripts/dependency-notices.mjs && node scripts/package-desktop.mjs",
+    "docs:providers": "node scripts/docs-providers.mjs",
+    "pack:cli": "npm run build && node scripts/pack-cli.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

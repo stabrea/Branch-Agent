@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { BranchShell, registerShell } from "../dist/integrations/shell.js";
@@ -18,8 +19,16 @@ async function fixture(t) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets: [
     { id: "alpha", name: "Alpha", provider: alpha, model: "a" }, { id: "beta", name: "Beta", provider: beta, model: "b" },
   ] });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
-  return { app, root, alpha, beta };
+  /* What a test opens on top of the app (a server) is shut first, then the app, then the folder, all in
+     one hook: node runs separate hooks in the order they were added, which here was app and folder
+     before the server still using them, and on Windows that left the file running long after it passed. */
+  const closing = [];
+  t.after(async () => {
+    for (const close of closing.reverse()) await close();
+    await app.close();
+    await discardTemp(root);
+  });
+  return { app, root, alpha, beta, closing };
 }
 
 test("switching projects changes instructions and the preferred model; the default project always exists", async (t) => {
@@ -82,9 +91,9 @@ test("secrets are encrypted at rest, scoped to the active project, injected only
 });
 
 test("HTTP API manages projects and secret names without ever returning a value", async (t) => {
-  const { app, root } = await fixture(t);
+  const { app, root, closing } = await fixture(t);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(() => server.close());
+  closing.push(() => server.close());
   const call = async (path, body) => {
     const response = await fetch(server.url + "/api/" + path, {
       method: body === undefined ? "GET" : "POST",

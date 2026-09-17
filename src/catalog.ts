@@ -21,12 +21,23 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["files", ["files.", "workspace.", "folders."]],
   ["code", ["code.", "terminal.", "shell.", "build.", "tests.", "lint.", "patch.", "process.", "debug.", "artifacts."]],
   ["git", ["git.", "github.", "gitlab."]],
+  // Another computer reached over SSH: its files and the few programs it is allowed to run. It has
+  // a box of its own rather than sharing "files", because everything in it is somewhere else.
+  ["remote", ["remote."]],
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
-  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs."]],
-  ["documents", ["documents.", "pdf.", "library."]],
+  // "learning." is the learning core's one read-only question about what worked before (src/fly-core).
+  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning."]],
+  // Wave 8: the to-do list is a box of its own rather than a corner of memory. Filing it under
+  // memory reads tidier, but it put three more tools into a box almost every task opens, and the
+  // opened-catalog budget in tests/catalog-diet.test.mjs is there to stop exactly that. A box of
+  // its own costs one line while it is closed and is opened only when the owner wants a to-do.
+  ["todos", ["todos."]],
+  // Wave 8: the Obsidian bridge writes documents into a folder and reads them back, so it is a
+  // documents tool under a different name.
+  ["documents", ["documents.", "pdf.", "library.", "obsidian."]],
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],
@@ -36,7 +47,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["schedules", ["schedules.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue."]],
   ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
-  ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models."]],
+  // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
+  // set up, so they file under settings rather than opening a box of their own for two tools.
+  ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models.", "context."]],
   // A service the owner turned into tools from its own OpenAPI description. These have their own
   // box rather than the unrecognised one, which closes as soon as there are more than a dozen
   // things in it — one ordinary document can bring far more tools than that on its own.
@@ -51,6 +64,25 @@ export function inferToolGroup(name: string): string {
 }
 
 /** The tool that opens a collapsed toolbox. Handled by the runtime, not by the registry. */
+/**
+ * One line per tool when a box is opened, so the answer stays the same size however many tools the
+ * box grows to hold. Opening the three largest boxes at once had crept to within 27 characters of
+ * the limit, which meant the next tool anybody registered would have broken an unrelated test;
+ * trimming descriptions by hand only ever buys that back once. The whole description is still one
+ * `tools.describe` away.
+ */
+const listingLimit = 90;
+export function shorten(description: string): string {
+  const text = description.trim();
+  if (text.length <= listingLimit) return text;
+  const sentence = text.slice(0, listingLimit + 2).match(/^(.*?[.!?])\s/);
+  if (sentence?.[1] && sentence[1].length <= listingLimit) return sentence[1];
+  // The ellipsis counts too, so the clip leaves room for it rather than going one over the cap.
+  const room = listingLimit - 1;
+  const cut = text.lastIndexOf(" ", room);
+  return text.slice(0, cut > 40 ? cut : room).trimEnd() + "…";
+}
+
 export const expandToolName = "tools.expand";
 /** Longest tool description sent to the model; the rest stays in the tool's own documentation. */
 export const maxToolDescriptionChars = 200;
@@ -209,7 +241,7 @@ export class ToolCatalog {
     return {
       opened, unknown,
       tools: this.all.filter((tool) => inOpened.has(this.groupOf(tool.name)))
-        .map((tool) => ({ name: tool.name, description: tool.description })),
+        .map((tool) => ({ name: tool.name, description: shorten(tool.description) })),
     };
   }
   /** Remembers that a tool was called, so it stays visible for the next few rounds. */

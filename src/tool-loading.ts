@@ -132,6 +132,12 @@ export class ToolLoader {
   /** What history said to load before the first round, and why. */
   preloadedFromHistory(): PreloadedTool[] { return [...this.preloaded]; }
   /**
+   * The toolboxes the assistant opened for itself in this task, as opposed to the ones that are
+   * always open or were guessed from the words of the request. These are the ones worth carrying
+   * into the next task in the same conversation: an explicit ask is not a guess.
+   */
+  openedToolboxes(): string[] { return [...this.openedGroups]; }
+  /**
    * Takes in tools that arrived while the task was working — a server that has just connected, a
    * plugin the owner switched on — so they are searchable from the next round. Everything the task
    * has already opened, found or used is kept.
@@ -251,10 +257,15 @@ export class ToolLoader {
   private plan(): Plan {
     if (this.cached && this.cached.at === this.version) return this.cached.plan;
     const terms = queryTerms(this.signals);
-    const scored = this.index.entries.map((entry) => {
+    // Ties are broken by the order tools were registered in, never by their names. Opening a large
+    // toolbox scores most of its tools the same, so the cap below decides which of them travel; when
+    // that decision went alphabetically, registering one new tool whose name happened to sort early
+    // silently pushed an existing one out, and the test that noticed was in another area entirely.
+    // Registration order keeps what is already there in place and puts anything new at the back.
+    const scored = this.index.entries.map((entry, at) => {
       const lexical = this.index.score(terms, entry);
-      return { entry, lexical, score: lexical + this.bonusFor(entry) };
-    }).sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
+      return { entry, at, lexical, score: lexical + this.bonusFor(entry) };
+    }).sort((a, b) => b.score - a.score || a.at - b.at);
     const core = scored.filter((hit) => hit.entry.group === "core").map((hit) => hit.entry);
     const rest = scored.filter((hit) => hit.entry.group !== "core");
     const candidates = rest.filter((hit) => hit.score > 0 && (this.asked.has(hit.entry.name)

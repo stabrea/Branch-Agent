@@ -61,7 +61,7 @@ export class ToolRegistry {
         const described: ToolDescription = {
           name: t.name,
           description: t.description,
-          parameters: t.inputSchema ?? (z.toJSONSchema(t.parameters) as Record<string, unknown>),
+          parameters: wireSafePatterns(t.inputSchema ?? (z.toJSONSchema(t.parameters) as Record<string, unknown>)),
         };
         return options.diet === false ? described : slimTool(described);
       });
@@ -115,4 +115,21 @@ export class ToolRegistry {
       throw new Error("Tool output exceeds 64 KiB limit");
     return result;
   }
+}
+
+/**
+ * ChatGPT's backend gives up on a request, with no tokens used, when a tool's `pattern` holds the
+ * `\0` escape. `\x00` means the same character to every regex engine and is accepted, so patterns
+ * are rewritten on the way out; the tool itself still validates with its original schema.
+ */
+export function wireSafePatterns<T>(schema: T): T {
+  if (Array.isArray(schema)) return schema.map(wireSafePatterns) as T;
+  if (!schema || typeof schema !== "object") return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    out[key] = key === "pattern" && typeof value === "string"
+      ? value.replace(/(?<!\\)((?:\\\\)*)\\0(?![0-9])/g, "$1\\x00")
+      : wireSafePatterns(value);
+  }
+  return out as T;
 }

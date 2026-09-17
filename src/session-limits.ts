@@ -1,0 +1,141 @@
+import { z } from "zod";
+import { audit } from "./audit.js";
+import type { Store } from "./store.js";
+
+/**
+ * How much one conversation, or one person messaging Branch from outside, may ask for in a given
+ * minute and in a given hour. The approval settings already paced the owner's own tool calls by
+ * making them wait; what was missing was a ceiling that counts, and a different answer for somebody
+ * who is not the owner: the owner is held back for a moment, a stranger is told plainly to wait and
+ * their message is let go rather than queued behind everybody else's.
+ *
+ * The windows are fixed rather than sliding, deliberately: a fixed window is something the owner
+ * can reason about ("twenty a minute") and see reset, and it is countable without keeping a list of
+ * every request that ever happened.
+ */
+export const SessionLimitsSchema = z.object({
+  /** Most questions one conversation may ask in a minute; 0 means no limit. */
+  requestsPerMinute: z.number().int().min(0).max(1000).default(0),
+  /** Most tokens one conversation may spend in an hour; 0 means no limit. */
+  tokensPerHour: z.number().int().min(0).max(50_000_000).default(0),
+  /** The same two, for one person messaging Branch through a chat account. */
+  senderRequestsPerMinute: z.number().int().min(0).max(1000).default(0),
+  senderTokensPerHour: z.number().int().min(0).max(50_000_000).default(0),
+}).strict();
+export type SessionLimits = z.infer<typeof SessionLimitsSchema>;
+
+const limitsKey = "session-limits";
+export function sessionLimits(store: Store, owner: string): SessionLimits {
+  const saved = SessionLimitsSchema.safeParse(store.get("settings", owner, limitsKey)?.data ?? {});
+  return saved.success ? saved.data : SessionLimitsSchema.parse({});
+}
+export function saveSessionLimits(store: Store, owner: string, input: unknown): SessionLimits {
+  const value = SessionLimitsSchema.parse(input ?? {});
+  store.save("settings", owner, limitsKey, { ...value });
+  return value;
+}
+
+/** Who is asking. The owner waits; anybody else is turned away with a sentence. */
+export type LimitScope = "conversation" | "sender";
+export interface LimitRequest {
+  scope: LimitScope;
+  /** The conversation's id, or the chat account and the person's handle. */
+  id: string;
+  /** Tokens this request is expected to spend; 0 when only the request itself is being counted. */
+  tokens?: number;
+}
+export interface LimitVerdict {
+  ok: boolean;
+  /** How long the owner is made to wait before this goes through; 0 when nothing is in the way. */
+  waitMs: number;
+  /** For anybody but the owner: the one sentence they are sent instead of an answer. */
+  reason: string;
+  /** Which ceiling was reached, for the record. */
+  limit: "" | "requests" | "tokens";
+}
+
+const minuteMs = 60_000, hourMs = 3_600_000;
+const allowed: LimitVerdict = { ok: true, waitMs: 0, reason: "", limit: "" };
+
+/**
+ * The counter. It keeps one number per window per key and forgets a window as soon as a later one
+ * is asked about, so nothing grows without bound however many conversations there have been.
+ */
+export class SessionLimiter {
+  private readonly requests = new Map<string, { window: number; count: number }>();
+  private readonly tokens = new Map<string, { window: number; count: number }>();
+  constructor(
+    private readonly store: Store, private readonly owner: string,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
+
+  private ceilings(scope: LimitScope): { requests: number; tokens: number } {
+    const limits = sessionLimits(this.store, this.owner);
+    return scope === "sender"
+      ? { requests: limits.senderRequestsPerMinute, tokens: limits.senderTokensPerHour }
+      : { requests: limits.requestsPerMinute, tokens: limits.tokensPerHour };
+  }
+
+  /**
+   * Whether this request may go ahead. When it may, it is counted; when it may not, nothing is
+   * counted, so being turned away does not make the next minute worse.
+   */
+  check(request: LimitRequest, who: "owner" | "stranger"): LimitVerdict {
+    const ceilings = this.ceilings(request.scope);
+    const at = this.now(), key = `${request.scope}\u0000${request.id}`;
+    const perMinute = this.reached(this.requests, key, at, minuteMs, ceilings.requests, 1);
+    if (perMinute) return this.refuse(request, who, "requests", ceilings.requests, minuteMs - (at % minuteMs));
+    const perHour = this.reached(this.tokens, key, at, hourMs, ceilings.tokens, request.tokens ?? 0);
+    if (perHour) {
+      // The request itself was already counted; take it back, so a refusal costs nothing.
+      const minute = this.requests.get(key);
+      if (minute) minute.count -= 1;
+      return this.refuse(request, who, "tokens", ceilings.tokens, hourMs - (at % hourMs));
+    }
+    return allowed;
+  }
+
+  /** Counts one request against a window, and says whether that took it past the ceiling. */
+  private reached(
+    counters: Map<string, { window: number; count: number }>, key: string,
+    at: number, size: number, ceiling: number, cost: number,
+  ): boolean {
+    if (ceiling <= 0 || cost <= 0) return false;
+    const window = Math.floor(at / size);
+    const entry = counters.get(key);
+    const current = entry && entry.window === window ? entry : { window, count: 0 };
+    if (current.count + cost > ceiling) { counters.set(key, current); return true; }
+    current.count += cost;
+    counters.set(key, current);
+    return false;
+  }
+
+  private refuse(
+    request: LimitRequest, who: "owner" | "stranger", limit: "requests" | "tokens",
+    ceiling: number, untilMs: number,
+  ): LimitVerdict {
+    const seconds = Math.max(1, Math.ceil(untilMs / 1000));
+    const what = limit === "requests"
+      ? `${ceiling} questions a minute`
+      : `${ceiling.toLocaleString("en-GB")} words' worth of thinking an hour`;
+    audit(this.store, this.owner, {
+      action: "limit.reached", actor: request.id, subject: `${request.scope}: ${what}`,
+      reason: who === "owner" ? "The owner's own task was held back for a moment" : "A message from outside was let go",
+      outcome: who === "owner" ? "queued" : "discarded",
+    });
+    return who === "owner"
+      ? { ok: false, waitMs: untilMs, reason: "", limit }
+      : { ok: false, waitMs: 0, limit,
+          reason: `That is as much as Branch will do for one person right now — ${what}. Try again in about ${seconds < 60 ? `${seconds} seconds` : `${Math.ceil(seconds / 60)} minutes`}.` };
+  }
+
+  /** What one conversation or sender has used inside the current windows, for the settings screen. */
+  used(request: LimitRequest): { requests: number; tokens: number } {
+    const at = this.now(), key = `${request.scope}\u0000${request.id}`;
+    const minute = this.requests.get(key), hour = this.tokens.get(key);
+    return {
+      requests: minute && minute.window === Math.floor(at / minuteMs) ? minute.count : 0,
+      tokens: hour && hour.window === Math.floor(at / hourMs) ? hour.count : 0,
+    };
+  }
+}

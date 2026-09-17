@@ -2,6 +2,7 @@
 // themselves — a Notepad window and a small window of their own standing in for a password
 // manager — and every one of them is closed again, whether the test passes or fails.
 import test from "node:test";
+import { openSettingFor } from "./places.mjs";
 // These tests drive a real Notepad window and show the Stop banner on whoever's screen this runs
 // on. They only run when a person asks for them: set BRANCH_SCREEN_TESTS=1.
 if (process.env.BRANCH_SCREEN_TESTS !== "1") {
@@ -13,6 +14,7 @@ import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, isReadOnlyPermission, savePolicy } from "../dist/index.js";
 import {
@@ -29,7 +31,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function fixture(t, provider) {
   const root = await mkdtemp(join(tmpdir(), "branch-screen-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const run = app.store.createRun("local", "screen control fixture");
   return { app, root, run, context: () => app.runtime.context({ runId: run.id }) };
 }
@@ -249,7 +251,7 @@ test("the Settings card starts unticked and ticking it is what turns the tools o
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.addInitScript((token) => sessionStorage.setItem("branch-token", token), server.token);
   await page.goto(server.url);
-  await page.getByRole("button", { name: "Settings" }).first().click();
+  await openSettingFor(page, "#desktop-enabled");
   const toggle = page.locator("#desktop-enabled");
   await toggle.waitFor();
   assert.equal(await toggle.isChecked(), false, "the card opens unticked");

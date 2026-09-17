@@ -13,8 +13,11 @@ import { CachedEmbeddings, EmbeddingCache, embeddingConnection, embeddingsFor, n
   textFingerprint, type EmbeddingLedger } from "./embeddings.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { ModelRouter } from "./models.js";
+import { filterIsSet, filterSql, nothingMatchedNote, RetrievalFilterSchema,
+  type RetrievalFilter } from "./retrieval-filters.js";
 import type { Store } from "./store.js";
 import { SqliteVectors, comfortableChunkCount, type VectorBackend } from "./vector-store.js";
+import { chooseVectorStore, VectorStoreSettingsSchema, type VectorStoreSettings } from "./vector-store-file.js";
 import type { RerankablePassage } from "./documents.js";
 
 /**
@@ -55,6 +58,8 @@ export const KnowledgeSearchSchema = z.object({
   collection: z.string().trim().min(1).max(120).optional(),
   query: z.string().trim().min(1).max(500),
   limit: z.number().int().min(1).max(10).default(5),
+  /** Narrow the search before anything is ranked; see src/retrieval-filters.ts. */
+  filter: RetrievalFilterSchema.optional(),
 }).strict();
 
 export interface CollectionInfo {
@@ -83,7 +88,10 @@ export interface KnowledgeHit {
 
 export class KnowledgeBases {
   private readonly db: DatabaseSync;
-  readonly vectors: VectorBackend;
+  /** Where the lists of numbers are kept. Swapped when the owner names a file of their own. */
+  vectors: VectorBackend;
+  /** The sentence to show when the file the owner chose could not be opened; empty when all is well. */
+  backendNote = "";
   readonly cache: EmbeddingCache;
   /** False only where this build of SQLite has no full-text search; every collection is then read whole. */
   readonly ranked: boolean;
@@ -135,6 +143,25 @@ export class KnowledgeBases {
     this.store.save("settings", owner, "knowledge", value);
     return value;
   }
+  /** Where the owner has asked for their vectors to live. */
+  vectorStoreSettings(owner: string): VectorStoreSettings {
+    const saved = VectorStoreSettingsSchema.safeParse(this.store.get("settings", owner, "vector-store")?.data ?? {});
+    return saved.success ? saved.data : VectorStoreSettingsSchema.parse({});
+  }
+  /**
+   * Moves where new vectors are written. The change takes at once, so the owner sees a refusal now
+   * rather than after a long reading; nothing is deleted from the place they were in before, and
+   * the new place fills up the next time the knowledge base is read.
+   */
+  chooseVectorStore(owner: string, input: unknown): { settings: VectorStoreSettings; backend: string; note: string } {
+    const settings = VectorStoreSettingsSchema.parse({ ...this.vectorStoreSettings(owner), ...(input as object) });
+    const chosen = chooseVectorStore(settings, new SqliteVectors(this.db));
+    this.store.save("settings", owner, "vector-store", settings);
+    if (this.vectors !== chosen.backend) this.vectors.close?.();
+    this.vectors = chosen.backend;
+    this.backendNote = chosen.note;
+    return { settings, backend: chosen.backend.name, note: chosen.note };
+  }
   private createIndex(): boolean {
     const available = this.db.prepare("PRAGMA compile_options").all()
       .some((row) => String(row.compile_options).toUpperCase() === "ENABLE_FTS5");
@@ -162,10 +189,10 @@ export class KnowledgeBases {
     const id = String(row.id);
     const counts = this.db.prepare(`SELECT COUNT(*) AS chunks, COUNT(DISTINCT doc_id) AS documents
       FROM kb_chunks WHERE owner=? AND collection=?`).get(owner, id);
-    // The shipped backend keeps its vectors here; another backend simply reports none from this view.
+    // Asked of whichever backend the vectors are actually in, so pointing them at another file
+    // does not make every card read "0 matched by meaning" as though the reading had failed.
     let embedded = 0;
-    try { embedded = Number(this.db.prepare("SELECT COUNT(*) AS n FROM vectors WHERE owner=? AND collection=?").get(owner, id)?.n ?? 0); }
-    catch { embedded = 0; }
+    try { embedded = this.vectors.countNow?.(owner, id) ?? 0; } catch { embedded = 0; }
     return {
       id, name: String(row.name), sources: JSON.parse(String(row.sources)) as CollectionSource[],
       model: String(row.model ?? ""), attached: Number(row.attached) === 1,
@@ -185,7 +212,8 @@ export class KnowledgeBases {
       collections: this.list(owner), meaningSearch: this.meaningSearchReady(owner),
       model: embeddingConnection(this.models, owner)?.model ?? "",
       onThisComputer: embeddingConnection(this.models, owner)?.local ?? false,
-      ranked: this.ranked, backend: this.vectors.name, limits: this.settings(owner),
+      ranked: this.ranked, backend: this.vectors.name, backendNote: this.backendNote,
+      vectorStore: this.vectorStoreSettings(owner), limits: this.settings(owner),
       readingNow: [...this.latest.values()].filter((entry) => !entry.finished),
     };
   }
@@ -264,11 +292,19 @@ export class KnowledgeBases {
     }
     return [...new Set(found)].slice(0, maximumFiles);
   }
+  /**
+   * Folders the assistant writes itself, which are never the owner's own material. Set once at
+   * start-up; the mirror of what is remembered is the one that uses it. Reading those back in would
+   * have a knowledge base quote the assistant's own notes as though they were a document of the
+   * owner's, which is a circle worth refusing rather than explaining afterwards.
+   */
+  skip: (path: string) => boolean = () => false;
   private async walk(folder: string, found: string[], depth: number): Promise<void> {
     if (depth > 4 || found.length >= maximumFiles || !this.files) return;
     const listing = await this.files.list(folder || ".").catch(() => ({ entries: [] as { name: string; type: string }[] }));
     for (const entry of listing.entries) {
       const path = folder ? `${folder}/${entry.name}` : entry.name;
+      if (this.skip(path)) continue;
       if (entry.type === "directory") await this.walk(path, found, depth + 1);
       else if (readableFile(path)) found.push(path);
     }
@@ -292,6 +328,22 @@ export class KnowledgeBases {
     // The card is searchable by its words at once. Comparing it by meaning waits for the next
     // reading of the collection or the nightly pass, so accepting a suggestion never stalls.
     return { collection: current.id, docId, chunks: chunks.length };
+  }
+
+  /**
+   * One document put into a collection from words already read elsewhere — a knowledge base brought
+   * back from a saved copy, or a picture somebody described. It is cut and stored exactly as a file
+   * from the workspace is, so a search finds it and cites it the same way.
+   */
+  putDocument(
+    owner: string, collection: string, document: { docId: string; title: string; text: string },
+  ): { collection: string; docId: string; chunks: number } {
+    const current = this.one(owner, collection);
+    this.forgetChunkRows(owner, current.id, document.docId);
+    const chunks = chunkDocument({ key: document.docId, title: document.title.slice(0, 200), text: document.text, markdown: true });
+    this.writeChunks(owner, current.id, document.docId, chunks);
+    this.noteDocument(owner, current.id, document.docId, textFingerprint(document.text, "file"), "");
+    return { collection: current.id, docId: document.docId, chunks: chunks.length };
   }
 
   /** The files of this collection that could not be read, with the reason for each. */
@@ -445,10 +497,40 @@ export class KnowledgeBases {
 
   /** Word ranking and meaning ranking merged, then the second pass, with a citation on every answer. */
   async search(owner: string, input: unknown, signal = AbortSignal.timeout(30000)): Promise<KnowledgeHit[]> {
-    const { collection, query, limit } = KnowledgeSearchSchema.parse(input);
+    return (await this.searchWithNote(owner, input, signal)).hits;
+  }
+  /**
+   * The same search, with the sentence a filter that matched nothing has to say. A plain list cannot
+   * tell "nothing in those invoices" apart from "nothing anywhere", and the difference matters: the
+   * first means the filter worked and the answer is honestly empty, and somebody has to be told that
+   * rather than be handed passages from outside what they asked for.
+   */
+  async searchWithNote(
+    owner: string, input: unknown, signal = AbortSignal.timeout(30000),
+  ): Promise<{ hits: KnowledgeHit[]; note: string }> {
+    const { collection, query, limit, filter } = KnowledgeSearchSchema.parse(input);
     const target = collection ? this.one(owner, collection) : null;
-    const rows = this.candidateRows(owner, target?.id, query);
-    if (!rows.length) return [];
+    const narrowing = filterIsSet(filter) ? filter : undefined;
+    const rows = this.candidateRows(owner, target?.id, query, narrowing);
+    if (!rows.length)
+      return { hits: [], note: narrowing ? nothingMatchedNote(narrowing, this.collectionWords(owner)) : "" };
+    const hits = await this.rankRows(owner, rows, { collection, query, limit }, signal);
+    // Passages survived the filter but nothing came through the ranking or the active project's own
+    // list: still an honest nothing, and still not a reason to answer from outside the filter.
+    if (!hits.length && narrowing) return { hits, note: nothingMatchedNote(narrowing, this.collectionWords(owner)) };
+    return { hits, note: "" };
+  }
+  /** Every name and id a filter may have meant, so an unknown one can be named back to the owner. */
+  private collectionWords(owner: string): string[] {
+    return this.list(owner).flatMap((entry) => [entry.name, entry.id]);
+  }
+  /** Word ranking and meaning ranking merged over an already-narrowed set of passages. */
+  private async rankRows(
+    owner: string, rows: Record<string, unknown>[],
+    asked: { collection?: string | undefined; query: string; limit: number }, signal: AbortSignal,
+  ): Promise<KnowledgeHit[]> {
+    const { collection, query, limit } = asked;
+    const target = collection ? this.one(owner, collection) : null;
     // Wave 8: with no knowledge base named, the active project's own list narrows the search.
     const scope = collection ? null : this.projectScope(owner);
     const byId = new Map(rows.map((row) => [String(row.chunk_id), row]));
@@ -472,19 +554,41 @@ export class KnowledgeBases {
     const wanted = this.store.projects.defaults(owner).knowledgeBases;
     return wanted.length ? new Set(wanted) : null;
   }
-  /** The passages worth ranking: narrowed by full-text search where the database offers it. */
-  private candidateRows(owner: string, collection: string | undefined, query: string): Record<string, unknown>[] {
+  /**
+   * The passages worth ranking: narrowed by full-text search where the database offers it, and by
+   * the owner's filter first. The filter goes into **both** ways of finding candidates. Putting it
+   * on only the quick one would mean that whenever full-text search happened to find nothing the
+   * search quietly fell back to every passage the owner has, which is the exact failure a filter
+   * exists to prevent.
+   */
+  private candidateRows(
+    owner: string, collection: string | undefined, query: string, filter?: RetrievalFilter,
+  ): Record<string, unknown>[] {
+    const narrow = filter
+      ? filterSql(filter, this.resolveCollections(owner, filter.collections ?? []))
+      : { clause: "", params: [] as string[], needsDocuments: false };
+    const join = narrow.needsDocuments
+      ? "LEFT JOIN kb_documents d ON d.owner=c.owner AND d.collection=c.collection AND d.doc_id=c.doc_id" : "";
     const where = collection ? "AND c.collection=?" : "";
     const scope = collection ? [owner, collection] : [owner];
     const words = query.match(/[\p{L}\p{N}]+/gu)?.slice(0, 32) ?? [];
     if (this.ranked && words.length) {
       const expression = words.map((word) => `"${word.replace(/"/g, "")}"`).join(" OR ");
-      const hits = this.db.prepare(`SELECT c.* FROM kb_search JOIN kb_chunks c ON c.row_id=kb_search.rowid
-        WHERE kb_search MATCH ? AND c.owner=? ${where} ORDER BY bm25(kb_search) LIMIT ?`)
-        .all(expression, ...scope, candidates * 4);
+      const hits = this.db.prepare(`SELECT c.* FROM kb_search JOIN kb_chunks c ON c.row_id=kb_search.rowid ${join}
+        WHERE kb_search MATCH ? AND c.owner=? ${where}${narrow.clause} ORDER BY bm25(kb_search) LIMIT ?`)
+        .all(expression, ...scope, ...narrow.params, candidates * 4);
       if (hits.length) return hits;
     }
-    return this.db.prepare(`SELECT c.* FROM kb_chunks c WHERE c.owner=? ${where} LIMIT ?`).all(...scope, 2000);
+    return this.db.prepare(`SELECT c.* FROM kb_chunks c ${join} WHERE c.owner=? ${where}${narrow.clause} LIMIT ?`)
+      .all(...scope, ...narrow.params, 2000);
+  }
+  /** The ids behind the knowledge-base names a filter used; one nobody has simply resolves to none. */
+  private resolveCollections(owner: string, wanted: string[]): string[] {
+    const known = this.list(owner);
+    return wanted.flatMap((name) => {
+      const found = known.find((entry) => entry.id === name || entry.name.toLowerCase() === name.toLowerCase());
+      return found ? [found.id] : [];
+    });
   }
   private async meaningMatches(owner: string, collection: string | undefined, query: string, signal: AbortSignal): Promise<string[]> {
     const reader = this.embeddings(owner);
@@ -519,17 +623,22 @@ export class KnowledgeBases {
     if (!found.length) return null;
     const chosen = found.sort((a, b) => b.score - a.score).slice(0, 3);
     const citations = new Citations();
+    /* The knowledge base is named on every passage, not only the file inside it. A fact the owner
+       accepted into a collection weeks ago has to be answerable with "this came from your
+       knowledge base X", or the person cannot tell a remembered fact from a guess. */
     const blocks = chosen.map((hit) => {
-      const citation = citations.add({ url: `document:${hit.collection}/${hit.documentId}`, title: citationTitle(hit), quote: hit.text });
-      return `[${citation.number}] From "${citationTitle(hit)}":\n${hit.text}`;
+      const citation = citations.add({ url: `document:${hit.collection}/${hit.documentId}`, title: namedSource(hit), quote: hit.text });
+      return `[${citation.number}] From your knowledge base "${hit.collectionName}", ${citationTitle(hit)}:\n${hit.text}`;
     });
     return {
       text: `${blocks.join("\n\n")}\n\n${citations.markdown("Sources in your knowledge bases")}`,
-      sources: [...new Set(chosen.map((hit) => citationTitle(hit)))], citations: citations.list(),
+      sources: [...new Set(chosen.map(namedSource))], citations: citations.list(),
     };
   }
 }
 
+/** The same line with the knowledge base in front of it, so the source names the collection. */
+export const namedSource = (hit: KnowledgeHit): string => `${hit.collectionName} › ${citationTitle(hit)}`;
 /** The one line that tells the person where a passage came from: file, heading and page. */
 export function citationTitle(hit: KnowledgeHit): string {
   const parts = [hit.documentName, hit.heading, hit.page === null ? "" : `page ${hit.page}`].filter(Boolean);

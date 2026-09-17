@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { Bm25 } from "../dist/bm25.js";
 import { chunkDocument, chunkId, markdownSections, paragraphWindows } from "../dist/chunking.js";
@@ -64,7 +65,7 @@ async function fixture(t, provider) {
   const workspace = join(root, "workspace");
   await mkdir(workspace, { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace };
 }
 const handbook = `# Handbook
@@ -415,7 +416,7 @@ test("R7 a secret file in the folder is never cut into passages or sent anywhere
   await writeFile(join(workspace, "company", "handbook.md"), handbook, "utf8");
   await writeFile(join(workspace, "company", ".env"), "OPENAI_API_KEY=sk-super-secret-value\n", "utf8");
   await writeFile(join(workspace, "company", "credentials.json"), '{"token":"sk-also-secret"}', "utf8");
-  await writeFile(join(workspace, "company", "id_rsa"), "-----BEGIN PRIVATE KEY-----secret", "utf8");
+  await writeFile(join(workspace, "company", "id_rsa"), "-----BEGIN PRIVATE KEY-----secret", "utf8");  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   await writeFile(join(workspace, "company", "server.pem"), "-----BEGIN CERTIFICATE-----secret", "utf8");
 
   // A folder holding secrets, and the same secrets named one by one, must both come to nothing.

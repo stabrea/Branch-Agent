@@ -5,10 +5,12 @@
  * trajectory, the live event feed, the month view and the metering export.
  */
 import test from "node:test";
+import { openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, modelsUrl, probeProvider, googleRefusedSignIn } from "../dist/index.js";
 import { GeminiProvider } from "../dist/providers/gemini.js";
@@ -25,7 +27,7 @@ export async function served(t, provider) {
     ...(provider ? { provider } : {}),
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
       method,
@@ -327,7 +329,7 @@ test("D1 comparing two tasks shows both sets of figures and the difference betwe
     await page.waitForFunction((word) => document.getElementById("conversation").textContent.includes(word), prompt, { timeout: 20000 });
     await page.locator("#new-session").click();
   }
-  await page.locator('[data-view="runs"]').first().click();
+  await openPlace(page, "runs");
   const picks = page.locator(".compare-pick");
   await picks.first().waitFor();
   assert.equal(await picks.count(), 2);
@@ -404,7 +406,7 @@ test("D3 the event stream needs the key, filters by kind and carries on from the
 
 test("D3 the Activity screen shows the live feed and stops it when you leave", async (t) => {
   const { page, api, errors } = await onPage(t, { provider: writesAFile("live.txt") });
-  await page.locator('[data-view="runs"]').first().click();
+  await openPlace(page, "runs");
   await page.locator("#activity-feed-card").waitFor({ state: "visible" });
   await api("POST", "/api/run", { prompt: "write it" });
   await page.locator("#activity-feed .feed-row").first().waitFor({ timeout: 25000 });
@@ -412,7 +414,7 @@ test("D3 the Activity screen shows the live feed and stops it when you leave", a
   assert.ok(words.some((line) => /tool/i.test(line)), `a tool step arrived: ${words.join(" | ")}`);
   assert.ok(words.every((line) => !/^(run|model|tool|policy)\./.test(line)),
     `each line opens with plain words, not an event name: ${words.join(" | ")}`);
-  await page.locator('[data-view="chat"]').first().click();
+  await openPlace(page, "chat");
   await page.locator("#activity-feed-card").waitFor({ state: "hidden" });
   assert.deepEqual(errors, []);
 });
@@ -424,7 +426,7 @@ test("D4 the month card's numbers come from the ledger and the forecast says abo
   /* A model with a price on file, so there is money to add up at all. */
   await api("POST", "/api/pricing", { overrides: { configured: { input: 1000, output: 1000 } } });
   await api("POST", "/api/run", { prompt: "apples" });
-  await page.locator('[data-view="usage"]').first().click();
+  await openPlace(page, "usage");
   await page.locator("#usage-month").waitFor({ timeout: 15000 });
   const ledger = (await api("GET", "/api/usage?range=30d&by=day")).body;
   const month = ledger.data.filter((day) => day.date.startsWith(new Date().toISOString().slice(0, 8).slice(0, 7)));
@@ -752,7 +754,7 @@ test("G5 the Activity screen and the inspector render a reply as markdown, never
   await page.locator("#prompt").fill("do the thing");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
   await page.locator('#conversation .markdown h2').first().waitFor();
-  await page.locator('[data-view="runs"]').first().click();
+  await openPlace(page, "runs");
   const card = page.locator("#runs-list .item").first();
   await card.locator(".markdown h2").waitFor();
   assert.equal(await card.locator(".markdown h2").textContent(), "What I did");
@@ -769,7 +771,7 @@ test("G5 the Activity screen and the inspector render a reply as markdown, never
 
 test("G5 Appearance is written in French when French is chosen", async (t) => {
   const { page, errors } = await onPage(t);
-  await page.locator('[data-view="settings"]').first().click();
+  await openSettingFor(page, "#appearance-language");
   assert.equal(await page.locator("#settings-form h2").textContent(), "Appearance");
   assert.equal(await page.locator("#accent-choices .choice").first().textContent(), "Copper");
   await page.locator("#appearance-language").selectOption("fr");
@@ -798,8 +800,8 @@ test("G6 typing /model with the models module blocked still lists the choices", 
   assert.equal(await page.evaluate(() => Boolean(globalThis.branchSlashCommand)), false, "the module really is absent");
   await page.locator("#prompt").fill("/model");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-  await page.locator("#toast").waitFor({ state: "visible" });
-  assert.match(await page.locator("#toast").textContent(), /Type \/model followed by a name/);
+  /* The welcome toast is still on screen, so "visible" is already true: wait for these words. */
+  await page.locator("#toast").filter({ hasText: "Type /model followed by a name" }).waitFor();
   assert.equal(await page.locator("#prompt").inputValue(), "", "the command is not left in the box");
   assert.equal(await page.locator("#conversation").textContent(), "", "nothing was sent to the model");
 

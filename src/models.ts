@@ -3,6 +3,7 @@ import type { Provider } from "./contracts.js";
 import type { Store } from "./store.js";
 import { type Capability, catalogEntry } from "./provider-catalog.js";
 import { ProviderHealth, fallbackReason } from "./provider-health.js";
+import { RequestCounter } from "./dashboards.js";
 import { fallbackEligible } from "./provider-retry.js";
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
@@ -75,6 +76,12 @@ export class ModelRouter {
   private readonly cooldowns = new Map<string, number>();
   /** What each connection has actually been doing: latency, last error, the service's allowance. */
   readonly health = new ProviderHealth();
+  /**
+   * Wave 8: how many calls have gone to each connection lately, so the Usage screen can say how
+   * busy one is beside the allowance that service reports. In memory only: this is "right now",
+   * and the usage ledger already keeps the lasting record.
+   */
+  readonly requests = new RequestCounter();
   constructor(
     private readonly store: Store,
     presets: ModelPreset[],

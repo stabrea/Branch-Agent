@@ -1,6 +1,7 @@
+import { accessSync, constants } from "node:fs";
 import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { z } from "zod";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { AudioProvider } from "./voice.js";
@@ -8,8 +9,10 @@ import { geminiAuth, runProgram, type AudioCostEstimate } from "./voice-stt.js";
 
 /**
  * Reading text aloud. Three routes: an OpenAI-shaped `/audio/speech`, Gemini's own speech route,
- * and the voices that come with Windows, which need no key, no account and no internet at all.
- * The Windows route is what makes "read this aloud" work on a computer that is offline.
+ * and the voice that comes with the computer, which needs no key, no account and no internet at all.
+ * That last route is what makes "read this aloud" work on a computer that is offline. It keeps the
+ * name "windows" because that is what saved settings say, but it means the system voice: Windows'
+ * own voices, `say` on a Mac, and `espeak-ng` on Linux when it is installed.
  */
 export type TtsRoute = "openai" | "gemini" | "windows";
 
@@ -91,6 +94,82 @@ export function powershellArgs(scriptPath: string): string[] {
   return ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath];
 }
 
+/** Where the system voice comes from on this computer, found once per request. */
+export interface SystemVoiceProgram { kind: "say" | "espeak-ng"; executable: string }
+export type ProgramLocator = (name: string) => string | null;
+
+/** The average speaking pace both `say` and `espeak-ng` use, in words a minute. */
+const usualWordsPerMinute = 175;
+const wordsPerMinute = (speed: number): number => Math.round(usualWordsPerMinute * Math.max(0.5, Math.min(2, speed)));
+
+/**
+ * Which program reads aloud on a Mac or on Linux, or a plain sentence saying there is none. Linux's
+ * `spd-say` is only ever mentioned: it speaks through the loudspeaker and cannot write a sound file,
+ * and reading aloud here always hands back the sound itself.
+ */
+export function systemVoiceProgram(platform: string, locate: ProgramLocator): SystemVoiceProgram | string {
+  if (platform === "darwin") {
+    const say = locate("say");
+    return say ? { kind: "say", executable: say } : "This Mac has no say command, so its voice cannot be used. Choose a provider voice under Settings → Voice.";
+  }
+  if (platform === "linux") {
+    const espeak = locate("espeak-ng");
+    if (espeak) return { kind: "espeak-ng", executable: espeak };
+    if (locate("spd-say"))
+      return "This computer has spd-say, which can only speak through the loudspeaker and cannot make a sound Branch can hand back. Install espeak-ng to read aloud here, or choose a provider voice under Settings → Voice.";
+  }
+  return "There is no system voice on this computer. Install espeak-ng (on Linux), or choose a provider voice under Settings → Voice.";
+}
+
+/**
+ * The words a system voice is started with. The text is always read from a file (`-f`), so a reply
+ * that begins with a dash is words, never an option, and the sound is always written to a WAV file.
+ */
+export function systemVoiceArgs(kind: SystemVoiceProgram["kind"], input: { textPath: string; outPath: string; voice: string; speed: number }): string[] {
+  const voice = input.voice ? ["-v", input.voice] : [];
+  const rate = String(wordsPerMinute(input.speed));
+  if (kind === "say")
+    return ["--file-format=WAVE", "--data-format=LEI16@22050", "-o", input.outPath, "-r", rate, ...voice, "-f", input.textPath];
+  return ["-w", input.outPath, "-s", rate, ...voice, "-f", input.textPath];
+}
+
+/** A voice name that can only ever be a name: no leading dash, no control characters. */
+export const safeVoiceName = (voice: string): boolean => !voice.startsWith("-") && !/[\u0000-\u001f\u007f]/.test(voice);
+
+/**
+ * The names from `say -v '?'`, one voice a line: the name, then its language, then a sample after
+ * `#`. Names can have spaces and brackets in them ("Eddy (English (UK))"), so the language is what
+ * the name is cut at.
+ */
+export function parseSayVoices(output: string): string[] {
+  const names: string[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^(.+?)\s+[a-z]{2,3}(?:[_-][A-Za-z0-9]{2,8})+\s+#/.exec(line);
+    if (match) names.push(match[1]!.trim());
+  }
+  return [...new Set(names)].slice(0, 200);
+}
+
+/** The voice names from `espeak-ng --voices`: a heading line, then one voice a line in columns. */
+export function parseEspeakVoices(output: string): string[] {
+  const names: string[] = [];
+  for (const line of output.split(/\r?\n/).slice(1)) {
+    const columns = line.trim().split(/\s+/);
+    // Pty, Language, Age/Gender, VoiceName, File, Other languages
+    if (columns.length >= 5 && /^\d+$/.test(columns[0]!)) names.push(columns[3]!);
+  }
+  return [...new Set(names)].slice(0, 200);
+}
+
+/** Finds a program on this computer's search path, without starting anything. */
+export function findOnPath(name: string): string | null {
+  for (const folder of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    const candidate = join(folder, name);
+    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* keep looking */ }
+  }
+  return null;
+}
+
 /** The one place text is turned into sound, whichever route does the work. */
 export class Speech {
   constructor(
@@ -98,7 +177,11 @@ export class Speech {
     private readonly fetch: typeof globalThis.fetch = globalThis.fetch,
     /** Runs PowerShell; replaced in tests so no sound is ever produced on the owner's computer. */
     private readonly runShell: (file: string, args: string[], signal?: AbortSignal) => Promise<string> = runProgram,
+    /** Which computer this is and how programs are found on it; replaced in tests. */
+    private readonly system: { platform?: string; locate?: ProgramLocator } = {},
   ) {}
+  private get platform(): string { return this.system.platform ?? process.platform; }
+  private get locate(): ProgramLocator { return this.system.locate ?? findOnPath; }
 
   /**
    * Reads text aloud into sound bytes. `keepOnThisComputer` refuses both cloud routes in plain
@@ -111,9 +194,10 @@ export class Speech {
   ): Promise<SpokenAudio> {
     if (options.keepOnThisComputer && route.kind !== "windows")
       throw new Error(
-        "You asked for audio to stay on this computer, so nothing was sent away. Choose the voice that comes with Windows under Settings → Voice, or turn that setting off.",
+        "You asked for audio to stay on this computer, so nothing was sent away. Choose the voice that comes with your computer under Settings → Voice, or turn that setting off.",
       );
-    if (route.kind === "windows") return this.windows(request, options.signal);
+    if (route.kind === "windows")
+      return this.platform === "win32" ? this.windows(request, options.signal) : this.systemVoice(request, options.signal);
     if (route.kind === "gemini") return this.gemini(request, route.provider ?? null, options.signal);
     return this.openai(request, route.provider ?? null, options.signal);
   }
@@ -161,8 +245,6 @@ export class Speech {
 
   /** A voice that comes with Windows. Nothing leaves the computer and nothing is charged. */
   private async windows(request: SpeakRequest, signal?: AbortSignal): Promise<SpokenAudio> {
-    if (process.platform !== "win32")
-      throw new Error("The built-in voice is part of Windows, and this is not Windows. Choose a provider voice under Settings → Voice.");
     const folder = await mkdtemp(join(tmpdir(), "branch-voice-"));
     const wav = join(folder, "speech.wav"), script = join(folder, "speak.ps1");
     try {
@@ -180,9 +262,44 @@ export class Speech {
     }
   }
 
-  /** The voices installed on this computer, for the list in Settings → Voice. Empty off Windows. */
+  /**
+   * The Mac's or Linux's own voice. Like the Windows route, the words go in as a file beside the
+   * sound, the program is started directly with a list of arguments, and the folder is removed after.
+   */
+  private async systemVoice(request: SpeakRequest, signal?: AbortSignal): Promise<SpokenAudio> {
+    const program = systemVoiceProgram(this.platform, this.locate);
+    if (typeof program === "string") throw new Error(program);
+    if (request.voice && !safeVoiceName(request.voice)) throw new Error(`"${request.voice.slice(0, 40)}" is not the name of a voice.`);
+    const folder = await mkdtemp(join(tmpdir(), "branch-voice-"));
+    const textPath = join(folder, "speech.txt"), outPath = join(folder, "speech.wav");
+    try {
+      await writeFile(textPath, request.text, { encoding: "utf8", mode: 0o600 });
+      await this.runShell(program.executable, systemVoiceArgs(program.kind, { textPath, outPath, voice: request.voice, speed: request.speed }), signal);
+      const bytes = await readFile(outPath).catch(() => Buffer.alloc(0));
+      if (!bytes.length) throw new Error(`${program.kind} produced no sound; check that the voice you chose is installed.`);
+      return { bytes: new Uint8Array(bytes), mediaType: "audio/wav", route: "windows", voice: request.voice || "this computer's voice",
+        cost: estimateSpeechCost("system", request.text.length, "windows") };
+    } finally {
+      await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  /** The voices on a Mac (`say -v ?`) or on Linux (`espeak-ng --voices`). Empty when there is no system voice. */
+  private async systemVoices(): Promise<string[]> {
+    const program = systemVoiceProgram(this.platform, this.locate);
+    if (typeof program === "string") return [];
+    try {
+      if (program.kind === "say") return parseSayVoices(await this.runShell(program.executable, ["-v", "?"]));
+      return parseEspeakVoices(await this.runShell(program.executable, ["--voices"]));
+    } catch { return []; }
+  }
+
+  /**
+   * The voices installed on this computer, for the list in Settings → Voice. The name is kept for the
+   * settings route that asks for it; off Windows it lists the Mac's or Linux's own voices.
+   */
   async windowsVoices(): Promise<string[]> {
-    if (process.platform !== "win32") return [];
+    if (this.platform !== "win32") return this.systemVoices();
     const folder = await mkdtemp(join(tmpdir(), "branch-voice-"));
     const script = join(folder, "voices.ps1");
     try {

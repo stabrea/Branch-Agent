@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { request as httpRequest } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-server-"));
@@ -20,7 +21,7 @@ async function fixture(t) {
   t.after(async () => {
     await server.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, ...server };
 }

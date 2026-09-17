@@ -1,10 +1,12 @@
 import test from "node:test";
+import { openPlace } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -24,7 +26,7 @@ async function fixture(t) {
   t.after(async () => {
     await server.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, ...server };
 }
@@ -545,7 +547,7 @@ test("Settings offers sharing with a switch, a tool list and copyable settings",
   await page.goto(url);
   await page.getByLabel("Session token", { exact: true }).fill(token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator('[data-view="settings"]').click();
+  await openPlace(page, 'customize:connections');
 
   const card = page.locator("#mcp-card");
   await card.locator("#mcp-status").filter({ hasText: "Off." }).waitFor();

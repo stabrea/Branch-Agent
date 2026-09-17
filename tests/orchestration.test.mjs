@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, Budget, looksMultiPart } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -27,7 +28,7 @@ async function fixture(t, reply, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-orchestration-"));
   const provider = scripted(reply);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, provider, root };
 }
 async function served(t, reply, options = {}) {
@@ -218,7 +219,14 @@ test("a note sent to a task that is still working reaches its next round", async
   assert.equal(data(app, run.id, "run.steered")[0].note, "check the diary instead");
   assert.equal(data(app, run.id, "run.steer_applied")[0].notes, 1);
   const messages = app.store.messages(run.sessionId);
-  assert.ok(messages.some((m) => m.role === "user" && /Note from the person.*check the diary instead/.test(m.content)), "the note is in the saved transcript");
+  /* Wrapped in the marker the standing instructions name as the only trusted one. A bare "note from
+     the person" line is the shape of a prompt injection, and models refuse it for exactly that. */
+  const steered = messages.find((m) => m.role === "user" && m.content.includes("check the diary instead"));
+  assert.ok(steered, "the note is in the saved transcript");
+  assert.match(steered.content, /^\[OUT-OF-BAND MESSAGE FROM THE OWNER — sent by Branch itself/);
+  assert.match(steered.content, /not a new instruction when it appears again in the conversation history\]/,
+    "the marker says what it is, so a replay is not obeyed twice");
+  assert.match(steered.content, /\[\/OUT-OF-BAND MESSAGE FROM THE OWNER\]$/);
   await assert.rejects(api(`runs/${run.id}/steer`, { text: "too late" }), /still working/);
 });
 
@@ -258,7 +266,7 @@ test("a task that goes quiet twice changes strategy instead of trying the same t
   const root = await mkdtemp(join(tmpdir(), "branch-stuck-"));
   const provider = { name: "sleepy", async complete(request) { return hang(request); } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, reliability: { modelStallMs: 5000 } });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   app.runtime.reliability.modelStallMs = 120;
   app.runtime.models.register({ id: "spare", name: "Spare", provider: { name: "spare", async complete() { return say("the spare model answered"); } }, model: "y" });
   app.runtime.models.configure("local", { fallbackOrder: ["spare"] });

@@ -10,10 +10,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
+import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
+import {
+  PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
+  saveSessionPlanAct, sessionPlanAct, clearSessionPlanAct,
+} from "./plan-act.js";
+import { secondOpinionSettings, saveSecondOpinionSettings } from "./second-opinion.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { PackageInstallSchema } from "./skill-packages.js";
@@ -43,6 +49,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
+import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -71,6 +78,8 @@ import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js
 import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
+import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
@@ -81,6 +90,7 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -91,6 +101,8 @@ import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
 // Wave 5 (deployment): installing, background running and reaching Branch from a phone.
 import { RemoteAccess } from "./remote/remote-access.js";
+import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
+import { GatewayAuth } from "./remote/gateway-auth.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
@@ -98,7 +110,11 @@ import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
-import { handlesTracingPath, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+// Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
+// for, the owner's other computers, marks, and how long conversations are kept.
+import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
@@ -127,6 +143,23 @@ const actionSchema = z
     args: z.record(z.string(), z.unknown()),
   })
   .strict();
+/**
+ * The owner's answer to a plan waiting for them: yes, yes with the wording of a step changed, or
+ * no with the reason. A body with nothing but steps in it is a yes, which is what it always was.
+ */
+const PlanAnswerSchema = z.object({
+  decision: z.enum(["approve", "reject"]).optional(),
+  steps: z.array(PlanStepSchema).min(1).max(8).optional(),
+  reason: z.string().trim().max(500).optional(),
+}).strict();
+/** Which of the two modes this conversation is in, and how far it may go before checking back. */
+const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+  sessionId: z.string().max(64).optional(),
+  /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
+  scope: z.enum(["conversation", "project"]).default("conversation"),
+  /** Puts this conversation back on whatever the project says. */
+  followProject: z.boolean().optional(),
+}).strict();
 /** A monthly limit in tokens, in dollars, or both. Older settings that only set tokens still parse. */
 const budgetSchema = z
   .object({
@@ -196,6 +229,12 @@ function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
   /** Batch 19 (wave 7): counts wrong keys per place, so the key cannot be guessed at speed. */
   limits?: { limiter: AuthLimiter; onFailure: (source: string) => void },
+  /**
+   * Batch 20 (wave 8): a short-lived key made with `branch token create`. It is only looked at
+   * after the master key has already failed, so a mistake here can hold up a script and never the
+   * owner's own app. It answers the plain reason it refused, or null to let the request through.
+   */
+  scoped?: (supplied: string) => string | null,
 ): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
@@ -212,8 +251,10 @@ function authorize(
   if (correct) { limits?.limiter.succeed(from); return; }
   const waiting = limits?.limiter.refusal(from, "key");
   if (waiting) throw new HttpError(429, waiting);
+  const refusal = supplied && scoped ? scoped(supplied) : "Local session token required";
+  if (refusal === null) { limits?.limiter.succeed(from); return; }
   limits?.onFailure(from);
-  throw new HttpError(401, "Local session token required");
+  throw new HttpError(401, refusal);
 }
 /** A study result without its thousands of rows, for the list on the Evaluation screen. */
 const studySummary = (result: StudyRunResult) => ({
@@ -236,11 +277,17 @@ async function staticFile(
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
     "/model-profiles.js": ["model-profiles.js", "text/javascript; charset=utf-8"],
+    // Help in the app: the owner's handbook, opened in the pane on the right.
+    "/help.js": ["help.js", "text/javascript; charset=utf-8"],
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
+    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
+    "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
+    // Wave 9: what it noticed by itself, and the refresh that shows its cost first.
+    "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -267,18 +314,27 @@ async function staticFile(
     // Batch 20 (wave 7): flows drawn as boxes and arrows under Procedures, and the suggested
     // better versions of a skill under Skills.
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
+    // Wave 9: the advisor switch and the two debate bounds.
+    "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
+    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
+    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
+    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
+    "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
@@ -288,9 +344,21 @@ async function staticFile(
     "/appearance.js": ["appearance.js", "text/javascript; charset=utf-8"],
     // Web app (wave 6): rendering, inspector, live intervention, meter, playground, PWA, languages.
     "/web-ui.js": ["web-ui.js", "text/javascript; charset=utf-8"],
+    // Wave 8: artifacts out of a reply, charts drawn in the page, the flow editor, reports, the
+    // to-do list, the log view and the page a local page of the owner's own can include.
+    "/artifacts.js": ["artifacts.js", "text/javascript; charset=utf-8"],
+    "/charts.js": ["charts.js", "text/javascript; charset=utf-8"],
+    "/reports.js": ["reports.js", "text/javascript; charset=utf-8"],
+    "/todos.js": ["todos.js", "text/javascript; charset=utf-8"],
+    "/logs.js": ["logs.js", "text/javascript; charset=utf-8"],
+    "/flow-editor.js": ["flow-editor.js", "text/javascript; charset=utf-8"],
+    // The small box a page of the owner's own can include. Nothing on this page imports it.
+    "/widget.js": ["widget.js", "text/javascript; charset=utf-8"],
+    "/bridges.js": ["bridges.js", "text/javascript; charset=utf-8"],
     "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
+    "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
@@ -510,6 +578,7 @@ function state(app: Branch): unknown {
     providerPlugins: app.providerPlugins.list(),
     issueTrackers: app.issues?.available() ?? [],
     orchestration: orchestrationSettings(app.store, owner),
+    secondOpinion: secondOpinionSettings(app.store, owner),
     background: app.runtime.backgroundResults,
     hooks: app.hooks.list(),
     setAside: app.store.governance.exclusions(),
@@ -558,11 +627,23 @@ async function api(
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 26 (wave 8): sandboxes, the firewall card, per-person ceilings, other computers, marks,
+  // and how long conversations are kept.
+  if (handlesSandboxRemotePath(path))
+    return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OtherApiError ? new HttpError(error.status, error.message) : error;
     });
+  // The owner's handbook, so Help opens beside the screen a person is on. Reading only.
+  if (request.method === "GET" && (path === "/api/help" || path.startsWith("/api/help/"))) {
+    const answer = helpApi(path);
+    if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
+    return answer;
+  }
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -578,6 +659,15 @@ async function api(
         app.runtime.context({ signal: AbortSignal.timeout(120000) }),
         TryToolSchema.parse(await readBody(request)),
         (tool, permission) => app.runtime.roleRefusal(tool, permission)));
+  // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
+  // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
+  if (request.method === "POST" && path === "/api/artifacts/page")
+    return { url: `/artifact/${holdArtifactPage(ArtifactPageSchema.parse(await readBody(request, 512_000)))}` };
+  if (request.method === "POST" && path === "/api/artifacts/save") {
+    const wanted = ArtifactSaveSchema.parse(await readBody(request, 512_000));
+    const kept = await app.artifacts.write(wanted.runId, wanted.name, wanted.mediaType, Buffer.from(wanted.code, "utf8"));
+    return { ...kept, name: wanted.name, runId: wanted.runId };
+  }
   if (request.method === "GET" && path === "/api/mcp/connection") return mcpConnectionSnippets(app, request, dataDir);
   if (path.startsWith("/api/mcp/")) return mcpApi(app, request, path);
   // Assistants elsewhere: the ones added, looking for more, and the link that pairs two installs.
@@ -602,13 +692,17 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
-  if (path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
+  if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
   if (path.startsWith("/api/knowledge")) {
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
       request.method ?? "GET", path, () => readBody(request));
     if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    // Batch 20 (wave 8): summaries, the map of names, pictures in words, housekeeping and limits.
+    const more = await knowledgeExtrasApi(app.knowledgeParts, app.store, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (more !== undefined) return app.runtime.hideSecrets(more);
     throw new HttpError(404, "Not found");
   }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
@@ -618,12 +712,25 @@ async function api(
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
+  // The owner's own instruction files: what each one is set to, and what that produced this time.
+  if (request.method === "GET" && path === "/api/context-files")
+    return {
+      settings: contextFileSettings(app.store, app.runtime.owner),
+      files: contextFileStatus(app.store, app.runtime.owner, app.runtime.workspace),
+    };
+  if (request.method === "POST" && path === "/api/context-files")
+    return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
   if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
+  // Batch 20 (wave 8): coding assistants already installed here, used as a model through their own
+  // command line and their own sign-in. Listing them installs nothing and signs in to nothing.
+  if (request.method === "GET" && path === "/api/providers/cli-agents") return { agents: cliAgentRows() };
+  if (request.method === "POST" && path === "/api/providers/cli-agents")
+    return registerCliAgent(app.runtime.models, await readBody(request, 8 * 1024));
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
@@ -688,8 +795,11 @@ async function api(
     if (request.method === "GET" && match[2] === "plan")
       return { plan: app.runtime.orchestration.plan(run.sessionId) ?? null };
     if (request.method === "POST" && match[2] === "plan") {
-      const body = z.object({ steps: z.array(PlanStepSchema).min(1).max(8).optional() }).strict().parse(await readBody(request));
-      return app.runtime.orchestration.editPlan(run.id, body.steps);
+      const body = PlanAnswerSchema.parse(await readBody(request));
+      // Saying yes answers here and now; saying no asks for another plan, which takes a model turn.
+      if (body.decision !== "reject") return app.runtime.orchestration.decidePlan(run.id, body);
+      const { plan, asked } = await app.runtime.answerPlan(run.id, body);
+      return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
     }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
     if (request.method === "GET" && !match[2])
@@ -699,14 +809,23 @@ async function api(
         messages: app.store.messages(run.sessionId),
         usage: app.store.usage(run.id),
         cost: runCost(app, run.id),
+        // Shown beside the answer, never folded into it: the owner reads both and decides.
+        advice: app.runtime.advice(run.id),
       };
   }
   if (request.method === "GET" && path === "/api/activity")
     return liveActivity(app.store, app.runtime.owner).map((a) => ({ ...a, followUps: app.runtime.queued(a.sessionId).length }));
+  if (request.method === "GET" && path === "/api/second-opinion")
+    return secondOpinionSettings(app.store, app.runtime.owner);
+  if (request.method === "POST" && path === "/api/second-opinion")
+    return saveSecondOpinionSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "GET" && path === "/api/orchestration")
     return orchestrationSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/orchestration")
     return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
+  // Wave 9: "Just do it" or "Show me the plan first", per conversation and per project.
+  if (path === "/api/plan-act" && (request.method === "GET" || request.method === "POST"))
+    return planActApi(app, request, await (request.method === "POST" ? readBody(request) : Promise.resolve({})));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") {
@@ -771,9 +890,15 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
   const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
-  if (plugin && request.method === "POST")
-    return plugin[2] === "inspect" ? app.plugins.inspect(plugin[1]!)
-      : plugin[2] === "enable" ? app.plugins.enable(plugin[1]!) : app.plugins.disable(plugin[1]!);
+  if (plugin && request.method === "POST") {
+    if (plugin[2] === "inspect") return app.plugins.inspect(plugin[1]!);
+    if (plugin[2] === "disable") return app.plugins.disable(plugin[1]!);
+    // Batch 26 (wave 8): the permissions the owner ticked. Left out, the plugin gets everything its
+    // own manifest declared, exactly as switching one on did before.
+    const body = z.object({ allow: z.array(z.string().trim().max(64)).max(20).optional() })
+      .strict().parse((await readBody(request).catch(() => ({}))) ?? {});
+    return app.plugins.enable(plugin[1]!, body.allow);
+  }
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
   // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
@@ -817,6 +942,12 @@ async function api(
     if (!left || !right) throw new Error("One of those study results is not on file");
     const comparison = compareStudies(left, right);
     return { comparison, table: comparisonTable(comparison) };
+  }
+  // Wave 9: the same scorers held against the real work, so a quiet break shows up on ordinary
+  // tasks rather than only on the test set.
+  if (path === "/api/evaluation/live") {
+    if (request.method === "POST") return { settings: app.liveScoring.configure(await readBody(request)) };
+    return { settings: app.liveScoring.settings(), recent: app.liveScoring.recent(50), summary: app.liveScoring.summary(100) };
   }
   if (request.method === "POST" && path === "/api/evaluation/tools")
     // The checks really write files and really save facts, so they do it in a project and under a
@@ -1095,6 +1226,17 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
   if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  // Wave 9: what the assistant has noticed for itself, and turning it into suggestions. Looking
+  // changes nothing at all; the second call only ever adds to the queue the owner decides on.
+  if (request.method === "GET" && path === "/api/memory/learned") return { noticed: app.learning.notice(owner) };
+  if (request.method === "POST" && path === "/api/memory/learned") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.learning.propose(owner);
+  }
+  // Wave 9: what reading recent conversations again for fact cards would cost. Worked out here
+  // with no model call at all, so the owner sees it before anything is sent anywhere. The reading
+  // itself is POST /api/knowledge/refresh, which answers with the same reckoning afterwards.
+  if (request.method === "GET" && path === "/api/memory/refresh") return app.knowledgeCards.cost(owner);
   const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
   if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
@@ -1109,6 +1251,10 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
+  // Batch 27 (wave 8): write the Markdown mirror of what is remembered by hand. It also writes
+  // itself after every task, so this is for the owner who wants it now.
+  if (request.method === "POST" && path === "/api/memory/mirror")
+    return app.memoryMirror.regenerate(owner, await readBody(request));
   const decide = /^\/api\/memory\/proposals\/([a-f0-9-]{36})\/(accept|reject)$/.exec(path);
   if (decide && request.method === "POST") return app.store.review.decide(owner, decide[1]!, decide[2] === "accept");
   if (request.method === "GET" && path === "/api/memory/versions")
@@ -1224,7 +1370,15 @@ async function connectionsApi(app: Branch, request: IncomingMessage, path: strin
 }
 async function schedulesApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
-  const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger))?$/.exec(path);
+  // Batch 20 (wave 8): adding, listing and removing a schedule over the local API, so `branch
+  // schedule` works against the engine already running rather than starting a second one.
+  if (path === "/api/schedules" || path === "/api/schedules/") {
+    app.store.profiles.requireOwner("Your schedules");
+    if (request.method === "GET") return { schedules: app.store.list("schedules", owner) };
+    if (request.method === "POST") return app.scheduler.create(scheduleContext(app), await readBody(request));
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const match = /^\/api\/schedules\/([a-f0-9-]{36})(?:\/(trigger|remove))?$/.exec(path);
   if (!match) throw new HttpError(404, "Endpoint not found");
   const record = app.store.get("schedules", owner, match[1]!);
   if (!record) throw new HttpError(404, "Schedule not found");
@@ -1233,7 +1387,15 @@ async function schedulesApi(app: Branch, request: IncomingMessage, path: string)
     z.object({}).strict().parse(await readBody(request));
     return app.scheduler.trigger(owner, record.id, undefined, "local");
   }
+  if (request.method === "POST" && match[2] === "remove") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.scheduler.remove(scheduleContext(app), record.id);
+  }
   throw new HttpError(404, "Endpoint not found");
+}
+/** The owner's own hands, for a schedule they are adding or removing from the command line. */
+function scheduleContext(app: Branch) {
+  return app.runtime.context({ signal: AbortSignal.timeout(30000), source: "owner" });
 }
 /** Webhook triggers carry their own per-schedule token instead of the session token. */
 async function hook(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -1536,6 +1698,26 @@ function runCost(app: Branch, runId: string) {
   }, overrides);
   return { ...estimate, display: formatCost(estimate), model };
 }
+/**
+ * Which of the two modes a conversation is in, and how far it may go before checking back. Reading
+ * gives the project's choice, this conversation's own if it has one, and the words for both; writing
+ * sets either, or puts the conversation back on whatever the project says.
+ */
+function planActApi(app: Branch, request: IncomingMessage, body: unknown): unknown {
+  const owner = app.runtime.owner, projectId = app.store.projects.active(owner).id;
+  const url = new URL(request.url ?? "/", "http://local");
+  const asked = request.method === "POST" ? PlanActChoiceSchema.parse(body ?? {}) : null;
+  const sessionId = asked?.sessionId ?? url.searchParams.get("sessionId") ?? "";
+  const choice = { ...(asked?.planMode ? { planMode: asked.planMode } : {}),
+    ...(asked?.autonomy ? { autonomy: asked.autonomy } : {}) };
+  if (asked?.followProject && sessionId) clearSessionPlanAct(app.store, owner, sessionId);
+  else if (asked && asked.scope === "project") saveProjectPlanAct(app.store, owner, projectId, choice);
+  else if (asked && sessionId) saveSessionPlanAct(app.store, owner, sessionId, projectId, choice);
+  const effective = sessionPlanAct(app.store, owner, sessionId, projectId);
+  return { projectId, project: projectPlanAct(app.store, owner, projectId), effective,
+    words: { planMode: planModeWords, autonomy: autonomyWords },
+    plan: sessionId ? app.runtime.orchestration.plan(sessionId) ?? null : null };
+}
 /** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
 async function receiptsView(app: Branch, runId: string) {
   const events = app.store.events(runId).filter((e) => e.kind.startsWith("tool."));
@@ -1566,7 +1748,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
     const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
     const bytes = Buffer.from(body.file, "base64");
-    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve, body.allow);
   }
   // Wave 7: the three browser skills that come with Branch. Listing shows what they are; installing
   // puts one in as an ordinary skill package, switched off until the owner turns it on.
@@ -1903,11 +2085,17 @@ function mcpConnectionSnippets(app: Branch, request: IncomingMessage, dataDir: s
 /** The pairing door, open only on the phone's listener and only for the invitation on offer. */
 export async function pairingRequest(
   remote: RemoteAccess, request: IncomingMessage, response: ServerResponse, path: string,
+  /** Batch 20 (wave 8): writes the phone down and hands it a secret of its own, when asked to. */
+  gateway?: GatewayAuth,
 ): Promise<boolean> {
   if (request.method !== "POST" || path !== "/api/pair") return false;
-  const body = z.object({ id: z.string().max(64), code: z.string().max(16) }).strict()
-    .parse(await readBody(request, 1024));
-  send(response, 200, remote.pairing.redeem(body.id, body.code));
+  const body = z.object({ id: z.string().max(64), code: z.string().max(16), name: z.string().trim().max(80).default("A phone") })
+    .strict().parse(await readBody(request, 1024));
+  const redeemed = remote.pairing.redeem(body.id, body.code);
+  // The phone is remembered the moment it is let in, so the "this exact phone" step of the chain
+  // has something to check against from the very next request.
+  const device = gateway?.remember(body.name);
+  send(response, 200, device ? { ...redeemed, deviceId: device.device.id, deviceKey: device.secret } : redeemed);
   return true;
 }
 export async function startServer(
@@ -1928,19 +2116,46 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // Batch 20 (wave 8): what a phone must satisfy on the extra door, as a chain of named steps.
+  const gateway = new GatewayAuth(app.store, app.runtime.owner);
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
   // place is made to wait, with a line written into the record of what the assistant was allowed to do.
   const authLimiter = new AuthLimiter(options.authLimits);
   // Counted separately from the session key, so a chat service that is set up wrongly can slow
   // itself down without ever standing between the owner and their own app.
   const webhookLimiter = new AuthLimiter(options.authLimits);
+
+/**
+ * The widget sits on a page of the owner's own, so its call to the paired listener is cross-origin
+ * and the browser asks permission before sending it. Permission is given only to a website the owner
+ * listed, named exactly rather than with a star, and only while the widget switch is on. Without
+ * this the browser never sends the call at all, so the box on the owner's page could not ask
+ * anything; with a star, any page that had got hold of the pairing key could.
+ */
+function widgetCors(app: Branch, request: IncomingMessage, response: ServerResponse): boolean {
+  const allowed = widgetOrigin(embedSettings(app.store, app.runtime.owner), request.headers.origin);
+  if (!allowed) return false;
+  response.setHeader("access-control-allow-origin", allowed);
+  response.setHeader("vary", "Origin");
+  if ((request.method ?? "GET") !== "OPTIONS") return false;
+  response.setHeader("access-control-allow-methods", "POST, GET");
+  response.setHeader("access-control-allow-headers", "authorization, content-type");
+  response.setHeader("access-control-max-age", "600");
+  response.writeHead(204).end();
+  return true;
+}
   const handle = async (request: IncomingMessage, response: ServerResponse, viaRemote: boolean): Promise<void> => {
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
       if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
         throw new HttpError(403, "Host rejected");
-      if (viaRemote && (await pairingRequest(remote, request, response, path))) return;
+      if (viaRemote && widgetCors(app, request, response)) return;
+      if (viaRemote && (await pairingRequest(remote, request, response, path, gateway))) return;
+      // The widget's own script is not served while the switch is off, so turning it off takes the
+      // box off the owner's page rather than only hiding the setting.
+      if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -1954,6 +2169,9 @@ export async function startServer(
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
       // A frame cannot carry the session key, so the address itself is the one-time secret.
       if (mcpAppPage(request, response, path)) return;
+      // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
+      // first fetch, so the frame may reload and "open larger" may show the same one again.
+      if (artifactPageRoute(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -1962,7 +2180,16 @@ export async function startServer(
       authorize(request, url, token, remote.allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      });
+      }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
+        ?? app.sessionTokens.check(app.runtime.owner, supplied, {
+          method: request.method ?? "GET", executes: isExecution(request, path),
+        }));
+      // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
+      // window on this computer never goes through it.
+      if (viaRemote) {
+        const refused = gateway.check(request, true);
+        if (refused) throw new HttpError(401, refused);
+      }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
@@ -2033,6 +2260,12 @@ export async function startServer(
     url,
     token,
     remote,
+    /**
+     * The same handler the paired listener is given. It is exposed so the behaviour that only
+     * happens on that door — the question a browser asks before letting a page of the owner's own
+     * send anything — can be tested without a Tailscale address and a real network.
+     */
+    remoteHandler,
     close: async () => {
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
@@ -2049,6 +2282,8 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
+  // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
+  if (request.method === "GET" && path === "/api/logs") { logsResponse(app, request, response); return true; }
   // Talking to other assistants: the card and the task endpoint, which streams when asked to.
   if (path === "/a2a" || path === "/.well-known/agent.json")
     if (await handleA2a(app.a2a, request, response, path, () => readBody(request, 131072))) return true;
@@ -2350,9 +2585,23 @@ function voiceDeps(app: Branch) {
     oauth: app.oauth,
   };
 }
+/**
+ * Batch 20 (wave 8): the doors a short-lived key never opens, whatever its scope. A "run" key is
+ * described to its holder as one that may start a task but may not change what Branch is allowed to
+ * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
+ * two are the owner's own step, in the app window, with the master key.
+ */
+function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  if (method === "GET") return null;
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
+    return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
+  if (path === "/api/deployment/close")
+    return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  return null;
+}
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

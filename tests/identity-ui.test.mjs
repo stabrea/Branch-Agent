@@ -1,8 +1,10 @@
 import test from 'node:test';
+import { openSettingFor } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { chromium } from 'playwright';
 import { createBranch } from '../dist/index.js';
 import { startServer } from '../dist/server.js';
@@ -16,12 +18,12 @@ async function fixture(t) {
   const app = await createBranch({ workspace: join(root, 'workspace'), dataDir: join(root, 'data'), provider });
   const server = await startServer(app, { dataDir: join(root, 'data'), port: 0 });
   const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible' }); await page.locator('[data-view="settings"]').click();
+  await page.locator('#workspace').waitFor({ state: 'visible' }); await openSettingFor(page, '#identity-name');
   return { page, requests, errors, server };
 }
 async function edit(page, name, instructions) {
@@ -47,7 +49,7 @@ test('identity saves across reload and the next task receives its name and instr
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Branch Agent');
   await edit(f.page, 'Juniper', 'Use concise answers and cite saved sources.'); await save(f.page);
   await f.page.reload(); await f.page.locator('#workspace').waitFor({ state: 'visible' });
-  await f.page.locator('[data-view="settings"]').click();
+  await openSettingFor(f.page, '#identity-name');
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Juniper');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Use concise answers and cite saved sources.');
   assert.match(await f.page.locator('.brand').innerText(), /Juniper/, 'the sidebar carries the assistant name');
@@ -59,7 +61,7 @@ test('identity saves across reload and the next task receives its name and instr
     await f.page.evaluate(() => window.scrollTo(0, 0));
     await f.page.screenshot({ path: process.env.BRANCH_IDENTITY_SCREENSHOT, fullPage: true });
   }
-  await f.page.locator('[data-view="chat"]').click();
+  await f.page.locator('.lx-settings-close').click();
   await f.page.getByLabel('Your message', { exact: true }).fill('Start a task'); await f.page.locator('#send').click();
   await f.page.waitForFunction(() => !document.getElementById('send').disabled);
   const system = f.requests[0].find(message => message.role === 'system').content;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 
 /**
@@ -29,7 +30,7 @@ async function fixture(t, reply = () => say("done")) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     presets: [{ id: "alpha", name: "Alpha", provider, model: "a" }],
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, alpha: provider };
 }
 
@@ -313,18 +314,18 @@ test("A1465 Windows is asked before the screen and the microphone, and the answe
   const { OsPermissions, capabilityCheck, probeReader } = await import("../dist/os-permissions.js");
 
   // The decision logic on its own: only an outright refusal stops anything.
-  assert.equal(capabilityCheck("microphone", "allowed").allowed, true);
-  assert.equal(capabilityCheck("microphone", "unknown").allowed, true, "a computer that cannot say never blocks");
-  const refused = capabilityCheck("microphone", "refused");
+  assert.equal(capabilityCheck("microphone", "allowed", "win32").allowed, true);
+  assert.equal(capabilityCheck("microphone", "unknown", "win32").allowed, true, "a computer that cannot say never blocks");
+  const refused = capabilityCheck("microphone", "refused", "win32");
   assert.equal(refused.allowed, false);
   assert.match(refused.message, /Windows is not letting Branch use the microphone/);
   assert.equal(refused.settingsLink, "ms-settings:privacy-microphone");
-  assert.equal(capabilityCheck("camera", "refused").settingsLink, "ms-settings:privacy-webcam");
-  assert.equal(capabilityCheck("screen", "refused").settingsLink, "ms-settings:privacy-graphicscaptureprogrammatic");
+  assert.equal(capabilityCheck("camera", "refused", "win32").settingsLink, "ms-settings:privacy-webcam");
+  assert.equal(capabilityCheck("screen", "refused", "win32").settingsLink, "ms-settings:privacy-graphicscaptureprogrammatic");
 
   // Read through a fake Windows, and kept for a short while rather than asked over and over.
   const asked = [];
-  const permissions = new OsPermissions(async (capability) => { asked.push(capability); return capability === "microphone" ? "refused" : "allowed"; }, 1000);
+  const permissions = new OsPermissions(async (capability) => { asked.push(capability); return capability === "microphone" ? "refused" : "allowed"; }, 1000, "win32");
   permissions.now = () => 1_000_000;
   assert.equal((await permissions.check("microphone")).allowed, false);
   assert.equal((await permissions.check("microphone")).allowed, false);
@@ -335,15 +336,15 @@ test("A1465 Windows is asked before the screen and the microphone, and the answe
   assert.equal(asked.length, 4, "after a change of mind it is asked again");
 
   // The screen has no switch to read, so it is probed; a probe that throws means refused.
-  const good = probeReader(async () => 7, async () => "unknown");
+  const good = probeReader(async () => 7, async () => "unknown", "win32");
   assert.equal(await good("screen"), "allowed");
-  const bad = probeReader(async () => { throw new Error("Access is denied."); }, async () => "unknown");
+  const bad = probeReader(async () => { throw new Error("Access is denied."); }, async () => "unknown", "win32");
   assert.equal(await bad("screen"), "refused");
   assert.equal(await bad("camera"), "unknown", "the other two are left to the registry");
   // A probe that merely fell over is not a refusal: a cold computer must not lose its screen.
-  const slow = probeReader(async () => { throw new Error("The operation was aborted due to timeout"); }, async () => "unknown");
+  const slow = probeReader(async () => { throw new Error("The operation was aborted due to timeout"); }, async () => "unknown", "win32");
   assert.equal(await slow("screen"), "unknown");
-  assert.equal(capabilityCheck("screen", await slow("screen")).allowed, true);
+  assert.equal(capabilityCheck("screen", await slow("screen"), "win32").allowed, true);
 });
 
 test("A1465 screen control stops with the Windows sentence before it touches anything", async (t) => {
@@ -351,7 +352,7 @@ test("A1465 screen control stops with the Windows sentence before it touches any
   const { OsPermissions } = await import("../dist/os-permissions.js");
   const { context } = taskContext(app);
   app.store.save("settings", app.runtime.owner, "desktop-control", { enabled: true, maxActionsPerRun: 40 });
-  app.desktop.permissions = new OsPermissions(async () => "refused");
+  app.desktop.permissions = new OsPermissions(async () => "refused", 30_000, "win32");
   await assert.rejects(() => app.desktop.windows({ action: "list" }, context),
     /Windows is not letting Branch take hold of other programs' windows/);
   // Nothing was attempted: the refusal happens before the notice goes up or an action is counted.

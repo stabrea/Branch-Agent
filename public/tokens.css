@@ -273,3 +273,73 @@
   --composer-bg: #fffdf8;
   --step-bg: rgba(23, 40, 30, 0.04);
 }
+
+/* ---------- Chart series (wave 8) ----------
+   Eight colours a chart cycles through, so bars and slices are told apart without
+   any file but this one writing a colour down. Forest first, then the Daylight set:
+   both are drawn from the copper/leaf family already above, darkened for Daylight so
+   text on top of a slice stays readable. */
+:root {
+  --series-1: #e07033;
+  --series-2: #86d6a0;
+  --series-3: #f2c572;
+  --series-4: #8fb8d8;
+  --series-5: #c9a7e0;
+  --series-6: #d3e3b6;
+  --series-7: #f28b7a;
+  --series-8: #9fb3aa;
+}
+:root[data-theme="daylight"] {
+  --series-1: #b5651d;
+  --series-2: #1f7a45;
+  --series-3: #8a5a00;
+  --series-4: #35618a;
+  --series-5: #6b4a8a;
+  --series-6: #5c7030;
+  --series-7: #b3321f;
+  --series-8: #4d5f57;
+}
+
+/* ---------- Glass (wave 9 redesign) ----------
+   The names each theme in public/theme-catalogue.js carries, with Forest and Daylight values for the
+   first paint. public/layout.js replaces all of them with the chosen theme's. */
+:root {
+  --glass: rgba(10, 32, 20, 0.62);
+  --glass-2: rgba(19, 41, 28, 0.78);
+  --glass-edge: rgba(237, 241, 234, 0.14);
+  --line-2: rgba(237, 241, 234, 0.24);
+  --press: rgba(237, 241, 234, 0.12);
+  --text-2: rgba(237, 241, 234, 0.8);
+  --text-3: rgba(159, 170, 162, 0.9);
+  --copper-tint: rgba(224, 112, 51, 0.16);
+  --copper-edge: rgba(224, 112, 51, 0.71);
+  --ok: #86d6a0;
+  --chip-ok-bg: #1e4a31;
+  --chip-ok-fg: #bdebcb;
+  --chip-warn-bg: #4a3b17;
+  --chip-warn-fg: #f6dda5;
+  --chip-bad-bg: #4f2621;
+  --chip-bad-fg: #f8c3b9;
+  --chip-idle-bg: #22362b;
+  --chip-idle-fg: #c9d3cb;
+}
+:root[data-theme="daylight"] {
+  --glass: rgba(247, 249, 243, 0.66);
+  --glass-2: rgba(250, 251, 247, 0.86);
+  --glass-edge: rgba(23, 40, 30, 0.13);
+  --line-2: rgba(23, 40, 30, 0.24);
+  --press: rgba(23, 40, 30, 0.1);
+  --text-2: rgba(18, 33, 26, 0.8);
+  --text-3: rgba(18, 33, 26, 0.64);
+  --copper-tint: rgba(224, 112, 51, 0.14);
+  --copper-edge: rgba(180, 82, 30, 0.55);
+  --ok: #1f7a45;
+  --chip-ok-bg: #d5ebdc;
+  --chip-ok-fg: #155c33;
+  --chip-warn-bg: #f3e3be;
+  --chip-warn-fg: #6b4600;
+  --chip-bad-bg: #f4d6d3;
+  --chip-bad-fg: #8a2520;
+  --chip-idle-bg: #e2e8e0;
+  --chip-idle-fg: #3f4c44;
+}
