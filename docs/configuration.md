@@ -697,8 +697,9 @@ lends those accounts nothing else. What that means:
   Each of these refuses a chat's task by itself, and none of them is on the short list of what a chat's
   task may use at all (see **What a chat may do beyond talking** below).
 - **Unchanged:** which chats are answered (`allowlist`, pairing), and everything you start in the window,
-  the terminal or with your own key. Answering one approval from a chat (`y`, `a` or `n`, or the Yes and
-  No buttons) is answered by the chat itself and is not a tool, so it works exactly as it did.
+  the terminal or with your own key. Answering one approval from a chat (`y` or `n`, or the Yes and No
+  buttons) is answered by the chat itself and is not a tool, so it works as it did — except that a yes
+  about something one of your lines granted now belongs in the window (see below).
 
 A task saved before this change carries only the `channel.inbound` mark; it is read the same way.
 
@@ -713,9 +714,12 @@ short list is what reading and answering needs, and every one of the four only l
 | Ask you a question and wait for your answer | `user.ask` |
 | Read a file in your workspace, and search the files | `files.read` |
 | Read what Branch remembers, and search it | `memory.read` |
+| Read the instructions of a skill you installed | `skills.read` |
 | Look something up on the web | `web.read` |
 
-That is the whole list. Writing a file, running code, opening a command line, the screen and keyboard,
+That is the whole list. A skill is on it because a skill is instructions a task reads, not power it
+gains: every tool the instructions name is still checked against this same list when it is called, so a
+skill can describe running a command and the command is still refused. Writing a file, running code, opening a command line, the screen and keyboard,
 the clipboard, stopping a program, sending to another chat, your other devices, and your mail, calendar,
 files and house are all outside it. So are pushing to a remote and acting on GitHub: a chat's task used
 to be able to change your local copy but never publish it, and now it cannot do either unless a line
@@ -741,6 +745,18 @@ somebody else's chat, the morning brief, the list of other assistants, installin
 tools, and a Trunk's messages. Most of those the tools themselves already refuse
 because the task came from a chat, so a line promising them would be promising something that cannot
 happen; commands are refused because a command can do anything you could.
+
+Those are whole families, not only the names that exist today: anything beginning `shell.`, `remote.`,
+`devices.`, `nodes.`, `personal.`, `home.` or `trunks.` is refused in a line even if it is added to
+Branch tomorrow. `skills.` and `brief.` are not families, because `skills.read` is on the short list
+above and `brief.read` only reads.
+
+**Who says yes.** A line hands a chat something that can change things, and what makes that safe is
+that the change is asked about first. So the yes cannot come from the same chat. Replying `y` in a chat
+answers a question about the short list every chat already has, and nothing else; a question about
+something one of your lines granted is shown in the chat without a Yes button and says it has to be
+approved in the app window. `n` always works from the chat, so nothing is left waiting for ever. `a`
+("yes always") was never offered for a chat's task and still is not.
 
 The lines are deliberately not part of the settings file or the whole-app presets
 (`src/settings-kit/catalogue.ts` holds `extras` alone, marked as reaching further). A settings file

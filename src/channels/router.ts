@@ -11,7 +11,8 @@ import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 // mac7/chat-allowlist: the short list a chat's task may use, and the owner's additions to it.
-import { chatPermissionsOf as chatPermissionsAllowed, chatExtraPermissions, readChatPermissionSettings as chatPermissionSettings,
+import { approveInWindow, chatMayApprove, chatPermissionsOf as chatPermissionsAllowed, chatExtraPermissions,
+  readChatPermissionSettings as chatPermissionSettings,
   saveChatPermissionSettings, type ChatPermissionSettings } from "./chat-permissions.js";
 import { commandMode } from "../commands/settings.js";
 import { savedLine } from "../commands/saved.js";
@@ -458,11 +459,18 @@ export class ChannelRouter {
    * Returns null when this chat has nothing waiting, so an ordinary message that happens to be the
    * single letter "n" is still an ordinary message.
    */
-  async answerApproval(channel: string, chatId: string, value: string): Promise<{ decision: string; tool: string } | null> {
+  async answerApproval(channel: string, chatId: string, value: string): Promise<{ decision: string; tool: string; refusal?: string } | null> {
     const read = readApprovalAnswer(value);
     if (!read) return null;
     const sessionId = this.sessionFor(channel, chatId);
-    if (!sessionId || !this.runtime.waitingApprovals(sessionId).length) return null;
+    const waiting = sessionId ? this.runtime.waitingApprovals(sessionId) : [];
+    if (!sessionId || !waiting.length) return null;
+    // mac7/chat-allowlist (integration review): a yes from the chat only answers a question about
+    // what every chat may already do. Anything one of the owner's lines granted is approved in the
+    // window, so a line is not a way for a chat sender to approve their own change.
+    const asked = read.fingerprint ? waiting.find((one) => one.fingerprint === read.fingerprint) : waiting[0];
+    if (read.decision === "allow" && asked && !chatMayApprove(this.runtime.registry.permissionOf(asked.tool)))
+      return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
     const result = this.runtime.approve(sessionId, read.decision, read.remember,
       read.fingerprint || undefined, channel);
     return { decision: result.decision, tool: result.tool };
@@ -481,12 +489,18 @@ export class ChannelRouter {
     if (checked.blocked) return;
     // In a group anybody paired may press the button, so a standing yes is only offered one to one.
     const canAlways = waiting?.source === "owner" && message.chatKind === "direct";
-    const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways);
+    // mac7/chat-allowlist (integration review): a question about something one of the owner's lines
+    // granted is answered in the window, so the chat is not offered a Yes it cannot give — only No,
+    // with the sentence saying where the yes belongs.
+    const mayApprove = !waiting || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool));
+    const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways && mayApprove)
+      .filter((button) => mayApprove || button.value.startsWith("n"));
+    const text = mayApprove ? checked.text : `${checked.text}\n\n${approveInWindow(waiting?.label || waiting?.tool || "that")}`;
     if (adapter.sendButtons) {
-      await adapter.sendButtons(message.chatId, checked.text, buttons, message.messageId).catch(() => undefined);
+      await adapter.sendButtons(message.chatId, text, buttons, message.messageId).catch(() => undefined);
       return;
     }
-    await this.deliver(message.channel, message.chatId, `${checked.text}\n\n${approvalFallbackNote}`,
+    await this.deliver(message.channel, message.chatId, `${text}\n\n${mayApprove ? approvalFallbackNote : "Reply n for no."}`,
       `ask:${waiting?.runId ?? message.messageId}`, message.messageId).catch(() => undefined);
   }
 
@@ -507,9 +521,10 @@ export class ChannelRouter {
     const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim()).catch(() => null);
     if (answered) {
       await this.deliver(message.channel, message.chatId,
-        answered.decision === "allow"
-          ? `Noted. Send your next message and I will carry on.`
-          : `Noted. I will not do that.`,
+        answered.refusal ? answered.refusal
+          : answered.decision === "allow"
+            ? `Noted. Send your next message and I will carry on.`
+            : `Noted. I will not do that.`,
         `answered:${message.messageId}`, message.messageId).catch(() => undefined);
       return "replied";
     }

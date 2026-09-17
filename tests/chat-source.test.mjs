@@ -142,7 +142,11 @@ test("approvals: the owner's standing yes does not reach a chat's task, and a ch
   assert.equal(settled.status, "needs_input", "a change from a chat waits for a yes");
   const question = chat.sent.find((m) => m.buttons);
   assert.ok(question, "the question went out with buttons");
-  assert.deepEqual(question.buttons.map((b) => b.label), ["Yes", "No"], "no standing yes is offered to a chat");
+  // mac7/chat-allowlist (integration review): writing a file is not on the short list a chat holds, so
+  // the chat is offered no Yes at all — neither the standing one nor the once — only No and the
+  // sentence saying where the yes belongs. A chat sender must not approve their own task's change.
+  assert.deepEqual(question.buttons.map((b) => b.label), ["No"], "a chat was offered a yes it may not give");
+  assert.match(question.text, /Branch app window/, "the question does not say where the yes belongs");
   const waiting = app.runtime.waitingApprovals(run.sessionId)[0];
   assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", waiting.fingerprint, "chat"), /./);
   assert.equal(app.store.audit.list(owner, { action: "approval.decided" }).length, 0);

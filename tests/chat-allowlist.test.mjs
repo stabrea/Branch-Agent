@@ -14,7 +14,8 @@ import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { chatPermissionsOf } from "../dist/channels/router.js";
-import { chatSafePermissions, chatExtraPermissions, neverFromChat } from "../dist/channels/chat-permissions.js";
+import { chatSafePermissions, chatExtraPermissions, neverFromChat, neverFromChatFamilies,
+  grantableToChat } from "../dist/channels/chat-permissions.js";
 import { isReadOnlyPermission } from "../dist/policy.js";
 import { changesFor, applyChanges, resetProposals } from "../dist/settings-kit/changes.js";
 
@@ -73,7 +74,7 @@ function toolOutcome(app) {
 }
 
 test("the short list a chat always has only looks at things", () => {
-  assert.deepEqual([...chatSafePermissions], ["user.ask", "files.read", "memory.read", "web.read"]);
+  assert.deepEqual([...chatSafePermissions], ["user.ask", "files.read", "memory.read", "skills.read", "web.read"]);
   for (const permission of chatSafePermissions)
     assert.equal(isReadOnlyPermission(permission), true, `${permission} is on the short list but can change something`);
 });
@@ -93,7 +94,7 @@ test("a chat sender's task is never handed running code, the screen or stopping 
 test("a chat sender's task can still answer, look things up and read a file", async (t) => {
   const { app, chat } = await fixture(t, callsTool("files.read"));
   assert.equal(await app.channels.handle(message("what is in README.md?")), "replied");
-  for (const kept of ["user.ask", "files.read", "memory.read", "web.read"])
+  for (const kept of ["user.ask", "files.read", "memory.read", "skills.read", "web.read"])
     assert.equal(startedWith(app).includes(kept), true, `${kept} was taken away from a chat sender's task`);
   assert.equal(chat.sent.at(-1), "Done.", "the reply still reaches the chat");
 });
@@ -142,7 +143,7 @@ test("the owner's own paired account is a chat like any other, and can still ans
     rules: [{ tool: "files.read", match: "*", applies: "any", decision: "ask", remember: "session" }] });
   const from = { senderId: "owner", senderName: "Sam" };
   assert.equal(await app.channels.handle(message("read README.md for me", from)), "replied");
-  assert.deepEqual(startedWith(app).sort(), ["files.read", "memory.read", "user.ask", "web.read"],
+  assert.deepEqual(startedWith(app).sort(), ["files.read", "memory.read", "skills.read", "user.ask", "web.read"],
     "the owner's own paired account gets the same short list as anybody else");
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a chat's task waits for a yes");
   assert.equal(await app.channels.handle(message("y", from)), "replied");
@@ -164,4 +165,92 @@ test("putting the settings back turns the switch off and leaves the owner's own 
   // And a file that tried to write a line is refused outright: the lines are not a settings field.
   const { refused } = changesFor(store, owner, [{ key: "chat-permissions", field: "rules", value: [{ allow: ["shell.execute"] }] }]);
   assert.equal(refused.length, 1, "a settings file cannot write a line");
+});
+
+// ---- Integration review (mac7/chat-allowlist) ------------------------------------------------
+
+test("a chat's task can load a skill, and the skill cannot smuggle it a tool the chat may not use", async (t) => {
+  // Turn 1 reads the installed skills (skills.read); turn 2 does what such a document might tell it
+  // to do next. The words are just words: the tool is still checked against the chat's own list.
+  const { app } = await fixture(t, (turn) =>
+    turn === 1 ? { content: "", toolCalls: [{ id: "t1", name: "skills.list", arguments: "{}" }] }
+      : turn === 2 ? { content: "", toolCalls: [{ id: "t2", name: "code.run", arguments: "{}" }] }
+        : { content: "Done.", toolCalls: [] });
+  assert.equal(await app.channels.handle(message("follow the skill for this")), "replied");
+  assert.equal(startedWith(app).includes("skills.read"), true, "a chat's task cannot read the skills it is meant to follow");
+  const events = app.store.events(lastRun(app).id).filter((e) => e.kind === "tool.completed" || e.kind === "tool.failed");
+  assert.equal(events.find((e) => e.data.name === "skills.list")?.kind, "tool.completed", "reading the skills was refused");
+  const ran = events.find((e) => e.data.name === "code.run");
+  assert.equal(ran?.kind, "tool.failed", "a skill's instructions got the chat a tool it may not use");
+  assert.match(String(ran?.data?.error ?? ""), /code\.execute|not available|Unknown tool/);
+});
+
+test("the names a line may never hold are whole families, not just the names that exist today", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  const invented = ["nodes.write", "personal.sync", "shell.session", "devices.act", "home.scene",
+    "trunks.broadcast", "remote.shell"];
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "*", sender: "*", allow: invented, note: "every family" }] });
+  assert.deepEqual(chatExtraPermissions(app.channels.permissionSettings(), "chat", "owner"), [],
+    "a line named something in a family a chat may never have");
+  for (const name of invented) assert.equal(grantableToChat(name), false, `${name} could be handed to a chat`);
+  // And nothing a real install registers under one of those families is grantable either.
+  for (const permission of app.registry.permissions())
+    if (neverFromChatFamilies.some((family) => permission.startsWith(family)))
+      assert.equal(grantableToChat(permission), false, `${permission} could be handed to a chat`);
+});
+
+test("the things a chat's task is not given by default, before any line of the owner's", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  assert.equal(await app.channels.handle(message("hello")), "replied");
+  const given = startedWith(app);
+  for (const absent of ["memory.write", "workflows.manage", "schedules.manage", "automations.propose",
+    "skills.write", "git.remote", "github.manage", "specialists.manage", "procedures.use"])
+    assert.equal(given.includes(absent), false, `${absent} is handed to a chat's task by default`);
+  assert.deepEqual(given.sort(), ["files.read", "memory.read", "skills.read", "user.ask", "web.read"]);
+});
+
+test("a chat sender cannot answer their own task's question about what a line granted", async (t) => {
+  const { app, chat } = await fixture(t, callsTool("demo.invented"));
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "chat", sender: "owner", allow: ["invented.power"], note: "my own phone" }] });
+  savePolicy(app.store, app.runtime.owner, { preset: "custom",
+    rules: [{ tool: "demo.invented", match: "*", applies: "any", decision: "ask", remember: "session" }] });
+  assert.equal(await app.channels.handle(message("use the new thing")), "replied");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the granted thing did not wait for a yes");
+  // The same sender says yes. It must not count: the line's promise is that a change is asked about.
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Branch app window/, "a chat sender approved their own task's change");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the task went ahead on the chat's own yes");
+  assert.equal(app.runtime.waitingApprovals(app.store.run(lastRun(app).id).sessionId).length, 1,
+    "the question was taken off the list without being answered");
+  // "No" still works from the chat: refusing takes nothing away, and the task must not wait for ever.
+  assert.equal(await app.channels.handle(message("n")), "replied");
+  assert.match(chat.sent.at(-1), /will not do that/);
+});
+
+test("a yes from a chat still answers a question about the short list every chat has", async (t) => {
+  const { app, chat } = await fixture(t, callsTool("files.read"));
+  savePolicy(app.store, app.runtime.owner, { preset: "custom",
+    rules: [{ tool: "files.read", match: "*", applies: "any", decision: "ask", remember: "session" }] });
+  assert.equal(await app.channels.handle(message("read README.md")), "replied");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input");
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Noted/, "a yes about the short list stopped working");
+});
+
+test("a household person on this computer cannot write a line, and the owner still can", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  const person = app.store.profiles.create({ name: "Alex", pin: "4821" });
+  app.store.profiles.switch({ profileId: person.id, pin: "4821" });
+  assert.throws(() => app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "*", sender: "*", allow: ["files.write"], note: "not mine to give" }] }),
+    /belongs to the owner/, "somebody else sharing this computer wrote a line");
+  app.store.profiles.switch({ profileId: null });
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "*", sender: "*", allow: ["files.write"], note: "mine" }] });
+  assert.deepEqual(chatExtraPermissions(app.channels.permissionSettings(), "chat", "owner"), ["files.write"]);
+  // Every change is written down, so a line that appeared can be traced to when it was saved.
+  assert.ok(app.store.audit.list(app.runtime.owner, { action: "policy.changed" })
+    .some((entry) => entry.subject === "what a chat message's task may use"), "a rule change was not recorded");
 });

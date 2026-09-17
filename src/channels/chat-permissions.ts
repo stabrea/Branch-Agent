@@ -13,12 +13,19 @@ import type { Store } from "../store.js";
  * decides otherwise.
  *
  * The short list is what a conversation needs to read and answer: ask the person a question, read
- * files, read what Branch remembers, and look something up on the web. Searching is not its own
- * permission — searching files is `files.read`, searching memory is `memory.read`, and searching
- * the web is `web.read`. Every one of them only looks: `isReadOnlyPermission` in src/policy.ts
- * holds for all four, and `tests/chat-allowlist.test.mjs` checks that it still does.
+ * files, read what Branch remembers, look something up on the web, and read the instructions of an
+ * installed skill. Searching is not its own permission — searching files is `files.read`, searching
+ * memory is `memory.read`, and searching the web is `web.read`. Every one of them only looks:
+ * `isReadOnlyPermission` in src/policy.ts holds for all five, and `tests/chat-allowlist.test.mjs`
+ * checks that it still does.
+ *
+ * Integration review (mac7/chat-allowlist): `skills.read` is on the list because a skill is
+ * instructions a task reads, not power it gains. Loading one hands the model words; every tool the
+ * words name is still checked against this same list when it is called (`ToolRegistry.execute`), so
+ * a skill can describe running a command and the command is still refused. Without it, "/commands"
+ * and every skill the owner installed quietly stop working over chat, with no message saying why.
  */
-export const chatSafePermissions = ["user.ask", "files.read", "memory.read", "web.read"] as const;
+export const chatSafePermissions = ["user.ask", "files.read", "memory.read", "skills.read", "web.read"] as const;
 
 /**
  * Things a chat's task never gets, whatever the owner's settings say. Most of them the tools behind
@@ -32,9 +39,23 @@ export const neverFromChat: readonly string[] = [
   "skills.write", "skills.manage", "nodes.read", "nodes.run", "trunks.message",
   "shell.execute", "remote.execute", "channels.send",
 ];
+
+/**
+ * Integration review (mac7/chat-allowlist): the same things again as whole families, because a list
+ * of exact names only holds until somebody adds a name to one of them. `nodes.write`,
+ * `personal.sync` or `shell.session` would each have been handed to a chat by a line naming it, and
+ * the name would have looked harmless in the card. Everything under these prefixes is refused,
+ * whether it exists today or is added tomorrow.
+ *
+ * `skills.` and `brief.` are deliberately NOT families: `skills.read` is on the short list above and
+ * `brief.read` is a reading permission a line may legitimately name. Those two stay exact names.
+ */
+export const neverFromChatFamilies: readonly string[] = [
+  "devices.", "home.", "nodes.", "personal.", "remote.", "shell.", "trunks.",
+];
 /** Whether the owner may hand this one to a chat at all. The owner's own devices never are. */
 export const grantableToChat = (permission: string): boolean =>
-  !neverFromChat.includes(permission) && !permission.startsWith("devices.");
+  !neverFromChat.includes(permission) && !neverFromChatFamilies.some((family) => permission.startsWith(family));
 
 /** One line of the owner's list: who it is about, and what those chats may also use. */
 export const ChatPermissionRuleSchema = z.object({
@@ -70,6 +91,11 @@ export function readChatPermissionSettings(store: Store, owner: string): ChatPer
 
 /** Saves the switch, the list, or both; whatever is left out keeps the value it has. */
 export function saveChatPermissionSettings(store: Store, owner: string, input: unknown): ChatPermissionSettings {
+  // Integration review (mac7/chat-allowlist): only the owner writes this, and the check is here
+  // rather than on the route so that every way in is covered — the route, the settings card and the
+  // reset. A household person signed in on this computer is not the owner, and a line of theirs
+  // would hand a chat something the owner never agreed to.
+  store.profiles.requireOwner("What a chat may do beyond talking");
   const change = z.object({ extras: z.boolean().optional(), rules: z.array(ChatPermissionRuleSchema).max(50).optional() })
     .strict().parse(input ?? {});
   const next = ChatPermissionSettingsSchema.parse({ ...readChatPermissionSettings(store, owner), ...change });
@@ -110,3 +136,23 @@ export function chatPermissionsOf(all: readonly string[], extra: readonly string
 
 /** Every permission on the short list only looks at things; asserted here so the list cannot drift. */
 export const chatSafeListIsReadOnly = (): boolean => chatSafePermissions.every(isReadOnlyPermission);
+
+/**
+ * Integration review (mac7/chat-allowlist): who may say yes to what a chat's task stopped on.
+ *
+ * A line the owner wrote hands a chat something that can change things, and the promise made for it
+ * is "it will ask first". That promise is worth nothing if the same chat sender can answer the ask:
+ * they would be granting themselves the thing the line was careful about, in two messages instead of
+ * one. So a "y" typed in a chat only answers a question about the short list every chat already has
+ * — where the task could have gone ahead anyway under looser settings, and the answer costs nothing.
+ * Anything a line granted is answered by the owner in the window.
+ *
+ * A "no" is always allowed from the chat: refusing takes nothing away, and a question nobody may
+ * answer from where it was asked would leave the task waiting for ever.
+ */
+export const chatMayApprove = (permission: string): boolean =>
+  (chatSafePermissions as readonly string[]).includes(permission);
+/** What a chat is told when its yes is not enough, in one sentence and no jargon. */
+export const approveInWindow = (label: string): string =>
+  `That is more than a chat may do on its own, so "${label}" has to be approved in the Branch app window. `
+  + "Reply n if you would rather it did not happen at all.";

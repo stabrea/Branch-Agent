@@ -1024,12 +1024,12 @@
           <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
           <form id="chat-permissions-form" class="card" data-home="customize:channels">
             <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
-            <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, and look something up on the web. Everything else is refused until you allow it here.</p>
+            <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, read a skill you installed, and look something up on the web. Everything else is refused until you allow it here.</p>
             <label class="check-row" for="chat-permissions-extras">
               <input type="checkbox" id="chat-permissions-extras" aria-describedby="chat-permissions-extras-note" />
               <span data-t="field.chat-permissions-extras">Use my list of what chats may also do</span>
             </label>
-            <p id="chat-permissions-extras-note" class="field-note" data-t="settings.chat-permissions.extras-note">Off, the lines below do nothing and every chat gets the short list only. Turning it on lets each line add what it names, for the app and the person it names.</p>
+            <p id="chat-permissions-extras-note" class="field-note" data-t="settings.chat-permissions.extras-note">Off, the lines below do nothing and every chat gets the short list only. Turning it on lets each line add what it names, for the app and the person it names. Whatever a line adds is still asked about before it happens, and that yes has to be given here in the window, not in the chat.</p>
             <div id="chat-permissions-list" class="card-list" aria-live="polite"></div>
             <label for="chat-permissions-channel" data-t="field.chat-permissions-channel">Which chat app</label>
             <input id="chat-permissions-channel" type="text" value="*" maxlength="64" aria-describedby="chat-permissions-channel-note" />
