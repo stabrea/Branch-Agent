@@ -117,6 +117,8 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// Wave mac2 (move-in): bringing chats and memory over from another assistant.
+import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { helpApi } from "./help.js";
@@ -334,6 +336,8 @@ async function staticFile(
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    // Wave mac2: bringing your chats and memory over from another assistant.
+    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
@@ -645,6 +649,11 @@ async function api(
   if (handlesSandboxRemotePath(path))
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
+  if (handlesMoveInPath(path))
+    return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
+      throw error instanceof MoveInApiError ? new HttpError(error.status, error.message) : error;
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
