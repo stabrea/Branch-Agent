@@ -4,7 +4,7 @@
  * /api/ request goes straight to your computer and fails honestly when it cannot be reached, which
  * is what puts the offline banner on the screen.
  */
-const CACHE = "branch-shell-v1";
+const CACHE = "branch-shell-v2";
 const SHELL = [
   "/", "/tokens.css", "/style.css", "/shell.css", "/web-ui.css", "/layout.css",
   "/app.js", "/device-headers.js", "/shell.js", "/layout.js", "/theme-catalogue.js", "/grove.js", "/appearance.js", "/context-pane.js", "/acorn.js",
