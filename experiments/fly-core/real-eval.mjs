@@ -23,6 +23,16 @@
  *
  *   node experiments/fly-core/real-eval.mjs --target hermes --passes 3 --out hermes.json
  *
+ * Two builds of Branch, "this release against the last one" (w911, bucket 11):
+ *   BRANCH_EVAL_URL_BEFORE, BRANCH_EVAL_KEY_BEFORE   the older build, with its own data folder
+ *   BRANCH_EVAL_URL_AFTER,  BRANCH_EVAL_KEY_AFTER    the newer build, with its own data folder
+ *
+ *   node experiments/fly-core/real-eval.mjs --target builds --repeats 3 --passes 1 --out builds.json
+ *
+ * Each build is measured with its settings as they are; nothing is switched. The version each one
+ * reports is written into the result. experiments/fly-core/proof-report.mjs turns any of these
+ * reports into a verdict.
+ *
  * Addresses and keys are read from the environment and never printed or written to the report.
  *
  * `--dry-run` starts two throwaway Branch copies on this computer with the offline demo provider
@@ -116,13 +126,24 @@ async function branchSuite(target, suite, options) {
   return tasks;
 }
 
+/** The version a running Branch reports about itself, or null when it will not say. */
+export async function branchVersion(target) {
+  const described = await call(target, "GET", "/api/openapi.json", undefined, 30_000).catch(() => null);
+  return typeof described?.info?.version === "string" ? described.info.version : null;
+}
+
+const buildArms = ["before", "after"];
+
 export function branchTarget(arm, url, key, sharedFolder, workspace) {
   if (!url || !key) throw new Error(`Set the address and key of the Branch for the "${arm}" arm in the environment (see the top of real-eval.mjs)`);
-  const target = { name: `Branch (${arm})`, kind: "branch", arm, url, key, sharedFolder, workspace };
+  const build = buildArms.includes(arm);
+  const target = { name: build ? `Branch ${arm}` : `Branch (${arm})`, kind: build ? "build" : "branch", arm, url, key, sharedFolder, workspace };
   return {
     ...target,
-    /** Sets the switch for this arm; "on" first forgets what an earlier repeat learned. */
+    version: () => branchVersion(target),
+    /** Sets the switch for this arm; "on" first forgets what an earlier repeat learned. A build is measured as it is. */
     async prepare(repeat) {
+      if (build) return { repeat, forgotBefore: false };
       const view = await call(target, "GET", "/api/learning-core").catch((error) => {
         throw new Error(`${error.message}. This Branch may be too old to have the learning core's routes.`);
       });
@@ -163,6 +184,7 @@ export function hermesTarget(url, key, model, workspace) {
   const target = { name: "Hermes Agent", kind: "hermes", arm: "hermes", url, key, model: model || "hermes-agent", workspace, sharedFolder: false };
   return {
     ...target,
+    version: async () => null,
     prepare: async (repeat) => ({ repeat, forgotBefore: false }),
     suite: async (suite, options) => {
       const tasks = [];
@@ -208,7 +230,8 @@ async function runTarget(target, suites, options, log) {
     }
     repeats.push({ repeat, ...prepared, passes });
   }
-  return { target: target.name, kind: target.kind, arm: target.arm, sharedFolder: target.sharedFolder, repeats };
+  const version = await target.version?.().catch(() => null) ?? null;
+  return { target: target.name, kind: target.kind, arm: target.arm, version, sharedFolder: target.sharedFolder, repeats };
 }
 
 /** Mean and spread (smallest to largest) of one number over repeats, at one pass. */
@@ -229,13 +252,13 @@ export function compare(results, pass) {
 }
 
 /** Two throwaway Branch copies with the offline demo provider, for testing the harness itself. */
-export async function dryRunTargets() {
+export async function dryRunTargets(arms = ["off", "on"]) {
   const { createBranch, DemoProvider } = await import("../../dist/index.js");
   const { startServer } = await import("../../dist/server.js");
   const { discardTemp } = await import("../../tests/temp-dir.mjs");
   const root = await mkdtemp(join(tmpdir(), "branch-real-eval-dry-"));
   const started = [];
-  for (const arm of ["off", "on"]) {
+  for (const arm of arms) {
     const dataDir = join(root, arm, "data"), workspace = join(root, arm, "workspace");
     const app = await createBranch({ workspace, dataDir, provider: new DemoProvider() });
     const server = await startServer(app, { dataDir, port: 0 });
@@ -256,6 +279,12 @@ function sameAddress(a, b) {
 /** The targets the environment describes. */
 export function targetsFromEnvironment(kind, env = process.env) {
   if (kind === "hermes") return [hermesTarget(env.HERMES_EVAL_URL, env.HERMES_EVAL_KEY, env.HERMES_EVAL_MODEL, env.HERMES_EVAL_WORKSPACE)];
+  if (kind === "builds") {
+    if (sameAddress(env.BRANCH_EVAL_URL_BEFORE, env.BRANCH_EVAL_URL_AFTER))
+      throw new Error("The before and after builds must be two different running copies of Branch");
+    return buildArms.map((arm) => branchTarget(arm, env[`BRANCH_EVAL_URL_${arm.toUpperCase()}`], env[`BRANCH_EVAL_KEY_${arm.toUpperCase()}`],
+      false, env[`BRANCH_EVAL_WORKSPACE_${arm.toUpperCase()}`] ?? env.BRANCH_EVAL_WORKSPACE));
+  }
   const separate = !!env.BRANCH_EVAL_URL_OFF || !!env.BRANCH_EVAL_URL_ON;
   const url = (arm) => (separate ? env[`BRANCH_EVAL_URL_${arm.toUpperCase()}`] : env.BRANCH_EVAL_URL);
   // One address given twice is still one Branch and one data folder.
@@ -272,7 +301,7 @@ export function targetsFromEnvironment(kind, env = process.env) {
 export async function runRealEval(input = {}, log = () => {}) {
   const options = { repeats: 3, passes: 3, suites: defaultSuites, maxSteps: 30, maxTokens: 120_000, taskTimeoutMs: 10 * 60_000, target: "branch", ...input };
   const suites = loadSuites(options.suites);
-  const dry = options.dryRun ? await dryRunTargets() : null;
+  const dry = options.dryRun ? await dryRunTargets(options.target === "builds" ? buildArms : undefined) : null;
   try {
     const targets = dry ? dry.targets : options.targets ?? targetsFromEnvironment(options.target);
     const startedAt = new Date().toISOString(), results = [];
@@ -313,8 +342,8 @@ export function parseArguments(argv) {
   for (const [flag, key] of [["--repeats", "repeats"], ["--passes", "passes"], ["--max-steps", "maxSteps"], ["--max-tokens", "maxTokens"]])
     if (number(flag) !== undefined) options[key] = number(flag);
   if (value("--suites")) options.suites = value("--suites").split(",").map((id) => id.trim()).filter(Boolean);
-  if (!["branch", "hermes"].includes(options.target)) throw new Error("--target is branch or hermes");
-  if (options.dryRun && options.target !== "branch") throw new Error("--dry-run only runs the Branch arms");
+  if (!["branch", "builds", "hermes"].includes(options.target)) throw new Error("--target is branch, builds or hermes");
+  if (options.dryRun && options.target === "hermes") throw new Error("--dry-run only runs the Branch arms");
   return options;
 }
 

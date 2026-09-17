@@ -126,7 +126,7 @@ test("R5 the address and key come from the environment and are never printed or 
 test("R6 arguments, arms and the comparison rule", () => {
   assert.deepEqual(parseArguments(["--dry-run", "--passes", "2", "--suites", "cost, safety"]),
     { dryRun: true, target: "branch", json: false, out: undefined, passes: 2, suites: ["cost", "safety"] });
-  assert.throws(() => parseArguments(["--target", "openai"]), /branch or hermes/);
+  assert.throws(() => parseArguments(["--target", "openai"]), /branch, builds or hermes/);
   assert.throws(() => parseArguments(["--dry-run", "--target", "hermes"]), /only runs the Branch arms/);
   const shared = targetsFromEnvironment("branch", { BRANCH_EVAL_URL: "http://x", BRANCH_EVAL_KEY: "k" });
   assert.deepEqual(shared.map((target) => [target.arm, target.sharedFolder]), [["off", true], ["on", true]]);
@@ -152,5 +152,5 @@ test("R7 the script runs when started directly, whatever its path looks like", a
   assert.equal(startedDirectly("file:///a/real-eval.mjs", undefined), false);
   const refused = await run(process.execPath, [script, "--target", "nope"]).catch((error) => error);
   assert.equal(refused.code, 1, "a bad argument is an error, not a silent exit");
-  assert.match(refused.stderr, /--target is branch or hermes/);
+  assert.match(refused.stderr, /--target is branch, builds or hermes/);
 });

@@ -159,3 +159,8 @@ to decide what to keep. The core spends none. The comparison should show whether
 - The memory boost applies when a conversation's snapshot is first taken; `memory.search` results
   are not reordered.
 - Accepting a skill idea opens a draft in the skill editor; installing it is still the owner's step.
+
+
+## The proof report (w911)
+
+`proof-report.mjs` turns any real-eval measurement (learning core off/on, two builds, or Branch against Hermes, including saved reports read together) into one page with a verdict and a release gate. How to run it on the Tower is in `TOWER.md`.
