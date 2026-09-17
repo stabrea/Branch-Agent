@@ -395,3 +395,13 @@ test("the routes: anyone with the app's key may look, only the owner may save, a
   assert.ok(!JSON.stringify(bad.body).includes("nope"));
   assert.equal((await call("POST", "/api/channel-setup/telegram/check", { values: {}, extra: 1 })).status, 400);
 });
+
+test("the setup table in the docs is the one the recipes write (node scripts/channel-setup-table.mjs)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { renderSetupTable, replaceSetupTable } = await import("../scripts/channel-setup-table.mjs");
+  const root = new URL("..", import.meta.url);
+  const book = JSON.parse(await readFile(new URL("data/channel-setup.json", root), "utf8"));
+  const docs = await readFile(new URL("docs/configuration.md", root), "utf8");
+  assert.equal(replaceSetupTable(docs, renderSetupTable(book)), docs, "run node scripts/channel-setup-table.mjs");
+  assert.equal(renderSetupTable(book).split("\n").length, 2 + 55);
+});
