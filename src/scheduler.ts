@@ -188,6 +188,10 @@ export class Scheduler {
     if (permissions.some((p) => !context.permissions.has(p)))
       throw new Error("Schedule permission escalation denied");
     if (definition.gate && this.switches().scriptGates === "off") throw new Error(scriptsOff);
+    // mac7/chat-source: an evaluation suite runs the owner's own saved tasks, with no way to hold them
+    // to what the chat may do, so a chat message's task cannot put one on a timer.
+    if (definition.kind === "evaluation" && startedFromChat(context, this.store))
+      throw new Error("Running an evaluation suite is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.");
     const { webhook, ...rest } = definition;
     // A check script is a program on this computer: it waits for the owner's own yes, whoever asked.
     return this.store.save("schedules", context.owner, randomUUID(), {

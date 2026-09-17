@@ -58,25 +58,43 @@ const ownerOnly = [
 
 test("a schedule a chat's task makes does not launder its work into the owner's", async (t) => {
   const { app, say, owner } = await fixture(t);
-  allowEverything(app, owner);
+  // No approvals at all, so only the chat guards themselves can stop anything here.
+  savePolicy(app.store, owner, { preset: "off", rules: [] });
   app.learningMore.setMode("blocks", { mode: "on" });
   app.learningMore.blocks.define({ owner, agent: "" }, { label: "goals", value: "Grow tomatoes." });
-  const chatRun = await say("make me a schedule");
-  const chatContext = app.runtime.context({ runId: chatRun.id, source: "channel" });
-  // The chat's own permissions, as the router hands them out.
-  const permissions = app.store.events(chatRun.id).find((e) => e.kind === "run.started").data.permissions;
-  const record = app.scheduler.create({ ...chatContext, permissions: new Set(permissions) }, {
-    kind: "task", prompt: "tidy up", dueAt: new Date(Date.now() + 60_000).toISOString(),
-    permissions: ["workflows.manage", "memory.write", "memory.read"],
-  });
-  // The schedule remembers it came from a chat, and its task is the chat's, not a plain schedule's.
+  // The chat's own model asks for the schedule, through the real chat path.
+  const due = new Date(Date.now() + 60_000).toISOString();
+  const asked = JSON.stringify({ kind: "task", prompt: "tidy up", dueAt: due,
+    permissions: ["workflows.manage", "memory.write", "memory.read"] });
+  await say(`please schedules.create ${asked}`);
+  const record = app.store.list("schedules", owner).find((item) => item.data.prompt === "tidy up");
+  assert.ok(record, "the chat's task saved a schedule");
+  assert.equal(record.data.fromChat, true, "the schedule remembers it came from a chat");
+  // Its turns run as the chat's, so every owner-only guard still refuses them.
   await app.scheduler.trigger(owner, record.id, {}, "local");
-  const task = app.store.runs(owner).find((run) => run.prompt.includes("tidy up") && run.id !== chatRun.id);
+  const task = app.store.runs(owner).find((run) => run.prompt.includes("tidy up") && run.id !== record.id);
   assert.ok(task, "the schedule ran a task");
   assert.equal(runOrigin(app.store, task.id).source, "channel", "the schedule's task is still the chat's");
   const context = app.runtime.context({ runId: task.id, source: "channel" });
   for (const [name, args] of ownerOnly)
     await assert.rejects(app.registry.execute(name, args, context), /owner|chat message started/, name);
+  // An evaluation suite runs the owner's own saved tasks, so a chat cannot put one on a timer at all.
+  await say(`please schedules.create ${JSON.stringify({ kind: "evaluation", suite: "nightly", prompt: "run it", dueAt: due })}`);
+  assert.equal(app.store.list("schedules", owner).filter((item) => item.data.kind === "evaluation").length, 0);
+});
+
+test("the owner's own schedule is unchanged by the chat marking", async (t) => {
+  const { app, owner } = await fixture(t);
+  allowEverything(app, owner);
+  const own = app.runtime.context({ runId: (await app.runtime.run({ prompt: "mine" })).id });
+  const record = app.scheduler.create(own, { kind: "task", prompt: "my own errand", dueAt: new Date(Date.now() + 60_000).toISOString() });
+  assert.equal(record.data.fromChat, undefined, "nothing is marked on the owner's own schedule");
+  await app.scheduler.trigger(owner, record.id, {}, "local");
+  const task = app.store.runs(owner).find((run) => run.prompt.includes("my own errand"));
+  assert.ok(task, "the schedule ran a task");
+  assert.equal(runOrigin(app.store, task.id).source, "schedule", "it is still a plain schedule's");
+  // And an evaluation schedule is still the owner's to make.
+  assert.ok(app.scheduler.create(own, { kind: "evaluation", suite: "nightly", prompt: "run it", dueAt: new Date(Date.now() + 60_000).toISOString() }).id);
 });
 
 test("a helper of a chat's task cannot slip past a guard that reads only the context", async (t) => {
