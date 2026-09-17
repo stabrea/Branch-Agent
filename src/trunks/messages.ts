@@ -4,6 +4,7 @@ import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import type { Store } from "../store.js";
+import { startedFromChat } from "../key-context.js";
 import type { Trunk, TrunkRecords } from "./record.js";
 import { isPass } from "./room-plan.js";
 import { requireTrunkPart } from "./settings.js";
@@ -107,6 +108,10 @@ export class TrunkMessages {
     const run = context.runId ? this.store.run(context.runId) : undefined;
     if (!sender || !run || run.sessionId !== sender.chatSessionId)
       throw new Error("trunk.message works only in a Trunk's own conversation");
+    // mac7/chat-source: a chat may be linked to a Trunk's conversation, but whoever is typing there is
+    // not the owner, so they cannot set the owner's Trunks talking to each other.
+    if (startedFromChat(context, this.store))
+      throw new Error("A message from a chat app cannot send between the owner's Trunks. Ask the owner to do it in Branch.");
     return sender;
   }
   private checkRate(runId: string): void {

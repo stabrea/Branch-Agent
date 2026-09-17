@@ -81,7 +81,8 @@ test("a chat message's task, its helpers and a resumed copy are the chat's; the 
   const resumed = await app.runtime.resume(run.id);
   assert.equal(started(app, resumed.id).source, "channel");
   assert.deepEqual(started(app, resumed.id).permissions, started(app, run.id).permissions);
-  assert.ok(!started(app, resumed.id).permissions.includes("shell.execute"));
+  for (const permission of ["shell.execute", "brief.manage", "agents.manage", "skills.manage", "nodes.run", "personal.read"])
+    assert.ok(!started(app, resumed.id).permissions.includes(permission), permission);
   const own = await app.runtime.run({ prompt: "my own task" });
   assert.equal(started(app, own.id).source, "owner", "the window's task is still the owner's");
 });
@@ -244,4 +245,25 @@ test("/platform from a chat is taken only from an account the owner named, never
   saveOwnerAccounts(app.store, owner, [{ channel: "chat", sender: "sam" }]);
   await say("/platform pause chat");
   assert.deepEqual(platformSettings(app.store, owner).paused, ["chat"], "the account the owner named may pause");
+});
+
+test("Trunks: a chat linked to a Trunk's conversation cannot set the owner's Trunks messaging each other", async (t) => {
+  const { app, say, owner } = await fixture(t);
+  app.trunks.setMode("trunks", { mode: "on" });
+  app.trunks.setMode("messages", { mode: "on" });
+  const ann = app.trunks.create({ name: "Ann" });
+  app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  // The owner allows this chat app to reach Ann, and links this chat to her conversation.
+  app.trunks.edit(ann.id, { reach: { channels: ["chat"], commands: false } });
+  app.store.save("settings", owner, "channel-session:chat:c1", { sessionId: ann.chatSessionId, channel: "chat", chatId: "c1", updatedAt: new Date().toISOString() });
+  const run = await say("ask ben what time it is");
+  assert.ok(run, "the chat's message reached Ann's conversation");
+  assert.equal(app.store.run(run.id).sessionId, ann.chatSessionId);
+  const context = { ...chatContext(app, run), agent: `trunk:${ann.id}` };
+  await assert.rejects(app.registry.execute("trunk.message", { to: "@ben", message: "hi" }, context), /cannot send between the owner's Trunks/);
+  // Ann's own conversation, started by the owner, still may.
+  const own = await app.runtime.run({ prompt: "hello Ann", sessionId: ann.chatSessionId });
+  const owners = { ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` };
+  assert.equal((await app.registry.execute("trunk.message", { to: "@ben", message: "hi" }, owners)).queued, true);
 });

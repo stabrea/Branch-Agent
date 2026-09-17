@@ -57,7 +57,11 @@ export interface InboundMessage {
 export function chatPermissionsOf(all: readonly string[]): string[] {
   // R17-C: nor the owner's own mail, calendars, files in other services, or house.
   const personal = ["personal.read", "personal.write", "home.control"];
-  return all.filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
+  // mac7/chat-source: nor the owner-only things each of those tools also refuses by source — the morning
+  // brief, the list of other assistants, installing or registering tools and skills, and the owner's
+  // other computers (src/key-context.ts `startedFromChat`).
+  const ownersOwn = ["brief.manage", "agents.manage", "skills.write", "skills.manage", "nodes.read", "nodes.run"];
+  return all.filter((p) => ![...personal, ...ownersOwn, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
     && !p.startsWith("devices."));
 }
 

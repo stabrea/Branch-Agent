@@ -694,8 +694,11 @@ lends those accounts nothing else. What that means:
   your other computers, looking at your other computers, screen, videos or notes (R17-I), and "/learn"
   (from a chat it is ordinary words). Changing settings, approvals,
   installs, the `/lockdown` switch and the other owner-only commands was already refused from a chat.
-- **Unchanged:** which chats are answered (`allowlist`, pairing), what tools a chat's task may use, and
-  everything you start in the window, the terminal or with your own key.
+  Each of these refuses a chat's task by itself, and the tools behind them are also kept out of what a
+  chat's task may use at all (`chatPermissionsOf` in `src/channels/router.ts`, alongside commands, your
+  devices, your personal connectors and sending to other chats).
+- **Unchanged:** which chats are answered (`allowlist`, pairing), and everything you start in the window,
+  the terminal or with your own key.
 
 A task saved before this change carries only the `channel.inbound` mark; it is read the same way.
 
