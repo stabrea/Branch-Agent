@@ -6,7 +6,7 @@ import type { Runtime } from "./runtime.js";
 import type { ToolRegistry } from "./registry.js";
 import type { SuiteRunner } from "./evaluation-runner.js";
 import { GateScriptSchema, afterGateFailure, checkGateProgram, gateFingerprint, gatePrompt, runGate, type GateRunner } from "./job-gate.js";
-import { Heartbeat, automationHealth, registerHeartbeat, type Health } from "./heartbeat.js";
+import { Heartbeat, automationHealth, quietSwitches, quietWord, saveQuietSwitches, registerHeartbeat, type Health, type QuietMode } from "./heartbeat.js";
 
 const timezone = z.string().min(1).max(64).refine((zone) => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return true; } catch { return false; }
@@ -56,29 +56,51 @@ const nextTurn = (data: Record<string, unknown>, now: Date): string =>
     ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
     : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
 
-/** What a check says when it has nothing to report; a check that says it sends nothing. */
-export const nothingNew = "NOTHING_NEW";
+/** What a check says when it has nothing to report; exactly this, after trimming, sends nothing. */
+export const nothingNew = quietWord;
 const awaitingApproval = "This job runs a check script first, and waits until you approve the script in Schedules.";
+const scriptsOff = "Check scripts are switched off, so this job is waiting. Turn them on in Schedules to let it run.";
 const saidNothingNew = (output: string): boolean => output.trim() === nothingNew;
-/** Checks send only news unless told otherwise; everything else sends every result, as before. */
-const onlyChanges = (data: Record<string, unknown>): boolean =>
-  (data.notify ?? (data.kind === "check" ? "changes" : "always")) === "changes";
-/** Why a result is not worth sending, or null when it is. */
-function heldBack(data: Record<string, unknown>, run: Run): string | null {
-  if (!onlyChanges(data)) return null;
+const dayMs = 86_400_000;
+/**
+ * Whether only news is sent. Off: every result, as before. A schedule's own `notify` wins otherwise;
+ * without one, checks are gated ("when needed": only checks that come round more than once a day).
+ */
+function onlyChanges(data: Record<string, unknown>, mode: QuietMode): boolean {
+  if (mode === "off" || data.notify === "always") return false;
+  if (data.notify === "changes") return true;
+  if (data.kind !== "check") return false;
+  return mode === "on" || (typeof data.intervalMs === "number" && data.intervalMs < dayMs);
+}
+/**
+ * Why a result is not worth sending, or null when it is. The first failure and the first success
+ * after failures always go out; only repeats are held back.
+ */
+function heldBack(data: Record<string, unknown>, run: Run, mode: QuietMode): string | null {
+  if (!onlyChanges(data, mode)) return null;
+  const failedBefore = Number(data.consecutiveFailures ?? 0) > 0;
   if (run.status !== "completed")
-    return Number(data.consecutiveFailures ?? 0) > 0 ? "It did not finish again; you were told the first time, so nothing was sent." : null;
+    return failedBefore ? "It did not finish again; you were told the first time, so nothing was sent." : null;
+  if (failedBefore) return null;
   if (saidNothingNew(run.output)) return "Nothing changed, so nothing was sent.";
   const last = typeof data.lastResult === "string" ? data.lastResult.trim() : null;
   if (last !== null && last === run.output.slice(0, 4000).trim()) return "The result is the same as last time, so nothing was sent.";
   return null;
 }
-/** Healthy, failing or never run, for one saved schedule. */
+/** What is sent: the result, or plain words for a failure or for working again. */
+function messageFor(data: Record<string, unknown>, run: Run): string {
+  if (run.status !== "completed") return `The scheduled task did not finish (${run.status}).`;
+  if (Number(data.consecutiveFailures ?? 0) > 0 && saidNothingNew(run.output)) return "The check is working again. Nothing new to report.";
+  return run.output;
+}
+/** Healthy, failing, held or never run, for one saved schedule. */
 export function scheduleHealth(data: Record<string, unknown>): Health {
   const history = Array.isArray(data.history) ? data.history as HistoryEntry[] : [];
+  const waiting = data.status === "paused" && data.pausedBecause === awaitingApproval;
+  const held = typeof data.heldBecause === "string" ? data.heldBecause : waiting ? awaitingApproval : undefined;
   const failing = Number(data.consecutiveFailures ?? 0) > 0 || Number(data.gateFailures ?? 0) > 0 ||
-    (data.status === "paused" && typeof data.pausedBecause === "string" && data.pausedBecause !== awaitingApproval);
-  return automationHealth(history, { runCount: Number(data.runCount ?? 0), ...(failing ? { failing: true } : {}) });
+    (data.status === "paused" && typeof data.pausedBecause === "string" && !waiting);
+  return automationHealth(history, { runCount: Number(data.runCount ?? 0), ...(failing ? { failing: true } : {}), ...(held ? { held } : {}) });
 }
 
 /** The next moment `HH:MM` occurs in `zone` strictly after `after`. */
@@ -146,6 +168,7 @@ export class Scheduler {
         );
     if (permissions.some((p) => !context.permissions.has(p)))
       throw new Error("Schedule permission escalation denied");
+    if (definition.gate && this.switches().scriptGates === "off") throw new Error(scriptsOff);
     const { webhook, ...rest } = definition;
     // A check script is a program on this computer: it waits for the owner's own yes, whoever asked.
     return this.store.save("schedules", context.owner, randomUUID(), {
@@ -163,9 +186,10 @@ export class Scheduler {
     if (this.store.review.dreamDue(this.runtime.owner, now)) await this.store.review.consolidate(this.runtime, this.runtime.owner).catch(() => undefined);
     for (const candidate of this.store.dueSchedules(this.runtime.owner, now.toISOString())) {
       if (this.deferredForDayOff(candidate, now)) continue;
+      if (this.heldForScripts(candidate)) continue;
       const claimed = this.store.claimSchedule(this.runtime.owner, candidate.id, now.toISOString());
       if (!claimed) continue;
-      const passed = claimed.data.gate ? await this.passGate(claimed, now) : { data: null };
+      const passed = this.gateApplies(claimed.data) ? await this.passGate(claimed, now) : { data: null };
       if (!passed) continue;
       const run = await this.execute(claimed, now, "schedule", undefined, true, passed.data);
       if (run) results.push(run);
@@ -175,6 +199,21 @@ export class Scheduler {
     // that is slow to answer. A beat that overlaps the one before it is normal here.
     for (const listener of this.onTick) await listener(now).catch(() => undefined);
     return results;
+  }
+  private switches() {
+    return quietSwitches(this.store, this.runtime.owner);
+  }
+  /** A gated job waits while scripts are switched off, and says so on its health badge. */
+  private heldForScripts(record: SavedRecord): boolean {
+    const off = !!record.data.gate && this.switches().scriptGates === "off";
+    if (off !== (record.data.heldBecause === scriptsOff))
+      this.store.save("schedules", record.owner, record.id, { ...record.data, heldBecause: off ? scriptsOff : null });
+    return off;
+  }
+  /** "When needed" runs the script for repeating jobs only; a one-off goes straight ahead. */
+  private gateApplies(data: Record<string, unknown>): boolean {
+    if (!data.gate) return false;
+    return this.switches().scriptGates === "on" || repeating(data);
   }
   /**
    * Holds a schedule back when its moment lands on a day off. "Skip" moves a repeating one on to
@@ -311,7 +350,7 @@ export class Scheduler {
       pausedBecause: record.data.pausedBecause ?? null, health: scheduleHealth(record.data),
       gate: record.data.gate ? { ...(record.data.gate as object), approved: typeof record.data.gateApproved === "string" && record.data.gateApproved === gateFingerprint(GateScriptSchema.parse(record.data.gate)), last: record.data.lastGate ?? null } : null,
     }));
-    return { heartbeat: this.heartbeat.overview(owner), schedules };
+    return { switches: quietSwitches(this.store, owner), heartbeat: this.heartbeat.overview(owner), schedules };
   }
   /** Runs the test suite a schedule is attached to; anything that has stopped working is announced. */
   private async evaluateSuite(record: SavedRecord): Promise<Run> {
@@ -324,7 +363,7 @@ export class Scheduler {
     let prompt = String(data.prompt);
     if (data.kind === "check" && typeof data.lastResult === "string" && data.lastResult)
       prompt += `\n\nYour previous check at ${String(data.lastRunAt ?? "an earlier time")} concluded: ${data.lastResult}\nCompare against it and report what changed.`;
-    if (onlyChanges(data))
+    if (onlyChanges(data, this.switches().notifyGate))
       prompt += `\n\nIf nothing has changed and nothing needs the owner's attention, reply with exactly ${nothingNew} and nothing else.`;
     if (payload !== undefined) prompt += `\n\nTriggering event payload (JSON): ${JSON.stringify(payload).slice(0, 16000)}`;
     return prompt;
@@ -334,13 +373,13 @@ export class Scheduler {
     if (!target) return undefined;
     const at = new Date().toISOString();
     if (!this.deliver) return { ...target, at, error: "No channel delivery is available in this launch" };
-    const held = heldBack(data, run);
+    const held = heldBack(data, run, this.switches().notifyGate);
     if (held) {
       this.store.event(run.id, "delivery.held", { ...target, reason: held });
       return { ...target, at, held };
     }
     try {
-      const text = run.status === "completed" ? run.output : `The scheduled task did not finish (${run.status}).`;
+      const text = messageFor(data, run);
       const { messageId, queued } = await this.deliver(target.channel, target.chatId, text, `schedule:${run.id}`);
       this.store.event(run.id, queued ? "delivery.queued" : "delivery.sent", { ...target, messageId: messageId ?? null, queued: queued ?? 0 });
       return { ...target, at, messageId: messageId ?? null, ...(queued ? { queued } : {}) };
@@ -451,6 +490,7 @@ export async function quietJobsApi(scheduler: Scheduler, method: string, path: s
   const owner = scheduler.runtime.owner;
   if (path === "/api/heartbeat" && method === "GET") return scheduler.overview(owner);
   if (path === "/api/heartbeat" && method === "POST") return scheduler.heartbeat.configure(owner, await body());
+  if (path === "/api/heartbeat/switches" && method === "POST") return saveQuietSwitches(scheduler.store, owner, await body());
   if (path === "/api/heartbeat/check" && method === "POST") return { outcome: await scheduler.heartbeat.checkNow(owner) };
   const gate = /^\/api\/schedules\/([a-f0-9-]{36})\/gate$/.exec(path);
   if (gate && method === "POST") {

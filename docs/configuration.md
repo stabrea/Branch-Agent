@@ -1358,12 +1358,23 @@ to false once whatever it needs is working. One turn finishing clears the count.
 
 ### Background work that only speaks up when needed
 
+**Switches.** Schedules → Background work that stays quiet (`POST /api/heartbeat/switches`, setting
+`quiet-jobs`). Three switches, each `off` (the default), `on` or `when-needed`: `checkIn`, `scriptGates`
+and `notifyGate`. "When needed" means the feature never runs on a timer of its own, only when something
+calls for it. What each one means is written under the feature below.
+
 **Check-in.** Schedules → Check-in (`GET`/`POST /api/heartbeat`, `POST /api/heartbeat/check` for "check
-in now"). Off until switched on. Every `everyMinutes` (30 by default, at least 5), inside `activeHours`
+in now"). With `checkIn` on, every `everyMinutes` (30 by default, at least 5), inside `activeHours`
 (`{ from, to }` in `timezone`, 08:00–22:00 by default, may run past midnight; `null` means any time),
-the assistant works through your `checklist`. A checklist with only blank lines, headings, comments or
-empty boxes skips the model call entirely. The assistant answers with the `heartbeat.respond` tool:
-`notify: false` sends nothing, `notify: true` sends its text to `deliverTo` (a chat) or the activity list.
+the assistant works through your `checklist`. With `checkIn` set to when needed, nothing runs on a timer.
+A check-in runs only when you press "Check in now" or something wakes it, and a wake still keeps to the
+hours. With `checkIn` off, "Check in now" is refused. The checklist is read through one provider. The
+default reads the text you keep here. If there is no checklist file, the check-in still runs. If the
+checklist has only blank lines, headings, comments or empty boxes, the model is not asked at all. The
+assistant answers with the `heartbeat.respond` tool. That tool sits in the schedules toolbox, so ordinary
+tasks do not carry it, and a check-in is told to load it. `notify: false` sends nothing. `notify: true`
+sends its text to `deliverTo` (a chat) or to the activity list. If the tool is not used, a reply of
+exactly `NOTHING_NEW` counts as quiet, and any other reply is sent as the news.
 With `secondOpinion` on, one short extra question decides whether the news is worth interrupting you;
 if that question cannot be asked or read, the news is sent. Each check-in is recorded (quiet, notified,
 held back, failed) in the setting `heartbeat-state`.
@@ -1372,19 +1383,24 @@ held back, failed) in the setting `heartbeat-state`.
 maxCpuSeconds, network }`. The program must be named in full and is started with a list of arguments,
 never through a shell, with an emptied environment and, unless `network` is true, proxy settings pointing
 at a dead address. It must end its output with one line of JSON, `{"wakeAgent": true|false, "data": …}`.
-The assistant is only woken when `wakeAgent` is true, and is handed `data` as material to work with. A
+The assistant is only woken when `wakeAgent` is true, and is handed `data` as material to work with. With
+`scriptGates` off, a new schedule with a script is refused. An existing one waits, and its health badge
+says why. When needed, the script runs only for repeating jobs, and a one-off job goes straight ahead. A
 job with a script starts paused until you approve the script in Schedules (`POST
 /api/schedules/:id/gate { approve }`, the app window only; a short-lived key is refused). The approval
 covers that exact program, arguments and limits, so changing any of them asks again. A script that fails
 waits 2, 4, 8, 16 minutes (at most an hour, never sooner than the job's own next turn) and after five
 failures in a row the job is paused with the reason. "Run now" and webhooks skip the script.
 
-**Checks send news only.** A `check` schedule now sends its result only when it is new: a reply of
-exactly `NOTHING_NEW`, or the same result as last time, is kept in the record (`delivery.held`) and not
-sent, and a failure is sent the first time only. Set `notify: "always"` on the schedule for the old
-behaviour. A watch (`monitor.*`) whose page only changed in spacing or line order no longer announces.
+**Checks send news only.** With `notifyGate` on, a `check` schedule sends its result only when it is
+new. A reply that is exactly `NOTHING_NEW` after trimming (capital letters count), or the same result as
+last time, is recorded (`delivery.held`) but not sent. An answer that merely contains the phrase is still
+sent. A job's first failure is always sent, and so is its first success after failures ("working again").
+Only repeats are held back. When needed, only checks that repeat more than once a day are held back.
+With the switch off, every result is sent, as before. On a schedule, `notify: "always"` or
+`notify: "changes"` overrides the switch whenever the switch is not off. A watch (`monitor.*`) whose page only changed in spacing or line order no longer announces.
 
-**Health.** Each schedule, the check-in and each watch show healthy / failing / never run, with the run
+**Health.** Each schedule, the check-in and each watch show healthy / failing / waiting / never run, with the run
 count, the share of the last ten turns that worked, and the average time a turn took (`health` on
 `schedules.list`, `monitor.list` and `GET /api/heartbeat`).
 

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, quietJobsApi, scheduleHealth, nothingNew } from "../dist/index.js";
-import { automationHealth, checklistIsEmpty, withinActiveHours, readVerdict, heartbeatInstructions } from "../dist/heartbeat.js";
+import { automationHealth, checklistIsEmpty, withinActiveHours, readVerdict, heartbeatInstructions, saveQuietSwitches, answerFromText } from "../dist/heartbeat.js";
 import {
   runGate, gateEnvironment, gateFingerprint, readGateAnswer, gateBackoffMinutes, afterGateFailure,
   gateFailuresBeforePausing, GateScriptSchema, defaultGateRunner,
@@ -37,6 +37,7 @@ async function fixture(t) {
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, context: app.runtime.context() };
 }
+const switchOn = (app, changes) => saveQuietSwitches(app.store, "local", changes);
 const respond = (notify, text = "") => ({ tool: "heartbeat.respond", args: notify ? { notify, text } : { notify } });
 const noon = new Date("2026-03-02T12:00:00.000Z");
 
@@ -45,11 +46,14 @@ const noon = new Date("2026-03-02T12:00:00.000Z");
 test("an empty checklist, and anything outside the hours, never asks the model", async (t) => {
   const { app, provider } = await fixture(t);
   const heartbeat = app.scheduler.heartbeat;
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- look at the build" });
   assert.equal(await heartbeat.tick(noon), null, "off until switched on");
-  heartbeat.configure("local", { enabled: true, timezone: "UTC", checklist: "# Things\n\n- [ ]\n<!-- later -->\n" });
+  await assert.rejects(heartbeat.checkNow("local"), /switched off/);
+  switchOn(app, { checkIn: "on" });
+  heartbeat.configure("local", { timezone: "UTC", checklist: "# Things\n\n- [ ]\n<!-- later -->\n" });
   assert.equal(await heartbeat.tick(noon), "skipped");
   assert.match(heartbeat.state("local").lastReason, /checklist is empty/);
-  heartbeat.configure("local", { enabled: true, timezone: "UTC", checklist: "- look at the build", activeHours: { from: "08:00", to: "10:00" } });
+  heartbeat.configure("local", { timezone: "UTC", checklist: "- look at the build", activeHours: { from: "08:00", to: "10:00" } });
   assert.equal(await heartbeat.tick(noon), "skipped");
   assert.match(heartbeat.state("local").lastReason, /Outside the check-in hours/);
   assert.equal(provider.requests.length, 0, "no model call for either");
@@ -62,15 +66,15 @@ test("a quiet check-in sends nothing; one that needs the owner is delivered", as
   await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
     async send(chatId, text) { sent.push({ chatId, text }); return "m1"; } }, { activation: "always", pairing: false, allowlist: [] });
   const heartbeat = app.scheduler.heartbeat;
-  heartbeat.configure("local", { enabled: true, timezone: "UTC", activeHours: null, everyMinutes: 30,
+  switchOn(app, { checkIn: "on" });
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, everyMinutes: 30,
     checklist: "- is the backup fresh?\n- search the web for news about the project\n- read the files in the workspace\n- look at git commits and github issues\n- check the browser page and my email messages", deliverTo: { channel: "telegram", chatId: "7" } });
   provider.replies.push(respond(false), "All fine.");
   assert.equal(await heartbeat.tick(noon), "quiet");
   assert.equal(sent.length, 0, "a quiet answer sends nothing");
   const system = provider.requests[0].messages.map((m) => m.content).join("\n");
   assert.ok(system.includes(heartbeatInstructions.slice(0, 40)));
-  const offered = provider.requests[0].tools.map((tool) => tool.name ?? tool);
-  assert.ok(offered.includes("heartbeat.respond"), `the check-in is handed its answer tool: ${offered.join(", ")}`);
+  assert.match(provider.asked[0], /load it with tools\.describe/, "the check-in is told how to reach its answer tool");
   provider.replies.push(respond(true, "The backup is two days old."), "Told them.");
   assert.equal(await heartbeat.tick(new Date(noon.getTime() + 31 * 60_000)), "notified");
   assert.deepEqual(sent, [{ chatId: "7", text: "The backup is two days old." }]);
@@ -83,7 +87,8 @@ test("a quiet check-in sends nothing; one that needs the owner is delivered", as
 test("the second opinion can hold news back, and its failure lets news through", async (t) => {
   const { app, provider } = await fixture(t);
   const heartbeat = app.scheduler.heartbeat;
-  heartbeat.configure("local", { enabled: true, timezone: "UTC", activeHours: null, checklist: "- anything new?", secondOpinion: true });
+  switchOn(app, { checkIn: "on" });
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- anything new?", secondOpinion: true });
   const asked = [];
   heartbeat.judge = async (run, text) => { asked.push(text); return { notify: false, reason: "Routine." }; };
   provider.replies.push(respond(true, "A routine note."), "ok");
@@ -182,11 +187,13 @@ test("a gated job waits for approval, sleeps quietly, wakes with data, and pause
   await writeFile(program, "fake");
   const answers = [];
   app.scheduler.gateRunner = async () => answers.shift();
+  switchOn(app, { scriptGates: "on" });
   const record = app.scheduler.create(context, { prompt: "Summarise new issues", dueAt: noon.toISOString(), kind: "task",
     intervalMs: 3600_000, gate: { executable: program, args: ["issues"] } });
   assert.equal(record.data.status, "paused");
   assert.throws(() => app.scheduler.setPaused(context, record.id, false), /Approve this job's check script/);
-  assert.equal(scheduleHealth(record.data).state, "never-run", "waiting for a yes is not a failure");
+  assert.equal(scheduleHealth(record.data).state, "held", "waiting for a yes is not a failure");
+  assert.match(scheduleHealth(record.data).heldBecause, /approve the script/);
   await assert.rejects(quietJobsApi(app.scheduler, "POST", `/api/schedules/${record.id}/gate`, async () => ({ approve: "yes" })));
   await quietJobsApi(app.scheduler, "POST", `/api/schedules/${record.id}/gate`, async () => ({ approve: true }));
   const read = () => app.store.get("schedules", "local", record.id).data;
@@ -222,6 +229,7 @@ test("a check script made through a model's tool call still waits for the owner'
   const { app, root, context } = await fixture(t);
   const program = join(root, "probe");
   await writeFile(program, "fake");
+  switchOn(app, { scriptGates: "on" });
   const record = await app.runtime.executeTool("schedules.create", { prompt: "x", dueAt: noon.toISOString(), kind: "check",
     gate: { executable: program } });
   assert.equal(record.data.status, "paused");
@@ -238,6 +246,7 @@ test("a check sends its first result and news, never NOTHING_NEW or the same res
   const sent = [];
   await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
     async send(chatId, text) { sent.push(text); return `m${sent.length}`; } }, { activation: "always", pairing: false, allowlist: [] });
+  switchOn(app, { notifyGate: "on" });
   const record = app.scheduler.create(context, { prompt: "Is the site up?", dueAt: noon.toISOString(), kind: "check",
     intervalMs: 60_000, deliverTo: { channel: "telegram", chatId: "1" } });
   const read = () => app.store.get("schedules", "local", record.id).data;
@@ -289,7 +298,7 @@ test("the overview lists each schedule with its health, over the owner's route",
   assert.equal(overview.schedules[0].health.state, "healthy");
   assert.equal(overview.schedules[0].health.runCount, 1);
   assert.equal(overview.heartbeat.health.state, "never-run");
-  assert.equal(overview.heartbeat.settings.enabled, false);
+  assert.equal(overview.heartbeat.mode, "off");
   const listed = await app.runtime.executeTool("schedules.list", {});
   assert.equal(listed[0].health.state, "healthy");
   assert.equal(await quietJobsApi(app.scheduler, "GET", "/api/elsewhere", async () => ({})), undefined);
@@ -318,7 +327,8 @@ test("a watch whose words only moved around sends nothing, and its health is kep
 test("a check-in already running is never started twice", async (t) => {
   const { app, provider } = await fixture(t);
   const heartbeat = app.scheduler.heartbeat;
-  heartbeat.configure("local", { enabled: true, timezone: "UTC", activeHours: null, checklist: "- anything?" });
+  switchOn(app, { checkIn: "on" });
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- anything?" });
   provider.replies.push(respond(false), "ok");
   const first = heartbeat.checkNow("local");
   assert.equal(await heartbeat.tick(noon), null, "the beat leaves the running check-in alone");
@@ -333,12 +343,147 @@ test("a check that keeps failing says so once, not on every turn", async (t) => 
   const sent = [];
   await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
     async send(chatId, text) { sent.push(text); return `m${sent.length}`; } }, { activation: "always", pairing: false, allowlist: [] });
+  switchOn(app, { notifyGate: "on" });
   const record = app.scheduler.create(context, { prompt: "Is the site up?", dueAt: noon.toISOString(), kind: "check",
     intervalMs: 60_000, deliverTo: { channel: "telegram", chatId: "1" } });
   const read = () => app.store.get("schedules", "local", record.id).data;
+  const working = provider.complete;
   provider.complete = async () => { throw new Error("provider down"); };
-  for (let turn = 0; turn < 3; turn++) await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
-  assert.equal(read().consecutiveFailures, 3);
+  for (let turn = 0; turn < 2; turn++) await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
+  assert.equal(read().consecutiveFailures, 2);
   assert.equal(sent.length, 1, `told once: ${JSON.stringify(sent)}`);
   assert.match(sent[0], /did not finish/);
+  provider.complete = working;
+  provider.replies.push(nothingNew);
+  await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
+  assert.equal(sent.at(-1), "The check is working again. Nothing new to report.", "the first success after failures always goes out");
+  provider.replies.push(nothingNew);
+  await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
+  assert.equal(sent.length, 2, "after that, nothing new is quiet again");
+});
+
+/* ---------------------------------------------------------------- the three-way switches */
+
+test("everything ships off: checks send every result, scripts are refused, no check-in runs", async (t) => {
+  const { app, root, provider, context } = await fixture(t);
+  const overview = await quietJobsApi(app.scheduler, "GET", "/api/heartbeat", async () => ({}));
+  assert.deepEqual(overview.switches, { checkIn: "off", scriptGates: "off", notifyGate: "off" });
+  const program = join(root, "probe");
+  await writeFile(program, "fake");
+  assert.throws(() => app.scheduler.create(context, { prompt: "x", dueAt: noon.toISOString(), kind: "task", gate: { executable: program } }), /switched off/);
+  const sent = [];
+  await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
+    async send(chatId, text) { sent.push(text); return "m"; } }, { activation: "always", pairing: false, allowlist: [] });
+  const check = app.scheduler.create(context, { prompt: "ping", dueAt: noon.toISOString(), kind: "check", intervalMs: 60_000, deliverTo: { channel: "telegram", chatId: "1" } });
+  const read = () => app.store.get("schedules", "local", check.id).data;
+  provider.replies.push("same", "same");
+  await app.scheduler.tick(new Date(noon.getTime() + 1000));
+  await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
+  assert.deepEqual(sent, ["same", "same"], "with the switch off every result is sent, as before");
+  assert.ok(!provider.asked[0].includes(nothingNew));
+  const bad = await quietJobsApi(app.scheduler, "POST", "/api/heartbeat/switches", async () => ({ checkIn: "sometimes" })).catch((error) => error);
+  assert.ok(bad instanceof Error);
+});
+
+test("a gated job held by the switch says so on its health badge, and runs again once switched on", async (t) => {
+  const { app, root, provider, context } = await fixture(t);
+  const program = join(root, "probe");
+  await writeFile(program, "fake");
+  app.scheduler.gateRunner = async () => ({ status: "completed", exitCode: 0, stdout: "{\"wakeAgent\":true}", stderr: "", durationMs: 1 });
+  switchOn(app, { scriptGates: "on" });
+  const record = app.scheduler.create(context, { prompt: "x", dueAt: noon.toISOString(), kind: "task", intervalMs: 3600_000, gate: { executable: program } });
+  await app.scheduler.approveGate("local", record.id, true);
+  switchOn(app, { scriptGates: "off" });
+  await app.scheduler.tick(new Date(noon.getTime() + 1000));
+  const overview = await quietJobsApi(app.scheduler, "GET", "/api/heartbeat", async () => ({}));
+  assert.equal(overview.schedules[0].health.state, "held");
+  assert.match(overview.schedules[0].health.heldBecause, /Check scripts are switched off/);
+  assert.equal(provider.requests.length, 0);
+  switchOn(app, { scriptGates: "on" });
+  await app.scheduler.tick(new Date(noon.getTime() + 2000));
+  assert.equal(provider.requests.length, 1);
+  assert.equal(scheduleHealth(app.store.get("schedules", "local", record.id).data).state, "healthy");
+});
+
+test("when needed, a one-off gated job skips its script and a repeating one runs it", async (t) => {
+  const { app, root, provider, context } = await fixture(t);
+  const program = join(root, "probe");
+  await writeFile(program, "fake");
+  let scripts = 0;
+  app.scheduler.gateRunner = async () => { scripts++; return { status: "completed", exitCode: 0, stdout: "{\"wakeAgent\":false}", stderr: "", durationMs: 1 }; };
+  switchOn(app, { scriptGates: "when-needed" });
+  const once = app.scheduler.create(context, { prompt: "once", dueAt: noon.toISOString(), kind: "task", gate: { executable: program } });
+  const again = app.scheduler.create(context, { prompt: "again", dueAt: noon.toISOString(), kind: "task", intervalMs: 3600_000, gate: { executable: program } });
+  for (const id of [once.id, again.id]) await app.scheduler.approveGate("local", id, true);
+  await app.scheduler.tick(new Date(noon.getTime() + 1000));
+  assert.equal(scripts, 1, "only the repeating job ran its script");
+  assert.equal(provider.requests.length, 1, "the one-off went straight to the model");
+});
+
+test("when needed, only checks that come round more than once a day are held back", async (t) => {
+  const { app, provider, context } = await fixture(t);
+  const sent = [];
+  await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
+    async send(chatId, text) { sent.push(text); return "m"; } }, { activation: "always", pairing: false, allowlist: [] });
+  switchOn(app, { notifyGate: "when-needed" });
+  const to = { channel: "telegram", chatId: "1" };
+  app.scheduler.create(context, { prompt: "hourly", dueAt: noon.toISOString(), kind: "check", intervalMs: 3600_000, deliverTo: to });
+  app.scheduler.create(context, { prompt: "daily", dueAt: noon.toISOString(), kind: "check", dailyAt: "09:00", timezone: "UTC", deliverTo: to });
+  provider.replies.push(nothingNew, nothingNew);
+  await app.scheduler.tick(new Date(noon.getTime() + 1000));
+  assert.deepEqual(sent, [nothingNew], "the daily check is not gated, the hourly one is");
+});
+
+test("NOTHING_NEW only counts when it is the whole answer", async (t) => {
+  const { app, provider, context } = await fixture(t);
+  const sent = [];
+  await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
+    async send(chatId, text) { sent.push(text); return "m"; } }, { activation: "always", pairing: false, allowlist: [] });
+  switchOn(app, { notifyGate: "on" });
+  const record = app.scheduler.create(context, { prompt: "news?", dueAt: noon.toISOString(), kind: "check", intervalMs: 60_000, deliverTo: { channel: "telegram", chatId: "1" } });
+  const read = () => app.store.get("schedules", "local", record.id).data;
+  const replies = ["first", `  ${nothingNew}\n`, "nothing_new", `Mostly ${nothingNew}, but the certificate expires tomorrow.`];
+  for (const reply of replies) { provider.replies.push(reply); await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000)); }
+  assert.deepEqual(sent, ["first", "nothing_new", `Mostly ${nothingNew}, but the certificate expires tomorrow.`]);
+  assert.deepEqual(answerFromText(` ${nothingNew} `), { notify: false, text: "" });
+  assert.equal(answerFromText(`${nothingNew}!`).notify, true);
+});
+
+test("the checklist comes from one provider: missing still runs, empty skips", async (t) => {
+  const { app, provider } = await fixture(t);
+  const heartbeat = app.scheduler.heartbeat;
+  switchOn(app, { checkIn: "on" });
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- stored text is not used" });
+  heartbeat.checklist = async () => "";
+  assert.equal(await heartbeat.tick(noon), "skipped");
+  assert.equal(provider.requests.length, 0);
+  heartbeat.checklist = async () => null;
+  provider.replies.push(nothingNew);
+  assert.equal(await heartbeat.tick(new Date(noon.getTime() + 31 * 60_000)), "quiet", "no respond call and exactly NOTHING_NEW is quiet");
+  assert.match(provider.asked[0], /There is no checklist on file/);
+  heartbeat.checklist = async () => "- the file's own words";
+  provider.replies.push("The disk is nearly full.");
+  assert.equal(await heartbeat.checkNow("local"), "notified", "an answer given as plain news is sent");
+  assert.match(provider.asked[1], /the file's own words/);
+  assert.ok(!provider.asked[1].includes("stored text"));
+});
+
+test("when needed, the check-in never runs on a timer but does when woken", async (t) => {
+  const { app, provider } = await fixture(t);
+  const heartbeat = app.scheduler.heartbeat;
+  heartbeat.configure("local", { timezone: "UTC", activeHours: null, checklist: "- anything?" });
+  assert.equal(await heartbeat.wake("a background command finished", noon), null, "off: a wake does nothing");
+  switchOn(app, { checkIn: "when-needed" });
+  assert.equal(await heartbeat.tick(noon), null);
+  assert.equal(provider.requests.length, 0);
+  provider.replies.push(respond(false), "ok");
+  assert.equal(await heartbeat.wake("a background command finished", noon), "quiet");
+  assert.equal(heartbeat.state("local").history.at(-1).trigger, "wake: a background command finished");
+});
+
+test("ordinary tasks do not carry heartbeat.respond; it waits in the schedules toolbox", async (t) => {
+  const { app, provider } = await fixture(t);
+  assert.equal(app.registry.groupOf("heartbeat.respond"), "schedules");
+  await app.runtime.run({ prompt: "tidy the desk" });
+  assert.ok(!provider.requests[0].tools.map((tool) => tool.name ?? tool).includes("heartbeat.respond"));
 });

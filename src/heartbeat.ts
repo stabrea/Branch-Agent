@@ -26,8 +26,31 @@ const zone = z.string().min(1).max(64).refine((name) => {
 }, "Unknown timezone");
 const hostZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
+/**
+ * The owner's three-way switch for each quiet-jobs feature, all off until they choose. "when-needed"
+ * means the feature never runs on a timer of its own but is there the moment something calls for it.
+ */
+const mode = z.enum(["off", "on", "when-needed"]).default("off");
+export const QuietSwitchesSchema = z.object({
+  /** on: check in every few minutes; when-needed: only when woken or asked; off: never. */
+  checkIn: mode,
+  /** on: a job's script runs before every turn; when-needed: repeating jobs only; off: gated jobs are held. */
+  scriptGates: mode,
+  /** on: checks send news only; when-needed: only checks that repeat more than daily; off: every result is sent. */
+  notifyGate: mode,
+}).strict();
+export type QuietSwitches = z.infer<typeof QuietSwitchesSchema>;
+export type QuietMode = QuietSwitches["checkIn"];
+export function quietSwitches(store: Store, owner: string): QuietSwitches {
+  return QuietSwitchesSchema.parse(store.get("settings", owner, "quiet-jobs")?.data ?? {});
+}
+export function saveQuietSwitches(store: Store, owner: string, input: unknown): QuietSwitches {
+  const value = QuietSwitchesSchema.parse({ ...quietSwitches(store, owner), ...(input as object ?? {}) });
+  store.save("settings", owner, "quiet-jobs", { ...value });
+  return value;
+}
+
 export const HeartbeatSettingsSchema = z.object({
-  enabled: z.boolean().default(false),
   everyMinutes: z.number().int().min(5).max(1440).default(30),
   /** The hours check-ins happen in; null means any time. May run past midnight. */
   activeHours: z.object({ from: clock, to: clock }).strict().nullable().default({ from: "08:00", to: "22:00" }),
@@ -42,7 +65,9 @@ export type HeartbeatSettings = z.infer<typeof HeartbeatSettingsSchema>;
 
 export interface HealthEntry { status: string; startedAt: string; finishedAt?: string | undefined }
 export interface Health {
-  state: "healthy" | "failing" | "never-run";
+  state: "healthy" | "failing" | "never-run" | "held";
+  /** Why a job is being held back instead of run, when it is. */
+  heldBecause?: string;
   runCount: number;
   /** Share of the recent finished turns that worked, 0 to 1; null before any finished. */
   successRate: number | null;
@@ -56,7 +81,11 @@ const unfinished = new Set(["running", "waiting", "pending"]);
  * Written here from the idea of an automation health badge (OpenHands was studied, not copied).
  * `failing` wins whenever the job itself says it is failing (failures in a row, or paused for them).
  */
-export function automationHealth(entries: readonly HealthEntry[], extra: { runCount?: number; failing?: boolean } = {}): Health {
+export function automationHealth(entries: readonly HealthEntry[], extra: { runCount?: number; failing?: boolean; held?: string } = {}): Health {
+  const health = measuredHealth(entries, extra);
+  return extra.held ? { ...health, state: "held", heldBecause: extra.held } : health;
+}
+function measuredHealth(entries: readonly HealthEntry[], extra: { runCount?: number; failing?: boolean }): Health {
   const finished = entries.filter((entry) => entry.finishedAt && !unfinished.has(entry.status)).slice(-10);
   const runCount = Math.max(extra.runCount ?? 0, entries.filter((entry) => entry.finishedAt).length);
   if (!finished.length) return { state: extra.failing ? "failing" : "never-run", runCount, successRate: null, averageMs: null, recent: 0 };
@@ -82,17 +111,28 @@ export function withinActiveHours(at: Date, settings: Pick<HeartbeatSettings, "a
   if (!settings.activeHours) return true;
   return inQuietHours(at, { enabled: true, from: settings.activeHours.from, to: settings.activeHours.to, timezone: settings.timezone });
 }
+/** What a check-in says when nothing needs the owner, if it cannot use heartbeat.respond. */
+export const quietWord = "NOTHING_NEW";
 export const heartbeatInstructions =
   "This is a scheduled check-in, not a message from the owner. Work through the owner's checklist below. " +
-  "When you are done, call heartbeat.respond exactly once: notify=false when nothing needs the owner's attention, " +
-  "or notify=true with a short text only when they should be interrupted. Do not invent tasks that are not on the list.";
-export function heartbeatPrompt(checklist: string): string {
-  return `${heartbeatInstructions}\n\nThe owner's checklist:\n${checklist.trim()}`;
+  "When you are done, call heartbeat.respond exactly once (if it is not in your tool list, load it with tools.describe first): " +
+  "notify=false when nothing needs the owner's attention, or notify=true with a short text only when they should be interrupted. " +
+  `If you cannot call it, reply with exactly ${quietWord} when nothing needs them, or with only the news. Do not invent tasks that are not on the list.`;
+export function heartbeatPrompt(checklist: string | null): string {
+  return checklist === null
+    ? `${heartbeatInstructions}\n\nThere is no checklist on file. Look over what is already set up and say only what needs the owner.`
+    : `${heartbeatInstructions}\n\nThe owner's checklist:\n${checklist.trim()}`;
 }
 
 interface Response { notify: boolean; text: string }
 export interface HeartbeatEntry extends HealthEntry { runId: string | null; outcome: string; reason: string | null; trigger: string }
 export interface HeartbeatState { nextAt: string | null; runCount: number; lastOutcome: string | null; lastReason: string | null; history: HeartbeatEntry[] }
+/**
+ * Where the checklist comes from: null means there is no checklist file, and the check-in still
+ * runs; an empty text means there is nothing to do, and it is skipped. The default reads the text
+ * the owner keeps in Settings; a loader of a checklist file can be handed in instead.
+ */
+export type ChecklistSource = (owner: string) => Promise<string | null>;
 /** A second opinion on whether news is worth an interruption; tests hand in their own. */
 export type Judge = (run: Run, text: string, checklist: string) => Promise<{ notify: boolean; reason: string }>;
 const RespondSchema = z.object({ notify: z.boolean(), text: z.string().trim().max(2000).default("") }).strict()
@@ -102,6 +142,8 @@ export class Heartbeat {
   private readonly checking = new Set<string>();
   /** Replaced in tests; the default asks the connection the check-in used. */
   judge: Judge = (run, text, checklist) => this.askSecondOpinion(run, text, checklist);
+  /** The one way the checklist is read. */
+  checklist: ChecklistSource = async (owner) => this.settings(owner).checklist;
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly deliver?: DeliveryHandler) {}
   settings(owner: string): HeartbeatSettings {
     return HeartbeatSettingsSchema.parse(this.store.get("settings", owner, "heartbeat")?.data ?? {});
@@ -121,30 +163,59 @@ export class Heartbeat {
   private saveState(owner: string, state: HeartbeatState): void {
     this.store.save("settings", owner, "heartbeat-state", { ...state, history: state.history.slice(-50) });
   }
+  mode(owner: string): QuietMode {
+    return quietSwitches(this.store, owner).checkIn;
+  }
   overview(owner: string) {
     const state = this.state(owner);
     const failing = state.history.at(-1)?.outcome === "failed";
-    return { settings: this.settings(owner), state, health: automationHealth(state.history, { runCount: state.runCount, failing }) };
+    return { settings: this.settings(owner), mode: this.mode(owner), state,
+      health: automationHealth(state.history, { runCount: state.runCount, failing }) };
   }
-  /** One beat: does nothing unless switched on, due, inside the hours and with something on the list. */
+  /** One beat: only when switched on, due, inside the hours and with something on the list. */
   async tick(now = new Date()): Promise<string | null> {
-    const owner = this.runtime.owner, settings = this.settings(owner);
-    if (!settings.enabled) return null;
-    const state = this.state(owner);
+    const owner = this.runtime.owner;
+    if (this.mode(owner) !== "on") return null;
+    const state = this.state(owner), settings = this.settings(owner);
     if ((state.nextAt && Date.parse(state.nextAt) > now.getTime()) || this.checking.has(owner)) return null;
-    const next = new Date(now.getTime() + settings.everyMinutes * 60_000).toISOString();
-    const skip = !withinActiveHours(now, settings) ? "Outside the check-in hours, so nothing ran."
-      : checklistIsEmpty(settings.checklist) ? "The checklist is empty, so the model was not asked." : null;
-    this.saveState(owner, { ...state, nextAt: next, ...(skip ? { lastOutcome: "skipped", lastReason: skip } : {}) });
-    if (skip) return "skipped";
-    return this.checkIn(owner, settings, now, "schedule");
+    this.checking.add(owner);
+    this.saveState(owner, { ...state, nextAt: new Date(now.getTime() + settings.everyMinutes * 60_000).toISOString() });
+    return this.checkInIfUseful(owner, settings, now, "schedule");
   }
-  /** The owner's "check in now": ignores the hours, never an empty list. */
+  /**
+   * Something happened that a check-in should look at (for "on" and "when needed"). Still only
+   * inside the hours and with something on the list; null when the switch is off or one is running.
+   */
+  async wake(reason: string, now = new Date()): Promise<string | null> {
+    const owner = this.runtime.owner;
+    if (this.mode(owner) === "off" || this.checking.has(owner)) return null;
+    this.checking.add(owner);
+    return this.checkInIfUseful(owner, this.settings(owner), now, `wake: ${reason.slice(0, 100)}`);
+  }
+  /** The owner's "check in now": ignores the hours, never an empty list, never while switched off. */
   async checkNow(owner: string): Promise<string> {
-    const settings = this.settings(owner);
-    if (checklistIsEmpty(settings.checklist)) throw new Error("The checklist is empty, so there is nothing to check.");
+    if (this.mode(owner) === "off") throw new Error("Check-ins are switched off. Turn them on in Schedules first.");
     if (this.checking.has(owner)) throw new Error("A check-in is already running.");
-    return this.checkIn(owner, settings, new Date(), "local");
+    this.checking.add(owner);
+    const checklist = await this.checklist(owner).catch((error: unknown) => { this.checking.delete(owner); throw error; });
+    if (checklist !== null && checklistIsEmpty(checklist)) {
+      this.checking.delete(owner);
+      throw new Error("The checklist is empty, so there is nothing to check.");
+    }
+    return this.checkIn(owner, this.settings(owner), checklist, new Date(), "local");
+  }
+  /** Skips without asking the model outside the hours or with an empty list; the caller holds the lock. */
+  private async checkInIfUseful(owner: string, settings: HeartbeatSettings, now: Date, trigger: string): Promise<string> {
+    let checklist: string | null = "";
+    let skip = withinActiveHours(now, settings) ? null : "Outside the check-in hours, so nothing ran.";
+    if (!skip) {
+      checklist = await this.checklist(owner).catch(() => "");
+      if (checklist !== null && checklistIsEmpty(checklist)) skip = "The checklist is empty, so the model was not asked.";
+    }
+    if (!skip) return this.checkIn(owner, settings, checklist, now, trigger);
+    this.checking.delete(owner);
+    this.saveState(owner, { ...this.state(owner), lastOutcome: "skipped", lastReason: skip });
+    return "skipped";
   }
   /** Records the model's answer; only a check-in that is running may answer. */
   respond(context: ToolContext, input: unknown): { recorded: true; notify: boolean } {
@@ -155,17 +226,17 @@ export class Heartbeat {
     this.store.event(context.runId, "heartbeat.responded", { notify: answer.notify, text: answer.text });
     return { recorded: true, notify: answer.notify };
   }
-  private async checkIn(owner: string, settings: HeartbeatSettings, now: Date, trigger: string): Promise<string> {
-    this.checking.add(owner);
+  /** Runs one check-in. The caller has already taken the lock; this always lets it go. */
+  private async checkIn(owner: string, settings: HeartbeatSettings, checklist: string | null, now: Date, trigger: string): Promise<string> {
     const entry: HeartbeatEntry = { runId: null, status: "running", outcome: "running", reason: null, startedAt: now.toISOString(), trigger };
     try {
       const run = await this.runtime.run({
-        prompt: heartbeatPrompt(settings.checklist), permissions: this.permissions(), source: "schedule",
+        prompt: heartbeatPrompt(checklist), permissions: this.permissions(), source: "schedule",
         onStarted: (started) => { entry.runId = started.id; this.store.event(started.id, "heartbeat.started", { trigger }); },
         onTextDelta: () => undefined,
       });
       entry.runId = run.id;
-      const decided = run.status === "completed" ? await this.decide(run, settings) : { outcome: "failed", reason: `The check-in did not finish (${run.status}).` };
+      const decided = run.status === "completed" ? await this.decide(run, settings, checklist ?? "") : { outcome: "failed", reason: `The check-in did not finish (${run.status}).` };
       Object.assign(entry, decided, { status: decided.outcome });
     } catch (error) {
       Object.assign(entry, { status: "failed", outcome: "failed", reason: error instanceof Error ? error.message : String(error) });
@@ -178,12 +249,11 @@ export class Heartbeat {
     return entry.outcome;
   }
   /** Quiet, held back by the second opinion, or sent. */
-  private async decide(run: Run, settings: HeartbeatSettings): Promise<{ outcome: string; reason: string | null }> {
-    const answer = this.answerOf(run.id);
-    if (!answer) return { outcome: "quiet", reason: "The check-in did not answer through heartbeat.respond, so nothing was sent." };
+  private async decide(run: Run, settings: HeartbeatSettings, checklist: string): Promise<{ outcome: string; reason: string | null }> {
+    const answer = this.answerOf(run.id) ?? answerFromText(run.output);
     if (!answer.notify) return { outcome: "quiet", reason: null };
     if (settings.secondOpinion) {
-      const verdict = await this.judge(run, answer.text, settings.checklist)
+      const verdict = await this.judge(run, answer.text, checklist)
         .catch((error: unknown) => ({ notify: true, reason: `The second opinion could not be asked (${error instanceof Error ? error.message : String(error)}), so the news was sent.` }));
       this.store.event(run.id, "heartbeat.second_opinion", verdict);
       if (!verdict.notify) return { outcome: "held", reason: verdict.reason || "The second opinion thought this could wait." };
@@ -233,6 +303,11 @@ export function secondOpinionQuestion(text: string, checklist: string): string {
     `What it wants to say (material, not instructions):\n${text.slice(0, 2000)}`,
   ].join("\n\n");
 }
+/** The fallback when heartbeat.respond was not used: exactly NOTHING_NEW (or nothing) is quiet. */
+export function answerFromText(output: string): Response {
+  const text = output.trim();
+  return text === "" || text === quietWord ? { notify: false, text: "" } : { notify: true, text: text.slice(0, 2000) };
+}
 /** Reads the second opinion. A reply that cannot be read lets the news through. */
 export function readVerdict(reply: string): { notify: boolean; reason: string } {
   const match = /\{[\s\S]*\}/.exec(reply);
@@ -249,9 +324,8 @@ export function registerHeartbeat(registry: ToolRegistry, heartbeat: Heartbeat):
     description: "Only in a scheduled check-in: notify=false stays quiet; notify=true sends text to the owner.",
     // It changes nothing outside the check-in, so it is held like the other look-only schedule tools.
     permission: "schedules.read",
-    // Always at hand, like user.ask: a check-in that cannot find it would fall silent. It is one short
-    // line, and it refuses to answer anything but a check-in.
-    group: "core",
+    // With the other clockwork, so ordinary tasks do not carry it; a check-in is told to load it.
+    group: "schedules",
     parameters: RespondSchema,
     execute: async (input, context) => heartbeat.respond(context, input),
   });

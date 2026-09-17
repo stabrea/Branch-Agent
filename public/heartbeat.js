@@ -7,7 +7,9 @@
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
 
-const healthKeys = { healthy: "schedules.health.healthy", failing: "schedules.health.failing", "never-run": "schedules.health.never-run" };
+const healthKeys = { healthy: "schedules.health.healthy", failing: "schedules.health.failing", "never-run": "schedules.health.never-run", held: "schedules.health.held" };
+const switchNames = { checkIn: "schedules.switch.check-in", scriptGates: "schedules.switch.scripts", notifyGate: "schedules.switch.news-only" };
+const modeKeys = { off: "schedules.switch.off", on: "schedules.switch.on", "when-needed": "schedules.switch.when-needed" };
 let latest = null;
 
 function node(tag, key, className) {
@@ -53,7 +55,7 @@ function button(key, handler) {
 
 /** "Healthy · 12 runs · 92% of the last 10 worked · about 3 s each". */
 function healthLine(health) {
-  const parts = [t(healthKeys[health.state] ?? health.state), t("schedules.health.runs", { count: health.runCount })];
+  const parts = [health.heldBecause ? `${t(healthKeys.held)}: ${health.heldBecause}` : t(healthKeys[health.state] ?? health.state), t("schedules.health.runs", { count: health.runCount })];
   if (health.successRate !== null)
     parts.push(t("schedules.health.worked", { percent: Math.round(health.successRate * 100), recent: health.recent }));
   if (health.averageMs !== null)
@@ -68,7 +70,6 @@ function badge(health) {
 
 function checkInFields(settings) {
   const fields = {
-    enabled: control("heartbeat-on", "checkbox", settings.enabled),
     every: control("heartbeat-every", "number", settings.everyMinutes),
     from: control("heartbeat-from", "time", settings.activeHours?.from ?? ""),
     to: control("heartbeat-to", "time", settings.activeHours?.to ?? ""),
@@ -89,19 +90,46 @@ function checkInCard({ settings, state, health }) {
   const card = node("form", undefined, "card");
   const fields = checkInFields(settings);
   card.append(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
-    field("schedules.checkin.on", fields.enabled), field("schedules.checkin.every", fields.every),
+    field("schedules.checkin.every", fields.every),
     field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
     field("schedules.checkin.zone", fields.zone), field("schedules.checkin.list", fields.list),
     field("schedules.checkin.second", fields.second), badge(health), plain("p", lastWords(state), "subtle"));
   card.append(button("action.save-check-in", async () => {
     const hours = fields.from.value && fields.to.value ? { from: fields.from.value, to: fields.to.value } : null;
-    await api("heartbeat", { enabled: fields.enabled.checked, everyMinutes: Number(fields.every.value), activeHours: hours,
+    await api("heartbeat", { everyMinutes: Number(fields.every.value), activeHours: hours,
       timezone: fields.zone.value, checklist: fields.list.value, secondOpinion: fields.second.checked, deliverTo: settings.deliverTo });
     toast(t("schedules.checkin.saved"));
     await load();
   }), button("action.check-in-now", async () => {
     const { outcome } = await api("heartbeat/check", {});
     toast(outcome === "notified" ? t("schedules.checkin.needs-you") : t("schedules.checkin.finished", { outcome }));
+    await load();
+  }));
+  return card;
+}
+
+function modeSelect(id, value) {
+  const select = document.createElement("select");
+  select.id = id;
+  for (const [mode, key] of Object.entries(modeKeys)) {
+    const option = node("option", key);
+    option.value = mode;
+    select.append(option);
+  }
+  select.value = value;
+  return select;
+}
+function switchesCard(switches) {
+  const card = node("form", undefined, "card");
+  card.append(node("h2", "schedules.switch.title"), node("p", "schedules.switch.intro", "subtle"));
+  const selects = {};
+  for (const [name, key] of Object.entries(switchNames)) {
+    selects[name] = modeSelect(`quiet-switch-${name}`, switches[name]);
+    card.append(field(key, selects[name]));
+  }
+  card.append(button("action.save-quiet-switches", async () => {
+    await api("heartbeat/switches", Object.fromEntries(Object.entries(selects).map(([name, select]) => [name, select.value])));
+    toast(t("schedules.switch.saved"));
     await load();
   }));
   return card;
@@ -139,7 +167,7 @@ function render() {
   health.append(node("h2", "schedules.health.title"), node("p", "schedules.health.intro", "subtle"));
   if (!latest.schedules.length) health.append(node("p", "schedules.health.empty", "subtle"));
   for (const item of latest.schedules) health.append(scheduleRow(item));
-  box.replaceChildren(checkInCard(latest.heartbeat), health);
+  box.replaceChildren(switchesCard(latest.switches), checkInCard(latest.heartbeat), health);
 }
 async function load() {
   if (!document.getElementById("schedules-list")) return;
