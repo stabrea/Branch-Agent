@@ -15,8 +15,16 @@ import type { Store } from "./store.js";
 export const RetentionSettingsSchema = z.object({
   /** Off until the owner asks for it. Off means nothing is ever proposed for deletion. */
   enabled: z.boolean().default(false),
-  /** Conversations older than this many days are proposed. 0 means age is not a reason. */
-  days: z.number().int().min(0).max(3650).default(0),
+  /**
+   * Conversations older than this many days are proposed. 0 means age is not a reason.
+   *
+   * It is called `keepDays` because a knowledge base keeps the same number under the same name
+   * (`RetentionSchema` in `src/knowledge-manage.ts`): "how long is this kept" is one idea in the
+   * product, asked in one vocabulary, whether the thing being kept is a conversation or a
+   * collection of documents. The other two numbers differ because the things do: a collection is
+   * counted in documents and passages, a history in megabytes.
+   */
+  keepDays: z.number().int().min(0).max(3650).default(0),
   /** When everything together is bigger than this, the oldest are proposed. 0 means size is not a reason. */
   megabytes: z.number().int().min(0).max(100_000).default(0),
   /** Hand the owner a saved copy of everything before it goes. On, and it is meant to stay on. */
@@ -41,7 +49,7 @@ export function saveRetentionSettings(store: Store, owner: string, input: unknow
 export function sentenceFor(settings: RetentionSettings): string {
   if (!settings.enabled) return "Conversations are kept for ever; nothing is ever deleted by itself.";
   const parts: string[] = [];
-  if (settings.days > 0) parts.push(`older than ${settings.days} day${settings.days === 1 ? "" : "s"}`);
+  if (settings.keepDays > 0) parts.push(`older than ${settings.keepDays} day${settings.keepDays === 1 ? "" : "s"}`);
   if (settings.megabytes > 0) parts.push(`the oldest, once everything together is over ${settings.megabytes} MB`);
   if (!parts.length) return "No rule is set yet, so nothing is proposed for deletion.";
   return `Branch offers to delete conversations ${parts.join(", and ")}. It always asks first.`;
@@ -69,9 +77,9 @@ export class ConversationRetention {
   propose(): { settings: RetentionSettings; sentence: string; conversations: PruneCandidate[]; bytes: number } {
     const settings = retentionSettings(this.store, this.owner);
     const sentence = sentenceFor(settings);
-    if (!settings.enabled || (settings.days === 0 && settings.megabytes === 0))
+    if (!settings.enabled || (settings.keepDays === 0 && settings.megabytes === 0))
       return { settings, sentence, conversations: [], bytes: this.store.prunableSessions(this.owner, 0, 0, this.now()).bytes };
-    const found = this.store.prunableSessions(this.owner, settings.days, settings.megabytes, this.now());
+    const found = this.store.prunableSessions(this.owner, settings.keepDays, settings.megabytes, this.now());
     return { settings, sentence, conversations: found.conversations, bytes: found.bytes };
   }
 

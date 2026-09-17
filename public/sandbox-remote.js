@@ -138,7 +138,7 @@ function showProposal(answer) {
 async function showRetention() {
   const answer = await api("retention");
   $("retention-enabled").checked = Boolean(answer.settings.enabled);
-  $("retention-days").value = answer.settings.days ?? 0;
+  $("retention-days").value = answer.settings.keepDays ?? 0;
   $("retention-mb").value = answer.settings.megabytes ?? 0;
   $("retention-export").checked = answer.settings.exportBeforeDeleting !== false;
   showProposal(answer);
@@ -148,7 +148,7 @@ async function saveRetention() {
   try {
     showProposal(await api("retention", {
       enabled: $("retention-enabled").checked,
-      days: Math.max(0, Number($("retention-days").value) || 0),
+      keepDays: Math.max(0, Number($("retention-days").value) || 0),
       megabytes: Math.max(0, Number($("retention-mb").value) || 0),
       exportBeforeDeleting: $("retention-export").checked,
     }));

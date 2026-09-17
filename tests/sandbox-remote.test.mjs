@@ -642,7 +642,7 @@ test("A2344 old conversations are proposed, exported, and deleted only on the ow
   const madeAt = Date.now();
   const later = new ConversationRetention(app.store, "local", () => madeAt + 200 * 86_400_000);
 
-  saveRetentionSettings(app.store, "local", { enabled: true, days: 90, megabytes: 0, exportBeforeDeleting: true });
+  saveRetentionSettings(app.store, "local", { enabled: true, keepDays: 90, megabytes: 0, exportBeforeDeleting: true });
   const proposal = later.propose();
   assert.deepEqual(proposal.conversations.map((entry) => entry.sessionId).sort(), [old, fresh].sort(),
     "with the clock 200 days on, both are older than 90 days");
@@ -680,7 +680,7 @@ test("A2344 the rule can also be about size, and the screen never deletes by its
   app.store.message(second, { role: "user", content: "y".repeat(4000) });
 
   // Saving the rule answers with what it would sweep up, and deletes nothing.
-  const saved = await api("POST", "/api/retention", { enabled: true, days: 0, megabytes: 1, exportBeforeDeleting: true });
+  const saved = await api("POST", "/api/retention", { enabled: true, keepDays: 0, megabytes: 1, exportBeforeDeleting: true });
   assert.equal(saved.status, 200);
   assert.equal(saved.body.settings.megabytes, 1);
   assert.match(saved.body.sentence, /once everything together is over 1 MB/);
@@ -689,7 +689,7 @@ test("A2344 the rule can also be about size, and the screen never deletes by its
 
   // A ceiling the history really is over: the oldest are proposed until it fits again.
   const { ConversationRetention } = await import("../dist/retention.js");
-  app.store.save("settings", "local", "retention", { enabled: true, days: 0, megabytes: 0, exportBeforeDeleting: true });
+  app.store.save("settings", "local", "retention", { enabled: true, keepDays: 0, megabytes: 0, exportBeforeDeleting: true });
   const tight = app.store.prunableSessions("local", 0, 1);
   assert.deepEqual(tight.conversations, [], "1 MB is not reached, so the size rule proposes nothing");
   const tiny = new ConversationRetention(app.store, "local");

@@ -3793,12 +3793,15 @@ exported, or deleted".
 | Setting | What it is |
 | --- | --- |
 | `enabled` | Off until you ask for it. Off means nothing is ever proposed. |
-| `days` | Conversations older than this many days are proposed. 0 means age is not a reason. |
+| `keepDays` | Conversations older than this many days are proposed. 0 means age is not a reason. The same name a knowledge base uses for the same idea (`RetentionSchema`, `src/knowledge-manage.ts`), so there is one vocabulary for "how long is this kept". |
 | `megabytes` | When everything together is bigger than this, the oldest are proposed until it fits. 0 means size is not a reason. |
 | `exportBeforeDeleting` | Hand back a saved copy of everything before it goes. On, and it is meant to stay on. |
 
 `GET /api/retention` is the rule and what it would sweep up; `POST /api/retention` saves the rule;
 `POST /api/retention/prune` takes `{"approve": true}` and, optionally, the exact conversations.
+
+A knowledge base has a retention rule of its own, counted in documents and passages rather than in
+megabytes, and it proposes rather than deletes in exactly the same way. The two share `keepDays`.
 
 ## What an add-on asked for, and what holds it to that (batch 26, wave 8)
 
