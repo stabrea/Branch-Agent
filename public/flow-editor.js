@@ -4,9 +4,10 @@
  * only the boxes that kind of step actually needs, which is what the saved shape itself requires.
  *
  * Under the picture, a timeline of the run: each step, where it has got to and how long it took.
- * It is read from `GET /api/flows/:id` while a flow is working. The note each finished step sends
- * goes to whoever asked to hear about it over a webhook, not to this page, so asking the app how
- * the flow is getting on is the honest way to keep the timeline current.
+ * Wave 9: while a flow drawn as a graph is working, its boxes report themselves down the same run
+ * socket every task already uses, so the timeline is redrawn when something actually happens
+ * rather than once a second whether anything happened or not. A flow still saved as a plain list
+ * has no task of its own to watch, so that one is read back once when it finishes.
  *
  * Beside it, a rhythm picker: a repeat and a time, written out in plain words before it is used.
  */
@@ -173,32 +174,72 @@ async function save() {
   } catch (error) { say(error.message); }
 }
 
-/** Each step, where it has got to and how long it took, read back while the flow is working. */
-export async function drawTimeline() {
+/** One row of the timeline: which box, where it has got to, and when it last moved. */
+function timelineRow(order, name, status, when, attempts) {
+  const row = el("article", undefined, "card-row");
+  row.append(el("strong", `${order}. ${name}`));
+  const started = when ? formatDate(when) : t("editor.notStarted");
+  row.append(el("span", `${status} · ${started}${attempts ? ` · ${attempts} tries` : ""}`, "meta"));
+  return row;
+}
+
+/**
+ * Each step, where it has got to and how long it took. With a run id it reads that one run of a
+ * graph flow, box by box; without one it reads the flow itself, which is what a flow saved as a
+ * plain list has.
+ */
+export async function drawTimeline(runId) {
   const list = $("editor-timeline");
-  if (!list || !chosen) return;
+  if (!list || (!chosen && !runId)) return;
   try {
-    const flow = await api(`flows/${chosen}`);
-    list.replaceChildren();
-    for (const node of flow.graph.nodes) {
-      const row = el("article", undefined, "card-row");
-      row.append(el("strong", `${node.index + 1}. ${node.name}`));
-      const started = node.startedAt ? formatDate(node.startedAt) : t("editor.notStarted");
-      row.append(el("span", `${node.status} · ${started}${node.attempts ? ` · ${node.attempts} tries` : ""}`, "meta"));
-      list.append(row);
+    if (runId) {
+      const run = await api(`flows/runs/${runId}`);
+      list.replaceChildren(...run.nodes.map((node, at) =>
+        timelineRow(at + 1, node.name, node.status, node.updatedAt, 0)));
+      if (run.error) list.append(el("p", run.error, "meta"));
+      return run.status;
     }
+    const flow = await api(`flows/${chosen}`);
+    list.replaceChildren(...flow.graph.nodes.map((node) =>
+      timelineRow(node.index + 1, node.name, node.status, node.startedAt, node.attempts)));
     return flow.status;
   } catch (error) { list.replaceChildren(el("p", error.message, "meta")); return null; }
 }
 
-/** Runs the open flow, keeping the timeline current while it works. */
-async function runFlow() {
+const socketToken = () => sessionStorage.getItem("branch-token") || "";
+/**
+ * Watches one run of a graph flow down the run socket every task already uses. Each box says when
+ * it starts, when it finishes and when it fails; the timeline is redrawn on each of those and once
+ * more when the socket says the task is over.
+ */
+export function watchRun(runId, onEnd) {
+  let socket = null;
+  try {
+    socket = new WebSocket(new URL(`/api/runs/${runId}/ws`, location.href).href.replace(/^http/, "ws"),
+      ["bearer", socketToken()]);
+  } catch { void drawTimeline(runId).then(() => onEnd?.()); return null; }
+  socket.addEventListener("message", (event) => {
+    let payload = {};
+    try { payload = JSON.parse(event.data); } catch { return; }
+    if (typeof payload.kind === "string" && payload.kind.startsWith("flow.node")) void drawTimeline(runId);
+    if (payload.kind === "end") { void drawTimeline(runId).then(() => onEnd?.()); try { socket.close(); } catch { /* gone */ } }
+  });
+  socket.addEventListener("close", () => { void drawTimeline(runId); });
+  socket.addEventListener("error", () => { void drawTimeline(runId).then(() => onEnd?.()); });
+  return socket;
+}
+
+/** Starts or carries on the open flow, and follows it down the socket while it works. */
+async function runFlow(how = "run") {
   if (!chosen) { say(t("editor.needFlow")); return; }
   say(t("editor.running"));
-  const beat = setInterval(() => { void drawTimeline(); }, 1000);
-  try { await api(`flows/${chosen}/run`, {}); say(t("editor.finished")); }
-  catch (error) { say(error.message); }
-  finally { clearInterval(beat); await drawTimeline(); }
+  try {
+    const started = await api(`flows/${chosen}/${how}`, {});
+    /* A flow drawn as a graph hands back its task id before any box has run, so it can be watched.
+       One still saved as a plain list has finished by the time the answer comes back. */
+    if (started?.runId) watchRun(started.runId, () => say(t("editor.finished")));
+    else { say(t("editor.finished")); await drawTimeline(); }
+  } catch (error) { say(error.message); await drawTimeline(); }
 }
 
 /* ---------- The rhythm picker (A2093) ---------- */
@@ -245,7 +286,8 @@ $("editor-add")?.addEventListener("click", () => {
   drawSteps();
 });
 $("editor-save")?.addEventListener("click", () => { void save(); });
-$("editor-run")?.addEventListener("click", () => { void runFlow(); });
+$("editor-run")?.addEventListener("click", () => { void runFlow("run"); });
+$("editor-resume")?.addEventListener("click", () => { void runFlow("resume"); });
 $("repeat-every")?.addEventListener("change", previewRhythm);
 $("repeat-at")?.addEventListener("input", previewRhythm);
 $("repeat-use")?.addEventListener("click", () => {

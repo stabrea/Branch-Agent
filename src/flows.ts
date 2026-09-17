@@ -1,8 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { errorText } from "./contracts.js";
 import type { Store } from "./store.js";
+import type { Runtime } from "./runtime.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WebhookNotifier } from "./webhooks.js";
 import { WorkflowSchema, type StepState, type Workflows, type WorkflowStep, type WorkflowView } from "./workflows.js";
+import { FlowGraphSchema, FlowGraphError, compileGraph, isGraphDefinition, zodForShape,
+  type FlowGraphDefinition } from "./flow-graph.js";
+import { FlowGraphRunner, type GraphRunView } from "./flow-graph-run.js";
 
 /**
  * A flow is a saved workflow seen as a picture: the steps are boxes and the arrows say what happens
@@ -64,16 +70,51 @@ export const FlowGraphInputSchema = z.object({
 
 /** Either shape the API accepts, turned into what the workflow runner understands. */
 export function flowDefinition(input: unknown): unknown {
+  // A real graph — boxes with arrows between them — is not a list of steps and is never flattened
+  // into one. It goes to the graph engine instead; this only handles the older list-shaped flows.
+  if (isGraphDefinition(input)) return input;
   const asGraph = FlowGraphInputSchema.safeParse(input);
   if (!asGraph.success) return input;
   const { nodes, ...rest } = asGraph.data;
   return { ...rest, steps: nodes };
 }
 
+/** A saved flow that is a real graph, seen the same way a list-shaped one is. */
+export interface GraphFlowView extends FlowView { kind: "graph"; definition: FlowGraphDefinition }
+const graphView = (definition: FlowGraphDefinition, id: string): GraphFlowView => ({
+  id, name: definition.name, description: definition.description, steps: [], status: "idle",
+  cursor: 0, waitingUntil: null, question: null, error: null, pausedFrom: null, kind: "graph", definition,
+  graph: {
+    nodes: definition.nodes.map((node, index) => ({ id: node.id, index, name: node.name, kind: node.kind,
+      detail: node.prompt ?? node.tool ?? node.contains ?? node.overField ?? node.flowId ?? node.kind,
+      status: "waiting", attempts: 0, output: "", startedAt: null })),
+    edges: definition.edges.map((edge) => ({ from: edge.from, to: edge.to,
+      when: edge.when === "matched" ? "matched" : edge.when === "otherwise" ? "skipped" : "next" })),
+  },
+});
+/** What starting a graph flow hands back at once: the task to watch, before any box has run. */
+export interface GraphRunStart { runId: string; flowId: string; status: "running"; name: string }
+/** The flow tools that are always there; every other "flows." tool is one saved flow. */
+export const builtInFlowTools = new Set(["flows.list", "flows.resume", "flows.check"]);
+
+/** A name a tool can be called by, worked out from what the owner called the flow. */
+export const flowToolName = (name: string): string =>
+  `flows.${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "saved"}`;
+
 export class Flows {
   /** Set by the launch so each finished box can be announced to whoever asked to hear about it. */
   notifyEvent: WebhookNotifier = () => undefined;
-  constructor(private readonly store: Store, private readonly owner: string, private readonly workflows: Workflows) {}
+  /** The engine for flows that are real graphs, beside the older list-shaped ones. */
+  readonly graphs: FlowGraphRunner;
+  private registry: ToolRegistry | undefined;
+  /** The tool names this put into the catalog, so only those are taken out again. */
+  private publishedTools: string[] = [];
+  /** Graph runs still being worked through in the background, so a run can be waited on. */
+  private readonly working = new Map<string, Promise<GraphRunView>>();
+  constructor(private readonly store: Store, private readonly owner: string,
+    private readonly workflows: Workflows, runtime: Runtime) {
+    this.graphs = new FlowGraphRunner(store, owner, runtime, (flowId) => this.definitionOf(flowId));
+  }
   /**
    * A flow is a saved workflow, and a workflow's steps use tools with the owner's whole run of the
    * app. Every way in — the HTTP routes and the flows.list tool — goes through the same guard the
@@ -84,21 +125,140 @@ export class Flows {
     const { state, ...rest } = workflow;
     return { ...rest, graph: flowGraph(workflow.steps, state) };
   }
-  list(): FlowView[] { return this.workflows.list(this.mine).map((flow) => this.view(flow)); }
-  get(id: string): FlowView { return this.view(this.workflows.view(this.mine, id)); }
+  list(): FlowView[] { return [...this.graphFlows(), ...this.workflows.list(this.mine).map((flow) => this.view(flow))]; }
+  get(id: string): FlowView {
+    const graph = this.store.get("flow_graphs", this.mine, id);
+    if (graph) return graphView(FlowGraphSchema.parse(graph.data), id);
+    return this.view(this.workflows.view(this.mine, id));
+  }
+  /** Every flow saved as a graph, with its boxes and arrows ready to draw. */
+  private graphFlows(): GraphFlowView[] {
+    return this.store.list("flow_graphs", this.mine)
+      .map((record) => graphView(FlowGraphSchema.parse(record.data), record.id));
+  }
+  /** One saved graph's definition, for a box whose body is another flow. */
+  private definitionOf(flowId: string): FlowGraphDefinition {
+    const record = this.store.get("flow_graphs", this.mine, flowId);
+    if (!record) throw new Error("that flow is not on file");
+    return FlowGraphSchema.parse(record.data);
+  }
   save(input: unknown): FlowView {
-    const parsed = WorkflowSchema.parse(flowDefinition(input));
+    const shaped = flowDefinition(input);
+    if (isGraphDefinition(shaped)) return this.saveGraph(shaped);
+    const parsed = WorkflowSchema.parse(shaped);
     return this.view(this.workflows.create(this.mine, parsed));
   }
-  remove(id: string): { removed: boolean } { return this.workflows.remove(this.mine, id); }
-  /** Starts a flow, telling whoever asked about each box as it finishes. */
-  async run(id: string, options: { resume?: boolean } = {}): Promise<FlowView> {
+  /**
+   * Saves a flow drawn as a graph. It is checked first, all the way through: a box that disagrees
+   * with the state about what a value is, a box nothing leads to, or a circle with no way out is
+   * refused here, naming the box, rather than failing half way through a run.
+   */
+  saveGraph(input: unknown): GraphFlowView {
     const owner = this.mine;
+    const compiled = compileGraph(input);
+    const id = compiled.definition.id ?? randomUUID();
+    this.store.save("flow_graphs", owner, id, { ...compiled.definition, id });
+    this.publishTools();
+    return graphView({ ...compiled.definition, id }, id);
+  }
+  /** Checks a picture without saving it, so the editor can say what is wrong before Save. */
+  check(input: unknown): { ok: boolean; problems: string[] } {
+    try { compileGraph(input); return { ok: true, problems: [] }; }
+    catch (error) {
+      if (error instanceof FlowGraphError) return { ok: false, problems: error.problems };
+      return { ok: false, problems: [errorText(error)] };
+    }
+  }
+  remove(id: string): { removed: boolean } {
+    if (this.store.get("flow_graphs", this.mine, id)) {
+      const removed = this.store.delete("flow_graphs", this.mine, id);
+      this.publishTools();
+      return { removed };
+    }
+    return this.workflows.remove(this.mine, id);
+  }
+  /** Starts a flow, telling whoever asked about each box as it finishes. */
+  async run(id: string, options: { resume?: boolean; input?: Record<string, unknown> } = {}): Promise<FlowView | GraphRunStart> {
+    const owner = this.mine;
+    if (this.store.get("flow_graphs", owner, id))
+      return options.resume ? this.resumeGraph(id) : this.startGraph(id, options.input ?? {});
     const before = this.workflows.stepStates(owner, id);
     const finished = await (options.resume ? this.workflows.resume(owner, id) : this.workflows.run(owner, id));
     this.announce(id, before, this.workflows.stepStates(owner, id));
     return this.view(finished);
   }
+  /**
+   * Starts a graph flow and hands back the task id straight away, before a single box has run, so
+   * the page can open the run socket and watch the boxes happen rather than asking over and over.
+   */
+  startGraph(id: string, input: Record<string, unknown> = {}): GraphRunStart {
+    const definition = this.definitionOf(id);
+    const started = this.graphs.begin(definition, input, { source: "owner" });
+    this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source: "owner" }));
+    return { runId: started.runId, flowId: id, status: "running", name: definition.name };
+  }
+  /** Carries a checkpointed graph run on from the box after the last one that finished. */
+  resumeGraph(id: string, runId?: string): GraphRunStart {
+    const definition = this.definitionOf(id);
+    const pick = runId ?? this.graphs.resumable(id)?.runId;
+    if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
+    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: true }));
+    return { runId: pick, flowId: id, status: "running", name: definition.name };
+  }
+  /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */
+  private follow(runId: string, work: Promise<GraphRunView>): void {
+    const kept = work.catch(() => this.graphs.view(runId));
+    this.working.set(runId, kept);
+    void kept.then(() => { this.working.delete(runId); });
+  }
+  /** Waits for a background run to settle. The page never needs this; a test and a tool do. */
+  async settled(runId: string): Promise<GraphRunView> {
+    return (await this.working.get(runId)) ?? this.graphs.view(runId);
+  }
+  /** Where one run of a graph flow has got to, box by box. */
+  runState(runId: string): GraphRunView { return this.graphs.view(runId); }
+  /**
+   * Runs that were left working when the app closed. Each is picked up from the box after the last
+   * one that finished, with the state exactly as that box left it.
+   */
+  resumeInterrupted(): string[] {
+    this.graphs.markInterrupted();
+    const carried: string[] = [];
+    for (const run of this.graphs.unfinished()) {
+      const record = this.store.get("flow_graphs", this.mine, run.flowId);
+      if (!record || !run.nextNode) continue;
+      this.follow(run.runId, this.graphs.resume(run.runId, FlowGraphSchema.parse(record.data), { source: "owner" }));
+      carried.push(run.runId);
+    }
+    return carried;
+  }
+  /**
+   * One tool per saved graph flow, so the assistant can set a whole flow going by name, with the
+   * flow own declared input as the tool arguments. Rebuilt whenever a flow is saved or removed.
+   */
+  publishTools(): string[] {
+    const registry = this.registry;
+    if (!registry) return [];
+    // Only the names this put there are taken away again, so a flow tool from somewhere else stays.
+    for (const name of this.publishedTools) registry.unregister(name);
+    this.publishedTools = [];
+    const published: string[] = [];
+    for (const flow of this.graphFlows()) {
+      const name = flowToolName(flow.name);
+      if (published.includes(name) || builtInFlowTools.has(name)) continue;
+      registry.register({
+        name, permission: "workflows.manage",
+        description: `Runs the saved flow "${flow.name}".`.slice(0, 200),
+        parameters: zodForShape(flow.definition.input) as z.ZodType<Record<string, unknown>>,
+        execute: async (value) => this.settled(this.startGraph(flow.id, value).runId),
+      });
+      published.push(name);
+    }
+    this.publishedTools = published;
+    return published;
+  }
+  /** Set once at launch, so saving a flow can put it into the catalog as a tool of its own. */
+  useRegistry(registry: ToolRegistry): void { this.registry = registry; this.publishTools(); }
   pause(id: string): FlowView { return this.view(this.workflows.pause(this.mine, id)); }
   /** Sends one note per box that reached a settled state while the flow was running. */
   private announce(id: string, before: StepState[], after: StepState[]): void {
@@ -120,6 +280,20 @@ export function registerFlows(registry: ToolRegistry, flows: Flows): void {
     parameters: z.object({}).strict(),
     execute: async () => ({ flows: flows.list() }),
   });
+  registry.register({
+    name: "flows.resume", permission: "workflows.manage",
+    description: "Carry a flow that stopped part way through on from the box after the last one that finished.",
+    parameters: z.object({ id: z.string().uuid(), runId: z.string().uuid().optional() }).strict(),
+    execute: async (value) => flows.resumeGraph(value.id, value.runId),
+  });
+  registry.register({
+    name: "flows.check", permission: "workflows.read",
+    description: "Check a flow drawn as boxes and arrows before saving it, and say in plain words what is wrong.",
+    parameters: z.object({}).passthrough(),
+    execute: async (value) => flows.check(value),
+  });
+  // Each saved graph flow becomes a tool of its own, with its declared input as the arguments.
+  flows.useRegistry(registry);
 }
 
 /** The routes for flows: the whole list, one flow, and starting one. Returns null for other paths. */
@@ -135,13 +309,18 @@ export async function flowsApi(
     if (method === "POST") return flows.save(await body());
     return null;
   }
+  // Checking a picture without saving it, so the editor can say what is wrong before Save.
+  if (path === "/api/flows/check" && method === "POST") return flows.check(await body());
+  const watching = /^\/api\/flows\/runs\/([a-f0-9-]{36})$/.exec(path);
+  if (watching && method === "GET") return flows.runState(watching[1]!);
   const match = /^\/api\/flows\/([a-f0-9-]{36})(?:\/(run|resume|pause))?$/.exec(path);
   if (!match) return null;
   const id = match[1]!;
   if (method === "GET" && !match[2]) return flows.get(id);
   if (method === "PUT" && !match[2]) return flows.save({ ...(await body() as Record<string, unknown>), id });
   if (method === "DELETE" && !match[2]) return flows.remove(id);
-  if (method === "POST" && match[2] === "run") return flows.run(id);
+  if (method === "POST" && match[2] === "run")
+    return flows.run(id, { input: (await body()) as Record<string, unknown> ?? {} });
   if (method === "POST" && match[2] === "resume") return flows.run(id, { resume: true });
   if (method === "POST" && match[2] === "pause") return flows.pause(id);
   return null;

@@ -48,6 +48,7 @@
   "action.remove-skill-and-all-versions": "Supprimer la compétence et toutes ses versions",
   "action.run-it-once": "L'exécuter une fois",
   "action.run-this-flow": "Exécuter cet enchaînement",
+  "action.resume-this-flow": "Reprendre cet enchaînement",
   "action.save": "Enregistrer",
   "action.save-a-backup-file": "Enregistrer un fichier de sauvegarde",
   "action.save-a-checkpoint": "Enregistrer un point de reprise",
