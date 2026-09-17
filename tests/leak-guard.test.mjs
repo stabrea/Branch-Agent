@@ -30,7 +30,7 @@ const fake = {
   jwt: [b64url({ alg: "HS256", typ: "JWT" }), b64url({ sub: "nobody", fake: true }), run("FAKEsignature0", 43)].join("."),
   password: "Fake-Pa55word!",
 };
-const keyBlock = ["-----BEGIN OPENSSH PRIVATE KEY-----", run("FAKEKEYMATERIAL0", 70), run("FAKEKEYMATERIAL1", 70),
+const keyBlock = ["-----BEGIN OPENSSH PRIVATE KEY-----", run("FAKEKEYMATERIAL0", 70), run("FAKEKEYMATERIAL1", 70), // not-a-real-secret
   "-----END OPENSSH PRIVATE KEY-----"].join("\n");
 
 const leaked = (text) => Object.values(fake).filter((value) => text.includes(value));
@@ -68,7 +68,7 @@ test("every kind of key the brief names is found and hidden", () => {
 });
 
 test("a private key with no end line is hidden to the end of the text", () => {
-  const cut = `log line\n-----BEGIN RSA PRIVATE KEY-----\n${run("FAKEKEYMATERIAL2", 400)}`;
+  const cut = `log line\n-----BEGIN RSA PRIVATE KEY-----\n${run("FAKEKEYMATERIAL2", 400)}`; // not-a-real-secret
   assert.equal(redactLeaks(cut).text, "log line\n[hidden key-like value: private key]");
 });
 
@@ -84,7 +84,7 @@ test("ordinary prose, code, hashes and addresses pass untouched", () => {
     "commit 3b18e512dba79e4c8300dd08aeb37f8e728b8dad (HEAD -> main)",
     "integrity sha512-z4PhNX7vuL3xVChQ1m2AB9Yg5AULVxXcg/SpIdNs6c5H0NE8XYXysP+DGNKHfuwvY7kxvUdBeoGlODJ6+SfaPg==",
     "id 123e4567-e89b-12d3-a456-426614174000 and uuid f47ac10b-58cc-4372-a567-0e02b2c3d479",
-    "import sklearn; pip install scikit-learn; the sk-learn-compatible-estimators page",
+    "import sklearn; pip install scikit-learn; the sk-learn-compatible-estimators page", // not-a-real-secret
     "task-management-app-with-a-very-long-name and risk-assessment-framework-document",
     "Visit https://example.org:8080/path?page=2&sort=asc or git@github.com:org/repo.git",
     "postgres://user:password@localhost/db is the usual example; so is http://user:pass@host/",
@@ -310,7 +310,7 @@ test("more ordinary text passes untouched: ids, hex logs, keys that are public, 
 test("long hostile text is checked in linear time", () => {
   const size = 200_000;
   const hostile = [
-    "a.".repeat(size / 2) + "://", "ey-".repeat(size / 3), "-----BEGIN PRIVATE KEY-----\n".repeat(size / 28),
+    "a.".repeat(size / 2) + "://", "ey-".repeat(size / 3), "-----BEGIN PRIVATE KEY-----\n".repeat(size / 28), // not-a-real-secret
     "authorization: ".repeat(size / 15), "password=".repeat(size / 9), "?token=".repeat(size / 7),
     "sk-".repeat(size / 3), "-ghp_" + "a".repeat(size) + "_", "Bearer " + " ".repeat(size),
     "a://b:" + "c".repeat(size), "x://u:".repeat(size / 6), "-xoxb-".repeat(size / 6),
