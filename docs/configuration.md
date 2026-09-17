@@ -6677,7 +6677,7 @@ empty stops it with the list of what is missing, and nothing is sent. A shipped 
 other names can never be given to a saved prompt, so `/stop` or `/lockdown` always mean what they
 say. The dashboard has no message box and does not offer them. In a chat app they are read only
 while that chat reads commands at all. `/prompts` (also `/procedures`, `/workflows`, A0147) is a
-shipped command following the *Typed commands* switch: on its own it lists the saved prompts by group
+shipped command; it answers while either the *Typed commands* switch or this one is not off: on its own it lists the saved prompts by group
 and the saved procedures with their status, steps and inputs; with a name it shows that one and puts
 it in the message box without sending it — for a procedure, the sentence that asks for it with its
 inputs to fill in. A procedure still runs only once it is verified, through the usual approval rules.

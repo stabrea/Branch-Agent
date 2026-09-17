@@ -43,7 +43,7 @@ function listFor(app: Branch, surface: z.infer<typeof WebSurface>) {
     level: command.level, bareLooks: command.bareLooks === true, listed: listed(command, surface, mode),
   }));
   // bucket 12: the owner's own saved commands follow the shipped ones (never on the dashboard, which has no message box)
-  const saved = surface === "dashboard" ? [] : savedCommandRows(app.store, app.runtime.owner);
+  const saved = surface === "dashboard" ? [] : savedCommandRows(app.store, app.runtime.owner, !commands.some((row) => row.name === "prompts"));
   return { surface, mode, commands: [...commands, ...saved] };
 }
 

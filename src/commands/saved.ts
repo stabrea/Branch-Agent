@@ -37,6 +37,17 @@ export function savedCommandFor(store: Pick<Store, "get">, owner: string, line: 
   return prompt ? { prompt, argument: (match[2] ?? "").trim() } : null;
 }
 
+const promptsPattern = /^\/(?:prompts|procedures|workflows)(?:@[\w.-]+)?(?:\s+([\s\S]*))?$/i;
+/**
+ * `/prompts` is a shipped command, so it follows the *Typed commands* switch; with that switch off it
+ * still answers while saved prompts are switched on, or the owner could not list their own commands.
+ */
+export function promptsLine(store: Pick<Store, "get" | "list">, owner: string, line: string): Reply | null {
+  const match = promptsPattern.exec(line.trim());
+  if (!match || promptLibraryMode(store, owner) === "off") return null;
+  return promptsReply(store, owner, match[1] ?? "");
+}
+
 /** The message a saved command stands for, or the sentence saying what is missing. */
 export function expandSaved(store: Pick<Store, "get" | "save">, owner: string, found: { prompt: SavedPrompt; argument: string }): { text: string } | { problem: string } {
   const { named, rest } = readArguments(found.argument);
@@ -53,7 +64,9 @@ export function expandSaved(store: Pick<Store, "get" | "save">, owner: string, f
  * For the surfaces that send the message themselves (both terminal views and the chat apps): the
  * finished text, the sentence saying what is missing, or null when the line is no saved command.
  */
-export function savedLine(store: Pick<Store, "get" | "save">, owner: string, line: string): { text: string } | { problem: string } | null {
+export function savedLine(store: Pick<Store, "get" | "save" | "list">, owner: string, line: string): { text: string } | { problem: string } | { reply: string } | null {
+  const listing = promptsLine(store, owner, line);
+  if (listing) return { reply: listing.text };
   const found = savedCommandFor(store, owner, line);
   return found ? expandSaved(store, owner, found) : null;
 }
@@ -64,6 +77,8 @@ export function savedLine(store: Pick<Store, "get" | "save">, owner: string, lin
  */
 export function runSavedCommand(host: CommandHost, input: { surface: Surface; line: string; access: Access }): (Reply & { command: string; refused?: true }) | null {
   const { store, owner } = host.runtime;
+  const listing = promptsLine(store, owner, input.line);
+  if (listing) return { command: "prompts", ...listing };
   const found = input.surface === "dashboard" ? null : savedCommandFor(store, owner, input.line);
   if (!found) return null;
   const command = found.prompt.command;
@@ -74,16 +89,23 @@ export function runSavedCommand(host: CommandHost, input: { surface: Surface; li
   return { command, text: `Sending your saved prompt "${found.prompt.title}".`, client: { do: "send", text: expanded.text } };
 }
 
-/** The owner's commands as rows of the `/` menu; "when needed" keeps them out of the menus. */
-export function savedCommandRows(store: Pick<Store, "get">, owner: string) {
+/**
+ * The owner's commands as rows of the `/` menu; "when needed" keeps them out of the menus. With
+ * `withPrompts` (the shipped `/prompts` is not offered because *Typed commands* is off), a row for
+ * `/prompts` comes first, so the saved ones can still be listed.
+ */
+export function savedCommandRows(store: Pick<Store, "get">, owner: string, withPrompts = false) {
   const mode = promptLibraryMode(store, owner);
   if (mode === "off") return [];
-  return listPrompts(store, owner).filter((prompt) => prompt.command).map((prompt) => ({
+  const prompts = lookup("prompts")!;
+  const head = withPrompts ? [{ name: prompts.name, aliases: [...prompts.aliases], key: prompts.key, english: prompts.english,
+    args: prompts.args, level: prompts.level as string, bareLooks: false, listed: mode === "on", saved: true }] : [];
+  return [...head, ...listPrompts(store, owner).filter((prompt) => prompt.command).map((prompt) => ({
     name: prompt.command, aliases: [] as string[], key: `prompts.saved.${prompt.command}`,
     english: prompt.description || prompt.title,
     args: blanksIn(prompt.body).map((blank) => `${blank}=…`).join(" ") || (/\{\{\s*input\s*\}\}/.test(prompt.body) ? "<words>" : ""),
-    level: savedCommandLevel, bareLooks: false, listed: mode === "on", saved: true,
-  }));
+    level: savedCommandLevel as string, bareLooks: false, listed: mode === "on", saved: true,
+  }))];
 }
 
 /* ---------- /prompts: browse and load (A0147) ---------- */
@@ -96,7 +118,7 @@ function procedures(store: Pick<Store, "list">, owner: string): ProcedureView[] 
       parameters: state.definition?.parameters ?? {}, steps: state.definition?.steps ?? [] };
   });
 }
-function overview(store: Store, owner: string): string {
+function overview(store: Pick<Store, "get" | "list">, owner: string): string {
   const lines: string[] = [];
   const on = promptLibraryMode(store, owner) !== "off";
   const prompts = on ? [...listPrompts(store, owner)].sort((a, b) => a.group.localeCompare(b.group) || b.uses - a.uses) : [];
@@ -118,9 +140,13 @@ function showProcedure(entry: ProcedureView): Reply {
   return { text: lines.join("\n"), client: { do: "fill", text: ask } };
 }
 
+// A function declaration, not a constant: handlers.ts reads it while this module may still be loading.
 export function promptsCommand(call: Call): Reply {
-  const { store, owner } = call.host.runtime;
-  const wanted = call.argument.trim().replace(/^\//, "").toLowerCase();
+  return promptsReply(call.host.runtime.store, call.host.runtime.owner, call.argument);
+}
+
+function promptsReply(store: Pick<Store, "get" | "list">, owner: string, argument: string): Reply {
+  const wanted = argument.trim().replace(/^\//, "").toLowerCase();
   if (!wanted) return { text: overview(store, owner) };
   const on = promptLibraryMode(store, owner) !== "off";
   const prompt = on ? listPrompts(store, owner).find((p) => p.command === wanted || p.title.toLowerCase() === wanted) : undefined;
@@ -131,5 +157,5 @@ export function promptsCommand(call: Call): Reply {
   }
   const procedure = procedures(store, owner).find((entry) => entry.name.toLowerCase() === wanted);
   if (procedure) return showProcedure(procedure);
-  return { text: `There is no saved prompt or procedure called "${call.argument.trim()}". Send /prompts for the list.` };
+  return { text: `There is no saved prompt or procedure called "${argument.trim()}". Send /prompts for the list.` };
 }

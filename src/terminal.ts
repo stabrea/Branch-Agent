@@ -73,7 +73,7 @@ class TerminalConversation {
     if (text === "/cancel") { this.interrupt(); return; }
     // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
     const saved = text.startsWith("/") ? savedLine(this.runtime.store, this.runtime.owner, text) : null;
-    if (saved && "problem" in saved) { this.write(`${saved.problem}\n`); this.prompt(); return; }
+    if (saved && !("text" in saved)) { this.write(`${"problem" in saved ? saved.problem : saved.reply}\n`); this.prompt(); return; }
     if (saved) { this.receive(saved.text); return; }
     // ---- end of the bucket 12 hook ----
     if (text.startsWith("/") && text !== "/new") {

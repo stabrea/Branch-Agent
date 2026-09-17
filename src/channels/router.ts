@@ -452,8 +452,9 @@ export class ChannelRouter {
   private async answer(message: InboundMessage): Promise<Outcome> {
     // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
     const saved = this.switches().commands === "off" || message.voice ? null : savedLine(this.store, this.runtime.owner, message.text);
-    if (saved && "problem" in saved) {
-      await this.deliver(message.channel, message.chatId, saved.problem, `saved:${message.messageId}`, message.messageId).catch(() => undefined);
+    if (saved && !("text" in saved)) {
+      const said = "problem" in saved ? saved.problem : saved.reply;
+      await this.deliver(message.channel, message.chatId, said, `saved:${message.messageId}`, message.messageId).catch(() => undefined);
       return "replied";
     }
     if (saved) message = { ...message, text: saved.text };

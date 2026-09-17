@@ -209,6 +209,30 @@ test("A0147: /prompts lists saved prompts and procedures, and loads one into the
   assert.match((await executeCommand(host, { surface: "window", line: "/prompts", access: "full" })).text, /\[Routines\] \/weekly — Weekly review/);
 });
 
+test("A0147: with Typed commands left off, saved prompts on still gives /weekly and /prompts on every surface", async (t) => {
+  const { app, store, owner, json } = await fixture(t);
+  on(store, owner, "when-needed");
+  savePrompt(store, owner, weekly, takenByCatalog);
+  const window = await json("/api/commands/run", { surface: "window", line: "/prompts" });
+  assert.equal(window.body.handled, true);
+  assert.match(window.body.text, /\/weekly — Weekly review/);
+  assert.equal((await json("/api/commands/run", { surface: "phone", line: "/prompts weekly" })).body.client.do, "fill");
+  assert.equal((await json("/api/commands/run", { surface: "window", line: "/weekly day=monday" })).body.client.do, "send");
+  const rows = (await json("/api/commands?surface=window")).body.commands.filter((row) => row.name === "prompts");
+  assert.equal(rows.length, 1, "one /prompts row while the shipped one is not offered");
+  assert.match(savedLine(store, owner, "/procedures").reply, /Your saved prompts/);
+  const said = [];
+  const context = { runtime: app.runtime, conversation: { send: async () => assert.fail("nothing is sent") }, words: { t: (_k, english) => english }, say: (kind, text) => said.push(text) };
+  await runCommand(context, "/prompts");
+  assert.ok(said.some((line) => /Weekly review/.test(line)));
+  saveCommandSettings(store, owner, { mode: "on" });
+  const both = (await json("/api/commands?surface=window")).body.commands.filter((row) => row.name === "prompts");
+  assert.equal(both.length, 1, "with the shipped one offered, no second row");
+  on(store, owner, "off");
+  saveCommandSettings(store, owner, { mode: "off" });
+  assert.equal((await json("/api/commands/run", { surface: "window", line: "/prompts" })).body.handled, false, "both off: /prompts is what it always was");
+});
+
 // ---- A1882: writing and trying a prompt ---------------------------------------------------------
 
 test("A1882: the prompt editor's routes save, try on two models side by side with no tools, and stay the owner's", async (t) => {

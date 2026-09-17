@@ -190,6 +190,7 @@ export async function runCommand(context: CommandContext, text: string): Promise
   const found = findCommand(name, modeOf(context));
   // ---- bucket 12: one of the owner's saved commands is sent as the message it stands for ----
   const saved = found ? null : savedLine(context.runtime.store, context.runtime.owner, text);
+  if (saved && "reply" in saved) return saved.reply.split("\n").forEach((line) => context.say("note", line));
   if (saved) return "problem" in saved ? context.say("warn", saved.problem) : context.conversation.send(saved.text);
   // ---- end of the bucket 12 hook ----
   if (!found) return context.say("warn", `I do not know ${name}. Type /help for the list.`);
