@@ -116,3 +116,21 @@ export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, con
   if (check.decision === "ask") throw new ApprovalRequiredError(tool, check.target, check.label, check.remember, fingerprint);
   return scopeOf(host, tool, args, context, check);
 }
+
+export const unattendedAskRefusal =
+  "Your approval settings ask first about this, and nobody is there to say yes once a task has finished, so nothing was done. Ask Branch to do it in a conversation, or allow it in Settings.";
+
+/**
+ * Integration review: the gate's answer before anything is done, for work with a side effect ahead
+ * of its tool call (the pull-request hook pushes before it opens). A plain sentence, or null for go.
+ */
+export function gateRefusal(host: ToolGateHost, tool: string, args: unknown, context: ToolContext,
+  fingerprint: string, mode: ToolGateMode = "policy"): string | null {
+  try {
+    gateToolUse(host, tool, args, context, fingerprint, mode);
+    return null;
+  } catch (error) {
+    if (error instanceof ApprovalRequiredError) return unattendedAskRefusal;
+    return error instanceof Error ? error.message : "The approval check could not decide, so nothing was done.";
+  }
+}

@@ -13,7 +13,8 @@ import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
 import { CredentialResolver } from "./credential-cli.js";
 import { OsPermissions, probeReader } from "./os-permissions.js";
-import { Runtime } from "./runtime.js";
+import { Runtime, argumentFingerprint } from "./runtime.js";
+import { gateRefusal } from "./tool-gate.js"; // integration review (mac5/manual-actions)
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
@@ -488,6 +489,9 @@ export async function createBranch(options: {
     // mac5/manual-actions: inside a task the call that got here was already gated as a whole; the
     // hook working by itself after a task is held to the full rules, "ask" included.
     runTool: (name, args, runId) => runtime.executeTool(name, args, { mode: runId ? "owner" : "policy" }),
+    // Integration review: the same gate, asked before anything is pushed.
+    preflight: (name, args, runId) => gateRefusal(runtime, name, args, runtime.context(runId ? { runId } : {}),
+      argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy"),
     // Integration review: Branch's saved work and keys never leave in a pull request.
     guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
   };

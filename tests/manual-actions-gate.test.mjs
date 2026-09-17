@@ -197,3 +197,62 @@ test("a profile whose role covers the kind still meets the workflow tool's own o
   branch.store.profiles.switch({ profileId: person.id, pin: "1357" });
   await assert.rejects(branch.runtime.executeTool("workflows.list", {}, owner), /belongs to the owner/);
 });
+
+/* Integration review: the pull-request hook asks the gate before it touches Git, so a refusal or an
+   unanswerable question never leaves a branch pushed with no pull request behind it. */
+async function hookDeps(branch, root) {
+  const { gateRefusal } = await import("../dist/tool-gate.js");
+  const { savePullRequestHookSettings } = await import("../dist/pr-hook.js");
+  savePullRequestHookSettings(branch.store, "local", { mode: "on" });
+  if (!branch.registry.names().includes("github.open_pull_request"))
+    branch.registry.register({ name: "github.open_pull_request", permission: "github.manage", description: "stand-in",
+      parameters: z.object({}).passthrough(), execute: async (args) => args });
+  const git = [], opened = [];
+  const answers = { "remote get-url": "git@github.com:acme/widgets.git", "symbolic-ref": "refs/remotes/origin/main", "status": " M a.txt\n" };
+  return {
+    git, opened,
+    value: {
+      store: branch.store, owner: "local", files: branch.files, registry: branch.registry,
+      policy: new (await import("../dist/index.js")).NetworkPolicy({ allowPrivateAddresses: true }),
+      git: async (options) => {
+        git.push(options.args.join(" "));
+        const key = Object.keys(answers).find((prefix) => options.args.join(" ").startsWith(prefix));
+        return { status: "completed", stdout: key ? answers[key] : "", stderr: "", exitCode: 0, command: "git" };
+      },
+      runTool: async (name, args, runId) => { opened.push({ name, args, runId }); return branch.runtime.executeTool(name, args, { mode: runId ? "owner" : "policy" }); },
+      preflight: (name, args, runId) => gateRefusal(branch.runtime, name, args,
+        branch.runtime.context(runId ? { runId } : {}), argumentFingerprint(JSON.stringify(args)), runId ? "owner" : "policy"),
+    },
+  };
+}
+
+test("the hook after a task, under 'ask first', pushes nothing and says why", async (t) => {
+  const { branch, root } = await app(t);
+  const { pullRequestFromChanges } = await import("../dist/pr-hook.js");
+  savePolicy(branch.store, "local", { preset: "ask-before-changes" });
+  const d = await hookDeps(branch, root);
+  await assert.rejects(pullRequestFromChanges(d.value, { name: "task-1", title: "t", summary: "s", paths: ["a.txt"], signal: AbortSignal.timeout(10000) }),
+    /ask first/);
+  assert.deepEqual(d.git.filter((line) => /^(switch|push|--literal-pathspecs)/.test(line)), [], "no branch was made or pushed");
+  assert.equal(d.opened.length, 0);
+});
+
+test("a task's own pull request under Lockdown is refused before anything is pushed", async (t) => {
+  const { branch, root } = await app(t);
+  const { pullRequestFromChanges } = await import("../dist/pr-hook.js");
+  const d = await hookDeps(branch, root);
+  setLockdown(branch.store, "local", { on: true });
+  const run = branch.store.createRun("local", "send it");
+  await assert.rejects(pullRequestFromChanges(d.value, { name: "task-2", title: "t", summary: "s", paths: ["a.txt"], signal: AbortSignal.timeout(10000), runId: run.id }),
+    /Lockdown is on/);
+  assert.deepEqual(d.git.filter((line) => /^(switch|push|--literal-pathspecs)/.test(line)), []);
+});
+
+test("the hook with GitHub allowed still opens the pull request", async (t) => {
+  const { branch, root } = await app(t);
+  const { pullRequestFromChanges } = await import("../dist/pr-hook.js");
+  const d = await hookDeps(branch, root);
+  const opened = await pullRequestFromChanges(d.value, { name: "task-3", title: "t", summary: "s", paths: ["a.txt"], signal: AbortSignal.timeout(10000) });
+  assert.equal(opened.pullRequest.head, "branch/task-3");
+  assert.equal(d.git.filter((line) => line.startsWith("push")).length, 1);
+});
