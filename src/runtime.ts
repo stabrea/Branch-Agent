@@ -37,6 +37,8 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
+// Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
+import { RunGuards } from "./run-guards.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { memoryScope } from "./memory.js";
@@ -87,6 +89,7 @@ import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } fr
 import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
+import { switchedToolTiers } from "./feature-switches.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
@@ -273,6 +276,8 @@ export class Runtime {
   readonly deferrals: Deferrals;
   /** Answers kept for identical requests. Off until the owner turns it on; see src/request-cache.ts. */
   readonly requestCache: RequestCache;
+  /** Wave mac2 (guards): the loop guard and folder trust. */
+  readonly guards: RunGuards;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -291,6 +296,7 @@ export class Runtime {
     this.roles = new ProfileRoles(store, this.owner);
     this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
+    this.guards = new RunGuards(store, this.owner, workspace);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -676,6 +682,7 @@ ${run.output.slice(0, 6000)}`;
     // Nothing looks a task up after it has settled — a sub-task registers while its parent is still
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
+    this.guards.forget(run.id); // wave mac2 (guards)
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     // ── mac3/reflection-skills: once a task of the owner's has settled, the learning loop may look back
     // over the conversation or draft a skill (src/reflection/hook.ts). Its one model question is
@@ -893,6 +900,7 @@ ${run.output.slice(0, 6000)}`;
     if (style && style !== "default") this.store.event(run.id, "specialist.style", { style, summary: shape.summary });
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
+    await this.guards.opening(run.id); // wave mac2 (guards): an undecided folder is noted for the owner
     const catalog = this.openCatalog(run, context, messages, shape.groups);
     const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
@@ -936,13 +944,14 @@ ${run.output.slice(0, 6000)}`;
         this.noteWork(run, call);
         catalog.noteUse(call.name);
         this.rememberToolWork(run.id, call.name, round + 1);
-        const result = await this.callTool(call, context);
+        const result = await this.guards.call(run.id, call, () => this.callTool(call, context)); // wave mac2 (guards)
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
         await this.showPicture(run, messages, ids, result, route);
       }
       this.orchestration.milestone(run, round + 1);
+      this.guards.afterRound(run.id); // wave mac2 (guards): ends a task that keeps repeating itself
     }
     throw new BudgetError(conductor.maxRounds(12) === 12 ? "Maximum 12 model rounds reached" : `Maximum ${conductor.maxRounds(12)} model rounds reached`);
   }
@@ -1224,9 +1233,12 @@ ${run.output.slice(0, 6000)}`;
     const opened = [...styleGroups, ...(this.carriedToolboxes.get(run.sessionId) ?? [])]
       .filter((group) => available.includes(group));
     const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
+    // mac2/desktop-ui: the owner's three-way switches — "on" loads a feature's tools, "off" hides them.
+    const switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
-      preload: learned.preload(context.owner, run.prompt), demoted: learned.stale(context.owner),
+      preload: [...learned.preload(context.owner, run.prompt), ...switched.preload],
+      demoted: [...learned.stale(context.owner), ...switched.hidden],
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
@@ -1598,7 +1610,8 @@ ${run.output.slice(0, 6000)}`;
   }
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
-    return cappedPolicy(readPolicy(this.store, this.owner), source);
+    // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
+    return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the

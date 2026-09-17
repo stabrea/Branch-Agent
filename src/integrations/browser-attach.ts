@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext } from 'playwright';
 import { z } from 'zod';
 import type { Store } from '../store.js';
 import { hostRefusalFor, refusalFor } from './desktop-config.js';
+import { optionalFields } from '../feature-switches.js';
 
 /**
  * Letting Branch borrow the browser the owner already has open, so a website that already knows
@@ -29,7 +30,7 @@ export const AttachSettingsSchema = z.object({
   extraRefusedHosts: z.array(z.string().trim().min(1).max(253)).max(200).default([]),
 }).strict();
 export type AttachSettings = z.infer<typeof AttachSettingsSchema>;
-export const AttachSettingsInputSchema = AttachSettingsSchema.partial();
+export const AttachSettingsInputSchema = optionalFields(AttachSettingsSchema);
 const settingsKey = 'browser-attach';
 /** A permission goes stale after fifteen minutes, so a forgotten switch does not stay on for ever. */
 export const attachGraceMs = 15 * 60 * 1000;
