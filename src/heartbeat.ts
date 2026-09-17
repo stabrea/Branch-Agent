@@ -19,6 +19,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import { inQuietHours } from "./calendar.js";
 import { contextFileSettings, findFile, switchFor } from "./context-files.js";
+import { folderAllows } from "./folder-trust.js";
 
 type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<unknown>;
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -150,7 +151,11 @@ export class Heartbeat {
    */
   checklist: ChecklistSource = async (owner) => {
     if (switchFor(contextFileSettings(this.store, owner), "heartbeat") === "off") return this.settings(owner).checklist;
-    return findFile(this.runtime.workspace, "heartbeat")?.text ?? null;
+    const workspace = this.runtime.workspace;
+    // A workspace the owner has not trusted does not get to set the check-in's work (src/folder-trust.ts).
+    if (!folderAllows(this.store, owner, workspace) && findFile(workspace, "heartbeat"))
+      throw new Error("HEARTBEAT.md is in a folder you have not trusted, so the check-in did not read it.");
+    return findFile({ workspace, allows: (folder) => folderAllows(this.store, owner, folder) }, "heartbeat")?.text ?? null;
   };
   constructor(private readonly store: Store, private readonly runtime: Runtime, private readonly deliver?: DeliveryHandler) {}
   settings(owner: string): HeartbeatSettings {
@@ -217,8 +222,9 @@ export class Heartbeat {
     let checklist: string | null = "";
     let skip = withinActiveHours(now, settings) ? null : "Outside the check-in hours, so nothing ran.";
     if (!skip) {
-      checklist = await this.checklist(owner).catch(() => "");
-      if (checklist !== null && checklistIsEmpty(checklist)) skip = "The checklist is empty, so the model was not asked.";
+      let unread: string | null = null;
+      checklist = await this.checklist(owner).catch((error: unknown) => { unread = error instanceof Error ? error.message : String(error); return ""; });
+      if (checklist !== null && checklistIsEmpty(checklist)) skip = unread ?? "The checklist is empty, so the model was not asked.";
     }
     if (!skip) return this.checkIn(owner, settings, checklist, now, trigger);
     this.checking.delete(owner);

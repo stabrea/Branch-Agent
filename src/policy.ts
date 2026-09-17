@@ -4,6 +4,7 @@ import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResourc
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
+import { optionalFields } from "./feature-switches.js";
 
 export { globMatches } from "./policy-resources.js";
 
@@ -89,7 +90,7 @@ export const PolicyInputSchema = z
   .object({
     preset: PolicyPresetSchema.optional(),
     rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
-    limits: PolicyLimitsSchema.partial().optional(),
+    limits: optionalFields(PolicyLimitsSchema).optional(),
     unmatchedCommands: z.enum(["ask", "allow"]).optional(),
   })
   .strict();

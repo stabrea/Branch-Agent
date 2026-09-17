@@ -116,6 +116,7 @@ function fileLink() {
 }
 function fileWords(file) {
   if (!file || file.setting === "off") return t("schedules.checkin.file-off");
+  if (file.outcome === "not trusted") return t("schedules.checkin.file-untrusted");
   return file.name ? t("schedules.checkin.file-found", { name: file.name }) : t("schedules.checkin.file-missing");
 }
 /* automations:scheduled — the check-in itself, beside the HEARTBEAT.md switch it reads from (not a second copy of it). */
