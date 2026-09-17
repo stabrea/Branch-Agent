@@ -2,7 +2,11 @@ name: Checks
 on: [push, pull_request]
 jobs:
   verify:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,7 +18,13 @@ jobs:
           python-version: '3.12'
       - run: npm ci
       - run: npx playwright install --with-deps chromium --only-shell
-      - run: npm test
+      # Linux has no screen on the runner; Electron tests draw into a virtual one.
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm test
+      - if: runner.os != 'Linux'
+        run: npm test
       - run: python -m unittest discover -s experiments -p 'test_*.py'
       - run: npm run demo
-      - run: npm run package:desktop
+      # Packaging is Windows-only until the macOS and Linux downloads land (M1).
+      - if: runner.os == 'Windows'
+        run: npm run package:desktop
