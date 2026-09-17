@@ -62,6 +62,19 @@ async function analyticsRoute(deps: AsksHttpDeps, path: string): Promise<unknown
   return undefined;
 }
 
+const surfaceId = /^\/api\/asks\/surfaces\/([a-f0-9-]{36})\/(refresh|remove)$/;
+async function surfacesRoute(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  const { surfaces } = deps.asks;
+  if (path === "/api/asks/surfaces")
+    return deps.method === "POST" ? { surface: await surfaces.add(await deps.readBody()) } : { surfaces: surfaces.list() };
+  const match = surfaceId.exec(path);
+  if (!match || deps.method !== "POST") return undefined;
+  if (match[2] === "remove") return surfaces.remove(match[1]!);
+  requireAsk(deps.runtime.store, deps.runtime.owner, "live-surfaces");
+  await surfaces.refresh(match[1]!);
+  return { surface: surfaces.list().find((s) => s.id === match[1]) };
+}
+
 /** Group 2: bringing items in, the Hindsight server, steps for other apps and the MCP examples. */
 async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unknown> {
   const { asks } = deps, post = deps.method === "POST";
@@ -80,6 +93,10 @@ async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unkn
     const { id } = z.object({ id: z.string().trim().min(1).max(64) }).strict().parse(await deps.readBody());
     return path.endsWith("/add") ? asks.runtimes.add(id) : asks.runtimes.remove(id);
   }
+  if (path === "/api/asks/nodes") return post ? { nodes: asks.nodes.save(await deps.readBody()) } : { nodes: asks.nodes.nodes() };
+  if (path === "/api/asks/nodes/check" && post) return runPartTool(deps, "nodes", "nodes.status");
+  if (path === "/api/asks/nodes/ask" && post) return runPartTool(deps, "nodes", "nodes.ask");
+  if (path.startsWith("/api/asks/surfaces")) return surfacesRoute(deps, path);
   if (path === "/api/asks/mcp-examples")
     return { examples: mcpExamples.map((example) => ({ ...example, file: exampleFile(example.id) })) };
   return deps.more?.(path);

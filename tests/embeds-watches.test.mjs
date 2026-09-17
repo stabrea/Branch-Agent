@@ -67,7 +67,9 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
   assert.ok(manifest.action?.default_popup, "the extension has no popup, so there is nothing to press");
   /* Manifest V3 has no background page and no broad host permission here. */
   assert.equal(manifest.background, undefined, "a Manifest V2 background page survived");
-  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "storage"]);
+  // mac6/bucket-23 (A1611): the side panel is the only thing added.
+  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "sidePanel", "storage"]);
+  assert.equal(manifest.side_panel?.default_path, "sidepanel.html");
   assert.equal(manifest.host_permissions, undefined, "the extension asks for every site");
   /* It asks for nothing up front, and for one address at the moment the owner names it. Without
      this the popup's own fetch is blocked by Chrome and the extension can reach no listener at all. */
@@ -77,7 +79,7 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
     "the popup never asks Chrome for the address the owner typed");
 
   const files = (await readdir(EXTENSION)).sort();
-  assert.deepEqual(files, ["README.md", "manifest.json", "popup.html", "popup.js"]);
+  assert.deepEqual(files, ["README.md", "chat.js", "manifest.json", "popup.html", "popup.js", "sidepanel.html", "sidepanel.js"]);
   assert.match(await readFile(new URL("README.md", EXTENSION), "utf8"), /Load unpacked/,
     "the README never says how to install it");
 });

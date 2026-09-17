@@ -1199,6 +1199,7 @@ export async function createBranch(options: {
       knowledgeBases.vectors.close?.();
       skillPackages.stop();
       mcpServer.close();
+      asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

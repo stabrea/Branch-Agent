@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Branch</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; padding: 12px; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
+      details { margin-bottom: 8px; }
+      label { display: block; margin: 8px 0 2px; }
+      input, textarea, button { width: 100%; box-sizing: border-box; padding: 6px; font: inherit; }
+      #log { flex: 1; overflow-y: auto; }
+      #log p { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+      #log .you { font-weight: 600; }
+      #log .note { font-style: italic; }
+      .row { display: flex; gap: 6px; align-items: center; }
+      .row input { width: auto; }
+    </style>
+  </head>
+  <body>
+    <strong>Talk to your Branch</strong>
+    <details>
+      <summary>Your paired Branch</summary>
+      <label for="where">Paired address</label>
+      <input id="where" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
+      <label for="key">The key pairing gave you</label>
+      <input id="key" type="password" autocomplete="off" />
+    </details>
+    <div id="log" role="log" aria-live="polite"></div>
+    <form id="form">
+      <label class="row"><input id="page" type="checkbox" /> About this page</label>
+      <label for="message">Message</label>
+      <textarea id="message" rows="3"></textarea>
+      <button type="submit">Send</button>
+      <button id="new" type="button">New conversation</button>
+    </form>
+    <script src="sidepanel.js" type="module"></script>
+  </body>
+</html>

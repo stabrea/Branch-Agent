@@ -12,6 +12,8 @@ import { AppBlocks, registerAppBlocks } from "./app-blocks.js";
 import { Hindsight, registerHindsight } from "./hindsight.js";
 import { IntentPipeline, registerIntentRoute } from "./intent-pipeline.js";
 import { ProjectBoards, registerProjectBoard } from "./project-board.js";
+import { LiveSurfaces } from "./live-surfaces.js";
+import { BranchNodes, registerNodes } from "./nodes.js";
 import { AgentRuntimes } from "./runtimes.js";
 import { registerSourceSync, SourceSync } from "./source-sync.js";
 import { askMode, askParts, askTools, saveAskMode, type AskMode, type AskPart } from "./settings.js";
@@ -45,6 +47,8 @@ export class Asks {
   readonly hindsight: Hindsight;
   readonly blocks: AppBlocks;
   readonly runtimes: AgentRuntimes;
+  readonly nodes: BranchNodes;
+  readonly surfaces: LiveSurfaces;
   private readonly registrars: Partial<Record<AskPart, () => void>>;
 
   constructor(private readonly deps: AsksDeps) {
@@ -63,7 +67,13 @@ export class Asks {
     this.hindsight = new Hindsight(store, owner, deps.fetch, (name) => deps.secret(name, "the Hindsight memory server"));
     this.blocks = new AppBlocks(store, owner, deps.fetch, (name) => deps.secret(name, "a step for another app"));
     this.runtimes = new AgentRuntimes(store, owner, runtime.models, deps.version);
+    this.nodes = new BranchNodes(store, owner, deps.fetch, (name) => deps.secret(name, "another computer running Branch"));
+    // Asked again by itself, so held exactly as unattended work is: only what the rules allow outright.
+    this.surfaces = new LiveSurfaces(store, owner, (name, args, id) =>
+      runtime.executeTool(name, args, { mode: "policy", source: "schedule", approvalKey: `surface:${id}` }));
+    this.surfaces.start();
     this.registrars = {
+      nodes: () => registerNodes(registry, this.nodes),
       "source-sync": () => registerSourceSync(registry, this.sources),
       hindsight: () => registerHindsight(registry, this.hindsight),
       "app-blocks": () => registerAppBlocks(registry, this.blocks),
@@ -76,6 +86,8 @@ export class Asks {
     for (const part of askParts) this.sync(part);
     registry.onRunFinished(async () => { this.analytics.track("task.finished"); });
   }
+
+  close(): void { this.surfaces.stop(); }
 
   /** A part's tools are in the catalog exactly while its switch is not off. */
   private sync(part: AskPart): void {
