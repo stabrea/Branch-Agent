@@ -179,7 +179,8 @@ test(`a disk that fills up part-way stops the task cleanly, never doing a step i
       let writes = 0;
       app.neverBreak.journal.failWrites = () => (++writes > after ? new Error("ENOSPC: no space left on device") : null);
       const run = await app.runtime.run({ prompt: "send four", onTextDelta: () => undefined });
-      const recorded = app.neverBreak.journal.steps(run.id).filter((step) => step.kind === "tool").length;
+      // A call whose intent was written but whose start could not be is recorded as never started.
+      const recorded = app.neverBreak.journal.steps(run.id).filter((step) => step.kind === "tool" && step.state !== "intent").length;
       assert.equal(done.length, recorded, `try ${trial} (full after ${after} writes): every step that ran was recorded first`);
       if (run.status !== "completed") assert.match(run.output, /disk may be full/, `try ${trial}`);
       else assert.deepEqual(done, [1, 2, 3, 4]);

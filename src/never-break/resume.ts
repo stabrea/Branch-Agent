@@ -3,11 +3,17 @@ import type { FeatureMode } from "../feature-switches.js";
 import type { Runtime } from "../runtime.js";
 import { scopeOf } from "../tool-gate.js";
 import type { Store } from "../store.js";
-import { checkEvidence, type OpenStep, type TaskJournal } from "./journal.js";
+import { checkEvidence, evidenceFor, type OpenStep, type TaskJournal } from "./journal.js";
 
 /**
  * After a restart: what to do with each task that was cut off. Finished steps are never repeated
- * (the conversation already holds their results). A step that was in flight is
+ * (when the restart came before their result was saved, the conversation is told they finished). A
+ * step the model asked for that never started (its intent is in the journal, nothing more) is done
+ * now when the task carries on by itself and the approval policy allows it without asking; otherwise
+ * the conversation is told it has not been done, so it is asked for again through the usual approval.
+ * Steps are settled in order, and once one is left undecided the ones after it are not run. A task
+ * whose calls were never written as intents (from a version before them) is handled as before. A step
+ * that was in flight is
  *
  * - done again when it changes nothing, or gives the same result however often it runs;
  * - checked when it left something to check (a file's contents, a repository's commit): if it took
@@ -18,7 +24,7 @@ import { checkEvidence, type OpenStep, type TaskJournal } from "./journal.js";
  * Then the task carries on by itself (switch on), or is offered to the owner (when needed). A task a
  * chat app started is left for that app, which sends the message again. See docs/never-break.md.
  */
-export type StepDecision = "redo" | "done" | "not-done" | "ask";
+export type StepDecision = "redo" | "done" | "not-done" | "ask" | "not-started";
 export type RecoveryOutcome = "resumed" | "offered" | "asked" | "left-for-chat" | "gone";
 export interface RecoveredRun { runId: string; outcome: RecoveryOutcome; steps: { tool: string; decision: StepDecision }[]; resumed?: Promise<unknown> }
 
@@ -36,6 +42,7 @@ export interface RecoveryInput {
 }
 
 export async function decideStep(step: OpenStep): Promise<StepDecision> {
+  if (step.state === "intent") return "not-started";
   if (step.effects === "none") return "redo";
   const checked = await checkEvidence(step.evidence);
   if (checked === "done") return "done";
@@ -43,16 +50,29 @@ export async function decideStep(step: OpenStep): Promise<StepDecision> {
   return step.effects === "idempotent" ? "redo" : "ask";
 }
 
-/** The result the conversation holds for this call (usually the "unknown" one written at start-up), replaced with what is now known. */
-export function replaceResult(store: Store, sessionId: string, callId: string, content: Record<string, unknown>): boolean {
+/**
+ * The result the conversation holds for this call (usually the "unknown" one written at start-up), replaced with what is now known.
+ * With `onlyUnknown`, a result that is not the start-up "unknown" one is left as it is.
+ */
+export function replaceResult(store: Store, sessionId: string, callId: string, content: Record<string, unknown>, onlyUnknown = false): boolean {
   const rows = store.sqlite.prepare("SELECT id, body FROM messages WHERE session_id=? ORDER BY id DESC").all(sessionId);
   for (const row of rows) {
-    const body = JSON.parse(String(row.body)) as { role?: string; toolCallId?: string };
+    const body = JSON.parse(String(row.body)) as { role?: string; toolCallId?: string; content?: string };
     if (body.role !== "tool" || body.toolCallId !== callId) continue;
+    if (onlyUnknown && !String(body.content ?? "").includes('"outcome":"unknown"')) return false;
     store.sqlite.prepare("UPDATE messages SET body=? WHERE id=?").run(JSON.stringify({ ...body, content: JSON.stringify(content) }), Number(row.id));
     return true;
   }
   return false;
+}
+
+/** True when the conversation holds the model's request for this call. */
+function inConversation(store: Store, sessionId: string, callId: string): boolean {
+  const rows = store.sqlite.prepare("SELECT body FROM messages WHERE session_id=? ORDER BY id DESC").all(sessionId);
+  return rows.some((row) => {
+    const body = JSON.parse(String(row.body)) as { role?: string; toolCalls?: { id?: string }[] };
+    return body.role === "assistant" && (body.toolCalls ?? []).some((call) => call.id === callId);
+  });
 }
 const unknownOutcome = { ok: false, status: "interrupted", outcome: "unknown",
   error: "Branch was restarted while this step ran and it may already have taken effect. The owner has been asked; check the actual state before doing it again." };
@@ -77,13 +97,39 @@ const label = (step: OpenStep): string => {
   try { return describeToolCall(step.tool, JSON.parse(step.arguments)); } catch { return step.tool; }
 };
 
-async function settleStep(input: RecoveryInput, runId: string, step: OpenStep, carryOn: boolean): Promise<StepDecision> {
+/** A call that was asked for but never started: done now if allowed, otherwise the conversation says it has not been done. */
+async function settleNotStarted(input: RecoveryInput, runId: string, step: OpenStep, runNow: boolean): Promise<boolean> {
+  // Cut off before the conversation held the request: the model is asked again when the task goes on.
+  if (!inConversation(input.store, step.sessionId, step.callId)) { input.journal.finish(step.id, "not-started"); return true; }
+  if (runNow) {
+    let args: unknown = null;
+    try { args = JSON.parse(step.arguments); } catch { /* redo refuses it */ }
+    const evidence = step.effects === "none" ? null : await evidenceFor(step.tool, args, input.runtime.context({ runId }).workspace).catch(() => null);
+    let started = false;
+    try { input.journal.start(step.id, evidence); started = true; } catch { /* not written down, so not done */ }
+    if (started && await redo(input, runId, { ...step, evidence, state: "started" })) {
+      input.journal.finish(step.id, "redone");
+      return true;
+    }
+    // Started in the journal but not run: it is closed here, since nothing happened.
+  }
+  replaceResult(input.store, step.sessionId, step.callId, { ok: false, status: "not-done",
+    note: "Branch was restarted before this step started. It has not been done; ask for it again if it is still needed." });
+  input.journal.finish(step.id, "not-started");
+  return false;
+}
+
+/** Settles one step; `settled` is false when it was left for the model or the owner, so later steps wait. */
+async function settleStep(input: RecoveryInput, runId: string, step: OpenStep, carryOn: boolean): Promise<{ decision: StepDecision; settled: boolean }> {
   const decision = await decideStep(step);
+  if (decision === "not-started") return { decision, settled: await settleNotStarted(input, runId, step, carryOn) };
   if (decision === "done") {
     replaceResult(input.store, step.sessionId, step.callId, { ok: true, status: "verified",
       note: "Branch was restarted while this step ran. It had already taken effect (checked), so it was not done again." });
     input.journal.finish(step.id, "verified");
-  } else if (decision === "not-done" || decision === "redo") {
+    return { decision, settled: true };
+  }
+  if (decision === "not-done" || decision === "redo") {
     const done = carryOn && await redo(input, runId, step);
     if (done) input.journal.finish(step.id, "redone");
     else if (decision === "redo") input.journal.finish(step.id, "abandoned");
@@ -92,11 +138,20 @@ async function settleStep(input: RecoveryInput, runId: string, step: OpenStep, c
         note: "Branch was restarted before this step took effect (checked). It is safe to do it again." });
       input.journal.finish(step.id, "verified");
     }
-  } else {
-    replaceResult(input.store, step.sessionId, step.callId, unknownOutcome);
-    input.journal.finish(step.id, "asked");
+    return { decision, settled: done };
   }
-  return decision;
+  replaceResult(input.store, step.sessionId, step.callId, unknownOutcome);
+  input.journal.finish(step.id, "asked");
+  return { decision, settled: false };
+}
+
+/** Steps that finished before the restart but whose result never reached the conversation: it is told they finished. */
+function noteFinishedWithoutResult(input: RecoveryInput, run: { id: string; sessionId: string }): void {
+  for (const step of input.journal.steps(run.id)) {
+    if (step.kind !== "tool" || step.state !== "finished" || !step.callId) continue;
+    replaceResult(input.store, run.sessionId, step.callId, { ok: true, status: "finished",
+      note: "This step finished just before Branch was restarted, so its result was not kept. It was not done again." }, true);
+  }
 }
 
 function askOwner(input: RecoveryInput, runId: string, steps: OpenStep[]): void {
@@ -125,10 +180,14 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
   // chat app sends the message again: that message is held, and the owner decides in the app.
   if (inbound) holdReplay(input, inbound.data as Record<string, unknown>, runId);
   const carryOn = input.mode === "on" && !input.askOnly && !inbound;
+  noteFinishedWithoutResult(input, run);
   const decided: { tool: string; decision: StepDecision }[] = [];
   const asks: OpenStep[] = [];
+  let clear = true;
   for (const step of steps) {
-    const decision = await settleStep(input, runId, step, carryOn);
+    // Once a step is left undecided, the ones the model asked for after it are not run ahead of it.
+    const { decision, settled } = await settleStep(input, runId, step, carryOn && clear);
+    clear &&= settled;
     decided.push({ tool: step.tool, decision });
     if (decision === "ask") asks.push(step);
   }
@@ -144,7 +203,8 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
 
 /** True when a step of this task that could reach the outside world was started, whatever became of it. */
 function mayHaveReachedOutside(journal: TaskJournal, runId: string): boolean {
-  return journal.steps(runId).some((step) => step.kind === "tool" && step.effects !== "none" && step.effects !== "idempotent");
+  return journal.steps(runId).some((step) => step.kind === "tool" && step.effects !== "none" && step.effects !== "idempotent"
+    && step.state !== "intent" && step.state !== "not-started");
 }
 
 const replayKey = (channel: unknown, chatId: unknown, messageId: unknown): string =>

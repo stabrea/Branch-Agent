@@ -8,6 +8,10 @@
  *   node never-break-task.mjs <root> gateway   run by a gateway: settles what was cut off, or starts the plan
  *                                              if nothing was ever started; writes result.json when settled
  *
+ * CHAOS_KILL_AT kills the process at an exact point instead of at a random moment: "saved:<call id>"
+ * just after the model's request for that call is saved to the conversation, "result:<call id>"
+ * just before that call's result is saved.
+ *
  * CHAOS_PLAN is a JSON list of { id, tool, args }. Tools: chaos.look (only looks), chaos.send
  * (reaches "outside": appends to outbox.log), and the real files.write.
  */
@@ -52,6 +56,18 @@ app.registry.register({ name: "chaos.send", permission: "chaos.send", descriptio
   parameters: z.object({ n: z.number() }).strict(),
   execute: async ({ n }) => { log("calls.log", `send ${n}`); await delay(pause); log("outbox.log", `sent ${n}`); await delay(pause); return { sent: n }; } });
 
+/** Kills this process at the point CHAOS_KILL_AT names (see the top of this file). */
+function killAtExactPoint() {
+  const [point, callId] = (process.env.CHAOS_KILL_AT ?? "").split(":");
+  if (!point || !callId) return;
+  const save = app.store.message.bind(app.store);
+  app.store.message = (sessionId, message, ...rest) => {
+    if (point === "result" && message.role === "tool" && message.toolCallId === callId) process.kill(process.pid, "SIGKILL");
+    save(sessionId, message, ...rest);
+    if (point === "saved" && message.role === "assistant" && (message.toolCalls ?? []).some((call) => call.id === callId)) process.kill(process.pid, "SIGKILL");
+  };
+}
+
 /** A full disk after this many journal writes, when CHAOS_FULL_AFTER is set. */
 function fillDiskLater() {
   const after = Number(process.env.CHAOS_FULL_AFTER ?? -1);
@@ -68,6 +84,7 @@ const work = () => app.runtime.run({ prompt: "work through the plan", onTextDelt
 
 if (phase === "work") {
   fillDiskLater();
+  killAtExactPoint();
   const run = await work();
   console.log(JSON.stringify({ status: run.status, output: run.output, ...summary([]) }));
   await app.close();

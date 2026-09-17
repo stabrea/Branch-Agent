@@ -996,6 +996,10 @@ ${run.output.slice(0, 6000)}`;
         content: completion.content,
         ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}),
       };
+      // mac5/resume-gap: the calls are written to the journal before the conversation holds them, so a
+      // restart in between knows they never ran.
+      if (completion.toolCalls.length) this.journal.intend({ runId: run.id, sessionId: run.sessionId,
+        calls: completion.toolCalls.map((call) => ({ call, permission: this.registry.permissionOf(call.name) })) });
       messages.push(assistant); ids.push(null);
       this.store.message(run.sessionId, assistant);
       if (!completion.toolCalls.length) {

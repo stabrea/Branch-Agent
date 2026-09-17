@@ -21,8 +21,14 @@ const put = async (workspace, path, content) => {
   await mkdir(join(workspace, path, ".."), { recursive: true });
   await writeFile(join(workspace, path), content);
 };
-const waitFor = async (check, ms = 4000) => {
-  for (let waited = 0; waited < ms && !check(); waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
+/* Waits for the thing itself. The deadline only ends a hang with a clear message: a file watcher on a
+   loaded machine running the whole suite has taken longer than four seconds to report a change. */
+const waitFor = async (check, what, ms = 60_000) => {
+  for (const end = Date.now() + ms; Date.now() < end;) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(`timed out after ${ms} ms waiting for ${what}`);
 };
 
 test("A0344 the comment styles and endings Aider understands", () => {
@@ -95,14 +101,14 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
   await writeFile(join(workspace, "src/a.js"), "export const a = 1; // make it two AI!\n");
   await writeFile(join(workspace, "src/b.js"), "// ai: numbers are small\n");
   await writeFile(join(workspace, "src/c.js"), "export const c = 3;\n");
-  await waitFor(() => tasks.length > 0);
+  await waitFor(() => tasks.length > 0, "the first task");
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(tasks.length, 1, "one task for the burst, none for the assistant's own edit");
   assert.match(tasks[0], /src\/a\.js, line 1/, "paths are named from the top of the workspace");
   assert.match(tasks[0], /src\/b\.js, line 1 \(context\)/);
 
   await writeFile(join(workspace, "src/c.js"), "export const c = 3; // what is c for AI?\n");
-  await waitFor(() => tasks.length > 1);
+  await waitFor(() => tasks.length > 1, "the question's task");
   assert.equal(tasks.length, 2);
   assert.match(tasks[1], /asks a question/);
 });
@@ -117,7 +123,7 @@ test("A0344 the path-tracking watcher reports each changed file once per burst, 
   await mkdir(join(root, "node_modules"), { recursive: true });
   await writeFile(join(root, "node_modules", "x.js"), "3");
   await writeFile(join(root, "b.js"), "4");
-  await waitFor(() => calls.length > 0);
+  await waitFor(() => calls.length > 0, "the first burst");
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(handle.runs, 1);
   // macOS may also report the watched folder itself, or the new node_modules folder; neither is a file change.

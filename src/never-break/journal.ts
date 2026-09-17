@@ -9,7 +9,10 @@ import { migrate, type Migration } from "./migrations.js";
 
 /**
  * The task journal: every model turn and every tool call written down, and flushed to the disk,
- * before it happens. It lives in its own file, `journal.sqlite`, with `synchronous=FULL`, so a
+ * before it happens. A tool call is written twice: as an intent when the model asks for it (before
+ * the request reaches the conversation), and as started just before it runs. So a call the
+ * conversation holds is always in the journal, and one that never got past its intent is known not
+ * to have run. It lives in its own file, `journal.sqlite`, with `synchronous=FULL`, so a
  * power cut cannot lose a step that was about to run. After a restart it says which steps were in
  * flight, what kind of step each was, and what the world looked like just before it — enough to
  * decide whether to do it again, check it, or ask the owner. See docs/never-break.md, threats 3–4.
@@ -89,6 +92,8 @@ export class JournalWriteError extends Error {
 export interface OpenStep {
   id: number; runId: string; sessionId: string; callId: string; tool: string; arguments: string;
   key: string; effects: Effects; evidence: Evidence | null; startedAt: string;
+  /** "intent": asked for and written down, but never started. "started": it may have run. */
+  state: "intent" | "started";
   /** True when something secret-looking was hidden from the stored arguments, so they cannot be used to run the step again. */
   redacted?: boolean;
 }
@@ -115,6 +120,7 @@ function openStep(row: Record<string, unknown>): OpenStep {
     id: Number(row.id), runId: String(row.run_id), sessionId: String(row.session_id), callId: String(row.call_id),
     tool: String(row.tool), arguments: String(row.arguments ?? "{}"), key: String(row.key),
     effects: effectKinds.has(effects) ? effects as Effects : "external", evidence, startedAt: String(row.started_at),
+    state: row.state === "intent" ? "intent" : "started",
     redacted: Number(row.redacted ?? 0) === 1,
   };
 }
@@ -161,28 +167,52 @@ export class TaskJournal {
     this.write(() => this.db.prepare("INSERT INTO steps(run_id,session_id,kind,tool,state,started_at,finished_at) VALUES(?,?,?,?,?,?,?)")
       .run(runId, sessionId, "turn", `round ${round}`, "finished", new Date().toISOString(), new Date().toISOString()));
   }
-  begin(step: Omit<OpenStep, "id" | "startedAt">): number {
+  begin(step: Omit<OpenStep, "id" | "startedAt" | "state">): number {
     return this.write(() => Number(this.db.prepare(
       "INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,evidence,state,started_at,redacted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
     ).run(step.runId, step.sessionId, "tool", step.callId, step.tool, step.arguments.slice(0, 65536), step.key, step.effects,
       step.evidence ? JSON.stringify(step.evidence) : null, "started", new Date().toISOString(), step.redacted ? 1 : 0).lastInsertRowid));
   }
+  /** The calls one model turn asks for, written in one go before the turn reaches the conversation. */
+  intend(steps: Omit<OpenStep, "id" | "startedAt" | "state" | "evidence">[]): number[] {
+    return this.write(() => {
+      const insert = this.db.prepare(
+        "INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,state,started_at,redacted) VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const ids = steps.map((step) => Number(insert.run(step.runId, step.sessionId, "tool", step.callId, step.tool, step.arguments.slice(0, 65536),
+          step.key, step.effects, "intent", new Date().toISOString(), step.redacted ? 1 : 0).lastInsertRowid));
+        this.db.exec("COMMIT");
+        return ids;
+      } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    });
+  }
+  /** An intended call is about to run. Like `begin`, this must be on the disk first, or the call is not made. */
+  start(id: number, evidence: Evidence | null): void {
+    this.write(() => this.db.prepare("UPDATE steps SET state='started', evidence=?, started_at=? WHERE id=? AND state='intent'")
+      .run(evidence ? JSON.stringify(evidence) : null, new Date().toISOString(), id));
+  }
   /** Closing a step is best effort: failing to write "finished" only means it is checked again after a restart. */
-  finish(id: number, state: "finished" | "failed" | "redone" | "verified" | "asked" | "abandoned"): void {
+  finish(id: number, state: "finished" | "failed" | "redone" | "verified" | "asked" | "abandoned" | "not-started"): void {
     try { this.db.prepare("UPDATE steps SET state=?, finished_at=? WHERE id=?").run(state, new Date().toISOString(), id); }
     catch { /* see above */ }
   }
-  /** Steps still open. A row that cannot be read is treated as the riskiest kind rather than stopping the rest. */
+  /**
+   * Steps still open: started and never closed, or intended and never started. (A version from before
+   * intents reads only the started ones, which is what it wrote.) A row that cannot be read is treated
+   * as the riskiest kind rather than stopping the rest.
+   */
   open(): OpenStep[] {
-    return this.db.prepare("SELECT * FROM steps WHERE state='started' AND kind='tool' ORDER BY id").all().map(openStep);
+    return this.db.prepare("SELECT * FROM steps WHERE state IN ('started','intent') AND kind='tool' ORDER BY id").all().map(openStep);
   }
-  steps(runId: string): { kind: string; tool: string; state: string; effects: string | null }[] {
-    return this.db.prepare("SELECT kind, tool, state, effects FROM steps WHERE run_id=? ORDER BY id").all(runId)
-      .map((row) => ({ kind: String(row.kind), tool: String(row.tool), state: String(row.state), effects: row.effects === null ? null : String(row.effects) }));
+  steps(runId: string): { kind: string; tool: string; state: string; effects: string | null; callId: string | null }[] {
+    return this.db.prepare("SELECT kind, tool, state, effects, call_id FROM steps WHERE run_id=? ORDER BY id").all(runId)
+      .map((row) => ({ kind: String(row.kind), tool: String(row.tool), state: String(row.state), effects: row.effects === null ? null : String(row.effects),
+        callId: row.call_id === null ? null : String(row.call_id) }));
   }
   /** Keeps the file small: finished steps older than a week go. */
   prune(olderThanMs = 7 * 86_400_000): void {
-    try { this.db.prepare("DELETE FROM steps WHERE state!='started' AND started_at < ?").run(new Date(Date.now() - olderThanMs).toISOString()); }
+    try { this.db.prepare("DELETE FROM steps WHERE state NOT IN ('started','intent') AND started_at < ?").run(new Date(Date.now() - olderThanMs).toISOString()); }
     catch { /* tidying never matters enough to fail over */ }
   }
   /** The open database, for taking a copy of it (`VACUUM INTO`) before an update. */
@@ -192,23 +222,39 @@ export class TaskJournal {
 
 /** Where the runtime writes steps. The no-op journal is what a runtime has until createBranch connects one. */
 export interface JournalHook {
+  /** The calls a model turn asks for, written down before the turn is saved to the conversation. */
+  intend(input: { runId: string; sessionId: string; calls: { call: ToolCall; permission: string }[] }): void;
   around<T>(input: { runId: string; sessionId: string; call: ToolCall; permission: string; workspace: string; signal?: AbortSignal }, work: () => Promise<T>): Promise<T>;
   turn(runId: string, sessionId: string, round: number): void;
 }
-export const noJournal: JournalHook = { around: (_input, work) => work(), turn: () => undefined };
+export const noJournal: JournalHook = { intend: () => undefined, around: (_input, work) => work(), turn: () => undefined };
 
 /** `hide` takes keys, passwords and other secret-looking values out of text before it is stored. */
 export function journalHook(journal: TaskJournal, hide: (text: string) => string = (text) => text): JournalHook {
+  /** Intended calls not yet started, by run and call id. */
+  const intended = new Map<string, number>();
+  const which = (runId: string, callId: string): string => `${runId}\n${callId}`;
+  const row = (runId: string, sessionId: string, call: ToolCall, permission: string) => {
+    let stored: string;
+    try { stored = hide(call.arguments); } catch { stored = "{}"; }
+    return { runId, sessionId, callId: call.id, tool: call.name, arguments: stored, key: idempotencyKey(runId, call),
+      effects: effectsOf(call.name, permission), redacted: stored !== call.arguments };
+  };
   return {
+    intend(input) {
+      const ids = journal.intend(input.calls.map(({ call, permission }) => row(input.runId, input.sessionId, call, permission)));
+      input.calls.forEach(({ call }, index) => intended.set(which(input.runId, call.id), ids[index]!));
+    },
     async around(input, work) {
       let args: unknown = null;
       try { args = JSON.parse(input.call.arguments); } catch { /* the tool refuses it itself */ }
-      const effects = effectsOf(input.call.name, input.permission);
-      const evidence = effects === "none" ? null : await evidenceFor(input.call.name, args, input.workspace).catch(() => null);
-      let stored: string;
-      try { stored = hide(input.call.arguments); } catch { stored = "{}"; }
-      const id = journal.begin({ runId: input.runId, sessionId: input.sessionId, callId: input.call.id, tool: input.call.name,
-        arguments: stored, key: idempotencyKey(input.runId, input.call), effects, evidence, redacted: stored !== input.call.arguments });
+      const step = row(input.runId, input.sessionId, input.call, input.permission);
+      const evidence = step.effects === "none" ? null : await evidenceFor(input.call.name, args, input.workspace).catch(() => null);
+      const planned = intended.get(which(input.runId, input.call.id));
+      intended.delete(which(input.runId, input.call.id));
+      let id: number;
+      if (planned === undefined) id = journal.begin({ ...step, evidence });
+      else { journal.start(planned, evidence); id = planned; }
       try {
         const result = await work();
         journal.finish(id, "finished");
@@ -220,6 +266,10 @@ export function journalHook(journal: TaskJournal, hide: (text: string) => string
         throw error;
       }
     },
-    turn: (runId, sessionId, round) => journal.turn(runId, sessionId, round),
+    turn(runId, sessionId, round) {
+      // A call from an earlier turn that never ran (the turn ended early) stays an intent in the file.
+      for (const key of intended.keys()) if (key.startsWith(`${runId}\n`)) intended.delete(key);
+      journal.turn(runId, sessionId, round);
+    },
   };
 }

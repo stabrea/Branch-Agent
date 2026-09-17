@@ -142,9 +142,9 @@ test("every turn and tool call is written down, flushed, before it runs", async 
   const run = await app.runtime.run({ prompt: "write it", onTextDelta: () => undefined });
   assert.equal(run.status, "completed");
   assert.deepEqual(app.neverBreak.journal.steps(run.id), [
-    { kind: "turn", tool: "round 1", state: "finished", effects: null },
-    { kind: "tool", tool: "files.write", state: "finished", effects: "idempotent" },
-    { kind: "turn", tool: "round 2", state: "finished", effects: null },
+    { kind: "turn", tool: "round 1", state: "finished", effects: null, callId: null },
+    { kind: "tool", tool: "files.write", state: "finished", effects: "idempotent", callId: "w1" },
+    { kind: "turn", tool: "round 2", state: "finished", effects: null, callId: null },
   ]);
 });
 
@@ -251,6 +251,178 @@ test("a file step checked after the fact: done is kept, not done is done", async
   assert.match(said(missing), /"status":"redone"/);
   const again = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
   assert.deepEqual(again, [], "a task is settled once");
+});
+
+/* ---------- killed at an exact point: between the model's request and the step (mac5/resume-gap) ---------- */
+
+/** The worker kills itself at `killAt` (see tests/fixtures/never-break-task.mjs); then Branch starts again on the same folder. */
+async function killedAtPoint(t, plan, killAt, { mode = "on" } = {}) {
+  const root = await temp(t);
+  await mkdir(join(root, "data"), { recursive: true });
+  await saveGatewayConfig(join(root, "data"), GatewayConfigSchema.parse({ mode }));
+  const env = { ...cleanEnv(), CHAOS_PLAN: JSON.stringify(plan), CHAOS_DELAY: "0", CHAOS_KILL_AT: killAt };
+  const script = resolve("tests/fixtures/never-break-task.mjs");
+  const run = (phase) => new Promise((done) => {
+    const child = spawn(process.execPath, [script, root, phase], { env, stdio: ["ignore", "pipe", "inherit"] });
+    closeFirst(t, () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); });
+    let out = "";
+    child.stdout.on("data", (c) => { out += c; });
+    child.once("exit", (code, signal) => done({ code, signal, out }));
+  });
+  const worker = await run("work");
+  assert.equal(worker.signal, "SIGKILL", `the worker stopped itself at ${killAt}: ${worker.out}`);
+  const recovered = await run("recover");
+  const result = JSON.parse(recovered.out.trim().split("\n").pop());
+  const reopened = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([say("x")]) });
+  const transcript = reopened.store.messages(reopened.store.run(result.runs[0].id).sessionId);
+  await reopened.close();
+  return { root, result, transcript, outbox: await readFile(join(root, "outbox.log"), "utf8").catch(() => ""),
+    calls: await readFile(join(root, "calls.log"), "utf8") };
+}
+const finishedAll = (result) => result.runs.some((run) => run.status === "completed" && run.output === "all done");
+
+test("killed just after the model asked for a write, before it started: the write is done and the task finishes", async (t) => {
+  const { result, root } = await killedAtPoint(t, [
+    { id: "a", tool: "chaos.look", args: { n: 1 } },
+    { id: "b", tool: "files.write", args: { path: "one.txt", content: "first" } },
+    { id: "c", tool: "chaos.look", args: { n: 3 } },
+  ], "saved:b");
+  assert.equal(result.report[0].outcome, "resumed");
+  assert.deepEqual(result.report[0].steps, [{ tool: "files.write", decision: "not-started" }]);
+  assert.ok(finishedAll(result), JSON.stringify(result.runs));
+  assert.equal(await readFile(join(root, "workspace", "one.txt"), "utf8"), "first", "the write that never started was done");
+});
+
+test("killed just after the model asked for a send, before it started: it is sent once and the task finishes", async (t) => {
+  const { result, outbox, calls } = await killedAtPoint(t, [
+    { id: "a", tool: "chaos.look", args: { n: 1 } },
+    { id: "c", tool: "chaos.send", args: { n: 2 } },
+    { id: "d", tool: "chaos.look", args: { n: 3 } },
+  ], "saved:c");
+  assert.equal((calls.match(/send 2/g) ?? []).length, 1, "the send was never started before the restart");
+  assert.deepEqual(result.report[0].steps, [{ tool: "chaos.send", decision: "not-started" }]);
+  assert.equal(outbox, "sent 2\n", "sent exactly once");
+  assert.ok(finishedAll(result), JSON.stringify(result.runs));
+});
+
+test("killed after a send finished but before its result was saved: it is not sent again, and the conversation says it finished", async (t) => {
+  const { result, outbox, transcript } = await killedAtPoint(t, [
+    { id: "c", tool: "chaos.send", args: { n: 2 } },
+    { id: "d", tool: "chaos.look", args: { n: 3 } },
+  ], "result:c");
+  assert.deepEqual(result.report[0].steps, [], "nothing was open");
+  assert.equal(outbox, "sent 2\n");
+  assert.ok(finishedAll(result), JSON.stringify(result.runs));
+  const said = transcript.find((m) => m.role === "tool" && m.toolCallId === "c");
+  assert.match(said.content, /"status":"finished".*finished just before Branch was restarted/);
+});
+
+test("with the switch at when needed, a send that never started is not sent, and the conversation says it was not done", async (t) => {
+  const { result, outbox, transcript } = await killedAtPoint(t, [{ id: "c", tool: "chaos.send", args: { n: 2 } }], "saved:c", { mode: "when-needed" });
+  assert.equal(result.report[0].outcome, "offered");
+  assert.equal(outbox, "", "nothing was done without the owner");
+  const said = transcript.find((m) => m.role === "tool" && m.toolCallId === "c");
+  assert.match(said.content, /"status":"not-done".*before this step started/);
+});
+
+/** A run cut off in a turn that asked for several calls, built by hand. */
+async function severalCalls(t, calls, register) {
+  const root = await temp(t);
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("carried on")]) });
+  closeFirst(t, () => app.close());
+  const sent = [];
+  app.registry.register({ name: "chaos.send", permission: "chaos.send", description: "send", parameters: z.object({ n: z.number() }).strict(),
+    execute: async ({ n }) => { sent.push(n); return { sent: n }; } });
+  register?.(app);
+  const run = app.store.createRun("local", "several at once");
+  app.neverBreak.journal.turn(run.id, run.sessionId, 1);
+  const toolCalls = calls.map((c) => ({ id: c.id, name: c.tool, arguments: JSON.stringify(c.args) }));
+  const hook = journalHook(app.neverBreak.journal);
+  hook.intend({ runId: run.id, sessionId: run.sessionId, calls: toolCalls.map((call) => ({ call, permission: app.registry.permissionOf(call.name) })) });
+  app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls });
+  for (const [index, c] of calls.entries()) {
+    if (c.state === "intent") continue;
+    // Started (and still running when Branch stopped): the hook is cut off by an aborted signal.
+    await hook.around({ runId: run.id, sessionId: run.sessionId, call: toolCalls[index], permission: app.registry.permissionOf(c.tool),
+      workspace: app.runtime.workspace, signal: AbortSignal.abort() }, async () => { throw new Error("cut off"); }).catch(() => undefined);
+  }
+  app.store.finish(run.id, "interrupted", "cut off");
+  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  await report.resumed;
+  const said = (id) => app.store.messages(run.sessionId).find((m) => m.role === "tool" && m.toolCallId === id)?.content ?? "";
+  return { app, report, sent, said, run };
+}
+
+test("a turn with several calls cut off during the first: calls after an unsettled one are not run ahead of it", async (t) => {
+  const { report, sent, said, app } = await severalCalls(t, [
+    { id: "s1", tool: "chaos.send", args: { n: 1 }, state: "started" },
+    { id: "w2", tool: "files.write", args: { path: "later.txt", content: "later" }, state: "intent" },
+  ]);
+  assert.equal(report.outcome, "asked");
+  assert.deepEqual(report.steps, [{ tool: "chaos.send", decision: "ask" }, { tool: "files.write", decision: "not-started" }]);
+  assert.deepEqual(sent, [], "the cut-off send was not repeated");
+  await assert.rejects(readFile(join(app.runtime.workspace, "later.txt")), "the write after it waits for the owner's answer");
+  assert.match(said("w2"), /"status":"not-done"/);
+});
+
+test("a turn with several calls cut off during the first: a settled first call lets the ones after it run, once each", async (t) => {
+  const { report, sent, said, app } = await severalCalls(t, [
+    { id: "w1", tool: "files.write", args: { path: "first.txt", content: "one" }, state: "started" },
+    { id: "s2", tool: "chaos.send", args: { n: 2 }, state: "intent" },
+    { id: "s3", tool: "chaos.send", args: { n: 3 }, state: "intent" },
+  ]);
+  assert.equal(report.outcome, "resumed");
+  assert.deepEqual(report.steps.map((s) => s.decision), ["not-done", "not-started", "not-started"]);
+  assert.equal(await readFile(join(app.runtime.workspace, "first.txt"), "utf8"), "one");
+  assert.deepEqual(sent, [2, 3], "each call that never started ran once, in order");
+  assert.match(said("s2"), /"status":"redone"/);
+});
+
+test("a task from before intents were written keeps today's behaviour: a call with no journal entry is not run", async (t) => {
+  const root = await temp(t);
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("carried on")]) });
+  closeFirst(t, () => app.close());
+  const sent = [];
+  app.registry.register({ name: "chaos.send", permission: "chaos.send", description: "send", parameters: z.object({ n: z.number() }).strict(),
+    execute: async ({ n }) => { sent.push(n); return { sent: n }; } });
+  const run = app.store.createRun("local", "from an older version");
+  app.neverBreak.journal.turn(run.id, run.sessionId, 1);
+  app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [
+    { id: "o1", name: "files.write", arguments: JSON.stringify({ path: "old.txt", content: "old" }) },
+    { id: "o2", name: "chaos.send", arguments: JSON.stringify({ n: 9 }) }] });
+  app.store.finish(run.id, "interrupted", "cut off");
+  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  await report.resumed;
+  assert.deepEqual(report.steps, []);
+  assert.deepEqual(sent, [], "nothing is re-run without a journal entry saying it never started");
+  await assert.rejects(readFile(join(app.runtime.workspace, "old.txt")));
+  assert.match(app.store.messages(run.sessionId).find((m) => m.toolCallId === "o2").content, /"outcome":"unknown"/);
+});
+
+test("the calls a turn asks for are written down before the conversation holds them, and not saved when they cannot be", async (t) => {
+  const root = await temp(t);
+  const calls = [{ id: "k1", name: "chaos.check", arguments: "{}" }, { id: "k2", name: "chaos.check", arguments: "{}" }];
+  const replies = [{ content: "", toolCalls: calls }, say("done"), { content: "", toolCalls: [{ id: "k3", name: "chaos.check", arguments: "{}" }] }];
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: { name: "scripted", async complete() { return replies.shift() ?? say("done"); } } });
+  closeFirst(t, () => app.close());
+  const seen = [];
+  app.registry.register({ name: "chaos.check", permission: "chaos.send", description: "check", parameters: z.object({}).strict(), execute: async () => {
+    seen.push(app.neverBreak.journal.open().map((step) => `${step.callId}:${step.state}`).join(","));
+    return {};
+  } });
+  const run = await app.runtime.run({ prompt: "two at once", onTextDelta: () => undefined });
+  assert.equal(run.status, "completed");
+  assert.deepEqual(seen, ["k1:started,k2:intent", "k2:started"], "the second call is an intent, not started, while the first runs");
+  assert.deepEqual(app.neverBreak.journal.steps(run.id).filter((s) => s.kind === "tool").map((s) => s.state), ["finished", "finished"]);
+
+  let writes = 0;
+  app.neverBreak.journal.failWrites = () => (++writes > 1 ? new Error("ENOSPC: no space left on device") : null);
+  const failed = await app.runtime.run({ prompt: "and again", onTextDelta: () => undefined });
+  app.neverBreak.journal.failWrites = null;
+  assert.equal(failed.status, "failed");
+  assert.match(failed.output, /disk may be full/);
+  assert.equal(seen.length, 2, "nothing ran");
+  assert.ok(!app.store.messages(failed.sessionId).some((m) => m.role === "assistant" && m.toolCalls?.length), "the request that could not be written down was not saved");
 });
 
 test("a task a chat app started is left for the chat app to send again", async (t) => {
