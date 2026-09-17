@@ -10,6 +10,8 @@ import { readRunning, writeRunning } from "../dist/install/running.js";
 import { daemonOptions, deploymentApi, engineScriptPath, startsBySelfWords } from "../dist/deployment-api.js";
 import { installedAppRoot } from "../dist/desktop/install-root.js";
 import { Updater } from "../dist/desktop/updater.js";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 import { appEntryName, checksumAssetName, releaseAssets } from "../dist/desktop/release-assets.js";
 
 async function scratch(t) {
@@ -50,7 +52,10 @@ for (const platform of ["darwin", "linux"]) {
     await engineNote(root, 42424);
     const kills = [];
     let living = true;
-    const refused = async () => new Response("{}", { status: 400 });
+    // The close door says no (an older engine), but the address still answers as Branch.
+    const refused = async (url) => url.endsWith("/api/state")
+      ? new Response(JSON.stringify({ version: "1.0.0" }))
+      : new Response("{}", { status: 400 });
     const gentle = await stopBackgroundEngine(root, {
       platform, run: noTaskkill, alive: () => living, sleep: async () => {}, fetch: refused,
       kill: (pid, signal) => { kills.push([pid, signal]); living = false; },
@@ -73,7 +78,9 @@ for (const platform of ["darwin", "linux"]) {
     const root = await scratch(t);
     await engineNote(root, 44444);
     const report = await stopBackgroundEngine(root, {
-      platform, run: noTaskkill, alive: () => true, sleep: async () => {}, waitMs: 0,
+      platform, alive: () => true, sleep: async () => {}, waitMs: 0,
+      // A hung engine: nothing answers, but the system says that process runs the engine script.
+      run: async (file, args) => { assert.deepEqual([file, args], ["/bin/ps", ["-p", "44444", "-o", "command="]]); return "/Applications/Branch Agent.app/Contents/MacOS/Branch Agent /Applications/Branch Agent.app/Contents/Resources/app/dist/cli.js start\n"; },
       fetch: async () => { throw new Error("no answer"); },
       kill: () => { throw Object.assign(new Error("not permitted"), { code: "EPERM" }); },
     });
@@ -82,6 +89,22 @@ for (const platform of ["darwin", "linux"]) {
     assert.notEqual(await readRunning(root), null);
   });
 }
+
+test("a note left by a crash never gets another program's process signalled", async (t) => {
+  const root = await scratch(t);
+  await engineNote(root, 47474);
+  const kills = [], asked = [];
+  const report = await stopBackgroundEngine(root, {
+    platform: "darwin", alive: () => true, sleep: async () => {}, waitMs: 0,
+    fetch: async (url) => { asked.push(url); throw new Error("nothing is listening"); },
+    run: async (file) => { assert.equal(file, "/bin/ps"); return "/usr/bin/vim notes.txt\n"; },
+    kill: (pid, signal) => kills.push([pid, signal]),
+  });
+  assert.deepEqual(kills, [], "the reused process id is left alone");
+  assert.deepEqual(asked, ["http://127.0.0.1:3210/api/deployment/close", "http://127.0.0.1:3210/api/state"]);
+  assert.equal(report.pid, null, "the hand-over script is not told to wait for it or end it either");
+  assert.equal(await readRunning(root), null, "the stale note is removed");
+});
 
 test("the key is never sent to an address that is not this computer's loopback", async (t) => {
   const root = await scratch(t);
@@ -131,6 +154,25 @@ test("only this computer, with the master key, can close the engine, and only th
   assert.deepEqual(signals, [], "the answer goes out before the engine closes");
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.deepEqual(signals, [[process.pid, "SIGTERM"]]);
+});
+
+test("a short-lived key is turned away from the close door by the server itself", async (t) => {
+  const root = await scratch(t);
+  const provider = { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  // No presence note is written, so even a mistake here could never signal this test process.
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); });
+  for (const scope of ["read", "run"]) {
+    const key = app.sessionTokens.create(app.runtime.owner, { scope, minutes: 5 });
+    const answer = await fetch(`${server.url}/api/deployment/close`, { method: "POST", headers: { authorization: `Bearer ${key.token}` } });
+    assert.equal(answer.status, 401, scope);
+    assert.match((await answer.json()).error, /short-lived key cannot close Branch/, scope);
+  }
+  const pageAsk = await fetch(`${server.url}/api/deployment/close`, {
+    method: "POST", headers: { authorization: `Bearer ${server.token}`, origin: "http://evil.example" },
+  });
+  assert.equal(pageAsk.status, 403, "a web page elsewhere is refused before the key is even looked at");
 });
 
 // ------------------------------------------------------------- plain words for each kind of computer

@@ -163,8 +163,9 @@ test("waiting for the engine watches a real process until it is really gone", as
   await noteFor(root, child.pid);
   const ended = once(child, "exit");
   const report = await stopBackgroundEngine(root, {
-    run: async () => { child.kill(); return ""; },
-    // macOS and Linux: nothing answers on the noted address, so the stop signal ends the child.
+    // Windows: taskkill ends the child. macOS and Linux: the system names the engine script for that
+    // process id, nothing answers on the noted address, so the stop signal ends the child.
+    run: async (file) => { if (file === "/bin/ps") return "/opt/app/resources/app/dist/cli.js start"; child.kill(); return ""; },
     fetch: async () => { throw new Error("nothing is listening"); },
   });
   await ended;
