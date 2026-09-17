@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SandboxChoice } from "./sandbox.js";
+import type { SandboxChoice, WallContext } from "./sandbox.js";
 import type { SandboxBackendName } from "./sandbox-backends.js";
 
 export const ToolCallSchema = z
@@ -249,6 +249,11 @@ export interface ToolContext {
    */
   sandboxBackend?: SandboxBackendName;
   sandboxPaths?: readonly string[];
+  /**
+   * Wave mac3 (os-sandbox): the wall a program this call starts goes behind (macOS's own sandbox or
+   * bubblewrap), set by the runtime from the owner's settings. Never set from a tool's arguments.
+   */
+  osSandbox?: WallContext;
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

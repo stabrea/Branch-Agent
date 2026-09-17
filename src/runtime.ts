@@ -67,6 +67,7 @@ import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
 import type { SandboxChoice } from "./sandbox.js";
 import type { SandboxBackendName } from "./sandbox-backends.js";
+import { wallContextFor } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { Tracer } from "./tracing.js";
 import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
@@ -2133,10 +2134,17 @@ ${run.output.slice(0, 6000)}`;
     const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
     // How tightly a program this call starts is held travels with the call, so a tool that starts
     // one can honour the owner's rule without knowing anything about the policy.
-    const scoped: ToolContext = { ...context, signal: AbortSignal.any([context.signal, timeout]),
+    // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never
+    // from whatever context this call was handed, so an outer wall (and its key sites) cannot ride along.
+    const { osSandbox: _outerWall, ...unwalled } = context;
+    const scoped: ToolContext = { ...unwalled, signal: AbortSignal.any([context.signal, timeout]),
       ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
-      ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}) };
+      ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
+      // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
+      ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
+        approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
+        target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),

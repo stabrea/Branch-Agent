@@ -6,7 +6,8 @@ import { ShellConfigSchema, ShellInputSchema, shellEnvironment, netlessEnvironme
 import { ShellProcess, type ProcessResult } from './shell-process.js';
 import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
-import { sandboxShape, shapeChoice } from '../sandbox.js';
+import { sandboxShape, shapeChoice, type WallContext } from '../sandbox.js';
+import { openWall } from '../sandbox-backends.js'; // wave mac3 (os-sandbox)
 
 /** Longest a command waits for its Windows job object before running with sampled limits. */
 const jobStartupMs = 1000;
@@ -61,7 +62,9 @@ export class BranchShell {
     const netless = shape.netless;
     const job = shape.job ? await this.job() : null;
     const result = await this.spawn({ executable, args: input.args, cwd, injected, netless, job,
-      timeoutMs: input.timeoutMs ?? this.config.timeoutMs, signal });
+      timeoutMs: input.timeoutMs ?? this.config.timeoutMs, signal,
+      // wave mac3 (os-sandbox): a command pointed at the dead address gets no network behind the wall either.
+      wall: context.osSandbox && netless ? { ...context.osSandbox, network: 'none' as const } : context.osSandbox, workspace: context.workspace });
     const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
     return { ...scrubbed, target: { alias: input.executable, executable: executable.path, cwd,
       secrets: Object.keys(injected), netless, isolation: result.isolation, sandbox: shapeChoice(shape) } };
@@ -79,16 +82,26 @@ export class BranchShell {
     return job;
   }
   private async spawn(run: { executable: { path: string; args: string[] }; args: string[]; cwd: string;
-    injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal }): Promise<ProcessResult> {
+    injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal;
+    wall?: WallContext | undefined; workspace: string }): Promise<ProcessResult> {
     // The environment is built from an allowlist only, then the dead-address proxy, then secrets.
     const env = { ...this.env, ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
+    // wave mac3 (os-sandbox): behind the wall when the owner's switch says so. A saved key the owner
+    // tied to a site reaches the program only as a stand-in; the wall's door swaps the real one in.
+    const plain = { executable: run.executable.path, args: [...run.executable.args, ...run.args], cwd: run.cwd, env };
+    const wall = run.wall ? await openWall(run.wall, plain, { workspace: run.workspace, secrets: run.injected }) : null;
+    const start = wall?.start ?? plain;
     try {
-      return await new ShellProcess({ executable: run.executable.path, args: [...run.executable.args, ...run.args],
-        cwd: run.cwd, env, signal: run.signal, timeoutMs: run.timeoutMs, maxOutputBytes: this.config.maxOutputBytes,
+      const result = await new ShellProcess({ executable: start.executable, args: start.args,
+        cwd: run.cwd, env: start.env, signal: run.signal, timeoutMs: run.timeoutMs, maxOutputBytes: this.config.maxOutputBytes,
         maxMemoryMb: this.config.maxMemoryMb, maxCpuSeconds: this.config.maxCpuSeconds, job: run.job ?? undefined }).run();
+      const note = wall ? await wall.finish(result) : null;
+      return note ? { ...result, stderr: `${result.stderr}${result.stderr && !result.stderr.endsWith('\n') ? '\n' : ''}${note}` } : result;
     } catch (error) {
       await run.job?.close().catch(() => undefined);
       throw error;
+    } finally {
+      await wall?.close();
     }
   }
   /** Secret values exist only in the child's environment; the model sees names and scrubbed output. */
