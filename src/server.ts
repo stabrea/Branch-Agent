@@ -2033,6 +2033,25 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   throw new HttpError(404, "Endpoint not found");
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  // mac7/channels-owner: the chats are the owner's, so the whole of /api/channels is theirs.
+  //
+  // Until now only `/api/channels/permissions` asked who was there (the check inside
+  // `saveChatPermissionSettings`). Everything else — the live switches, the parity switches, the
+  // pairing approvals and removals, the link to a conversation, a test message, the webhook
+  // addresses and their rotation — was open to anybody signed in on this computer under their own
+  // profile. A household person could approve their own pairing code, point a chat at a
+  // conversation, or read the secret address each chat service posts to.
+  //
+  // The check is here, once, before the routes rather than on each of them, so a route added
+  // tomorrow is the owner's without anybody having to remember. The reads are the owner's too: the
+  // summary carries their pairings and chats, the addresses carry a secret, and the waiting Slack
+  // events carry message text. The catalogue of supported services holds no secret and is guarded
+  // with the rest on purpose — one exception here is how the next one gets written.
+  //
+  // This does not change what the owner or the app window can do, and it is not on the path a chat
+  // service posts in on (`/webhooks/...`, answered further up with its own unguessable word), so
+  // pairing, the setup cards and the parity checks work exactly as before.
+  app.store.profiles.requireOwner("Your chat apps");
   const owner = app.runtime.owner;
   // Wave mac3 (channels-parity): the list of added chat services and their off / on / when-needed switches.
   if (path === "/api/channels/parity")
