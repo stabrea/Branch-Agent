@@ -106,12 +106,13 @@ export function voicePlan(deps: VoiceApiDeps) {
  */
 export async function systemVoices(voice: VoiceService) {
   const names = await voice.speech.windowsVoices();
-  return { windows: names, system: names, platform: voice.platform, ...systemVoiceLabels(voice.platform) };
+  return { windows: names, system: names, ...systemVoiceLabels(voice.platform) };
 }
 
 /** The name of the system voice in the route list, and where to allow the microphone. */
-export function systemVoiceLabels(platform: string): { label: string; microphoneHelp: string } {
+export function systemVoiceLabels(platform: string): { platform: string; label: string; microphoneHelp: string } {
   return {
+    platform,
     label: platform === "win32" ? "The voice that comes with Windows (free, works offline)" : "Your computer's own voice (free, works offline)",
     microphoneHelp: microphoneHelp(platform),
   };

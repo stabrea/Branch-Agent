@@ -322,6 +322,7 @@ test("the routes answer through the server with the session token only", async (
   assert.equal((await (await call("/api/keychain/settings")).json()).entries[0].name, "npm");
   const plan = await (await call("/api/voice/plan")).json();
   assert.equal(plan.systemVoice.label.includes("Windows"), process.platform === "win32");
+  assert.equal(plan.systemVoice.platform, process.platform);
   const script = await fetch(server.url + "/os-permissions.js");
   assert.equal(script.status, 200);
   const source = await script.text();
@@ -346,7 +347,10 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
       { capability: "camera", state: "unknown", allowed: true, message: "", explanation: "Lets Branch use the camera.", settingsLink: "javascript:alert(1)" },
     ],
   } }));
-  await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: { enabled: false, entries: [], available: true, references: {} } }));
+  await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: {
+    enabled: true, available: true, references: {},
+    entries: [{ name: "a-rather-long-name-for-one-entry-here", service: "registry.example-company-with-a-long-name.com", account: "someone@example.com", note: "" }],
+  } }));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -372,6 +376,34 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
   assert.deepEqual(await page.evaluate(() => globalThis.opened),
     ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"], "only a real settings page is opened");
   assert.equal(await page.locator("#keychain-card").getAttribute("hidden"), null);
+
+  // Settings at 400 px: nothing goes sideways, and both cards are really on the screen.
+  await page.setViewportSize({ width: 400, height: 800 });
+  const nav = page.locator('.nav[data-view="settings"]').first();
+  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
+  await nav.click();
+  await page.evaluate(() => document.body.classList.remove("rail-open"));
+  await page.locator("#os-permissions-card").scrollIntoViewIfNeeded();
+  assert.equal(await page.locator("#os-permissions-card").isVisible(), true);
+  const sideways = await page.evaluate(() => ["os-permissions-card", "keychain-card"].map((id) => {
+    const card = document.getElementById(id);
+    return { id, wide: card.scrollWidth - card.clientWidth, page: document.documentElement.scrollWidth - innerWidth };
+  }).filter((one) => one.wide > 0 || one.page > 0));
+  assert.deepEqual(sideways, []);
+
+  // Every word on the cards is behind a key, so French replaces all of them.
+  await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
+  assert.equal(await page.locator("#os-permissions-card h2").textContent(), "Ce que cet ordinateur autorise");
+  assert.equal(await page.locator("#keychain-card h2").textContent(), "Mots de passe du trousseau de votre Mac");
+  assert.equal(await card.locator("button[data-t='action.open-system-settings']").first().textContent(), "Ouvrir les Réglages Système");
+  assert.equal(await page.locator("#keychain-service").getAttribute("placeholder"), "par exemple api.github.com");
+  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#os-permissions-card, #keychain-card")]
+    .flatMap((card) => [...card.querySelectorAll("h2, button, label, span, .subtle")])
+    .filter((node) => !node.closest("[data-t]") && !node.querySelector("[data-t]") && node.id !== "os-permissions-status" && node.id !== "keychain-status"
+      && !node.closest(".card-row p.subtle:not([data-t])") && node.textContent.trim())
+    .map((node) => node.textContent.trim()));
+  assert.deepEqual(unkeyed.filter((text) => !text.includes("·") && !text.includes("example")), [], "these words are not behind a key");
+  await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("en"); });
   assert.deepEqual(errors, []);
 });
 

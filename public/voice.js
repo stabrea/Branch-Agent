@@ -1,8 +1,19 @@
 var $ = (id) => document.getElementById(id);
 // app.js keeps its token to itself (it is a module), so this classic script reads the saved one.
 var voiceToken = () => sessionStorage.getItem("branch-token") || "";
-// Filled in from /api/voice/voices: the words this kind of computer uses for its microphone switch.
-var microphoneHelp = "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.";
+// Which kind of computer the server runs on, from /api/voice/plan; its words differ for the microphone.
+var voicePlatform = "win32";
+// The app's word list, loaded as a module; until it is here the English below is used.
+var voiceI18n = null;
+import("/i18n.js").then((module) => { voiceI18n = module; }).catch(() => undefined);
+function voiceWord(key, english) {
+  const word = voiceI18n ? voiceI18n.t(key) : key;
+  return word === key ? english : word;
+}
+function microphoneHelp() {
+  const key = "voice.microphone." + (["darwin", "linux"].includes(voicePlatform) ? voicePlatform : "win32");
+  return voiceWord(key, "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.");
+}
 /**
  * Voice input and output for the web UI.
  * Handles microphone recording, transcription, and text-to-speech playback.
@@ -52,7 +63,7 @@ async function startVoiceRecording() {
   // The microphone is asked for on the first press, never when the app opens.
   if (!mediaRecorder && !(await initVoiceRecording())) {
     const toastEl = $("toast");
-    toastEl.textContent = microphoneHelp;
+    toastEl.textContent = microphoneHelp();
     toastEl.hidden = false;
     setTimeout(() => { toastEl.hidden = true; }, 4000);
     return false;
@@ -264,10 +275,12 @@ async function loadSystemVoiceWords() {
   try {
     const plan = await voiceRequest("/api/voice/plan");
     const words = plan && plan.systemVoice;
-    if (!words) return;
-    if (typeof words.microphoneHelp === "string") microphoneHelp = words.microphoneHelp;
+    if (!words || typeof words.platform !== "string") return;
+    voicePlatform = words.platform;
     const route = document.querySelector('#voice-tts-route option[value="windows"]');
-    if (route && typeof words.label === "string") route.textContent = words.label;
+    if (!route) return;
+    route.dataset.t = voicePlatform === "win32" ? "voice.route.system-windows" : "voice.route.system-own";
+    route.textContent = voiceWord(route.dataset.t, words.label);
   } catch (e) {
     console.warn("The voice wording could not be read:", e instanceof Error ? e.message : e);
   }
@@ -301,10 +314,11 @@ function populateVoices() {
   const voiceSelectEl = $("voice-select");
   if (!voiceSelectEl) return;
   const chosen = voiceSelectEl.value;
-  const groups = [voiceOption("default", "Default")];
+  const groups = [voiceOption("default", voiceWord("voice.default", "Default"))];
+  groups[0].dataset.t = "voice.default";
   if (systemVoiceNames.length) {
     const own = document.createElement("optgroup");
-    own.label = "Your computer's own voices";
+    own.label = voiceWord("voice.group.own-voices", "Your computer's own voices");
     own.append(...systemVoiceNames.map((name) => voiceOption(name, name)));
     groups.push(own);
   }
@@ -312,7 +326,7 @@ function populateVoices() {
   const browser = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter((voice) => !listed.has(voice.name)) : [];
   if (browser.length) {
     const inBrowser = document.createElement("optgroup");
-    inBrowser.label = "Voices in this window";
+    inBrowser.label = voiceWord("voice.group.window-voices", "Voices in this window");
     inBrowser.append(...browser.map((voice) => voiceOption(voice.name, `${voice.name} (${voice.lang})`)));
     groups.push(inBrowser);
   }
@@ -320,8 +334,9 @@ function populateVoices() {
   if (chosen && [...voiceSelectEl.options].some((option) => option.value === chosen)) voiceSelectEl.value = chosen;
 }
 
-// Initialize when voices are loaded
+// Initialize when voices are loaded; the group names are redrawn when the language changes.
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = populateVoices;
+document.addEventListener("branch-language", populateVoices);
 populateVoices();
 if (sessionStorage.getItem("branch-token")) void loadSystemVoiceWords();
 else addEventListener("load", () => void loadSystemVoiceWords(), { once: true });

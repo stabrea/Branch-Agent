@@ -38,6 +38,11 @@ export interface ElectronBannerDeps {
 }
 
 const width = 460, height = 52;
+/**
+ * The notice cannot read public/tokens.css (it fetches nothing), so it carries the Forest values of
+ * the three tokens it uses, copied from there: --ground, --text, and --bad for Stop with --paper-text on it.
+ */
+const forest = { ground: "#03140b", text: "#edf1ea", bad: "#f28b7a", onBad: "#17201b" } as const;
 
 /** Where the notice goes and what it may do: nothing but show two words and a button. */
 export function bannerWindowOptions(area: WorkArea) {
@@ -45,7 +50,7 @@ export function bannerWindowOptions(area: WorkArea) {
     width, height, x: area.x + Math.round((area.width - width) / 2), y: area.y + 12,
     title: bannerTitle, frame: false, show: false, resizable: false, movable: true,
     minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true,
-    alwaysOnTop: true, focusable: true, backgroundColor: "#18181b",
+    alwaysOnTop: true, focusable: true, backgroundColor: forest.ground,
     webPreferences: {
       sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false,
       spellcheck: false, partition: "branch-banner",
@@ -58,10 +63,10 @@ export function bannerPage(): string {
   const html = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>${bannerTitle}</title><style>
-html,body{margin:0;height:100%;background:#18181b;color:#fff;font:14px system-ui,sans-serif;overflow:hidden}
+html,body{margin:0;height:100%;background:${forest.ground};color:${forest.text};font:14px system-ui,sans-serif;overflow:hidden}
 body{display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 16px;box-sizing:border-box;-webkit-app-region:drag}
-a{-webkit-app-region:no-drag;background:#b91c1c;color:#fff;font-weight:700;text-decoration:none;padding:7px 28px;border-radius:4px}
-a:focus{outline:2px solid #fff}
+a{-webkit-app-region:no-drag;background:${forest.bad};color:${forest.onBad};font-weight:700;text-decoration:none;padding:7px 28px;border-radius:4px}
+a:focus{outline:2px solid ${forest.text}}
 </style></head><body><span>Branch is using your screen and keyboard</span><a id="stop" href="${stopAddress}">Stop</a></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }

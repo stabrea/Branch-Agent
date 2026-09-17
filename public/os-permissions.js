@@ -1,6 +1,8 @@
 // Settings → "What this computer allows" (macOS and Linux) and "Passwords from your Mac's Keychain"
 // (macOS). Both cards are built here and placed after "Using your screen and keyboard". On Windows
-// neither appears, so that screen stays exactly as it was.
+// neither appears, so that screen stays exactly as it was. Every word goes through a key.
+import { t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const token = () => sessionStorage.getItem("branch-token") || "";
 
@@ -24,25 +26,28 @@ function el(tag, props = {}, ...children) {
   node.append(...children);
   return node;
 }
+/** An element whose words come from a key, so switching language redraws it. */
+function worded(tag, key, props = {}) {
+  const node = el(tag, { ...props, textContent: t(key) });
+  node.dataset.t = key;
+  return node;
+}
 
 /* ---------- what this computer allows ---------- */
 
 const macSettingsPrefix = "x-apple.systempreferences:com.apple.preference.security?Privacy_";
-const names = {
-  darwin: { microphone: "Microphone", camera: "Camera", screen: "Screen & System Audio Recording", accessibility: "Accessibility" },
-  linux: { microphone: "Microphone", camera: "Camera", screen: "Your screen", accessibility: "Pressing keys in other apps" },
-};
-const sessions = {
-  x11: "Your desktop session is X11.",
-  wayland: "Your desktop session is Wayland.",
-  none: "There is no desktop session on this computer.",
-};
+const nameKey = (platform, capability) =>
+  capability === "screen" && platform === "darwin" ? "permissions.name.screen-mac" : `permissions.name.${capability}`;
+function explainKey(platform, capability, session) {
+  if (platform === "darwin") return `permissions.explain.mac.${capability}`;
+  if (capability === "screen") return `permissions.explain.linux.screen.${session ?? "none"}`;
+  return `permissions.explain.linux.${capability}`;
+}
 
 function permissionsCard() {
   return el("section", { id: "os-permissions-card", className: "card", hidden: true },
-    el("h2", { textContent: "What this computer allows" }),
-    el("p", { textContent: "Besides Branch's own switches, this computer has switches of its own. Branch never changes them and never asks for them by itself; this list says what each one is for and where to find it." }),
-    el("p", { id: "os-permissions-session", className: "subtle", hidden: true }),
+    worded("h2", "settings.card.what-this-computer-allows"),
+    worded("p", "settings.intro.what-this-computer-allows", { className: "subtle" }),
     el("div", { id: "os-permissions-list", className: "card-list" }),
     el("p", { id: "os-permissions-status", className: "subtle", role: "status" }));
 }
@@ -50,26 +55,25 @@ function permissionsCard() {
 /** Opens one System Settings page, only because the owner pressed the button, through the app's own opener. */
 async function openSettings(link, where) {
   const say = (text) => { $("os-permissions-status").textContent = text; };
-  if (typeof link !== "string" || !link.startsWith(macSettingsPrefix)) return say("That page cannot be opened from here.");
+  if (typeof link !== "string" || !link.startsWith(macSettingsPrefix)) return say(t("permissions.status.cannot-open"));
   try {
     if (globalThis.branchDesktop?.openExternal) await globalThis.branchDesktop.openExternal(link);
     else el("a", { href: link }).click();
     say("");
   } catch {
-    say(`Branch could not open System Settings from here. Open it yourself: ${where}.`);
+    say(t("permissions.status.open-yourself", { where }));
   }
 }
 
-function permissionRow(item, platform) {
-  const title = names[platform]?.[item.capability] ?? item.capability;
-  const row = el("div", { className: "card-row" },
-    el("strong", { textContent: title }),
-    el("p", { className: "subtle", textContent: item.explanation }));
-  if (item.message) row.append(el("p", { textContent: item.message }));
+function permissionRow(item, platform, session) {
+  const title = worded("strong", nameKey(platform, item.capability));
+  const row = el("div", { className: "card-row" }, title,
+    worded("p", explainKey(platform, item.capability, session), { className: "subtle" }));
+  if (!item.allowed && platform === "darwin") row.append(worded("p", "permissions.refused"));
   if (platform === "darwin" && item.settingsLink) {
-    const where = `System Settings, Privacy & Security, ${title}`;
-    const button = el("button", { type: "button", textContent: "Open System Settings" });
-    button.addEventListener("click", () => void openSettings(item.settingsLink, where));
+    const button = worded("button", "action.open-system-settings", { type: "button" });
+    button.addEventListener("click", () =>
+      void openSettings(item.settingsLink, t("permissions.where", { page: title.textContent })));
     row.append(button);
   }
   return row;
@@ -79,45 +83,41 @@ async function renderPermissions() {
   const data = await api("os-permissions");
   const shown = data.platform === "darwin" || data.platform === "linux";
   $("os-permissions-card").hidden = !shown;
-  if (!shown) return data;
-  const session = $("os-permissions-session");
-  session.hidden = data.platform !== "linux";
-  session.textContent = sessions[data.session] ?? "";
-  $("os-permissions-list").replaceChildren(...data.permissions.map((item) => permissionRow(item, data.platform)));
-  return data;
+  if (!shown) return;
+  $("os-permissions-list").replaceChildren(...data.permissions.map((item) => permissionRow(item, data.platform, data.session)));
 }
 
 /* ---------- the Keychain list on a Mac ---------- */
 
 let keychain = { enabled: false, entries: [] };
+const keychainFields = ["name", "service", "account", "note"];
 
-function field(id, label, placeholder) {
-  return [el("label", { htmlFor: id, textContent: label }), el("input", { id, maxLength: 200, placeholder })];
+function field(name) {
+  const id = `keychain-${name}`;
+  const input = el("input", { id, maxLength: 200, placeholder: t(`keychain.placeholder.${name}`) });
+  input.dataset.tPlaceholder = `keychain.placeholder.${name}`;
+  return [worded("label", `field.keychain-${name}`, { htmlFor: id }), input];
 }
 
 function keychainCard() {
   const toggle = el("input", { type: "checkbox", id: "keychain-enabled" });
-  const add = el("button", { type: "button", id: "keychain-add", textContent: "Add this entry" });
-  const save = el("button", { type: "button", id: "keychain-save", textContent: "Save the Keychain list" });
+  const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add" });
+  const save = worded("button", "action.save-keychain-list", { type: "button", id: "keychain-save" });
   toggle.addEventListener("change", () => void saveKeychain({ enabled: toggle.checked }));
   add.addEventListener("click", addEntry);
   save.addEventListener("click", () => void saveKeychain({ enabled: toggle.checked, entries: keychain.entries }));
   return el("section", { id: "keychain-card", className: "card", hidden: true },
-    el("h2", { textContent: "Passwords from your Mac's Keychain" }),
-    el("p", { textContent: "Branch can read a password out of this Mac's Keychain, but only for the entries you list here, and only when a task uses one. This list holds names, never passwords, and every read is written down." }),
-    el("label", { className: "check-row" }, toggle, el("span", { textContent: " Let Branch read the Keychain entries listed here" })),
+    worded("h2", "settings.card.keychain"),
+    worded("p", "settings.intro.keychain", { className: "subtle" }),
+    el("label", { className: "check-row" }, toggle, worded("span", "field.let-branch-read-keychain")),
     el("div", { id: "keychain-list", className: "card-list" }),
-    el("h3", { textContent: "Add an entry" }),
-    ...field("keychain-name", "Short name (used as secret://keychain/name)", "for example github"),
-    ...field("keychain-service", "The Keychain item's name (its Where)", "for example api.github.com"),
-    ...field("keychain-account", "Its account, if more than one item has that name", "Leave empty if there is only one"),
-    ...field("keychain-note", "What it is for", "Optional"),
+    ...keychainFields.flatMap(field),
     add, save,
     el("p", { id: "keychain-status", className: "subtle", role: "status" }));
 }
 
 function entryRow(entry, index) {
-  const remove = el("button", { type: "button", textContent: "Remove" });
+  const remove = worded("button", "action.remove-keychain-entry", { type: "button" });
   remove.addEventListener("click", () => {
     keychain.entries = keychain.entries.filter((_, at) => at !== index);
     showKeychain();
@@ -132,28 +132,28 @@ function entryRow(entry, index) {
 function showKeychain() {
   $("keychain-enabled").checked = Boolean(keychain.enabled);
   const rows = keychain.entries.map(entryRow);
-  $("keychain-list").replaceChildren(...(rows.length ? rows : [el("p", { className: "subtle", textContent: "No entries yet." })]));
+  $("keychain-list").replaceChildren(...(rows.length ? rows : [worded("p", "keychain.empty", { className: "subtle" })]));
 }
 
 function addEntry() {
-  const value = (id) => $(id).value.trim();
-  const entry = { name: value("keychain-name"), service: value("keychain-service"), note: value("keychain-note") };
-  if (value("keychain-account")) entry.account = value("keychain-account");
+  const value = (name) => $(`keychain-${name}`).value.trim();
+  const entry = { name: value("name"), service: value("service"), note: value("note") };
+  if (value("account")) entry.account = value("account");
   if (!entry.name || !entry.service) {
-    $("keychain-status").textContent = "Give the entry a short name and the Keychain item's name.";
+    $("keychain-status").textContent = t("keychain.status.missing");
     return;
   }
   keychain.entries = [...keychain.entries.filter((one) => one.name !== entry.name), entry];
-  for (const id of ["keychain-name", "keychain-service", "keychain-account", "keychain-note"]) $(id).value = "";
+  for (const name of keychainFields) $(`keychain-${name}`).value = "";
   showKeychain();
-  $("keychain-status").textContent = "Added. Press Save to keep it.";
+  $("keychain-status").textContent = t("keychain.status.added");
 }
 
 async function saveKeychain(next) {
   try {
     keychain = await api("keychain/settings", next);
     showKeychain();
-    $("keychain-status").textContent = keychain.enabled ? "Saved." : "Saved. Branch will not read from your Keychain.";
+    $("keychain-status").textContent = t(keychain.enabled ? "keychain.status.saved" : "keychain.status.off");
   } catch (e) {
     $("keychain-status").textContent = e.message;
   }
