@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { writeFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
 
 /**
@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 export type RunTool = (file: string, args: string[]) => Promise<string>;
 
 export function systemTool(name: string, systemRoot = process.env.SystemRoot ?? "C:\\Windows"): string {
-  return join(systemRoot, "System32", name);
+  // win32.join is what join is on Windows; it also keeps the answer a Windows path in tests elsewhere.
+  return win32.join(systemRoot, "System32", name);
 }
 
 export const runTool: RunTool = (file, args) =>

@@ -9,7 +9,7 @@ test("the hand-over script is started hidden through the Task Scheduler so it ou
   const spawn = (command, args, options) => { spawned = { command, args, options }; return { unref() { spawned.unrefd = true; } }; };
   const written = [];
   const write = (file, content) => written.push({ file, content });
-  const how = await launchHandOver("C:\\tmp\\apply-update.cmd", 4242, { exec, spawn, write, systemRoot: "C:\\Windows" });
+  const how = await launchHandOver("C:\\tmp\\apply-update.cmd", 4242, { exec, spawn, write, systemRoot: "C:\\Windows", platform: "win32" });
   assert.equal(how, "task");
   assert.equal(spawned, null, "no direct child was started");
   assert.deepEqual(calls.map((c) => c.args[0]), ["/Create", "/Run", "/Delete"]);
@@ -26,7 +26,7 @@ test("the hand-over script is started hidden through the Task Scheduler so it ou
   assert.deepEqual(calls[2].args, ["/Delete", "/F", "/TN", "BranchAgentUpdate-4242"]);
   // When the scheduler is unavailable the script is still started, directly.
   const failing = (_file, _args, _options, callback) => callback(new Error("schtasks missing"));
-  const fallback = await launchHandOver("C:\\tmp\\apply-update.cmd", 7, { exec: failing, spawn, write, systemRoot: "C:\\Windows" });
+  const fallback = await launchHandOver("C:\\tmp\\apply-update.cmd", 7, { exec: failing, spawn, write, systemRoot: "C:\\Windows", platform: "win32" });
   assert.equal(fallback, "spawn");
   assert.deepEqual(spawned.args, ["/d", "/c", "C:\\tmp\\apply-update.cmd", "7"]);
   assert.equal(spawned.options.detached, true);

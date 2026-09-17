@@ -1,5 +1,7 @@
 name: Checks
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   verify:
     strategy:
@@ -8,12 +10,12 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - run: npm ci
@@ -25,6 +27,17 @@ jobs:
         run: npm test
       - run: python -m unittest discover -s experiments -p 'test_*.py'
       - run: npm run demo
-      # Packaging is Windows-only until the macOS and Linux downloads land (M1).
-      - if: runner.os == 'Windows'
-        run: npm run package:desktop
+      # Every system builds its download; Macs also build the Intel copy from the same runner.
+      - run: npm run package:desktop -- --release
+      - if: runner.os == 'macOS'
+        run: node scripts/package-desktop.mjs --release --arch x64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: download-${{ runner.os }}
+          path: |
+            release/Branch-Agent-*.zip
+            release/Branch-Agent-*.tar.gz
+            release/Branch-Agent-*.sha256
+            release/Install Branch Agent.cmd
+          if-no-files-found: error
+          retention-days: 7

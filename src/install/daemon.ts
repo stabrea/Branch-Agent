@@ -1,6 +1,8 @@
 import { writeFile, rm } from "node:fs/promises";
 import { hiddenRunner } from "../desktop/hand-over.js";
 import { runTool, systemTool, type RunTool } from "./windows.js";
+import { launchdCommand, launchdPlistPath } from "./launchd.js";
+import { systemdCommand, systemdUnitPath } from "./systemd.js";
 
 /**
  * Keeping Branch working with the window closed. A Windows scheduled task starts the assistant's
@@ -23,6 +25,14 @@ export interface DaemonOptions {
   launcherPath: string;
   taskName?: string;
   systemRoot?: string;
+  /** Which system to set up for; defaults to this computer's. */
+  platform?: NodeJS.Platform;
+  /** macOS: where the sign-in file goes (defaults to the person's LaunchAgents folder). */
+  plistPath?: string;
+  /** Linux: where the sign-in file goes (defaults to the person's systemd user folder). */
+  unitPath?: string;
+  /** macOS: the signed-in person's user id. */
+  uid?: number;
 }
 export interface DaemonDeps { run?: RunTool; write?: (path: string, content: string) => Promise<void> }
 export type DaemonAction = "install" | "uninstall" | "status";
@@ -88,9 +98,20 @@ async function status(options: DaemonOptions, deps: DaemonDeps): Promise<DaemonR
   };
 }
 
+/**
+ * macOS and Linux use their own sign-in systems; Windows keeps its scheduled task. Any other system
+ * gets an honest answer instead of an attempt.
+ */
 export async function daemonCommand(
   action: DaemonAction, options: DaemonOptions, deps: DaemonDeps = {},
 ): Promise<DaemonReport> {
+  const platform = options.platform ?? process.platform;
+  if (platform === "darwin")
+    return launchdCommand(action, options, { path: options.plistPath ?? launchdPlistPath(), ...(options.uid === undefined ? {} : { uid: options.uid }) }, deps);
+  if (platform === "linux")
+    return systemdCommand(action, options, { path: options.unitPath ?? systemdUnitPath() }, deps);
+  if (platform !== "win32")
+    return { action, taskName: daemonTaskName, installed: false, message: "Starting by itself is not available on this kind of computer yet. Open Branch when you want it." };
   if (action === "install") return install(options, deps);
   if (action === "uninstall") return uninstall(options, deps);
   return status(options, deps);
