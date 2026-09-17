@@ -70,6 +70,26 @@ export function orderPrompt(order: Order): string {
   return lines.filter(Boolean).join("\n");
 }
 
+/** Everything a proposed order would carry, in full, for the owner to read before saying yes. */
+function orderDetail(order: Order): string {
+  return [
+    `Would run ${startWords(order.start)}, at most ${order.perDay} times a day.`,
+    `May do: ${quoteLine(order.authority, 2000)}`,
+    order.steps && `Steps: ${quoteLine(order.steps, 2000)}`,
+    order.approval && `Asks you before: ${quoteLine(order.approval, 1000)}`,
+    order.notDo && `Does not: ${quoteLine(order.notDo, 1000)}`,
+    order.escalation.length ? `Stops to ask when: ${order.escalation.map((rule) => quoteLine(rule)).join("; ")}` : "",
+    permissionWords(order.permissions),
+  ].filter(Boolean).join("\n");
+}
+
+/** What a turn may use, in words; never more than the owner holds, and never schedules or settings. */
+export function permissionWords(permissions: readonly string[] | undefined): string {
+  return permissions
+    ? `May use: ${permissions.map((p) => quoteLine(p, 100)).join(", ") || "nothing"} (only those you allow).`
+    : "May use: everything you allow, except schedules, settings and installing.";
+}
+
 export interface OrdersDeps {
   store: Store; owner: string; runner: Runner; ledger: Ledger;
   /** The permissions the owner holds right now. */
@@ -107,7 +127,7 @@ export class Orders {
   propose(input: unknown): { waiting: boolean; id?: string } {
     const order = OrderSchema.parse(input);
     const entry = this.deps.ledger.ask({ kind: "order", from: "assistant", fingerprint: fingerprintOf("order", order.name.toLowerCase(), order.authority),
-      title: `Standing order: ${quoteLine(order.name, 80)}`, detail: `Would run ${startWords(order.start)}: ${quoteLine(order.authority, 200)}`,
+      title: `Standing order: ${quoteLine(order.name, 80)}`, detail: orderDetail(order),
       payload: { order } });
     return entry ? { waiting: true, id: entry.id } : { waiting: false };
   }

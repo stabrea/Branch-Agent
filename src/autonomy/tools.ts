@@ -1,9 +1,11 @@
 import { z } from "zod";
+import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Autonomy } from "./index.js";
 import { catalogue } from "./blueprints.js";
 import { OrderSchema } from "./orders.js";
 import { ProcedureSchema } from "./procedures.js";
+import { ownersOwnTask } from "./origin.js";
 import type { AutonomyPart } from "./settings.js";
 
 /**
@@ -17,6 +19,18 @@ const values = z.record(z.string().regex(/^[a-z]{1,20}$/), z.string().max(300)).
 
 type Registrar = (registry: ToolRegistry, autonomy: Autonomy) => void;
 
+/**
+ * A proposal is put to the owner only from the owner's own conversation: never from a task a chat
+ * message, a short-lived key, a household person, a schedule or another program started.
+ */
+function ownersOnly<T>(autonomy: Autonomy, work: (args: T) => unknown): (args: T, context: ToolContext) => Promise<unknown> {
+  return async (args, context) => {
+    if ((context.source ?? "owner") !== "owner" || !ownersOwnTask(autonomy.store, context.runId))
+      throw new Error("Only the owner's own conversation can propose an automation; ask the owner to do it in Branch.");
+    return work(args);
+  };
+}
+
 const suggestions: Registrar = (registry, autonomy) => {
   registry.register({ name: "automation.ideas", permission: read, group: "automations",
     description: "The automation catalogue (blueprints with blanks) and the automations suggested for the owner right now. Reading only.",
@@ -25,7 +39,7 @@ const suggestions: Registrar = (registry, autonomy) => {
   registry.register({ name: "automation.propose", permission: propose, group: "automations",
     description: "Ask the owner whether to make an automation from a catalogue blueprint with its blanks filled. Nothing is scheduled until the owner says yes.",
     parameters: z.object({ blueprint: z.string().min(1).max(60), values, timezone: z.string().min(1).max(64).optional() }).strict(),
-    execute: async (args) => autonomy.proposeBlueprint(args) });
+    execute: ownersOnly(autonomy, (args: { blueprint: string; values: Record<string, string>; timezone?: string | undefined }) => autonomy.proposeBlueprint(args)) });
 };
 
 const orders: Registrar = (registry, autonomy) => {
@@ -36,7 +50,7 @@ const orders: Registrar = (registry, autonomy) => {
   registry.register({ name: "orders.propose", permission: propose, group: "automations",
     description: "Ask the owner to hand over a standing order (a named programme with its authority, start, approval gate and escalation rules). It is made only on the owner's yes.",
     parameters: OrderSchema,
-    execute: async (args) => autonomy.orders.propose(args) });
+    execute: ownersOnly(autonomy, (args) => autonomy.orders.propose(args)) });
 };
 
 const procedures: Registrar = (registry, autonomy) => {
@@ -47,7 +61,7 @@ const procedures: Registrar = (registry, autonomy) => {
   registry.register({ name: "procedures.auto.propose", permission: propose, group: "automations",
     description: "Ask the owner to keep a procedure that starts itself (steps, start, and whether it asks before each step, before it starts, or runs on its own). It is kept only on the owner's yes.",
     parameters: ProcedureSchema,
-    execute: async (args) => autonomy.procedures.propose(args) });
+    execute: ownersOnly(autonomy, (args) => autonomy.procedures.propose(args)) });
 };
 
 const readiness: Registrar = (registry, autonomy) => {
@@ -65,7 +79,7 @@ const instructions: Registrar = (registry, autonomy) => {
   registry.register({ name: "instructions.propose", permission: propose, group: "automations",
     description: "When the owner asks you to always work a certain way from now on, ask them to keep it as a standing instruction (one short sentence in their words). It is kept only on their yes.",
     parameters: z.object({ text: z.string().trim().min(3).max(300), scope: z.string().max(100).default("assistant") }).strict(),
-    execute: async (args) => autonomy.instructions.propose(args, "assistant") });
+    execute: ownersOnly(autonomy, (args) => autonomy.instructions.propose(args, "assistant")) });
 };
 
 const registrars: Partial<Record<AutonomyPart, Registrar>> = { suggestions, orders, procedures, readiness, instructions };

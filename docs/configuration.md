@@ -6639,7 +6639,13 @@ wait at once.
 
 **Bounds.** Everything these parts start by themselves is an ordinary task marked as started by a
 schedule, so your approval rules are capped as for a timed job. Its permissions are never wider than
-what you hold, and never include making schedules or changing settings. Together they may start 48
+what you hold, and never include making schedules, changing settings, installing anything or
+proposing more automations (`narrowed` in `src/autonomy/runner.ts`), whichever part asked. Nothing
+starts while Lockdown is on; turning Lockdown on, or switching a part off, cancels the turns that are
+working. Only your own tasks, typed in the window, the phone or the terminal, start an after-task order
+or procedure, pick up "from now on", or let the assistant propose something: a chat sender's message,
+a short-lived key's task and a household person's task never do (`src/autonomy/origin.ts`). A
+proposal is shown in full, with every step and what it may use, before you answer. Together they may start 48
 turns a day, each of at most 12 steps and 40,000 tokens (Automations → Scheduled, "Limits on
 automatic work", up to 200 turns, 40 steps and 200,000 tokens). Each order or procedure has its own
 daily count (4 unless set, 24 at most) and orders wait five minutes between turns. A conversation that

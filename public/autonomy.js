@@ -281,6 +281,7 @@ async function needsCard() {
   list.id = "autonomy-needs-list";
   for (const entry of waiting) {
     const line = plain("li", `${entry.title} — ${entry.detail}`);
+    line.style.whiteSpace = "pre-line"; // a proposal is shown in full, one part a line
     line.append(" ", button("autonomy.needs.yes", "Yes", act(status, () => api("autonomy/decide", { id: entry.id, yes: true }))),
       " ", button("autonomy.needs.no", "No", act(status, () => api("autonomy/decide", { id: entry.id, yes: false }))));
     list.append(line);

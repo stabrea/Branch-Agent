@@ -11,7 +11,9 @@ import { Loops } from "./loops.js";
 import { Orders } from "./orders.js";
 import { SelfStarting } from "./procedures.js";
 import { checkReadiness, localProbe, needsFromMetadata, type Missing, type Needs } from "./readiness.js";
-import { Runner } from "./runner.js";
+import { lockedDown } from "../lockdown.js";
+import { ownersOwnTask } from "./origin.js";
+import { narrowed, Runner } from "./runner.js";
 import { autonomyMode, autonomyParts, autonomyTools, saveAutonomyMode, type AutonomyMode, type AutonomyPart } from "./settings.js";
 import { suggest, type Suggestion } from "./suggestions.js";
 import { registerAutonomyTools } from "./tools.js";
@@ -41,6 +43,11 @@ export interface AutonomyDeps {
 export interface SkillReadiness { id: string; name: string; needs: Needs | null; ready: boolean; missing: Missing[] }
 
 const byRuntime = new WeakMap<object, Autonomy>();
+/** The runner keys each part's turns count under (src/autonomy/runner.ts `TurnRequest.key`). */
+const turnPrefixes: Record<AutonomyPart, readonly string[]> = {
+  orders: ["order:"], procedures: ["procedure:"], loops: ["loop:", "heartbeat:"],
+  suggestions: [], "session-commands": [], readiness: [], instructions: [],
+};
 /** The part of Branch the typed commands reach, for this runtime (src/autonomy/commands.ts). */
 export const autonomyFor = (runtime: object): Autonomy | undefined => byRuntime.get(runtime);
 
@@ -59,7 +66,7 @@ export class Autonomy {
     const now = deps.now ?? (() => new Date());
     const held = (): string[] => deps.registry.permissions();
     this.ledger = new Ledger(store, owner, now);
-    this.runner = new Runner(store, runtime, now);
+    this.runner = new Runner(store, runtime, held, now);
     this.orders = new Orders({ store, owner, runner: this.runner, ledger: this.ledger, held, now });
     this.procedures = new SelfStarting({ store, owner, runner: this.runner, ledger: this.ledger, held, now });
     this.instructions = new Instructions(store, owner, this.ledger, now);
@@ -87,11 +94,16 @@ export class Autonomy {
   setMode(part: AutonomyPart, input: unknown): AutonomyMode {
     const mode = saveAutonomyMode(this.store, this.owner, part, input);
     this.sync(part);
+    // Switched off: the turns of that part that are working now are cancelled too.
+    const prefixes = turnPrefixes[part];
+    if (mode === "off" && prefixes.length) this.runner.cancel((key) => prefixes.some((prefix) => key.startsWith(prefix)));
     return mode;
   }
 
   /** The scheduler's beat. Overlapping beats are skipped; nothing here holds the beat up. */
   tick(): Promise<void> {
+    // Under Lockdown nothing runs by itself, and whatever is working is cancelled at the next beat.
+    if (lockedDown(this.store, this.owner)) { this.runner.cancel(); return Promise.resolve(); }
     if (this.beat || this.closed) return Promise.resolve();
     this.beat = this.work().finally(() => { this.beat = null; });
     return Promise.resolve();
@@ -112,6 +124,8 @@ export class Autonomy {
   private async afterTask(context: ToolContext): Promise<void> {
     const run = context.runId ? this.store.run(context.runId) : undefined;
     if (!run || this.runner.started.has(run.id) || context.depth > 0 || (context.source ?? "owner") !== "owner") return;
+    // Only the owner's own words start anything: never a chat sender's, a key's or a household person's.
+    if (!ownersOwnTask(this.store, run.id)) return;
     if (this.mode("orders") !== "off") await this.orders.afterTask(run.prompt);
     if (this.mode("procedures") !== "off") this.procedures.afterTask(run.prompt);
     const said = this.mode("instructions") !== "off" && !this.store.sessionTemporary(run.sessionId) ? spotInstruction(run.prompt) : null;
@@ -186,8 +200,8 @@ export class Autonomy {
   private scheduleFrom(payload: Record<string, unknown>): unknown {
     const draft = this.draft(payload);
     const context = this.deps.runtime.context({ signal: AbortSignal.timeout(30000), source: "owner" });
-    // Only what the owner holds, never more: what the blueprint names, cut down to that.
-    if (Array.isArray(draft.permissions)) draft.permissions = (draft.permissions as string[]).filter((p) => context.permissions.has(p));
+    // Only what the owner holds, never more, and never schedules, settings or installing.
+    draft.permissions = narrowed(Array.isArray(draft.permissions) ? draft.permissions as string[] : undefined, [...context.permissions]);
     return this.deps.scheduler.create(context, draft);
   }
 

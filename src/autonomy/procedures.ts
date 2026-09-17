@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { fingerprintOf, type Ledger, type LedgerEntry } from "./ledger.js";
+import { permissionWords } from "./orders.js";
 import { narrowed, type Runner } from "./runner.js";
 import { quoteLine } from "./settings.js";
 import { nextDue, StartSchema, startsAfter, startWords } from "./timing.js";
@@ -105,7 +106,11 @@ export class SelfStarting {
     const entry = this.deps.ledger.ask({ kind: "procedure", from: "assistant",
       fingerprint: fingerprintOf("procedure", procedure.name.toLowerCase(), procedure.steps.map((s) => s.prompt)),
       title: `Procedure: ${quoteLine(procedure.name, 80)}`,
-      detail: `${procedure.steps.length} step${procedure.steps.length === 1 ? "" : "s"}, starting ${startWords(procedure.start)}, level ${procedure.level}.`,
+      detail: [
+        `${procedure.steps.length} step${procedure.steps.length === 1 ? "" : "s"}, starting ${startWords(procedure.start)}, level ${procedure.level}, at most ${procedure.perDay} times a day.`,
+        ...procedure.steps.map((step, i) => `Step ${i + 1}${step.confirm ? " (asks you first)" : ""}, ${quoteLine(step.title, 120)}: ${quoteLine(step.prompt, 2000)}`),
+        permissionWords(procedure.permissions),
+      ].join("\n"),
       payload: { procedure } });
     return entry ? { waiting: true, id: entry.id } : { waiting: false };
   }
