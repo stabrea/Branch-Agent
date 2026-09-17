@@ -314,3 +314,31 @@ test("a watch whose words only moved around sends nothing, and its health is kep
   assert.equal(sent.length, 1, "only the real change was announced");
   assert.match(sent[0], /1 new line:\n- gamma/);
 });
+
+test("a check-in already running is never started twice", async (t) => {
+  const { app, provider } = await fixture(t);
+  const heartbeat = app.scheduler.heartbeat;
+  heartbeat.configure("local", { enabled: true, timezone: "UTC", activeHours: null, checklist: "- anything?" });
+  provider.replies.push(respond(false), "ok");
+  const first = heartbeat.checkNow("local");
+  assert.equal(await heartbeat.tick(noon), null, "the beat leaves the running check-in alone");
+  await assert.rejects(heartbeat.checkNow("local"), /already running/);
+  assert.equal(await first, "quiet");
+  assert.equal(heartbeat.state("local").runCount, 1);
+  assert.equal(provider.requests.length, 2, "one check-in: its answer and its closing word");
+});
+
+test("a check that keeps failing says so once, not on every turn", async (t) => {
+  const { app, provider, context } = await fixture(t);
+  const sent = [];
+  await app.channels.attach({ id: "telegram", kind: "telegram", botName: () => "Bot", async start() {}, async stop() {},
+    async send(chatId, text) { sent.push(text); return `m${sent.length}`; } }, { activation: "always", pairing: false, allowlist: [] });
+  const record = app.scheduler.create(context, { prompt: "Is the site up?", dueAt: noon.toISOString(), kind: "check",
+    intervalMs: 60_000, deliverTo: { channel: "telegram", chatId: "1" } });
+  const read = () => app.store.get("schedules", "local", record.id).data;
+  provider.complete = async () => { throw new Error("provider down"); };
+  for (let turn = 0; turn < 3; turn++) await app.scheduler.tick(new Date(Date.parse(read().dueAt) + 1000));
+  assert.equal(read().consecutiveFailures, 3);
+  assert.equal(sent.length, 1, `told once: ${JSON.stringify(sent)}`);
+  assert.match(sent[0], /did not finish/);
+});
