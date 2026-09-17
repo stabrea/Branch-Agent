@@ -28,7 +28,8 @@ export const InstructionSchema = z.object({
 }).strict();
 
 export interface Instruction { id: string; text: string; scope: string; createdAt: string }
-const key = "autonomy-instructions";
+// Not "autonomy-instructions": that record is the part's own switch (settings.ts).
+const key = "autonomy-kept-instructions";
 export const maxInstructions = 30;
 const Saved = z.object({ items: z.array(z.object({ id: z.string(), text: z.string(), scope: z.string(), createdAt: z.string() }).strict()) }).strict();
 

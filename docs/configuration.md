@@ -6591,6 +6591,39 @@ arguments, no shell, and only what they need from the environment. The stand-in 
 program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
 protocol.
 
+## It suggests, and runs things on its own (r17-b)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/autonomy/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). Nothing lasting is made without the
+owner: the assistant's tools here only read or ask, and every question waits in Inbox → Needs you. A
+"no" is remembered for good, so the same thing is never asked or offered again; at most 20 questions
+wait at once.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Suggested automations | Automations → Scheduled | A catalogue of 13 blueprints with checked blanks, and up to five suggestions worked out from what Branch remembers and what is connected, without asking a model (`automation.ideas`, `automation.propose`, `/suggestions`, `/blueprint`) |
+| Standing orders | Automations → Scheduled | A named programme: what it may do, when it starts, what needs a yes, when to stop and ask. A reply starting `ESCALATE:` pauses it and asks you (`orders.list`, `orders.propose`) |
+| Repeating in a conversation | Automations → Scheduled | `/loop every 10m <what> [--times n] [--until …]` (1 minute apart at least, 10 turns unless said, 100 at most, stops on `LOOP_COMPLETE`) and `/heartbeat every 30m <what>` (5 minutes apart at least, adds a note only with news). Owner only |
+| Sub-goals, background tasks, handing on | The message box | `/subgoal` adds to the conversation's goal (the judge sees them); `/bg` runs a task in its own conversation, three at most; `/handoff <chat app>` points a chat that has talked to Branch at this conversation, and `/handoff terminal` or `assistant <name>` uses Interop's hand-on, behind its own switch |
+| Procedures that start themselves | Automations → Procedures | Steps that start on a clock, after one of your tasks, or by hand; each asks before every step, before it starts (the default), or runs on its own. A step marked `confirm` always asks; an "on its own" procedure under 50% after four runs goes back to asking (`procedures.auto.list`, `procedures.auto.propose`) |
+| What skills need | Customize → Skills | Programs, keys and systems a skill declares in its `metadata` (`requires-bins`, `requires-any-bins`, `requires-keys`, `os`, `install-brew`/`-apt`/`-winget`/`-npm`/`-pip`, or OpenClaw's `openclaw` block), and whether this computer has them (`skills.readiness`). Programs are looked for on `PATH` without running anything; install lines are only shown |
+| "From now on" instructions | Settings → Assistant | "From now on, …" in one of your messages is kept, after one yes, as a standing instruction for the assistant, every specialist, or one specialist (`instructions.list`, `instructions.propose`) |
+
+**Bounds.** Everything these parts start by themselves is an ordinary task marked as started by a
+schedule, so your approval rules are capped as for a timed job. Its permissions are never wider than
+what you hold, and never include making schedules or changing settings. Together they may start 48
+turns a day, each of at most 12 steps and 40,000 tokens (Automations → Scheduled, "Limits on
+automatic work", up to 200 turns, 40 steps and 200,000 tokens). Each order or procedure has its own
+daily count (4 unless set, 24 at most) and orders wait five minutes between turns. A conversation that
+is still busy is left alone until the next beat. "On" gives a task the standing orders and
+instructions in full; "only when it is needed" gives it one line saying where to read them.
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems. The
+readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (trying `.exe`, `.cmd`
+and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
+and `winget` on Windows.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in

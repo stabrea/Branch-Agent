@@ -3453,3 +3453,14 @@ The bubblewrap arguments in `src/sandbox-bwrap.ts` also follow Gemini CLI's `pac
 ### IronClaw (NEAR AI) keys at the network edge (idea only), MIT OR Apache-2.0
 
 The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and the door swaps in the real key only for the site the key belongs to — are an idea from IronClaw's `crates/substrates/ironclaw_secrets/src/placeholder.rs` and `crates/lanes/ironclaw_sandbox/src/sandbox_process/managed_egress.rs` (https://github.com/nearai/ironclaw, MIT OR Apache-2.0; the MIT notice is above). They were written afresh; no code was copied.
+
+### Automations that suggest and run on their own (r17-b; ideas only), MIT and MIT OR Apache-2.0
+
+`src/autonomy/` was written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): suggestions whose dedup key stays blocked once dismissed, a small cap on waiting suggestions, and blueprints with typed, checked blanks (`cron/suggestions.py`, `cron/blueprint_catalog.py`); the syntax and stop rules of `/loop` and `/heartbeat` (`hermes_cli/loops.py` and their guides); and `/subgoal`, `/bg` and `/handoff` (`website/docs/reference/slash-commands.md`).
+- OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation, MIT): the anatomy of a standing order — authority, trigger, approval gate, escalation, what not to do, and "try at most three times, then report" (`docs/automation/standing-orders.md`) — and a skill's declared needs (`src/skills/types.ts`, `src/shared/requirements.ts`).
+- IronClaw (https://github.com/nearai/ironclaw, NEAR AI, MIT OR Apache-2.0): suggestions that must trace to something actually read, started with one press (`crates/product/ironclaw_assistant/src/suggestions.rs`).
+- ZeroClaw (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0): procedures with their own autonomy level, a per-step confirmation that overrides running on their own, coalescing a start while one runs, and the completion rate (`crates/zeroclaw-runtime/src/sop/`).
+- OpenFang (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0): requirements with install steps per system and a readiness report (`crates/openfang-hands/`).
+- CrewAI (https://github.com/crewAIInc/crewAI, MIT) and Agent Zero (https://github.com/agent0ai/agent-zero, Copyright (c) Agent Zero, s.r.o., MIT): turning feedback into standing instructions given to later tasks (`crew.py` `train`, `plugins/_memory/tools/behaviour_adjustment.py`).
