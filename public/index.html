@@ -977,6 +977,15 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <!-- Wave mac3 (channels-parity): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="channels-more-form" class="card" data-home="customize:channels">
+            <h2 data-t="channels-more.title">More chat apps</h2>
+            <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
+            <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
+            <div id="channels-more-list" class="card-list" aria-live="polite"></div>
+            <p id="channels-more-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-channels-more">Save the chat app switches</button>
+          </form>
           <form id="second-opinion-form" class="card">
             <h2 data-t="settings.card.second-opinion">A second opinion</h2>
             <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
@@ -1743,6 +1752,7 @@
     <script src="/flows.js" type="module"></script>
     <script src="/second-opinion.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
+    <script src="/channels-more.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>

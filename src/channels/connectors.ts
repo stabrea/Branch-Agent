@@ -2,6 +2,11 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from "./router.js";
+// Wave mac3 (channels-parity): the chat services built in, each in its own file.
+import type { ParityService } from "./parity-common.js";
+import { gotifyService } from "./gotify.js";
+import { ircService, twitchService } from "./irc.js";
+import { imessageService } from "./imessage.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -168,3 +173,13 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
     execute: async (input, context) => { people.requireOwner(onlyTheOwner); return digest(router, brief, context.owner, input); },
   });
 }
+
+/**
+ * Wave mac3 (channels-parity): every chat service added to match the other assistants. Each is
+ * written in the connections file as `{ "type": "<kind>", "id": ... }`, built by
+ * src/channels/parity-config.ts, and sits behind its own off / on / when-needed switch, off until
+ * the owner turns it on. Adding a service is one file and one line here.
+ */
+export const parityServices: ParityService[] = [
+  ircService, twitchService, gotifyService, imessageService,
+];
