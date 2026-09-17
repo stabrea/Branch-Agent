@@ -47,6 +47,9 @@ const routes = {
   '/vanish': page(`<button id="gone" onclick="document.getElementById('hit').textContent='pressed'">Temporary</button>
     <button id="remove" onclick="document.getElementById('gone').remove()">Remove it</button>
     <p id="hit">nothing</p>`),
+  // Two buttons that are genuinely alike: same kind, same words, same surroundings.
+  '/twins': page(`<div id="box"><button onclick="document.getElementById('hit').textContent='first'">Send</button>
+    <button onclick="document.getElementById('hit').textContent='second'">Send</button></div><p id="hit">nothing</p>`),
   '/rebuild': page(`<div id="box"><button class="a" onclick="say('Alpha')">Alpha</button>
       <button class="b" onclick="say('Beta')">Beta</button></div>
     <button id="shuffle" onclick="redraw()">Shuffle</button><p id="hit">nothing</p>
@@ -369,4 +372,21 @@ test('the refusal applies to every request the page makes, not only the address 
       {url: `${h.origin.replace('127.0.0.1', 'localhost')}/`}, context), /money or passwords/);
     ok(await h.registry.execute('browser.borrow', {action: 'give back'}, context));
   } finally { await owned.close(); await h.close(); }
+});
+
+test('two things that are genuinely alike share a number, and that number is refused', async () => {
+  const h = await harness('browser3-twins');
+  try {
+    const context = runContext('run-twins');
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/twins`}, context);
+    const marked = ok(await h.registry.execute('browser.annotate', {}, context));
+    const sends = marked.marks.filter(mark => mark.name === 'Send');
+    assert.equal(sends.length, 2, 'both were numbered');
+    assert.equal(sends[0].id, sends[1].id, 'and both were given the same number, being alike');
+    // Taking whichever comes first is how a press lands on the wrong thing, so neither is pressed.
+    await refusal(h.registry.execute('browser.act', {action: 'click', mark: sends[0].id}, context),
+      /is on more than one thing, so it was not used/);
+    assert.equal(await hitText(h, context), 'nothing');
+    await h.registry.finishRun(context);
+  } finally { await h.close(); }
 });

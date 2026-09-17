@@ -311,7 +311,7 @@ is pressed. The four refusals read: "Number 4 was never given out on this page",
 longer on this page", "Number 4 is on more than one thing, so it was not used", and "Number 4 is now
 on a different thing from the one it was given to, so it was not used".
 
-**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
 ### Data in the shape you asked for
 
