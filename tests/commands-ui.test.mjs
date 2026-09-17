@@ -79,7 +79,7 @@ test("with the switch off there is no menu, and /help lists the two commands the
   await submit(page);
   await page.waitForFunction(() => document.getElementById("toast").textContent.includes("Commands you can type here"));
   const lines = (await page.locator("#toast").textContent()).split("\n").slice(1).map((line) => line.split(" ")[0]);
-  assert.deepEqual(lines, ["/help", "/model"]);
+  assert.deepEqual(lines, ["/help", "/model", "/goal"], "goal mode (public/goal.js) brought /goal to the window before this table");
   assert.deepEqual(errors, []);
 });
 

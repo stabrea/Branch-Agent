@@ -5726,8 +5726,8 @@ place can do.
 
 **The switch** is in Settings › General, under *Typed commands*, and ships **off**:
 
-- **Off:** every place keeps exactly the commands it had before this table — the window `/help` and
-  `/model`, the terminal its 28, the chat apps `/stop /status /new /compact /usage /btw /help`.
+- **Off:** every place keeps exactly the commands it had before this table — the window `/help`,
+  `/model` and `/goal` (from goal mode), the terminal its 28, the chat apps `/stop /status /new /compact /usage /btw /help`.
   Anything else typed with a slash is what it always was (a message in the window and in chats).
 - **When needed:** every command in the table works when it is typed, but the `/` menu and `/help`
   show only the everyday ones; `/help all` shows the rest.
@@ -5752,8 +5752,8 @@ tools, the conversation and the room left — from the figures the last task mea
 sending it would cost (the idea of Aider's `/tokens`). `/help <question>` answers from Branch's own
 handbook (`docs/handbook`): the best-matching sections are found by word ranking and the model
 answers from those alone, with no tools; with no model it shows the sections themselves. `/goal`
-uses goal mode (mac2/goal-undo) when this copy has it, and says so in one sentence when it does
-not. `/stop`, `/status`, `/compact`, `/usage` and `/btw` work outside chats now too. `/health` is the
+uses goal mode (mac2/goal-undo), which keeps its own switch; the window already had `/goal` from
+goal mode, and the terminal gets it from this table. `/stop`, `/status`, `/compact`, `/usage` and `/btw` work outside chats now too. `/health` is the
 same check as `branch doctor`.
 
 **Routes.** `GET /api/commands?surface=window|phone|dashboard` (the list that place offers, for the
@@ -5805,7 +5805,7 @@ the switch is off.
 | `/usage [on\|off]` | `/cost` | any key | new | new | new | had it | new |
 | `/btw <question>` | `/side` | a key that may start tasks | new | new | new | had it | — |
 | `/tokens` | `/context` | any key | new | new | new | new | — |
-| `/goal <what should be true> [--max rounds]` | — | a key that may start tasks | new | new | new | — | — |
+| `/goal <what should be true> [--max rounds]` | — | a key that may start tasks | had it | had it | new | — | — |
 | `/whoami` | `/id` | any key | new | new | new | new | new |
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |

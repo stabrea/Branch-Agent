@@ -174,7 +174,7 @@ test("/help lists only what that surface can do", () => {
   assert.match(dashboard, /^\/lockdown/m);
   assert.doesNotMatch(dashboard, /^\/model/m);
   assert.doesNotMatch(helpText("window", "off"), /^\/tokens/m, "off: the window keeps its two");
-  assert.deepEqual(helpText("window", "off").split("\n").slice(1).map((line) => line.split(" ")[0]), ["/help", "/model"]);
+  assert.deepEqual(helpText("window", "off").split("\n").slice(1).map((line) => line.split(" ")[0]), ["/help", "/model", "/goal"]);
   assert.match(helpText("window", "when-needed"), /\/help all/);
   assert.match(chatCommandHelp(), /^\/stop \[task\] \(or \/cancel\)/m);
   assert.doesNotMatch(chatCommandHelp(), /\/clear|\/side|\/cost/, "names this table added are not offered while it is off");
@@ -187,7 +187,7 @@ test("the switch ships off: the window keeps /model and /help, and anything else
   const f = await fixture(t);
   assert.equal(commandSettings(f.app.store, f.owner).mode, "off");
   const list = await (await f.call("/api/commands?surface=window")).json();
-  assert.deepEqual(list.commands.map((c) => c.name), ["help", "model"]);
+  assert.deepEqual(list.commands.map((c) => c.name), ["help", "model", "goal"]);
   const model = await (await f.call("/api/commands/run", f.server.token, { surface: "window", line: "/model" })).json();
   assert.equal(model.handled, true);
   assert.match(model.text, /Type \/model followed by a name/);
@@ -331,6 +331,12 @@ test("/tokens reports what the last task measured, and /usage what it cost", asy
 });
 
 test("/goal uses goal mode when this copy has it, and says so when it does not", async (t) => {
+  {
+    const { app } = await fixture(t);
+    on(app);
+    const real = await executeCommand(commandHost(app.runtime, app), { surface: "terminal", line: "/goal the tests pass", access: "full" });
+    assert.match(real.text, /Goal mode is off/, "this copy has goal mode, which has its own switch and ships off");
+  }
   assert.deepEqual(parseGoal("tests pass --max 4"), { objective: "tests pass", maxRounds: 4 });
   assert.deepEqual(parseGoal("tests pass"), { objective: "tests pass" });
   assert.throws(() => parseGoal("--max 3"), /Say what the goal is/);

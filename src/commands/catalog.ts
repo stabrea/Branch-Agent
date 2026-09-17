@@ -93,7 +93,7 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("usage", ["cost"], "[on|off]", "tokens and cost so far; in a chat app, on or off adds a line to each reply", ALL, "look", { ...was("chat"), newAliases: ["cost"] }),
   entry("btw", ["side"], "<question>", "a quick question on the side; it does not join the task", ["window", "phone", "terminal", "chat"], "run", { ...was("chat"), whileWorking: true, newAliases: ["side"] }),
   entry("tokens", ["context"], "", "what fills the next request: instructions, tools, the conversation, and what it costs", ["window", "phone", "terminal", "chat"], "look"),
-  entry("goal", [], "<what should be true> [--max rounds]", "keep working until a goal is met, paused or out of rounds", [...W, "terminal"], "run"),
+  entry("goal", [], "<what should be true> [--max rounds]", "keep working until a goal is met, paused or out of rounds", [...W, "terminal"], "run", { ...was("window", "phone"), route: { method: "POST", path: "/api/goals" } }),
   entry("whoami", ["id"], "", "what you may do from here", ALL, "look"),
   entry("version", ["about"], "", "which Branch this is", ALL, "look"),
   entry("health", ["doctor"], "", "a quick check of the database, models, chat apps and schedules", [...W, "terminal", "dashboard"], "look"),
