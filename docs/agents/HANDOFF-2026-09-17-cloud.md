@@ -56,11 +56,20 @@ Nine re-audit groups plus follow-ups, all off by default:
    via CI and `ssh legion-branch`; Linux chaos 200 seeds; Linux desktop tests.
 2. Merge trunk into `wave2/integration`, then release 0.18.0, then update issue #103 and the theme issues.
 
-### Owner decisions pending
+### Owner decisions — decided by the coordinator 2026-09-17, owner may overrule
 
-- Credential vault: autofill only, or more (R17-068).
-- Wake word.
-- Admin-pinned settings a household member cannot change.
+The owner was closing the session and did not want to spend answers on these, so the coordinator
+decided and told them. Build all three; each ships off.
+
+- **Credential vault (R17-068): autofill only.** Branch fills a saved sign-in when the owner asks and
+  never shows, prints, logs or gives the value to the model, and never stores passwords itself: it
+  reads from the password manager the owner already uses. The rest of a vault is not worth an agent
+  holding the owner's passwords.
+- **Wake word: build it, off, listening only on this computer.** No audio leaves the machine, nothing
+  is recorded before the word is heard, push-to-talk stays the default. If local word-spotting is poor,
+  it stays off rather than sending audio to a service.
+- **Pinned settings: build it.** The owner can pin any setting so a household person sees it but cannot
+  change it. Pinning is the owner's alone.
 
 ### Known gaps (not blockers)
 
