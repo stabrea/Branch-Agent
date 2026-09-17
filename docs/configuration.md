@@ -1889,6 +1889,24 @@ appears and nothing has to be signed. Saved work from an older folder layout (`%
 that already holds a database. Uninstalling removes the program, the shortcuts, the sign-in entry
 and the background task; conversations and files are left alone.
 
+**macOS and Linux.** `npm run package:desktop` builds the download for the computer it runs on.
+On a Mac that is `Branch Agent.app` (bundle id `com.keepoak.branch-agent`), zipped as
+`Branch-Agent-macos-arm64.zip` or, with `-- --arch x64`, `Branch-Agent-macos-x64.zip`; unzip it and
+drag the app into Applications. Closing the window keeps Branch in the dock, Cmd+Q quits, and the
+Edit menu gives copy and paste their usual keys. When `APPLE_SIGNING_IDENTITY` is set the app is
+signed, and with `APPLE_NOTARY_PROFILE` (a `notarytool` keychain profile) or `APPLE_API_KEY_PATH`,
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER` it is also notarised; no password is ever put on a command
+line. Without an identity the copy is unsigned and macOS warns the first time it is opened: allow it
+under System Settings, Privacy & Security, Open Anyway. On Linux the download is
+`Branch-Agent-linux-x64.tar.gz`, a folder you unpack anywhere and start with `./branch-agent`. It
+holds `branch-agent.desktop` and `branch-agent.png`; to see Branch in your applications menu, copy the
+entry to `~/.local/share/applications/` and change `Exec` and `Icon` to the folder's full path. On
+Ubuntu 24.04 and other systems that restrict Chromium's sandbox, the app may refuse to start until
+`chrome-sandbox` in that folder is owned by root with mode 4755
+(`sudo chown root chrome-sandbox && sudo chmod 4755 chrome-sandbox`). Every download has a
+`.sha256` beside it; a version tag builds all four and attaches them to the release
+(`.github/workflows/package.yml`).
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.

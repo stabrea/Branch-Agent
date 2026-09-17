@@ -25,6 +25,15 @@ jobs:
         run: npm test
       - run: python -m unittest discover -s experiments -p 'test_*.py'
       - run: npm run demo
-      # Packaging is Windows-only until the macOS and Linux downloads land (M1).
-      - if: runner.os == 'Windows'
-        run: npm run package:desktop
+      # Every system builds its download; Macs also build the Intel copy from the same runner.
+      - run: npm run package:desktop -- --release
+      - if: runner.os == 'macOS'
+        run: node scripts/package-desktop.mjs --release --arch x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: download-${{ runner.os }}
+          path: |
+            release/Branch-Agent-*
+            release/Install Branch Agent.cmd
+          if-no-files-found: error
+          retention-days: 7

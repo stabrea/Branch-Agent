@@ -107,6 +107,20 @@ async function createWindow(
   createTray();
 }
 
+/**
+ * macOS only: the menu bar every Mac app has. Edit gives copy and paste their usual keys, the app
+ * menu gives Cmd+Q, and closing the window keeps Branch in the dock (see the "close" handler).
+ * Windows and Linux keep Electron's own menu, hidden by `autoHideMenuBar`, exactly as before.
+ */
+function setMacMenu(): void {
+  if (process.platform !== "darwin") return;
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "editMenu" },
+    { role: "windowMenu" },
+  ]));
+}
+
 function createTray(): void {
   tray = new Tray(branchIcon());
   tray.setToolTip("Branch Agent");
@@ -259,7 +273,7 @@ else {
   });
   void app
     .whenReady()
-    .then(start)
+    .then(() => { setMacMenu(); return start(); })
     .catch((error) => {
       console.error("Branch Agent could not start:", error.message);
       app.quit();
