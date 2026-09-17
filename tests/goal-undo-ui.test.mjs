@@ -112,13 +112,17 @@ test("the switches card sits beside workspace snapshots, saves, and shows the Go
   const card = page.locator("#goal-undo-form");
   await card.waitFor({ state: "visible" });
   const shape = await card.evaluate((form) => ({
-    after: form.previousElementSibling?.id ?? "",
+    home: form.dataset.home,
+    page: form.closest(".lx-page")?.dataset.page ?? "",
+    snapshotsPage: document.getElementById("snapshots-card")?.closest(".lx-page")?.dataset.page ?? "",
     headings: form.querySelectorAll("h2").length,
     unnamed: [...form.querySelectorAll("select")].filter((c) => !c.closest("label")).length,
     keyless: [...form.querySelectorAll("h2, label > span, button, option")].filter((n) => !n.dataset.t).length,
     values: [...form.querySelectorAll("select")].map((s) => s.value),
   }));
-  assert.equal(shape.after, "snapshots-card");
+  assert.equal(shape.home, "settings:data");
+  assert.equal(shape.page, "data", "it lives on the Data page of Settings");
+  assert.equal(shape.snapshotsPage, "data", "the same page as Workspace snapshots");
   assert.equal(shape.headings, 1);
   assert.equal(shape.unnamed, 0, "every switch has a label");
   assert.equal(shape.keyless, 0, "every word goes through a key");

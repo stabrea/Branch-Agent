@@ -219,7 +219,9 @@ function settingsCard($, el, t, app, applied) {
       status.textContent = t("goalUndo.saved");
     } catch (error) { status.textContent = error.message; }
   });
-  // Beside "Workspace snapshots", which the redesigned window keeps under Settings → data.
+  // Beside "Workspace snapshots", which the redesigned window keeps under Settings → data. The home
+  // lets public/layout.js place it there even when this runs before that card has been moved.
+  form.dataset.home = "settings:data";
   const after = $("snapshots-card");
   if (after) after.after(form); else $("settings")?.append(form);
   app.api("goal-undo/settings").then(show, () => undefined);
