@@ -191,6 +191,7 @@ import { migrate, storeMigrations } from "./never-break/migrations.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
+import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -923,6 +924,12 @@ export async function createBranch(options: {
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
   const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
     tokens: sessionTokens, files, policy: web.policy, version });
+  // ── mac6/bucket-23: the smaller asks (src/asks/). Every part ships off. ──
+  const asks = new Asks({ runtime, registry, web, files, flows, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
+    assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
+  // ── end mac6/bucket-23 ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -967,6 +974,8 @@ export async function createBranch(options: {
     interop,
     /** bucket-15: add-on packages, lists, filters, Pipelines, drafts, search sources, Branch as a plugin. */
     addOns,
+    /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
+    asks,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1229,6 +1238,7 @@ export async function createBranch(options: {
       knowledgeBases.vectors.close?.();
       skillPackages.stop();
       mcpServer.close();
+      asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

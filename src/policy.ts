@@ -174,6 +174,9 @@ const readOnlyPermissions = new Set([
   "gitlab.read",
   // A check-in writing down its own answer (src/heartbeat.ts); the news goes out afterwards, by Branch.
   "heartbeat.respond",
+  // mac6/bucket-23: a project's board, which intent a request is, the sources' cursors, the list of
+  // app steps and whether other Branch computers are up only look (src/asks/).
+  "projects.read", "intents.read", "sources.read", "blocks.read", "nodes.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

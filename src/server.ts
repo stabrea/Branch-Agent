@@ -108,6 +108,7 @@ import type { createBranch } from "./index.js";
 import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -412,6 +413,7 @@ async function staticFile(
     "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
+    "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2509,6 +2511,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
       // ---- end bucket 19 ----
+      // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
+      // only on this computer's own listener, since the name does not run out as an artifact's does.
+      if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -2612,6 +2617,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           if (answer !== notPeople) { send(response, 200, answer); return; }
         }
         // ---- end bucket 19 ----
+        // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
+        if (handlesAsksPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await asksApi({
+            asks: app.asks, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AsksHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket-23 block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3146,6 +3164,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
+    // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
+    || (request.method !== "GET" && handlesAsksPath(path))
   );
 }
 function configureLimits(server: Server): void {
