@@ -46,9 +46,16 @@ jobs:
       # weaker sandbox to everyone in order to make a test pass here.
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Linux has no screen on the runner; Electron tests draw into a virtual one.
+      # Linux has no screen on the runner; Electron tests draw into a virtual one. It has no keyring
+      # either, and the app rightly refuses to keep an API key without one, so a real keyring is
+      # started for the run and the settings test is told to insist on it.
       - if: runner.os == 'Linux'
-        run: xvfb-run -a npm test
+        run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends gnome-keyring
+      - if: runner.os == 'Linux'
+        env:
+          BRANCH_REQUIRE_KEY_STORE: '1'
+          XDG_CURRENT_DESKTOP: GNOME
+        run: dbus-run-session -- bash -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a npm test'
       - if: runner.os != 'Linux'
         run: npm test
       - run: python -m unittest discover -s experiments -p 'test_*.py'

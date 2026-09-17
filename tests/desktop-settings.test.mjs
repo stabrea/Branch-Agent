@@ -54,9 +54,29 @@ async function fixtureProvider() {
   return { server, requests, endpoint: `http://127.0.0.1:${server.address().port}/v1` };
 }
 
+/**
+ * A Linux machine with no keyring (a bare build box) cannot protect a key, and the app refuses to
+ * store one rather than falling back to plain text. There the refusal is what is checked. The CI
+ * runner starts a real keyring and sets BRANCH_REQUIRE_KEY_STORE, so the whole path is still proved
+ * on Linux and a keyring that failed to start fails the run instead of quietly skipping.
+ */
+async function refusesWithoutKeyStore(t, page, home) {
+  const summary = await page.evaluate(() => window.branchDesktop.modelSettings());
+  if (summary.canStoreKey) return false;
+  assert.notEqual(process.env.BRANCH_REQUIRE_KEY_STORE, "1", "this machine was set up with a keyring, but the app cannot use it");
+  assert.equal(process.platform, "linux", "only Linux may lack device key protection");
+  await page.getByText("Device key protection is unavailable. Configure the provider in the launch environment.").waitFor();
+  await page.getByRole("button", { name: "Save model connection", exact: true }).click();
+  await page.locator("#toast").filter({ hasText: "Device key storage is unavailable" }).waitFor();
+  const disk = await readFile(join(home, "model-settings.json"), "utf8").catch(() => "");
+  assert.equal(disk.includes("fixture-device-key-82743"), false);
+  t.skip("no keyring on this machine: checked that the key is refused, not stored");
+  return true;
+}
+
 test("native settings encrypt a key, keep IPC narrow, and connect after restart", {
   timeout: 90000,
-}, async () => {
+}, async (t) => {
   const { home, options } = await desktopOptions();
   delete options.env.BRANCH_PROVIDER;
   const provider = await fixtureProvider();
@@ -72,6 +92,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     await page.getByLabel("Web address of the service", { exact: true }).fill(provider.endpoint);
     await page.getByLabel("Model identifier", { exact: true }).fill("fixture-model");
     await page.getByLabel("API key", { exact: true }).fill("fixture-device-key-82743");
+    if (await refusesWithoutKeyStore(t, page, home)) return;
     await page.getByRole("button", { name: "Save model connection", exact: true }).click();
     await page.getByText("Connection saved. Quit from the tray and reopen Branch Agent to apply it.").waitFor();
     const disk = await readFile(join(home, "model-settings.json"), "utf8");

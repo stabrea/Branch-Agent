@@ -122,15 +122,22 @@ test('pending chat disables branching and conversation switching until its respo
 
 test('failed branch view keeps its created ID and retry opens it without another branch', async (t) => {
   const f = await fixture(t, async () => ({ content: 'done', toolCalls: [] }));
-  let fail = true, branchRequests = 0;
+  let fail = false, branchRequests = 0;
   f.page.on('request', request => {
     if (request.url().endsWith('/api/action') && request.postDataJSON()?.tool === 'sessions.branch') branchRequests++;
   });
+  /* Only the view of the new branch is refused. The pattern also matches the conversation search
+     (and the label list, which searches in the background), and on a slow machine one of those
+     used to take the single refusal, so the branch opened fine and no retry ever appeared. */
   await f.page.route('**/api/sessions/*', route => {
-    if (fail) { fail = false; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture view unavailable"}' }); }
+    const view = route.request().method() === 'GET' && !route.request().url().endsWith('/api/sessions/search');
+    if (fail && view) { fail = false; return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture view unavailable"}' }); }
     return route.continue();
   });
-  await branchCheckpoint(f.page);
+  await readCheckpoint(f.page);
+  fail = true;
+  await f.page.locator('#history-message').getByRole('button', { name: 'Branch from here', exact: true }).click();
+  await f.page.locator('#chat').waitFor({ state: 'visible' });
   const retry = f.page.getByRole('button', { name: 'Retry opening conversation', exact: true });
   await retry.waitFor(); await readyConversation(f.page);
   const id = await f.page.locator('#conversation').getAttribute('data-session-id');
