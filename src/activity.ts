@@ -20,6 +20,22 @@ const short = (value: unknown, max = 60): string => {
 };
 const host = (value: unknown): string => { try { return new URL(String(value)).host; } catch { return short(value); } };
 
+/** Tools whose first argument is a workspace file, so a call on one counts as touching that file. */
+const fileTools = new Set([
+  "files.read", "files.write", "files.edit", "files.validate", "files.verify",
+  "code.check", "document.open", "documents.add",
+]);
+/**
+ * The workspace file a call is about, or "" when it is about none. It is written beside the call in
+ * the task's own record so that "which files do you keep coming back to?" can be answered later
+ * from what actually happened. Only the path is kept, never what was in the file.
+ */
+export function filePathOf(name: string, args: unknown): string {
+  if (!fileTools.has(name)) return "";
+  const path = (args && typeof args === "object" ? (args as Record<string, unknown>).path : undefined);
+  return typeof path === "string" && path && path !== "." ? path.slice(0, 200) : "";
+}
+
 /** What a tool call is doing, for people; arguments are summarised and never echoed in full. */
 export function describeToolCall(name: string, args: unknown): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;

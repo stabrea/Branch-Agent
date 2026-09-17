@@ -263,6 +263,8 @@ async function staticFile(
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
     "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
+    // Wave 9: what it noticed by itself, and the refresh that shows its cost first.
+    "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -1165,6 +1167,17 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
   if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  // Wave 9: what the assistant has noticed for itself, and turning it into suggestions. Looking
+  // changes nothing at all; the second call only ever adds to the queue the owner decides on.
+  if (request.method === "GET" && path === "/api/memory/learned") return { noticed: app.learning.notice(owner) };
+  if (request.method === "POST" && path === "/api/memory/learned") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.learning.propose(owner);
+  }
+  // Wave 9: what reading recent conversations again for fact cards would cost. Worked out here
+  // with no model call at all, so the owner sees it before anything is sent anywhere. The reading
+  // itself is POST /api/knowledge/refresh, which answers with the same reckoning afterwards.
+  if (request.method === "GET" && path === "/api/memory/refresh") return app.knowledgeCards.cost(owner);
   const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
   if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);
