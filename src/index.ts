@@ -107,6 +107,16 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 import { KnowledgeBases } from "./knowledge-bases.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
 import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
+// Batch 20 (wave 8): writing Office files, a map of what a knowledge base mentions, summaries,
+// pictures described in words, a Markdown mirror of what is remembered, and text held for one job.
+import { DocumentAuthoring, registerDocumentAuthoring } from "./document-authoring.js";
+import { GraphRetriever, KnowledgeGraph } from "./knowledge-graph.js";
+import { KnowledgeSummaries } from "./knowledge-summary.js";
+import { KnowledgeManagement } from "./knowledge-manage.js";
+import { KnowledgePictures } from "./knowledge-pictures.js";
+import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
+import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
+import { EphemeralDocuments, EphemeralRetriever, registerEphemeralDocuments } from "./memory-ephemeral.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -463,6 +473,9 @@ export async function createBranch(options: {
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Writing Word, spreadsheet, slide, Markdown and web-page files, and changing Word and
+  // spreadsheet files in place with every untouched part kept byte for byte.
+  registerDocumentAuthoring(registry, new DocumentAuthoring(files, dataTables, artifacts, writeObserver));
   // Asking a question of one document, and holding two up against each other. Tables inside a
   // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
   const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
@@ -562,6 +575,28 @@ export async function createBranch(options: {
   store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
     { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // A summary of a whole knowledge base, a map of the names it mentions, pictures described in
+  // words, and the housekeeping: renaming, merging, splitting, saving out and bringing back.
+  const knowledgeGraph = new KnowledgeGraph(store, knowledgeBases, runtime.models);
+  const knowledgeSummaries = new KnowledgeSummaries(store, knowledgeBases, runtime.models);
+  const knowledgeManagement = new KnowledgeManagement(store, knowledgeBases, knowledgeSummaries);
+  const knowledgePictures = new KnowledgePictures(store, knowledgeBases, files, runtime.models);
+  const knowledgeParts: KnowledgeParts = { bases: knowledgeBases, graph: knowledgeGraph,
+    summaries: knowledgeSummaries, management: knowledgeManagement, pictures: knowledgePictures,
+    cards: new KnowledgeCards(store, knowledgeBases, runtime.models) };
+  registerKnowledgeExtras(registry, knowledgeParts, store);
+  // One hop through that map is another way of finding passages, beside words and meaning.
+  retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
+  // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
+  const taskText = new EphemeralDocuments();
+  registerEphemeralDocuments(registry, taskText);
+  retrieval.add(new EphemeralRetriever(taskText));
+  // What the assistant remembers, mirrored into the workspace as Markdown it may read but not change.
+  const memoryMirror = new MemoryMirror(store, files);
+  registerMemoryMirror(registry, memoryMirror);
+  files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
+  // And a knowledge base never reads those notes back in: they are the assistant's own writing.
+  knowledgeBases.skip = (path) => memoryMirror.owns(path);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
@@ -657,6 +692,12 @@ export async function createBranch(options: {
     retrieval,
     /** Named sets of folders and files, read into passages and searched by words and by meaning. */
     knowledgeBases,
+    /** Wave 8: summaries, the map of names, pictures in words, and knowledge-base housekeeping. */
+    knowledgeParts,
+    /** Wave 8: what the assistant remembers, written into the workspace as Markdown. */
+    memoryMirror,
+    /** Wave 8: text held for one job only. */
+    taskText,
     /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
     consolidation,
     /** The practice workspace: made-up files to try tools on safely. */
@@ -1099,6 +1140,21 @@ export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
+export * from "./document-package.js";
+export * from "./document-write.js";
+export * from "./document-docx.js";
+export * from "./document-xlsx.js";
+export * from "./document-pptx.js";
+export * from "./document-edit.js";
+export * from "./document-authoring.js";
+export * from "./knowledge-graph.js";
+export * from "./knowledge-summary.js";
+export * from "./knowledge-manage.js";
+export * from "./knowledge-pictures.js";
+export * from "./knowledge-more.js";
+export * from "./memory-mirror.js";
+export * from "./memory-ephemeral.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";

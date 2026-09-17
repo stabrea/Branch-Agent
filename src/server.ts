@@ -44,6 +44,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
+import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -257,6 +258,8 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
+    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
+    "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -651,6 +654,10 @@ async function api(
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
       request.method ?? "GET", path, () => readBody(request));
     if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    // Batch 20 (wave 8): summaries, the map of names, pictures in words, housekeeping and limits.
+    const more = await knowledgeExtrasApi(app.knowledgeParts, app.store, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (more !== undefined) return app.runtime.hideSecrets(more);
     throw new HttpError(404, "Not found");
   }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
@@ -1156,6 +1163,10 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
+  // Batch 27 (wave 8): write the Markdown mirror of what is remembered by hand. It also writes
+  // itself after every task, so this is for the owner who wants it now.
+  if (request.method === "POST" && path === "/api/memory/mirror")
+    return app.memoryMirror.regenerate(owner, await readBody(request));
   const decide = /^\/api\/memory\/proposals\/([a-f0-9-]{36})\/(accept|reject)$/.exec(path);
   if (decide && request.method === "POST") return app.store.review.decide(owner, decide[1]!, decide[2] === "accept");
   if (request.method === "GET" && path === "/api/memory/versions")

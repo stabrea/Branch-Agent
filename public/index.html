@@ -765,6 +765,38 @@
               <div id="knowledge-results" class="card-list"></div>
             </form>
           </div>
+          <div class="card" id="docs3-card">
+            <h2 data-t="documents.card.write-a-document">Write a document</h2>
+            <p class="subtle">Give it a name ending in .docx (Word), .xlsx (spreadsheet), .pptx (slides), .md or .html, and type what goes in it. A line starting with # is a heading; a line starting with - is a bullet. The file is saved in your workspace, and Branch does not type in it alongside anyone else.</p>
+            <div class="input-row">
+              <input id="docs3-write-path" type="text" maxlength="500" placeholder="reports/trip.docx" data-t-label="field.what-to-call-the-file" aria-label="What to call the file" />
+              <input id="docs3-write-title" type="text" maxlength="300" placeholder="Trip notes" data-t-label="field.title-inside-the-document" aria-label="Title inside the document" />
+              <button id="docs3-write-go" type="button" data-t="action.write-it">Write it</button>
+            </div>
+            <label for="docs3-write-body" data-t="field.what-goes-in-it">What goes in it</label>
+            <textarea id="docs3-write-body" rows="5" placeholder="# Holiday plan&#10;We leave on the fifth of June.&#10;- Passports&#10;- Tickets"></textarea>
+            <p id="docs3-write-result" role="status"></p>
+            <h3 data-t="documents.heading.sum-up-a-knowledge-base">Sum up a knowledge base</h3>
+            <p class="subtle">A short write-up of everything in one knowledge base, with a numbered source under each point so you can check it. Asking again costs nothing until the files change.</p>
+            <div class="input-row">
+              <input id="docs3-summary-collection" type="text" maxlength="120" placeholder="Handbook" data-t-label="field.which-knowledge-base" aria-label="Which knowledge base" />
+              <input id="docs3-summary-focus" type="text" maxlength="300" placeholder="holiday (optional)" data-t-label="field.what-to-sum-up" aria-label="What to sum up" />
+              <button id="docs3-summary-go" type="button" data-t="action.sum-it-up">Sum it up</button>
+            </div>
+            <div id="docs3-summary-result" role="status"></div>
+            <h3 data-t="documents.heading.what-is-mentioned-with-what">What is mentioned with what</h3>
+            <p class="subtle">Look up a name and see everything a knowledge base mentions alongside it, with the file each link came from. Build the map first with the assistant, then look a name up here.</p>
+            <div class="input-row">
+              <input id="docs3-map-collection" type="text" maxlength="120" placeholder="Handbook" data-t-label="field.which-knowledge-base" aria-label="Which knowledge base" />
+              <input id="docs3-map-entity" type="text" maxlength="200" placeholder="Dane Heating" data-t-label="field.a-name-to-look-up" aria-label="A name to look up" />
+              <button id="docs3-map-go" type="button" data-t="action.look-it-up">Look it up</button>
+            </div>
+            <div id="docs3-map-result" role="status"></div>
+            <h3 data-t="documents.heading.knowledge-base-limits">Knowledge base limits</h3>
+            <p class="subtle">If you have set an age or size limit, this says which knowledge bases are over it. Nothing is ever removed here: each one becomes a suggestion in Memory for you to decide on.</p>
+            <button id="docs3-limits-go" type="button" data-t="action.check-the-limits">Check the limits</button>
+            <div id="docs3-limits-result" role="status"></div>
+          </div>
           <div class="card">
             <h2 data-t="documents.card.made-by-the-assistant">Made by the assistant</h2>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
@@ -1545,6 +1577,7 @@
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
+    <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
   </body>
 </html>
