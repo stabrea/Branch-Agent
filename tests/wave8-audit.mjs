@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { openPlace } from "./places.mjs";
 
 const SECTIONS = ["chat", "runs", "usage", "memory", "skills", "specialists", "procedures", "schedules", "documents", "settings"];
 const answers = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
@@ -31,9 +32,8 @@ await page.waitForTimeout(800);
 
 const report = {};
 for (const view of SECTIONS) {
-  const nav = page.locator(`.nav[data-view="${view}"]`).first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
+  /* Opened the way a person opens it in the redesigned window (tests/places.mjs). */
+  await openPlace(page, view);
   await page.evaluate(() => document.body.classList.remove("rail-open"));
   await page.waitForTimeout(450);
   report[view] = await page.evaluate((id) => {

@@ -1,8 +1,10 @@
-import { isAbsolute } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { z } from 'zod';
 
-const safeKey = z.enum(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TZ', 'CI', 'NO_COLOR']);
+// The last five are for macOS and Linux shells; a Windows computer does not normally have them.
+const safeKey = z.enum(['PATH', 'PATHEXT', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TZ', 'CI', 'NO_COLOR',
+  'HOME', 'TMPDIR', 'USER', 'LOGNAME', 'SHELL']);
 const argument = z.string().max(4000).refine(value => !value.includes('\0'), 'NUL is not permitted');
 export const ShellConfigSchema = z.object({
   executables: z.record(z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/), z.object({
@@ -57,6 +59,45 @@ export function shellEnvironment(config: ShellConfig, source: NodeJS.ProcessEnv)
     if (entry?.[1]) result[key] = entry[1];
   }
   return { ...result, ...config.env };
+}
+
+/** How a full address begins, in the owner's words: from the drive on Windows, from `/` elsewhere. */
+export const fromTheTop = (platform: NodeJS.Platform = process.platform): string =>
+  platform === 'win32' ? 'starting from the drive' : 'starting with /';
+
+/**
+ * The command line a person would expect on each computer: PowerShell on Windows (unchanged), zsh
+ * on macOS, and on Linux the one the person chose (`$SHELL`) or bash. This only suggests a program;
+ * nothing runs until the owner adds it to the list of programs commands may be run with.
+ */
+export function defaultShellFor(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = {}): { path: string; args: string[] } {
+  if (platform === 'win32')
+    return { path: `${env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+      args: ['-NoProfile', '-NonInteractive', '-Command', '-'] };
+  if (platform === 'darwin') return { path: '/bin/zsh', args: ['-f'] };
+  const chosen = env.SHELL;
+  const usable = chosen && isAbsolute(chosen) && /^(bash|zsh|sh|dash|ksh)$/.test(basename(chosen));
+  return { path: usable ? chosen : '/bin/bash', args: [] };
+}
+
+/**
+ * One argument written so the named shell reads it back unchanged. For a person composing a line to
+ * send to a kept-open command line; commands Branch Agent starts itself never go through a shell.
+ */
+export function quoteForShell(shell: string, value: string): string {
+  if (value.includes('\0')) throw new Error('NUL is not permitted');
+  const name = basename(shell.replace(/\\/g, '/')).toLowerCase().replace(/\.exe$/, '');
+  if (name === 'powershell' || name === 'pwsh') return `'${value.replace(/['\u2018\u2019\u201a\u201b]/g, '$&$&')}'`;
+  if (name === 'cmd') throw new Error('cmd.exe has no safe way to quote an argument; use PowerShell');
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Names macOS and Linux programs need from the host that a Windows computer does not have. */
+export function posixEnvironment(names: readonly string[], source: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  if (platform === 'win32') return {};
+  const result: NodeJS.ProcessEnv = {};
+  for (const name of names) if (source[name]) result[name] = source[name];
+  return result;
 }
 
 export async function validateExecutables(config: ShellConfig): Promise<void> {

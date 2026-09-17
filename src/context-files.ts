@@ -47,7 +47,7 @@
  * their assistant talks to them, and it is also reported as permission-shaped so nobody mistakes it
  * for a setting. What it cannot do is open a gate: the gate is somewhere else entirely.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
@@ -322,7 +322,55 @@ const foldersFor = (store: Store, owner: string, workspace: string): Folders => 
   allows: (folder) => folderAllows(store, owner, folder),
 });
 
-const nothingOn: AssembledContext = { text: "", reports: [], bytes: 0, replacesPersona: false };
+/** What happened when text from elsewhere was written into one of these files. */
+export interface WrittenFile {
+  key: SlotKey; name: string; folder: string; setting: ContextSwitch;
+  outcome: "created" | "added" | "already there";
+  /** False when the file sits in a workspace folder the loader will not read until the owner trusts it. */
+  readable: boolean;
+}
+
+/** The slot a file name belongs to. `GEMINI.md` is one more name for the working-instructions file. */
+export function slotForName(name: string): SlotKey | null {
+  if (name === "GEMINI.md") return "agents";
+  return slots.find((slot) => (slot.names as readonly string[]).includes(name))?.key ?? null;
+}
+
+/**
+ * Writes text brought over from another assistant into the file this loader reads for its slot.
+ * An existing file wins the name and the text is added under a line saying where it came from, so
+ * nothing the owner wrote is replaced; the same text is never added twice. A new file takes the
+ * slot's first name, in the folder the slot is read from. Links are never followed. The switch is
+ * left as it is: a slot that is off stays off, and the result says so. Folder trust is asked the
+ * same way the loader asks it: a file about the owner skips an untrusted workspace for the owner's
+ * own folder, and a file about the work is still written but reported as not read yet.
+ */
+export function writeContextFile(store: Store, owner: string, workspace: string,
+  input: { name: string; text: string; from: string }): WrittenFile {
+  const key = slotForName(input.name);
+  const slot = slots.find((entry) => entry.key === key);
+  if (!key || !slot) throw new Error(`${input.name} is not one of the files Branch reads`);
+  const trusted = folderAllows(store, owner, workspace);
+  const roots = slot.scope === "owner" ? (trusted ? [workspace, store.folder] : [store.folder]) : [workspace];
+  const existing = roots.flatMap((folder) => slot.names.map((name) => ({ folder, name })))
+    .find((place) => lstatSync(join(place.folder, place.name), { throwIfNoEntry: false }) !== undefined);
+  const place = existing ?? { folder: slot.scope === "owner" ? store.folder : workspace, name: slot.names[0] };
+  const path = join(place.folder, place.name), text = input.text.trim();
+  const setting = switchFor(contextFileSettings(store, owner), key);
+  const written = (outcome: WrittenFile["outcome"]): WrittenFile =>
+    ({ key, name: place.name, folder: place.folder, setting, outcome, readable: place.folder === store.folder || trusted });
+  if (existing) {
+    if (!lstatSync(path).isFile()) throw new Error(`${place.name} in ${place.folder} is not a plain file, so nothing was added to it`);
+    if (readFileSync(path, "utf8").includes(text)) return written("already there");
+  }
+  const flags = constants.O_WRONLY | constants.O_NOFOLLOW | (existing ? constants.O_APPEND : constants.O_CREAT | constants.O_EXCL);
+  const handle = openSync(path, flags, 0o600);
+  try { writeSync(handle, existing ? `\n\n<!-- Brought over from ${input.from} -->\n${text}\n` : `${text}\n`); }
+  finally { closeSync(handle); }
+  return written(existing ? "added" : "created");
+}
+
+const nothingOn: AssembledContext ={ text: "", reports: [], bytes: 0, replacesPersona: false };
 
 /** Puts the owner's files in front of the model, and writes down what was carried. */
 export function contextFileInstructions(store: Store, context: ToolContext): AssembledContext {

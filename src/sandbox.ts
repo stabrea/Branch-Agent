@@ -13,7 +13,7 @@ export type SandboxChoice = (typeof sandboxChoices)[number];
 
 /** What one choice means for a program about to be started. */
 export interface SandboxShape {
-  /** Hand the program to Windows in a job, so the memory and processor ceilings are enforced. */
+  /** Have the system hold the memory and processor ceilings (a Windows job, or a limited process group on macOS and Linux). */
   job: boolean;
   /** Point the program at a dead address, so it cannot reach the internet. */
   netless: boolean;
@@ -25,12 +25,21 @@ const shapes: Record<SandboxChoice, SandboxShape> = {
   none: { job: false, netless: false },
 };
 
+/** Who holds the ceilings on each computer, in the owner's words. */
+export const systemName = (platform: NodeJS.Platform = process.platform): string =>
+  platform === "win32" ? "Windows" : platform === "darwin" ? "macOS" : platform === "linux" ? "Linux" : "the system";
+
 /** Plain words for the settings screen and the approval card. */
-export const sandboxSentences: Record<SandboxChoice, string> = {
-  "no-internet": "in a box Windows holds to its memory and processor limits, with no way out to the internet",
-  "limits-only": "in a box Windows holds to its memory and processor limits",
-  none: "with no box around it",
-};
+export function sandboxSentencesFor(platform: NodeJS.Platform = process.platform): Record<SandboxChoice, string> {
+  const system = systemName(platform);
+  return {
+    "no-internet": `in a box ${system} holds to its memory and processor limits, with no way out to the internet`,
+    "limits-only": `in a box ${system} holds to its memory and processor limits`,
+    // A rule never loosens the settings, so "none" adds no box of its own; the settings may still hold one.
+    none: "with no extra box beyond what the settings already hold",
+  };
+}
+export const sandboxSentences: Record<SandboxChoice, string> = sandboxSentencesFor();
 export const sandboxSentence = (choice: SandboxChoice): string => sandboxSentences[choice];
 
 /**
@@ -39,10 +48,11 @@ export const sandboxSentence = (choice: SandboxChoice): string => sandboxSentenc
  */
 export function sandboxShape(choice: SandboxChoice | null | undefined, fallback: SandboxShape): SandboxShape {
   if (!choice) return fallback;
-  // A rule may hold a program more tightly than the settings already do, never more loosely. If the
-  // settings say this tool has no way out to the internet, no choice on a rule opens that way again:
-  // the owner switched the internet off in one place and should not have it come back in another.
-  return { job: shapes[choice].job, netless: shapes[choice].netless || fallback.netless };
+  // A rule may hold a program more tightly than the settings already do, never more loosely, and that
+  // holds for every field. If the settings say this tool has no way out to the internet, or that the
+  // system holds its limits, no choice on a rule takes that away: the owner switched it on in one
+  // place and should not have it switched off in another.
+  return { job: shapes[choice].job || fallback.job, netless: shapes[choice].netless || fallback.netless };
 }
 
 /** The choice a shape amounts to, for reporting back what a program actually ran under. */
