@@ -8,6 +8,7 @@ import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
 import { sandboxShape, shapeChoice, type WallContext } from '../sandbox.js';
 import { openWall } from '../sandbox-backends.js'; // wave mac3 (os-sandbox)
+import { withPassedEnvironment } from '../knobs/environment.js'; // R17-S10
 
 /** Longest a command waits for its Windows job object before running with sampled limits. */
 const jobStartupMs = 1000;
@@ -92,8 +93,8 @@ export class BranchShell {
     injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal;
     wall?: WallContext | undefined; workspace: string; passed?: Record<string, string> }): Promise<ProcessResult> {
     // The environment is built from an allowlist only, then the owner's extra names (R17-S10, never a
-    // secret), then the dead-address proxy, then secrets.
-    const env = { ...this.env, ...(run.passed ?? {}), ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
+    // secret, never replacing a name already set), then the dead-address proxy, then secrets.
+    const env = { ...withPassedEnvironment(this.env, run.passed ?? {}), ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
     // wave mac3 (os-sandbox): behind the wall when the owner's switch says so. A saved key the owner
     // tied to a site reaches the program only as a stand-in; the wall's door swaps the real one in.
     const plain = { executable: run.executable.path, args: [...run.executable.args, ...run.args], cwd: run.cwd, env };

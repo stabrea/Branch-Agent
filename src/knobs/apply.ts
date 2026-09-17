@@ -42,18 +42,25 @@ export function retryPolicyFor(store: Reader, owner: string, policy: RetryPolicy
   return retries === null ? policy : { ...policy, maxRetries: retries };
 }
 
-/** R17-S09: the sentence that stops a task that has reached its spending cap, or null. */
-export function spendCapRefusal(store: Store, owner: string, runId: string, model: string): string | null {
+/**
+ * R17-S09: whether a task has reached the owner's spending cap. `runIds` is the task and every
+ * sub-task it started, so what a sub-task spends counts against the task that started it. A model
+ * with no price on file cannot be checked; `unpriced` then says so in one sentence.
+ */
+export function spendCapCheck(store: Store, owner: string, runIds: readonly string[], model: string): { refusal: string | null; unpriced: string | null } {
   const cap = readKnobs(store, owner, "limits").spendCapDollars;
-  if (cap === null) return null;
-  const usage = store.usage(runId);
-  const { overrides } = pricingSettings(store, owner);
-  const estimate = estimateCost(model, {
-    input: usage.reportedInput || usage.estimatedInput || 0,
-    output: usage.reportedOutput || usage.estimatedOutput || 0,
-  }, overrides);
-  if (estimate.amount === null || estimate.amount < cap) return null;
-  return `This task stopped because it has cost about ${formatCost(estimate)}, which reaches the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`;
+  if (cap === null) return { refusal: null, unpriced: null };
+  const used = { input: 0, output: 0 };
+  for (const runId of runIds) {
+    const usage = store.usage(runId);
+    used.input += usage.reportedInput || usage.estimatedInput || 0;
+    used.output += usage.reportedOutput || usage.estimatedOutput || 0;
+  }
+  const estimate = estimateCost(model, used, pricingSettings(store, owner).overrides);
+  if (estimate.amount === null)
+    return { refusal: null, unpriced: `The spending limit of $${cap.toFixed(2)} cannot be checked for ${model}: there is no price on file for it. Add one on the Usage page.` };
+  if (estimate.amount < cap) return { refusal: null, unpriced: null };
+  return { refusal: `This task stopped because it has cost about ${formatCost(estimate)}, which reaches the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`, unpriced: null };
 }
 
 /** R17-S10: the longest tool answer the model reads, and the longest a tool call may run. */

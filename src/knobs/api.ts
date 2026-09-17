@@ -4,10 +4,11 @@ import type { Store } from "../store.js";
 import { leakKinds } from "../leak-guard.js";
 import { currentPerson } from "../people/context.js";
 import { startedWithShortLivedKey } from "../key-context.js";
-import { allKnobs, knobCardNames, readKnobs, resetKnobs, saveKnobs, type KnobCard } from "./settings.js";
+import { allKnobs, knobCardNames, resetKnobs, saveKnobs, type KnobCard } from "./settings.js";
 import { memoryProvider, saveMemoryProvider } from "./apply.js";
 import { refusedEnvironmentName } from "./environment.js";
 import { launchFileView, saveLaunchFile } from "./launch-file.js";
+import { contextLimit } from "../runtime.js";
 
 /**
  * R17-S-B: the screen's way in.
@@ -18,7 +19,8 @@ import { launchFileView, saveLaunchFile } from "./launch-file.js";
  *   POST /api/knobs/launch-file  changes the few fields the card offers; used from the next start
  *
  * Every change is the owner's: a short-lived key is refused before this is reached (src/server.ts,
- * src/short-lived-keys.ts), and the security-relevant parts refuse a household profile as well.
+ * src/short-lived-keys.ts), and a household profile is refused here, since every card is the owner's
+ * own setting. The owner's "about you" note is shown to the owner only.
  */
 export class KnobsApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -50,15 +52,21 @@ function requireOwnerHere(store: Store, what: string): void {
   try { store.profiles.requireOwner(what); } catch (error) { throw new KnobsApiError(403, (error as Error).message); }
 }
 
+/** Whether the one asking is the owner, in the owner's own profile and with the computer's own key. */
+const ownerHere = (store: Store): boolean => !startedWithShortLivedKey() && !currentPerson() && store.profiles.isOwner();
+
 function view(app: KnobsApp) {
   const { store, runtime } = app;
+  const values = allKnobs(store, runtime.owner);
+  if (!ownerHere(store)) values.memory = { ...values.memory, aboutYou: "" };
   return {
-    values: allKnobs(store, runtime.owner),
+    values,
+    aboutYouHidden: !ownerHere(store),
     memoryProvider: memoryProvider(store, runtime.owner),
     connections: [...runtime.models.presets.values()].map((preset) => ({ id: preset.id, name: preset.name })),
     leakKinds: leakKinds.filter((kind) => kind !== "private key"),
     launched: {
-      contextWindowTokens: 20000,
+      contextWindowTokens: contextLimit,
       toolAnswerChars: runtime.reliability.toolResultChars,
       toolTimeoutSeconds: Math.round(runtime.reliability.toolTimeoutMs / 1000),
       apiRetries: runtime.retryPolicy.maxRetries,
@@ -75,15 +83,12 @@ function checkValues(app: KnobsApp, card: KnobCard, values: Record<string, unkno
     && !Object.keys(values.effortByModel).every(known))
     throw new KnobsApiError(400, "That connection is not set up. Pick one from the list.");
   if (card === "commands" && "passEnvironment" in values) {
-    const before = readKnobs(app.store, app.runtime.owner, "commands").passEnvironment;
-    if (JSON.stringify(before) !== JSON.stringify(values.passEnvironment)) requireOwnerHere(app.store, "Which environment variables commands get");
     for (const name of Array.isArray(values.passEnvironment) ? values.passEnvironment : []) {
       const refused = refusedEnvironmentName(String(name));
       if (refused) throw new KnobsApiError(400, refused);
     }
   }
   if (card === "leakGuard") {
-    requireOwnerHere(app.store, "How key-like values are hidden");
     const allowed = new Set(leakKinds.filter((kind) => kind !== "private key"));
     for (const kind of Array.isArray(values.exceptions) ? values.exceptions : [])
       if (!allowed.has(String(kind))) throw new KnobsApiError(400, `"${String(kind).slice(0, 40)}" is not a kind of value that can be let through.`);
@@ -93,8 +98,8 @@ function checkValues(app: KnobsApp, card: KnobCard, values: Record<string, unkno
 function save(app: KnobsApp, body: unknown) {
   const input = SaveSchema.parse(body);
   const { store, runtime: { owner } } = app;
+  requireOwnerHere(store, "These settings");
   if (input.reset) {
-    if (input.card === "leakGuard" || input.card === "commands") requireOwnerHere(store, "This card");
     resetKnobs(store, owner, input.card);
   } else if (input.values) {
     checkValues(app, input.card, input.values);

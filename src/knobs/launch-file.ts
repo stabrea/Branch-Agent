@@ -1,4 +1,5 @@
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { LaunchFileSchema } from "../integrations/bootstrap.js";
 import { readIntegrationFacts } from "../security-audit/integration-facts.js";
@@ -79,9 +80,23 @@ export async function saveLaunchFile(path: string | null, input: unknown) {
   const next = patched(record(JSON.parse(await readFile(path, "utf8"))), change);
   const text = `${JSON.stringify(next, null, 2)}\n`;
   if (Buffer.byteLength(text) > 65536) throw new Error("The launch settings file would be larger than Branch reads.");
-  const mode = (await stat(path)).mode & 0o777;
-  const temporary = `${path}.${process.pid}.saving`;
-  await writeFile(temporary, text, { mode });
-  await rename(temporary, path);
+  await replaceFile(await realpath(path), text);
   return { ...(await launchFileView(path)), savedForNextStart: true };
+}
+
+/**
+ * Replaces the file in one step. A link the owner made stays a link: the file it points at is the
+ * one written. The spare copy has a name nobody can guess and is only ever created new, so a link
+ * planted beside the file cannot turn the write towards another file.
+ */
+async function replaceFile(target: string, text: string): Promise<void> {
+  const mode = (await stat(target)).mode & 0o777;
+  const temporary = `${target}.${randomBytes(8).toString("hex")}.saving`;
+  try {
+    await writeFile(temporary, text, { mode, flag: "wx" });
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }

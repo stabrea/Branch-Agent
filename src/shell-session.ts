@@ -12,6 +12,7 @@ import { ShellConfigSchema, shellEnvironment, type ShellConfig } from "./integra
 import { backgroundSettings, type BackgroundSettings } from "./processes.js";
 import { placeTask, placementLine } from "./dispatch-fallback.js";
 import { commandTuning, keptOpenShellAllowed } from "./knobs/commands.js"; // R17-S10
+import { withPassedEnvironment } from "./knobs/environment.js"; // R17-S10
 
 /**
  * A command line the owner can keep open. An ordinary command starts a program, waits for it and
@@ -188,7 +189,7 @@ export class ShellSessions {
     const argv = startedThrough(job, { executable: program.path, args: [...program.args, ...input.args] });
     const child = spawn(argv.executable, argv.args, { cwd, shell: false,
       windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
-      env: { ...this.env, ...commandTuning(this.store, this.owner, this.source).env } }); // R17-S10
+      env: withPassedEnvironment(this.env, commandTuning(this.store, this.owner, this.source).env) }); // R17-S10
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const shell = new OpenShell(input.name, input.program, this.sessionOf(context), child, job,
       limits.bufferBytes, limits.maxMinutes);

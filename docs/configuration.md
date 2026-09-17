@@ -6768,7 +6768,7 @@ short-lived key can read them but never change them.
 | | `keepRecentMessages` | `6` | Newest messages never folded. |
 | | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
 | How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
-| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much. Unpriced models are not counted. |
+| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
 | Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
 | How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
 | | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
@@ -6788,13 +6788,18 @@ short-lived key can read them but never change them.
 | Hiding key-like values (Settings, Permissions) | `sensitivity` | `standard` | `strict` also hides long random-looking strings with digits and both cases. |
 | | `exceptions` | `[]` | Kinds of value not hidden. A private key is never let through. Owner only. |
 
-**Security.** `passEnvironment` and the leak guard card can only be changed with the computer's own
-key, in the owner's own profile, never by a household person or a short-lived key, and the card says
-so in plain words. A variable name that mentions a key, token, secret, password, credential, sign-in,
-cookie, session or certificate is refused when it is saved and again when a command starts, and so
-is a name that changes which code a program loads (`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`,
-`GIT_*` and the like). A value that looks like a key is left out even under an allowed name. The
-leak guard's address check (`credentialInUrl`) is not affected by exceptions.
+**Security.** Every card can only be changed with the computer's own key, in the owner's own profile,
+never by a household person or a short-lived key, and the card says so in plain words. The owner's
+"about you" note is only shown to the owner. A variable name that mentions a key, token, secret,
+password, credential, sign-in, cookie, session or certificate is refused when it is saved and again
+when a command starts, and so is a name that changes which code a program loads, where it connects or
+which settings file it reads: the search path (`PATH`, `PATHEXT`), proxies and certificate bundles
+(`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`), whole families such as `LD_*`, `DYLD_*`, `GIT_*`,
+`NODE_*`, `npm_config_*`, `PYTHON*`, `JAVA*`, `AWS_*`, `OPENAI_*`, `DOTNET_*`, and single names such as
+`HOME`, `SHELL`, `ENV`, `BASH_ENV`, `EDITOR` and `PROMPT_COMMAND`. Letter case never matters. A passed
+name never replaces one the launch file already sets, and on Windows it is looked up in any letter
+case. A value that looks like a key is left out even under an allowed name, whatever the leak guard's
+exceptions say. The leak guard's address check (`credentialInUrl`) is not affected by exceptions.
 
 **The launch settings file as a card.** "Settings from the launch file" (Settings, Computer) shows
 what `BRANCH_INTEGRATIONS` sets up: how many AI tool servers and hooks, which chat apps and programs,
@@ -6802,7 +6807,8 @@ and where a key-like value is written. `GET /api/knobs/launch-file` reads it the
 check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `shell.netless` and
 `browser.allowedOrigins` (`POST /api/knobs/launch-file` with `commandTimeoutSeconds`,
 `commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
-launch schema before it is replaced in one step, and the change is used from the next start.
+launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
+linked file keeps its link and the file it points at is written), and the change is used from the next start.
 
 **macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
 apply to the same program list on every system; the loader names refused include the macOS

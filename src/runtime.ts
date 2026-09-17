@@ -157,7 +157,7 @@ export const compactionThreshold = compactionThresholdFloor;
 const compactionKeep = 6;
 /** Hard cap on one request's estimated tokens; kept well above the compaction threshold so that
  *  three clipped tool results still fit after the catalog. Raised with the threshold (wave 5). */
-const contextLimit = 20000;
+export const contextLimit = 20000;
 /** Toolboxes the model is always shown, before the guess at what this task needs. */
 const alwaysOpenGroups = ["core", "files"] as const;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
@@ -224,6 +224,9 @@ export interface RunOptions {
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
   private readonly children = new Map<string, number>();
+  /** R17-S09: the task each running run's spending counts against, and every run in that task, kept while any of them runs. */
+  private readonly spendRoot = new Map<string, string>();
+  private readonly spendMembers = new Map<string, Set<string>>();
   /** Results of background specialists that finished after their parent, newest first. */
   readonly backgroundResults: BackgroundResult[] = [];
   /** Per session: write tool calls whose outcome is unknown after an interruption, until a read has checked the state. */
@@ -708,6 +711,7 @@ ${run.output.slice(0, 6000)}`;
     if (inlet?.blocked) throw new Error(inlet.blocked);
     if (inlet?.applied.length) options = { ...options, prompt: inlet.text };
     const run = this.prepareRun(options);
+    this.joinSpend(run.id, parent?.runId); // R17-S09
     if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
@@ -783,6 +787,7 @@ ${run.output.slice(0, 6000)}`;
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
     this.guards.forget(run.id); // wave mac2 (guards)
+    this.leaveSpend(run.id); // R17-S09
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     // ── mac3/reflection-skills: once a task of the owner's has settled, the learning loop may look back
     // over the conversation or draft a skill (src/reflection/hook.ts). Its one model question is
@@ -796,6 +801,27 @@ ${run.output.slice(0, 6000)}`;
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
+  }
+  /** R17-S09: a sub-task's spending counts against the task at the top of its tree. */
+  private joinSpend(runId: string, parentRunId: string | undefined): void {
+    const root = parentRunId ? this.spendRoot.get(parentRunId) ?? parentRunId : runId;
+    this.spendRoot.set(runId, root);
+    const members = this.spendMembers.get(root) ?? new Set([root]);
+    this.spendMembers.set(root, members.add(runId));
+  }
+  private leaveSpend(runId: string): void {
+    const root = this.spendRoot.get(runId);
+    this.spendRoot.delete(runId);
+    if (root && ![...this.spendRoot.values()].includes(root)) this.spendMembers.delete(root);
+  }
+  /** R17-S09: stops a task whose tree has reached the owner's cap; says once when the cap cannot be checked. */
+  private checkSpendCap(run: Run, model: string): void {
+    const root = this.spendRoot.get(run.id);
+    const family = root ? [...(this.spendMembers.get(root) ?? [run.id])] : [run.id];
+    const check = knobs.spendCapCheck(this.store, this.owner, family, model);
+    if (check.refusal) throw new BudgetError(check.refusal);
+    if (check.unpriced && !this.store.events(run.id).some((event) => event.kind === "limits.spend_unpriced"))
+      this.store.event(run.id, "limits.spend_unpriced", { model, message: check.unpriced });
   }
   /** R17-S11: the connection side jobs use: the owner's choice when it exists, else the conversation's own. */
   private sideJobPreset(owner: string, sessionId: string, fallback?: ModelPreset): ModelPreset {
@@ -1043,11 +1069,10 @@ ${run.output.slice(0, 6000)}`;
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
       const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
       const shown = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
-      // R17-S12: with "show reasoning" off, written-out thinking never reaches the page or the answer.
+      // R17-S12: with "show reasoning" off, written-out thinking never reaches the page (and `complete` takes it out of the answer).
       const reasoningShown = knobs.showsReasoning(this.store, this.owner);
       const preview = shown && !reasoningShown ? thinkingFilter(shown) : shown;
       const completion = await this.completeWithRetries(run, messages, context, route, preview);
-      if (!reasoningShown) completion.content = withoutThinking(completion.content);
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -1633,8 +1658,7 @@ ${run.output.slice(0, 6000)}`;
   ): Promise<Completion> {
     context.budget.step(context.signal);
     // R17-S09: a task that has reached the owner's spending cap for one task stops here.
-    const capped = knobs.spendCapRefusal(this.store, this.owner, run.id, preset.model);
-    if (capped) throw new BudgetError(capped);
+    this.checkSpendCap(run, preset.model);
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
     if (input > knobs.contextWindow(this.store, this.owner, contextLimit)) throw new BudgetError(tooLong); // R17-S08
@@ -1649,7 +1673,7 @@ ${run.output.slice(0, 6000)}`;
       shape: shape?.name ?? null,
     };
     const kept = this.requestCache.look(cacheKey);
-    if (kept) return this.answeredFromCache(run, preset, kept, input);
+    if (kept) return this.shownThinking(this.answeredFromCache(run, preset, kept, input));
     context.budget.charge(input);
     if (maxTokens < 1) throw new BudgetError(`Token budget exhausted.${this.spentOnRun(run.id, preset.model)}`);
     this.store.beginUsage(run.id, input);
@@ -1696,7 +1720,7 @@ ${run.output.slice(0, 6000)}`;
       span?.end("ok", "", { "branch.tool_calls": completion.toolCalls.length, "branch.tokens.estimated_output": output });
       // Only a plain answer is kept; one that asks for a tool would replay whatever that tool does.
       this.requestCache.keep(cacheKey, completion);
-      return completion;
+      return this.shownThinking(completion);
     } catch (e) {
       if (e instanceof ProviderStreamError)
         this.recordStreamFailure(run, context, e, input);
@@ -1705,6 +1729,11 @@ ${run.output.slice(0, 6000)}`;
       span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
+  }
+  /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
+  private shownThinking(completion: Completion): Completion {
+    if (knobs.showsReasoning(this.store, this.owner)) return completion;
+    return { ...completion, content: withoutThinking(completion.content) };
   }
   /**
    * A round answered from the kept answers. The provider was never asked, so the round is written
