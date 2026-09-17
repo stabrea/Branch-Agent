@@ -33,6 +33,15 @@ This folder is the operating manual for the autonomous build loop that produced 
   on which branch, so an outside contributor can see what is taken. `CONTRIBUTING.md` explains how
   to read the boxes.
 - Plain language everywhere the owner reads: UI copy, docs, release notes, error sentences. KeepOak tokens only; the design tests enforce it.
+- **Never run the suite in the working copy you are editing.** Three runs were thrown away in one
+  day because the tree changed underneath them: a rebuild, a commit, and an edit to four test files,
+  each made in the same checkout the suite was reading. A contaminated run is worse than no run,
+  because it looks like a result. `docs/agents/scripts/verify.sh [commit]` checks the commit out in
+  `Codex/Branch-verify`, rebuilds from scratch and runs everything there, so whatever you do next
+  cannot touch it.
+- **Do not pipe a long test run through `tail` or `head`.** They buffer, so you see nothing until the
+  process ends, and if it hangs you are blind. One hanging test cost four killed runs before I wrote
+  the output to a file and read it while it was still going.
 - **`npm run build` can leave `dist/` stale after a merge, silently.** On 2026-09-16 the merge of
   `wave8/sandbox-remote` added a static route to `src/server.ts`, the build reported nothing wrong,
   and the built `dist/server.js` did not contain it: the page then failed to load its own script with
