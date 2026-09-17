@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { chromium, type Browser, type ConnectOptions } from 'playwright';
 import { z } from 'zod';
 import { FeatureModeSchema } from '../feature-switches.js';
+import { isTailnetAddress } from '../remote/tailscale.js';
 import type { Store } from '../store.js';
 
 /**
@@ -21,12 +22,28 @@ export const settingsKey = 'browser-container';
 export const tokenProject = 'default';
 export const tokenName = 'BROWSER_CONTAINER_TOKEN';
 
+/**
+ * Integration review (adversarial): a Playwright server runs whatever is asked of it, and the token
+ * that opens it travels on the connection itself. Plain `ws:` is therefore allowed only where the
+ * wire is already the owner's own — this computer, or a private network they run: Tailscale's
+ * 100.64.0.0/10 addresses and the `.ts.net` names that go with them. Everywhere else needs `wss:`.
+ */
+export function plainWsAllowed(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1') return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (host === 'ts.net' || host.endsWith('.ts.net')) return true;
+  return isTailnetAddress(host);
+}
+
 const endpointSchema = z.string().trim().max(300).refine(value => {
   try {
     const url = new URL(value);
-    return ['ws:', 'wss:'].includes(url.protocol) && !url.username && !url.password && !url.search;
+    if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search) return false;
+    return url.protocol === 'wss:' || plainWsAllowed(url.hostname);
   } catch { return false; }
-}, 'The address must start with ws:// or wss://, with no name, password or ?key in it (put the key in the token box)');
+}, 'The address must start with wss://, or with ws:// only for this computer or your own Tailscale network, '
+  + 'and carry no name, password or ?key (put the key in the token box)');
 
 export const BrowserContainerSchema = z.object({
   /** The three-way switch. Off: the browser runs on this computer exactly as before. */

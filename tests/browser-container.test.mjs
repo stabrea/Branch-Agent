@@ -102,6 +102,15 @@ test('A2019: the switch is off by default, bad addresses are refused, and a dama
   assert.deepEqual(BrowserContainerSchema.parse({}), {mode: 'off', where: 'docker'});
   for (const endpoint of ['http://box:3000/', 'ws://user:pw@box:3000/', 'wss://box/pw?token=abc', 'not an address'])
     assert.equal(BrowserContainerSchema.safeParse({mode: 'on', where: 'endpoint', endpoint}).success, false, endpoint);
+  /* Integration review (adversarial): a Playwright server runs whatever Branch asks it to, and the
+     token that opens it travels on the connection. Plain `ws:` to somewhere else on the internet
+     hands both to anyone on the wire, so it is refused: encrypted, or a private address the owner
+     already runs (Tailscale's own 100.64/10 range, a .ts.net name, or this computer). */
+  for (const endpoint of ['ws://box:3000/', 'ws://sandbox.test/pw', 'ws://203.0.113.9:3000/', 'ws://[2001:db8::1]:3000/'])
+    assert.equal(BrowserContainerSchema.safeParse({mode: 'on', where: 'endpoint', endpoint}).success, false, endpoint);
+  for (const endpoint of ['wss://sandbox.test/pw', 'ws://127.0.0.1:9/', 'ws://localhost:9/', 'ws://[::1]:9/',
+    'ws://100.64.7.3:3000/', 'ws://desk-pc.tail1234.ts.net:3000/'])
+    assert.equal(BrowserContainerSchema.safeParse({mode: 'on', where: 'endpoint', endpoint}).success, true, endpoint);
   assert.equal(BrowserContainerSchema.safeParse({mode: 'on', where: 'local'}).success, false);
   assert.equal(BrowserContainerSchema.safeParse({mode: 'on', token: 'x'}).success, false, 'a token is never a setting');
   const pick = (data, usesSignIn) => new BrowserSandbox(memoryStore(data), noLocker).pick(owner, usesSignIn);
@@ -205,7 +214,7 @@ test('A2019: the endpoint token travels as an Authorization header and never app
   assert.equal(silent.state.closed, true, 'a connection that is not a browser is closed again');
   const broken = {...fakeBrowser(), version: () => { throw new Error(`bad ${token}`); }};
   await assert.rejects(connectEndpoint(async () => broken, 'ws://box:1/', token), error => !error.message.includes(token) && /did not answer as a browser/.test(error.message));
-  const noToken = new BrowserSandbox(memoryStore({mode: 'on', where: 'endpoint', endpoint: 'ws://box:1/'}), noLocker);
+  const noToken = new BrowserSandbox(memoryStore({mode: 'on', where: 'endpoint', endpoint: 'wss://box:1/'}), noLocker);
   noToken.connect = async (_endpoint, options) => { given = options; return fakeBrowser(); };
   await noToken.pick(owner, false);
   assert.equal(given.headers, undefined, 'no token saved: no header');
