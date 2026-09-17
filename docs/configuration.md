@@ -7627,3 +7627,64 @@ formatter runs behind macOS's sandbox or bubblewrap, and only when the wall is o
 notebooks and long answers are plain Node and Git and work the same on all three systems.
 
 **Not built here.** Scripts that call Branch's own tools (a6) belong to bucket R17-G (R17-061).
+
+## Files, voice, devices and personal connectors (R17-C)
+
+Ten parts, each with the usual three-way switch (off, only when it is needed, on), and **every one ships off**. Their
+cards are in **Customize → Connections** (your own accounts, searching X, Home Assistant), **Customize → Channels**
+(files into chats, searching the email inbox), **Automations → Triggers** (the webhook address) and
+**Settings → Voice** (the spoken briefing, saying yes aloud). Everything here is the owner's alone: the routes under
+`/api/personal/` refuse other people on this computer, and a short-lived key can neither read nor change them.
+Keys and passwords are only ever *named* here; the values stay in Secrets. Every call to an outside service goes
+through your network rules.
+
+| Part | Tools | What it does |
+| --- | --- | --- |
+| Sending files into your chats | `chat.send_file` | Sends a workspace file into a Telegram, Slack or Discord chat as that app's own attachment. Only to a chat that has already talked to the assistant; never from a chat-started task; within your size limit (20 MB unless you change it) and the app's own (Telegram 50 MB, Discord 10 MB, Slack 100 MB); refused if its words hold anything key-shaped or one of your saved secrets; the caption passes the same last look as every reply, so Lockdown stops it. Each send is written in the record of what the assistant was allowed to do. |
+| Home Assistant | `home.states`, `home.call` | Looks at devices, and calls a service on one device — only for the kinds of device you list (lights, switches, scenes, scripts, media players, climate and fans to begin with; locks and alarms are not on it, and are always asked about if you add them). Uses a long-lived access token saved as `HOMEASSISTANT_TOKEN`. A Home Assistant on your home network needs private addresses allowed under Settings → Computer → Network reach. |
+| A spoken daily briefing | `brief.spoken`, `brief.send_voice` | Today's events and unread mail from Google and Outlook (whichever is on and signed in) and the morning brief, read with your voice settings. "Play my briefing" plays it in the window; `brief.send_voice` sends it to a linked chat as a voice note, after the same checks as a file, and like every sending tool it is never given to a task a chat started. |
+| Saying yes aloud | — | Beside each waiting question, "Answer aloud" listens for four seconds, only when you press it. Your words are written out by your own speech settings and must be just a yes or a no (English or French). The answer is bound to that exact request, used once, and runs out after two minutes; a spoken yes is always "just this once", and a risky request also needs a press. |
+| Searching X | `x.search` | xAI's own `x_search` tool, with an xAI API key saved as `XAI_API_KEY` (xAI charges for it). Signing in with a SuperGrok subscription is not used. |
+| Spotify | `spotify.now`, `spotify.search`, `spotify.control` | Your own Spotify app registration and sign-in. Controlling playback needs a Premium account and an open device. |
+| Google | `gmail.search`, `gmail.read`, `gmail.draft`, `gcal.events`, `gdrive.search`, `gdrive.read` | Your own Google Cloud OAuth client (desktop type; save its client secret in Secrets and name it on the card). Read-only scopes; "allow drafts" adds `gmail.compose`, which Google only offers together with sending — Branch never sends. |
+| Microsoft | `outlook.search`, `outlook.read`, `outlook.draft`, `outlook.events`, `teams.summary` | Your own Microsoft Entra app (public client, redirect `http://127.0.0.1`). Scopes: `Mail.Read` (or `Mail.ReadWrite` with drafts), `Calendars.Read`, `OnlineMeetings.Read`, `OnlineMeetingTranscript.Read.All` — the last may need your organisation's admin to agree. `teams.summary` fetches a meeting's newest transcript for the model to summarise. |
+| Searching the email inbox | `mail.search`, `mail.attachments`, `mail.save_attachment` | The email channel's mailbox (server, user, and the saved password's name). Search by sender, subject, words, dates or unread, with plain-ASCII words; open a message and its attached files; save one into the workspace's `mail-attachments` folder, never over an existing file. Nothing is marked read or sent. |
+| A public address for webhooks | — | Starts *your* tunnel program — `cloudflared`, `tailscale funnel` (without `--bg`, so nothing stays configured) or `ngrok` — pointed at a small door on this computer that only passes `/webhooks/chat/…`, `/webhooks/whatsapp/…`, `/hooks/…` and `POST /api/triggers/<id>/fire`, with any key, cookie or origin removed. The window is never on the internet. Lockdown refuses to start it; locking or closing Branch stops it. |
+
+Each connector hands its text to the model marked as somebody else's words: information, never instructions. A task started
+by a chat message gets none of these tools, so somebody you have paired cannot read your mail, hear your day, or
+switch things in your house.
+
+**Held tighter than the rules (integration review).** These hold whatever your approval settings say, "No approvals"
+included (`src/personal/guard.ts`):
+
+- Every personal tool refuses a household profile, a person signed in on the people page and a short-lived key before
+  it does anything.
+- Work you did not start yourself — a schedule, a trigger or webhook, another AI tool over MCP, another agent — is
+  asked about before any personal tool runs, so a scheduled spoken briefing waits for your yes.
+- A call to a lock, cover (garage doors and blinds), alarm, valve, siren or button is asked about every time, and only
+  "yes, just now" is accepted. A call names one device (no area, device, floor or label targets) and at most 30 calls
+  a minute go to Home Assistant. A script or switch that opens a door is not recognised as one; keep those off the list.
+- A spoken yes to anything past looking and changing workspace files — a command, a message, money, a setting, the
+  house, or a request the safety check advised against — decides nothing until you also press **Yes, allow it**.
+- "Play my briefing" asks the approval rules about `brief.spoken` first, as the tool would.
+- A packed file (zip, tar, gz and the like) is never sent into a chat, since its insides cannot be checked for keys.
+- What comes through the webhook address is counted on its own for wrong signatures and keys, never together with
+  this computer's own requests, and Branch is handed the path the door checked rather than the raw one.
+
+**What each card saves.** Your own accounts (one record each for Google, Microsoft and Spotify): `clientId`,
+`clientSecretName` (the name of a secret, or empty), `tenant` (Microsoft only, `common` by default) and `drafts`
+(off). Searching X: `keyName` (`XAI_API_KEY`) and `model` (`grok-4.5`). Home Assistant: `url`, `tokenName`
+(`HOMEASSISTANT_TOKEN`) and `domains`. Files into chats: `maxMegabytes` (20). The spoken briefing: `calendar`, `mail`
+and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`, `port` (993), `user`, `passwordName`
+(`EMAIL_PASSWORD`) and `folder` (`mail-attachments`). The webhook address: `program` (`cloudflared`) and
+`executable` (a full path, or empty to find the program by name).
+
+**Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
+codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
+dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
+safely; nothing here ever listens by itself.
+
+**macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
+so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
+path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.

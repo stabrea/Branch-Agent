@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { personalHold } from "./personal/guard.js"; // R17-C integration review
 import { z } from "zod";
 import { Budget, errorText, type ToolCall, type ToolContext, type Run } from "./contracts.js";
 import { checkResult } from "./delegation.js";
@@ -162,7 +163,10 @@ function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall,
   const resource = resourceOf(call.name, host.registry.permissionOf(call.name), check.target, args);
   const policy = host.policy(context.source ?? "owner");
   const ruled = evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource });
-  return { outcome: host.leakGuard.tighten(ruled, args), matched: ruled.rule !== null && policy.rules.includes(ruled.rule) };
+  const outcome = host.leakGuard.tighten(ruled, args);
+  // R17-C integration review: a second look never takes away the question a personal tool or a lock always gets.
+  const held = outcome.decision === "allow" && personalHold(call.name, args, context.source ?? "owner") !== null;
+  return { outcome: held ? { ...outcome, decision: "ask", rule: null } : outcome, matched: ruled.rule !== null && policy.rules.includes(ruled.rule) };
 }
 
 /**

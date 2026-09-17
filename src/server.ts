@@ -112,6 +112,7 @@ import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
+import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -339,7 +340,7 @@ function authorize(
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
@@ -431,6 +432,7 @@ async function staticFile(
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
+    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -1795,7 +1797,7 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
@@ -2737,6 +2739,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-A block ----
+        // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
+        if (handlesPersonalPath(path)) {
+          app.store.profiles.requireOwner("Your personal connectors");
+          const answer = await personalApi({ personal: app.personal, runtime: app.runtime, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4 * 1024 * 1024) }, path).catch((error: unknown) => {
+            throw error instanceof PersonalHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-C block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -2816,6 +2829,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
+  app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
@@ -3287,6 +3301,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesTrunksPath(path))
     // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
     || (request.method !== "GET" && handlesCodingPath(path))
+    // R17-C: every change under /api/personal may reach an outside service or start a program.
+    || (request.method !== "GET" && handlesPersonalPath(path))
   );
 }
 function configureLimits(server: Server): void {

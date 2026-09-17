@@ -4,6 +4,7 @@ import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./n
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
+import { personalHold } from "./personal/guard.js"; // R17-C integration review
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
 import {
@@ -1886,14 +1887,21 @@ ${run.output.slice(0, 6000)}`;
     const refusal = this.roleRefusal(tool, permission);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
-    const { decision, rule, leak } = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
+    const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
+    const { rule, leak } = tightened;
+    // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
+    // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
+    const hold = personalHold(tool, args, source);
+    const decision = hold && tightened.decision === "allow" ? "ask" : tightened.decision;
+    if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
+    // --- end R17-C ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     const answered = decision === "ask"
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak) : undefined;
-    return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold) : undefined;
+    return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : hold ? `${label}. ${hold.reason}` : label, target, readOnly,
+      remember: hold?.onceOnly ? "never" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
   }
   /**
