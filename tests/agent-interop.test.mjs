@@ -231,7 +231,7 @@ test("A0319 a conversation is handed to another device with a short-lived key, o
   assert.equal((await f.http("/api/interop/handoff", { body: { sessionId: run.sessionId, to: "device" } })).status, 409, "off until switched on");
   f.on("handoff");
   const made = await (await f.http("/api/interop/handoff", { body: { sessionId: run.sessionId, to: "device", minutes: 10 } })).json();
-  assert.equal(made.link, `${f.server.url}/#handoff=${run.sessionId}`);
+  assert.equal(made.link, `${f.server.url}/people#handoff=${run.sessionId}`); // bucket 19: the one-conversation page
   assert.match(made.key, /^branch_/);
   const view = await f.http(`/api/sessions/${run.sessionId}`, { key: made.key });
   assert.equal(view.status, 200, "the other device can open the conversation with that key");

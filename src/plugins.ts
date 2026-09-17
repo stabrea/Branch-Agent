@@ -10,6 +10,8 @@ import { grantAll, narrowedSentence, narrowTools, type ManifestGrant } from "./m
 import { ParametersSchema, type InputValue } from "./recipes.js";
 import type { BranchPluginProvider } from "./provider-plugins.js";
 import type { BranchPluginChannel } from "./channels/connectors.js";
+// ── bucket-15: the add-on interface version (src/add-ons/sdk.ts). ──
+import { checkApiVersion } from "./add-ons/sdk.js";
 
 /**
  * Plugins are single files a developer drops into the `plugins` folder beside the private data.
@@ -35,10 +37,16 @@ export interface BranchPluginTool {
   /** Declared inputs, the same shape a recipe uses: name to { type, required, description }. */
   input?: Record<string, { type: "string" | "number" | "boolean"; required?: boolean; description?: string; default?: InputValue }>;
   run(args: Record<string, InputValue>, context: ToolContext): Promise<unknown>;
+  /** bucket-15: this tool is a search source, offered through `addon.search` under this label. */
+  search?: { label: string };
 }
 export interface BranchPluginHook { event: string; run(payload: { event: string; runId: string; data: Record<string, unknown> }): Promise<void> }
 export interface BranchPlugin {
   id: string; name: string; description?: string; permissions?: string[];
+  /** bucket-15: the add-on interface version this plugin was written for (src/add-ons/sdk.ts). */
+  apiVersion?: number;
+  /** bucket-15: what the loader left out, in plain words (a walled plugin has no model connections). */
+  notes?: string[];
   tools?: BranchPluginTool[]; hooks?: BranchPluginHook[];
   /** Ways of talking to a model this plugin brings; see src/provider-plugins.ts. */
   providers?: BranchPluginProvider[];
@@ -57,11 +65,20 @@ export interface PluginChannelHost {
 }
 export interface PluginSummary {
   id: string; name: string; description: string; permissions: string[];
-  tools: { name: string; description: string; permission: string }[]; hooks: string[];
+  tools: { name: string; description: string; permission: string; search?: string }[]; hooks: string[];
   /** Batch 26 (wave 8): the tools the owner's grant left out, each with the reason, in plain words. */
   leftOut?: string[];
 }
 interface Loaded { summary: PluginSummary; toolNames: string[]; stopHooks: (() => void)[] }
+/**
+ * bucket-15: where a plugin that must not run inside Branch is loaded instead — its own walled
+ * program (src/add-ons/walled-plugin.ts). `load` hands back a plugin whose tools and hooks call
+ * into that program; nothing from the file is imported here.
+ */
+export interface PluginIsolation {
+  holds(id: string): boolean;
+  load(id: string, file: string): Promise<BranchPlugin>;
+}
 
 export class Plugins {
   private readonly loaded = new Map<string, Loaded>();
@@ -69,6 +86,8 @@ export class Plugins {
   providers?: PluginProviderHost | undefined;
   /** Set by the launch when this copy can host chat services; left unset, plugins bring none. */
   channels?: PluginChannelHost | undefined;
+  /** bucket-15: set by the launch; plugins it holds never run inside this process. */
+  isolation?: PluginIsolation | undefined;
   constructor(private readonly store: Store, private readonly owner: string, private readonly registry: ToolRegistry, private readonly folder: string) {}
   private key(id: string): string { return `plugin:${id}`; }
   private saved(id: string): { enabled: boolean; summary?: PluginSummary; grant?: ManifestGrant } | undefined {
@@ -100,7 +119,7 @@ export class Plugins {
     if (manifest.id !== id) throw new Error(`The plugin file is called ${id}.mjs but declares the id "${manifest.id}"`);
     const tools = (plugin.tools ?? []).map((tool) => this.checkTool(manifest, tool));
     const hooks = (plugin.hooks ?? []).map((hook) => String(hook.event));
-    return { ...manifest, tools, hooks };
+    return { ...manifest, tools, hooks, ...(plugin.notes?.length ? { leftOut: plugin.notes.map(String).slice(0, 10) } : {}) };
   }
   private checkTool(manifest: z.infer<typeof PluginManifestSchema>, tool: BranchPluginTool) {
     const shape = new RegExp(`^plugin\\.${manifest.id}\\.[a-z][a-z0-9_]{0,30}$`);
@@ -108,15 +127,19 @@ export class Plugins {
     if (!manifest.permissions.includes(tool.permission))
       throw new Error(`The tool ${tool.name} asks for the permission "${tool.permission}", which this plugin does not declare`);
     if (typeof tool.run !== "function") throw new Error(`The tool ${tool.name} has no run function`);
-    return { name: tool.name, description: String(tool.description ?? "").slice(0, 300), permission: tool.permission };
+    return { name: tool.name, description: String(tool.description ?? "").slice(0, 300), permission: tool.permission,
+      ...(tool.search?.label ? { search: String(tool.search.label).slice(0, 60) } : {}) };
   }
   private async read(id: string): Promise<BranchPlugin> {
     pluginId.parse(id);
     const file = join(this.folder, `${id}.mjs`);
     const info = await stat(file).catch(() => null);
     if (!info?.isFile()) throw new Error(`There is no plugin file called ${id}.mjs`);
+    // bucket-15: a plugin held elsewhere is never imported into this process.
+    if (this.isolation?.holds(id)) return this.isolation.load(id, file);
     const module = await import(`${pathToFileURL(file).href}?loaded=${info.mtimeMs}`) as { default?: BranchPlugin };
     if (!module.default || typeof module.default !== "object") throw new Error(`${id}.mjs does not export a plugin as its default export`);
+    checkApiVersion(module.default.apiVersion, `The plugin ${id}`); // bucket-15
     return module.default;
   }
   /**
@@ -131,7 +154,7 @@ export class Plugins {
     const plugin = await this.read(id), summary = await this.inspect(id);
     const grant = this.grantFor(summary, allow ?? this.saved(id)?.grant?.permissions);
     const { kept, left } = narrowTools(summary.tools, grant);
-    const leftOut = left.map((tool) => narrowedSentence(tool.name, tool.permission));
+    const leftOut = [...(summary.leftOut ?? []), ...left.map((tool) => narrowedSentence(tool.name, tool.permission))];
     const wanted = new Set(kept.map((tool) => tool.name));
     const toolNames: string[] = [], stopHooks: (() => void)[] = [];
     try {

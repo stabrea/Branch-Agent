@@ -1339,6 +1339,29 @@ Branch Agent can sign in to a service the ordinary way, without ever seeing your
 
 `POST /api/connections/oauth/start` takes `{ id, label, authorizeUrl, tokenUrl, clientId, clientSecret?, scopes?, extra? }` and returns the address to open. `GET /api/connections/oauth/:id` says whether that connection is signed in and when its key runs out; `POST /api/connections/oauth/:id/cancel` abandons a sign-in that is still waiting. An answer that does not match the sign-in that was started is refused, which is what stops someone else finishing it for you. A key that has run out is renewed automatically before it is used. Nothing is provider-specific yet: there are no Google or Slack buttons in the app, only this flow underneath them.
 
+## People on this computer, from their own device (bucket 19)
+
+Somebody the owner added under **People on this computer** (`settings:general`) can reach their own conversations from their own phone or laptop. The switch is on the **Signing in from other devices** card, beside the people list, and ships **off**; while it is off the sign-in page answers 404 and no person's key works, and switching it off signs everybody out (switching it back on does not bring old sign-ins back). "When needed" and "on" behave the same here: the feature has no tools for the model.
+
+- **The page.** A person opens this computer's address followed by `/people` (on the phone, through the paired address). They type their name, then pass every check the owner chose: **their PIN**, **a passkey** on their device, or **an identity service** the owner linked (OpenID Connect: a family or company service, or Google, Microsoft or GitLab from the presets). The chain is all of them, never one of them; the owner may add extra checks for one person, never take any away. A name nobody here has is asked the same checks and fails in the same words. Five wrong answers from one place and that place waits five minutes; the owner's window is counted separately and is never held up.
+- **What a person's key reaches.** Only their own page: who they are, their PIN and passkeys, their own conversations, and what the owner shared with them (`src/people/access.ts`, a list that fails closed). Every other address answers 401 before any route runs, reads included. While a request is a person's, the profile switch answers for that person and never for the owner, whatever the window is switched to (`src/people/context.ts`); a person cannot switch the window's profile. Their tasks run under their role, narrowed by every group they are in. A removed profile's keys stop at once.
+- **Forgotten PIN, first passkey.** The owner presses **Make a one-time code** beside the person and tells them the code. It works once, for 15 minutes, is kept only as a hash, closes after five wrong tries, signs the person out everywhere, and gives a 15-minute sign-in that can only set a new PIN or register a passkey. An ordinary sign-in must say the old PIN to change it.
+- **Groups.** A group has members and limits (which kinds of thing, which projects, a daily allowance). Being in a group can only take things away: `ProfileRoles.effective` applies every group and then `onlyTighter`, which refuses any narrower that would change the role or add a kind, a project or money.
+- **A person's own conversation while their task runs.** It is lent to the assistant and back (`src/people/lending.ts`); every such task writes down whose it is (`run.started.lentTo`), so in that moment the owner cannot share it and nobody else's key reaches it. If Branch stops mid-task, the conversation is handed back to the person when it starts again, and carrying the task on (by hand or by the never-break switch) runs as that person, under their role, steps redone after the restart included.
+- **Sharing a conversation.** The owner shares one of their own conversations with a person or a group, to read (**viewer**) or also to write in (**driver**). A driver's message goes into the owner's conversation as "Name: …" and runs under the driver's role; a viewer's page updates by itself every three seconds. Shares are relation tuples in OpenFGA's shape (`conversation:<id>`, `viewer`/`driver`, `profile:<id>` or `group:<id>#member`); `GET /api/people/shares/export` and `POST /api/people/shares/import` carry them to and from such a service.
+- **Passkeys.** Checked with Node's own crypto (ES256 on P-256, and RS256 of 2048 bits or more; no attestation asked for). The device must check who is holding it (fingerprint, face or device PIN: `userVerification: "required"`, checked on the server too), and a sign-in challenge works once, for two minutes. A passkey only works on the address it was registered on (an `https` origin when the door itself is served over TLS; a forwarded-protocol header is never believed), and browsers only allow passkeys on `localhost` or a named host, never on a bare IP address such as `127.0.0.1`. A signature count that did not go up is refused as a possible copy.
+- **Identity services.** Authorization code with PKCE, a state and a nonce; the ID token's signature (RS256 or ES256, never "none"), issuer, audience, expiry and nonce are checked here, and the discovery document must name the issuer that was set up. The service only proves who somebody is for a profile the owner linked by the service's subject id. A link that names only an email address is a suggestion: the first time an account with that address (verified by the service) signs in, it is refused and waits on the card until the owner presses **Confirm this account**, which writes its subject id into the link. The service sends the browser back to `/api/people/oidc/callback`, which finishes nothing: it passes the answer to the page in the address fragment, and only the page that started that sign-in (it holds the ticket) finishes it, with the sign-in's own state; an answer that lands in somebody else's browser signs nobody in. On the paired door the way back passes the door's checks like the rest. Register `http://<this address>/api/people/oidc/callback` with the service. Every call goes through the network rules, so a service on the home network needs "private addresses" allowed. A client secret, when the service needs one, is named from the locker and handed over only for the exchange.
+
+Settings (`POST /api/people/settings`, only the fields sent change): `mode` (`off`, `when-needed`, `on`), `chain` (one or more of `pin`, `passkey`, `oidc`), `extra` (profile id → more checks for that person), `sessionMinutes` (how long a sign-in lasts, 5 minutes to a week; 12 hours by default), `providers` (`id`, `label`, `issuer`, `clientId`, `clientSecretName`, `scopes`) and `links` (`provider`, `profileId`, `subject` or `email`).
+
+Routes: `GET /api/people/sign-in`, `POST /api/people/sign-in/start|step|finish|code`, `GET /api/people/oidc/callback` (no key); `GET /api/people/me`, `POST /api/people/me/sign-out|pin`, `GET|POST /api/people/me/passkeys[/begin|/finish|/remove]`, `GET|POST /api/people/conversations[/<id>[/message]]` (a person's key); `GET|POST /api/people/settings`, `POST /api/people/groups`, `POST /api/people/groups/<id>/remove`, `POST /api/people/shares[/remove|/import]`, `GET /api/people/shares/export`, `POST /api/people/<profile>/reset-code|sign-out|forget`, `POST /api/people/keys/revoke`, `POST /api/people/links/confirm` (the owner's window only; a short-lived key is refused).
+
+**Keys handed to another device, and answering questions.** A key made by "Carry on a conversation on another device" is now held to that one conversation: its own `/api/sessions/<id>` addresses, the tasks in it, `GET /api/people/handoff`, and starting a task or answering a question in it. The link opens `/people#handoff=<id>`, a page that shows only that conversation. Separately, any short-lived key may answer only the questions of tasks it started itself (or their specialists); each task writes down which key started it (`run.started.shortLivedKeyId`). A question from the owner's own task is answered in the app window.
+
+**The security self-check** (`src/security-audit/`) looks at this door too: a PIN alone while the phone door is open (`people.pin-alone-from-afar`), a sign-in that lasts more than a day (`people.long-sign-in`), and accounts waiting to be confirmed (`people.accounts-waiting`).
+
+**macOS and Linux.** Nothing here depends on the operating system: the keys, passkeys and identity checks use Node's own crypto and SQLite on all three.
+
 ## Personal details and the content check
 
 **Going out.** Every message Branch Agent sends to a chat or a mailbox is looked at first. Email addresses, phone numbers, payment card numbers (checked with the same arithmetic a shop uses, so a lookalike number is left alone), bank account numbers (IBAN, likewise checked) and national id numbers are replaced with a plain note such as `[card number hidden]`. You can choose to be warned instead, to have the message held back altogether, or to switch the check off.
@@ -6994,3 +7017,129 @@ same on all three, and the tests run on each.
   call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
+
+## Add-ons other people wrote (bucket 15)
+
+Customize → Plugins has a card, **Add-ons other people wrote**, with the three-way switch for each part.
+Every part ships off; while a part is off its routes refuse in one sentence and its tools are not in the
+catalog. Switching an add-on off and removing one always work, whatever the switches say.
+
+| Part | What it does |
+| --- | --- |
+| Installing add-on packages | Reads a package in Branch's own layout (`branch-addon.json`), as a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin (`.codex-plugin/plugin.json` or an Agent Plugins `plugin.json`) or a Gemini CLI extension (`gemini-extension.json`). |
+| Add-on lists you name | A signed web list (`branch-addon-list`, whose entries are flat Branch packages in one zip file) or a folder holding a Claude Code / Codex marketplace. |
+| Your own filters | Rules on what goes in to the model and what comes out. |
+| Reading a Pipelines server | Whether an address is a Pipelines server, its pipelines, their settings. Read only. |
+| Letting the assistant draft an add-on | The `addon.draft` tool saves a plugin as a draft for you to review. |
+| Search sources that plugins bring | The `addon.search` tool searches every source your switched-on plugins bring. |
+| Branch as a plugin for Claude Code and Codex | Writes Branch's own plugin into a folder you name. |
+
+**Looking, installing and switching on are three separate presses.** Looking (`POST /api/plugin-catalog/add-ons/look`)
+reads the files — nothing is run; Claude Code, Codex and Gemini CLI packages are read from a folder, and one zip file
+holds only a flat Branch package — and lists in plain words everything the package would add and need, what
+was left out and why, and its fingerprint. Each outside server it names is looked up in the malware list
+first (the security check's "Check add-ons for malware"); a listed one stops the package. Installing copies the
+files with a fingerprint for each, and switches nothing on. Switching on adds its skills (scanned like any
+skill), puts its plugin file in the plugins list, and adds its filters switched off. Its outside servers are
+**never connected**: they come back as drafts to try under Connections. Shell hooks, scripts, tool
+allowances (`allowed-tools`), themes and "tools to hide" lists are left out, and the look says so. A package
+whose files changed since it was installed is refused, and nothing is updated by itself — a list only offers
+a newer version, and taking it installs the new version switched off.
+
+**A plugin that came from a package, a list or a draft runs walled.** It is never imported into Branch: each
+question ("what are you", one tool call, one event for a hook) starts the plugin as its own program behind the
+same wall as any program Branch starts, in a throwaway folder, with none of Branch's environment, no saved
+key, and limits on time (30 s), memory (512 MB) and output (1 MB). The code is checked against its install
+fingerprint before every run. A walled plugin gets tools, hooks and search sources; model connections and
+chat services need Branch's own process and are left out, with a sentence. The owner's yes can only narrow
+what the package asked for: a permission the package did not list is never granted, and a tool needing one is
+not registered. Plugin files a developer puts in the plugins folder by hand keep running inside Branch as
+before, unless "Also run plugin files I put in the plugins folder myself in their own walled program" is ticked.
+
+**Filters** (`POST /api/plugin-catalog/add-ons/filters`) look for plain words (or a pattern; one that could hang
+is refused) and take them out, stop the message, or add a note, in order of priority, only for the models they
+name. They run on a new message before it is stored or sent, and on an answer before it is kept — including
+the words a model says beside its tool calls (a stop there only empties those words). A stopped message never
+reaches the model. A filter never grants anything, and a stop is final. While an outlet filter applies to the
+model answering, the live preview stays empty and the filtered answer arrives whole, so filtered words never
+reach the page; if the filters cannot be read, the preview is held back too.
+
+**Pipelines.** Branch reads `GET <address>/models`, `/pipelines` and `/<id>/valves`, with a saved secret as the
+key, through the network rules. Values whose names look like keys are shown as "(hidden)". Uploading Python
+files, adding pipelines from an address and changing valves are deliberately not built: that would make Branch
+install code on another computer. Talk to a Pipelines server as an OpenAI-compatible connection in Settings,
+Models.
+
+**Branch as a plugin.** `POST /api/plugin-catalog/add-ons/export` writes `.claude-plugin/` (or `.codex-plugin/`),
+`.mcp.json` (starting `branch mcp-serve`) and one skill into an empty folder you name, with a fingerprint list.
+`export/status` says whether the folder is Branch's, for which tool and version, and what changed; `export/remove`
+takes out only the files Branch wrote and nobody changed. Branch never writes into another tool's settings; add
+the folder there yourself. The same plugin is in the repository at `integrations/agent-plugin/`.
+
+**The add-on that comes with Branch.** `data/add-ons/branch-starter` (copied to `dist/bundled-add-ons`) is offered
+while packages are switched on and installed only on a press: a word counter, a "Branch words" search source, a
+skill, and a filter that takes out card numbers.
+
+**Writing an add-on.** A plugin's default export is a plain object, `{ id, name, apiVersion: 1, permissions, tools, hooks }`
+(see `data/add-ons/branch-starter/branch-starter.mjs`). A walled plugin runs alone in its folder and cannot import
+Branch, so it must not import anything but Node's own modules; `definePlugin`, exported by the package, is for
+authors who test their plugin against Branch before shipping it. A tool with `search: { label }` is a search source and takes
+`{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
+
+### Integration review (adversarial pass)
+
+- **Installing names what you were shown.** `install`, `bundled/install`, `drafts/install` and `lists/install`
+  all require the fingerprint from the look (or, for a web list, the package fingerprint shown when browsing).
+  A package, draft or list entry that changed after the owner looked is refused, so the assistant cannot
+  rewrite a draft between the look and the yes.
+- **Signed lists.** Only Ed25519 signatures count. The list's signing key is remembered the first time the
+  owner looks at it; a list whose key later changes (or disappears) offers nothing until the owner forgets it
+  and looks again. A list that publishes a key must sign every entry: an entry whose signature was taken off
+  cannot be installed. An unsigned entry must be kept on the list's own site. The list must be looked at before
+  anything is installed from it, and answers are cut off as soon as they are larger than allowed.
+- **Updates** are offered and taken only when the version is later (`1.10.0` after `1.9.2`), never a rollback,
+  and an add-on installed from a signed entry is never replaced by an unsigned one. A newer version that asks for
+  more permissions arrives switched off with those permissions named on the card (`grew`), and no earlier yes
+  carries over.
+- **Walled plugins** are cut back to the permissions their package listed, even when their code describes
+  more; a tool that needs one it did not list is left out with a sentence. A plugin may name only sites by
+  their names: this computer, numbers and private-network names (`localhost`, `.local`, `.lan`, `.internal`,
+  `.home.arpa`) are refused in the package. A hand-placed plugin walled by the tick is pinned to the code it
+  had when it was loaded. One question to a plugin is at most 1 MB, and at most 4 plugin runs go at once.
+- **Windows.** Windows has no file and network wall, only a job object, so add-on code is refused there unless
+  the owner ticks "Run add-on code on Windows without the wall" (`windowsWithoutWall`, ships off); a plugin run
+  that way says so instead of claiming a wall. Nothing else on Windows changes.
+- **Hand-placed plugins stay in-process by default (decided).** "Also run plugin files I put in the plugins
+  folder myself in their own walled program" (`wallEveryPlugin`) keeps shipping off: those files are the owner's own, the switch
+  would change how existing plugins behave (Windows included), and a walled plugin loses model connections and
+  chat services. Add-ons from a package, list or draft are walled whatever the tick says.
+- **Branch as a plugin.** A `.branch-export.json` file is trusted only for folders Branch remembers writing, so a
+  record planted in a folder cannot make Branch remove or overwrite the owner's files. A folder with a file the
+  owner changed stays Branch's until everything it wrote is gone.
+- **Start-up order.** The malware check belongs to the security service, which is made after add-ons; until it is
+  connected, a look at a package is refused in a sentence instead of reaching a name that does not exist yet.
+
+### macOS and Linux
+
+The wall around a walled plugin is macOS's own sandbox (`/usr/bin/sandbox-exec`) on macOS and bubblewrap on Linux,
+exactly as for any program Branch starts: the plugin may read the disk except where keys, passwords and Branch's
+data live, may write only in the temporary folders, and reaches no network unless its package named web addresses —
+then only those, through Branch's door, and never an address on this computer or a private network. Where the wall
+cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows add-on
+code is refused unless the owner chose to run it as its own program inside a job object with the same limits,
+without the file and network wall (see above).
+
+### Where each audit row stands
+
+- **extensions** — A2130 (search plugins): built, `src/add-ons/search.ts`; A2150 (plugin and extension hooks):
+  verified and extended, hooks fire in-process and walled (`src/plugins.ts`, `src/add-ons/walled-plugin.ts`);
+  A2274 (extension SDK): built, `src/add-ons/sdk.ts`; A2275 (bundled extensions): built, `data/add-ons/`;
+  A2322 (mods): built, `src/add-ons/drafts.ts`. Tests: `tests/add-ons.test.mjs`, `tests/add-ons-walled.test.mjs`.
+- **plugin-marketplace** — A0022, A2045: built as lists the owner names, `src/add-ons/lists.ts`.
+- **extension-packages** — A0045: built, `src/add-ons/formats.ts`, `src/add-ons/package-shelf.ts`.
+- **filter-system** — A1891: built, `src/add-ons/filters.ts` and the marked hook in `src/runtime.ts`.
+- **pipeline-integration** — A1890: built, read side only, `src/add-ons/pipelines.ts`.
+- **claude-integration** — A1333, A1567: built, `src/add-ons/export.ts`, `integrations/agent-plugin/`; Claude Code
+  plugins are also installable (`src/add-ons/formats.ts`).
+- **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
+  remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).

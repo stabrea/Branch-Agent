@@ -25,7 +25,8 @@ import type { Store } from "../store.js";
  * Signing in through somebody else's identity service (OIDC, a social login) is deliberately not
  * one of the steps: there is one owner, the door faces their own private network, and adding an
  * outside company to the path a phone takes to reach this computer would make it less private,
- * not more. See docs/configuration.md.
+ * not more. See docs/configuration.md. (Bucket 19: an identity service can prove who a *household
+ * person* is on the page they sign in on, src/people/; it is still not a step on this door.)
  */
 export const gatewaySteps = ["token", "pairing", "device"] as const;
 export type GatewayStep = (typeof gatewaySteps)[number];
