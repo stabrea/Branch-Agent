@@ -98,6 +98,8 @@ test("A0743 A1452: the web-pages switch ships off; off refuses in one sentence a
   assert.equal((await call("/api/web-pages", { mode: "loud" })).status, 400);
   assert.equal((await call("/api/web-pages", { crawlDelayMs: 5 })).status, 400);
   assert.equal((await call("/api/web-pages", { mode: "on" })).body.settings.mode, "on");
+  const listedOn = (await call("/api/tools")).body.tools.map((entry) => entry.name);
+  for (const name of names) assert.equal(listedOn.filter((entry) => entry === name).length, 1, `${name} listed once while on`);
   assert.deepEqual(tiers().preload.filter((entry) => names.includes(entry.name)).map((entry) => entry.name).sort(), [...names].sort());
   assert.equal((await call("/api/web-pages", { mode: "when-needed" })).body.settings.mode, "when-needed");
   assert.ok(!tiers().hidden.includes("web.page") && !tiers().preload.some((entry) => entry.name === "web.page"));
