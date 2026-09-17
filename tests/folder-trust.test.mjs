@@ -217,6 +217,27 @@ async function openSettings(page) {
   await page.evaluate(() => document.body.classList.remove("rail-open"));
 }
 
+test("with both switches off (as shipped) both cards are still there to turn them on", async (t) => {
+  const { chromium } = await import("playwright");
+  const { app, root } = await fixture(t, { "AGENTS.md": "a" });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await openSettings(page);
+  for (const id of ["folder-trust-card", "loop-guard-card"]) {
+    await page.locator(`#${id}`).waitFor({ state: "attached" });
+    assert.equal(await page.locator(`#${id}`).getAttribute("data-home"), "settings:permissions");
+  }
+  assert.equal(await page.locator("#folder-trust-mode").inputValue(), "off");
+  assert.equal(await page.locator("#loop-guard-mode").inputValue(), "off");
+  assert.equal(await page.locator("#folder-trust-ask").count(), 0, "nobody is asked while it is off");
+});
+
 test("the chat screen asks once, the answer sticks, and Settings shows it", async (t) => {
   const { chromium } = await import("playwright");
   const deep = "folderwithaverylongnameandnowheretobreakit".repeat(4); // no spaces or hyphens to wrap at
