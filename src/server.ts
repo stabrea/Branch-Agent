@@ -81,6 +81,8 @@ import { tryServer } from "./mcp-workbench.js";
 import { securityCheckApi } from "./security-audit/api.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// mac2/fly-core-2: the learning core's owner routes.
+import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
@@ -375,6 +377,8 @@ async function staticFile(
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // mac2/fly-core-2: the learning core's card.
+    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
@@ -702,6 +706,12 @@ async function api(
     if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
     return answer;
   }
+  // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
+  if (handlesLearningCorePath(path))
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -2719,6 +2729,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
   if (path.startsWith("/api/security-check/") && path !== "/api/security-check/run")
     return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
+  // mac2/fly-core-2 (integration review): the learning core's switch and "forget" are the owner's.
+  if (handlesLearningCorePath(path)) return "A short-lived key cannot change the learning core or make it forget. Do that in the app window.";
   return null;
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */

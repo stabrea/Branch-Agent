@@ -99,6 +99,7 @@ import { LeakGuard } from "./leak-guard.js";
 import { watchTask } from "./fly-core/hook.js";
 // mac3/reflection-skills: looking back over conversations and writing new skills (src/reflection/).
 import { learnAfterTask } from "./reflection/hook.js";
+import { advisedPreload } from "./fly-core/apply.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1240,7 +1241,9 @@ ${run.output.slice(0, 6000)}`;
     const switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
-      preload: [...learned.preload(context.owner, run.prompt), ...switched.preload],
+      // mac2/fly-core-2: with the learning core "on", its top tools join this pre-load (src/fly-core/apply.ts).
+      // A feature the owner switched on is added after it, so the core's guesses never remove it.
+      preload: [...advisedPreload(run.id, learned.preload(context.owner, run.prompt), tools, switched.hidden), ...switched.preload],
       demoted: [...learned.stale(context.owner), ...switched.hidden],
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
