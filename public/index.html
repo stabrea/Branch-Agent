@@ -258,7 +258,7 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
-            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture or a sound file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*" />
+            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
@@ -1132,7 +1132,7 @@
             <label for="media-folder" data-t="field.where-to-save-pictures-and">Where to save pictures and sound</label>
             <input id="media-folder" maxlength="100" placeholder="media" />
             <p class="subtle" id="media-prices"></p>
-            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
+            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos. With "Watching and saving videos" switched on below, it can look at still pictures from a video and read what is said in it.</p>
             <button type="submit" data-t="action.save-picture-and-sound-settings">Save picture and sound settings</button>
             <p id="media-status" role="status"></p>
           </form>
@@ -1781,6 +1781,8 @@
     <script src="/second-opinion.js" type="module"></script>
     <script src="/chat-live.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
+    <!-- Bucket 17: watching videos and speech plug-ins. -->
+    <script src="/media-programs.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>

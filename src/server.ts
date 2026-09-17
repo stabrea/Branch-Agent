@@ -111,6 +111,8 @@ import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
+// Bucket 17.
+import { bucket17Api, handlesBucket17, readMediaBody } from "./media-understand-api.js";
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -308,6 +310,8 @@ async function staticFile(
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
+    // Bucket 17: the video programs card and the speech plug-ins card.
+    "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
@@ -858,6 +862,12 @@ async function api(
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
   if (request.method === "POST" && path === "/api/media/settings")
     return { settings: saveMediaSettings(app.store, app.runtime.owner, await readBody(request)) };
+  // Bucket 17 hook: watching videos, where ffmpeg and yt-dlp are, and speech plug-ins.
+  if (handlesBucket17(path))
+    return bucket17Api(
+      { store: app.store, owner: app.runtime.owner, understanding: app.understanding, engines: app.voice.engines },
+      request.method ?? "GET", path, () => readBody(request), () => readMediaBody(request),
+    );
   if (request.method === "GET" && path === "/api/artifacts") {
     const type = new URL(request.url ?? "/", "http://local").searchParams.get("type") ?? "";
     const kept = await app.artifacts.list();
@@ -2494,7 +2504,9 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
         ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
       });
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost }));
+      // Bucket 17 hook: a short phrase such as "stop" is marked as a spoken command (null while that switch is off).
+      const command = app.voice.engines?.command(app.runtime.owner, written.text) ?? null;
+      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost, command }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -2753,6 +2765,9 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
+  if (path === "/api/media/programs" || path === "/api/voice/engines")
+    return "A short-lived key cannot choose which programs or speech services Branch uses. Do that in the app window.";
   // Wave mac3 (tool-safety): the second look decides what gets asked about.
   if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
   // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
