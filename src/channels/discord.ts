@@ -215,6 +215,31 @@ export class DiscordAdapter implements ChannelAdapter {
     const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
     return parsed.success ? parsed.data.id : undefined;
   }
+  /** "typing…" for about ten seconds; the router asks again while the task works. */
+  async sendTyping(chatId: string): Promise<void> {
+    await this.rest("POST", `/channels/${encodeURIComponent(chatId)}/typing`);
+  }
+  /** Discord keeps every reaction side by side, so the previous one is taken off first. */
+  async react(chatId: string, messageId: string, emoji: string, previous?: string): Promise<void> {
+    const message = `/channels/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/reactions`;
+    if (previous && previous !== emoji) await this.rest("DELETE", `${message}/${encodeURIComponent(previous)}/@me`).catch(() => undefined);
+    await this.rest("PUT", `${message}/${encodeURIComponent(emoji)}/@me`);
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    await this.rest("PATCH", `/channels/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+      { content: text.slice(0, this.maxTextLength) });
+  }
+  /** One small call for the live status; a rate limit is noted and reported as a failure. */
+  private async rest(method: string, path: string, body?: unknown): Promise<void> {
+    if (this.readyAt > Date.now()) throw new Error("Discord asked us to slow down");
+    const response = await this.fetch(`${this.base}${path}`, {
+      method, signal: AbortSignal.timeout(20000),
+      headers: { ...this.headers(), ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    this.noteLimits(response);
+    if (!response.ok) throw new Error(`Discord refused ${method} ${path.split("/")[1] ?? ""} (${response.status})`);
+  }
   /** Records how long Discord wants us to wait before the next call on this route. */
   private noteLimits(response: { status: number; headers: Headers }): void {
     const remaining = response.headers.get("x-ratelimit-remaining");
