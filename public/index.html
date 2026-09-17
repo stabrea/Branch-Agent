@@ -386,6 +386,28 @@
             </div>
             <div id="memory-tidy-all-result" role="status"></div>
           </div>
+          <div class="card" id="memory-learned-card">
+            <h2 data-t="memory.card.what-it-has-noticed-by">What it has noticed by itself</h2>
+            <p>Your assistant watches what actually happens &mdash; the files you keep coming back to, the names that keep turning up, the corrections you make &mdash; and offers what it noticed. Each one says what it was learned from. Nothing is remembered until you accept it, and turning one down means it is never offered again.</p>
+            <div class="input-row">
+              <button id="memory-learned-look" type="button" data-t="action.show-what-it-has-noticed">Show what it has noticed</button>
+              <button id="memory-learned-suggest" type="button" data-t="action.offer-these-as-suggestions">Offer these as suggestions</button>
+            </div>
+            <div id="memory-learned-list" class="card-list" aria-live="polite"></div>
+          </div>
+          <div class="card" id="memory-refresh-card">
+            <h2 data-t="memory.card.refresh-from-recent-conversations">Refresh from recent conversations</h2>
+            <p>Read your recent conversations again and write up what is worth keeping as fact cards for a knowledge base. Ask what it would cost first: it tells you how much would be sent to your model service before anything is. Every card is a suggestion you accept or turn down.</p>
+            <div class="form-grid">
+              <div><label for="memory-refresh-collection" data-t="field.knowledge-base-to-add-to">Knowledge base to add to</label>
+                <input id="memory-refresh-collection" maxlength="120" placeholder="The name of one of your knowledge bases" /></div>
+            </div>
+            <div class="input-row">
+              <button id="memory-refresh-cost" type="button" data-t="action.show-what-this-would-cost">Show what this would cost</button>
+              <button id="memory-refresh-run" type="button" data-t="action.read-them-and-suggest-cards" disabled>Read them and suggest cards</button>
+            </div>
+            <p id="memory-refresh-status" role="status"></p>
+          </div>
           <div class="card" id="memory-tidy-card">
             <h2 data-t="memory.card.repeats-disagreements-and-facts-you">Repeats, disagreements and facts you never use</h2>
             <p>Look for the same thing saved twice, a newer fact that disagrees with an older one, and facts that have never been useful. Nothing is removed here: anything found becomes a suggestion you accept or reject under &ldquo;What it learns&rdquo;.</p>
@@ -1636,6 +1658,7 @@
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
     <script src="/docs-memory-2.js" type="module"></script>
+    <script src="/self-improving.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->

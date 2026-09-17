@@ -131,6 +131,7 @@ import { registerLabels } from "./labels.js";
 import { Workflows, registerWorkflows } from "./workflows.js";
 // Wave 8: the to-do list, and reports saved in several forms.
 import { Todos, registerTodos } from "./todos.js";
+import { MemoryLearning } from "./memory-learning.js";
 import { ObsidianBridge, registerObsidian } from "./obsidian.js";
 import { RunQueue } from "./run-queue.js";
 import { ExecutionLimit } from "./execution-limit.js";
@@ -618,7 +619,8 @@ export async function createBranch(options: {
   registerKnowledgeBases(registry, knowledgeBases, store, runtime.models);
   // What was said in a conversation, written up as fact cards the owner can accept into a
   // knowledge base. Accepting one indexes it exactly like a passage from a file.
-  registerKnowledgeCards(registry, new KnowledgeCards(store, knowledgeBases, runtime.models));
+  const knowledgeCards = new KnowledgeCards(store, knowledgeBases, runtime.models);
+  registerKnowledgeCards(registry, knowledgeCards);
   store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
     { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
@@ -651,6 +653,9 @@ export async function createBranch(options: {
   registry.onRunFinished(async (context) => { await consolidation.embedNew(context.owner).catch(() => undefined); });
   // Notes a task made only for itself go when the task ends, unless the owner asked to keep one.
   registry.onRunFinished(async (context) => { try { store.clearTaskScratch(context.owner, context.runId); } catch { /* nothing to clear */ } });
+  // Wave 9: what the assistant notices for itself from what actually happened. It only ever
+  // suggests; every suggestion carries what it was learned from, and turning one down is final.
+  const learning = new MemoryLearning(store);
   const documentContext = documents;
   // A knowledge base the owner ticked is put in front of a task first; documents follow. Turning
   // "Use my documents when answering" off deliberately turns both off, so one switch means one thing.
@@ -739,6 +744,10 @@ export async function createBranch(options: {
     retrieval,
     /** Named sets of folders and files, read into passages and searched by words and by meaning. */
     knowledgeBases,
+    /** Writing conversations up as fact cards, and the refresh that shows its cost before it runs. */
+    knowledgeCards,
+    /** Facts noticed from what actually happened, offered as suggestions and never written. */
+    learning,
     /** Wave 8: summaries, the map of names, pictures in words, and knowledge-base housekeeping. */
     knowledgeParts,
     /** Wave 8: what the assistant remembers, written into the workspace as Markdown. */
@@ -1131,6 +1140,7 @@ export * from "./todos.js";
 export * from "./reports.js";
 export * from "./artifact-pages.js";
 export * from "./dashboards.js";
+export * from "./memory-learning.js";
 export * from "./obsidian.js";
 export * from "./embeds.js";
 export * from "./screen-watch.js";

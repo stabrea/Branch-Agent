@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { KnowledgeBases } from "./knowledge-bases.js";
-import type { KnowledgeCards } from "./knowledge-cards.js";
+import type { KnowledgeCards, RefreshCost } from "./knowledge-cards.js";
 import { GraphSchema, type KnowledgeGraph } from "./knowledge-graph.js";
 import { MergeSchema, RenameSchema, RetentionSchema, SplitSchema, type KnowledgeManagement } from "./knowledge-manage.js";
 import { PicturesSchema, type KnowledgePictures } from "./knowledge-pictures.js";
@@ -47,10 +47,12 @@ export const extrasView = (parts: KnowledgeParts, owner: string): KnowledgeExtra
  */
 export async function refreshFromConversations(
   parts: KnowledgeParts, store: Store, owner: string, input: unknown, signal?: AbortSignal,
-): Promise<{ collection: string; staged: Proposal[]; conversations: number; reason: string }> {
+): Promise<{ collection: string; staged: Proposal[]; conversations: number; cost: RefreshCost | null; reason: string }> {
   const { collection, conversations } = RefreshSchema.parse(input);
   const target = parts.bases.one(owner, collection);
-  if (!parts.cards) return { collection: target.id, staged: [], conversations: 0, reason: "Writing up conversations is not available in this launch." };
+  if (!parts.cards) return { collection: target.id, staged: [], conversations: 0, cost: null, reason: "Writing up conversations is not available in this launch." };
+  // Wave 9: what this reading actually cost, by the same reckoning the owner was shown beforehand.
+  const cost = parts.cards.cost(owner, conversations);
   const recent = store.recentSessions(owner, conversations).sessions.slice(0, conversations);
   const staged: Proposal[] = [];
   const reasons: string[] = [];
@@ -60,7 +62,7 @@ export async function refreshFromConversations(
     staged.push(...proposed.staged);
     if (proposed.reason) reasons.push(proposed.reason);
   }
-  return { collection: target.id, staged, conversations: recent.length,
+  return { collection: target.id, staged, conversations: recent.length, cost,
     reason: staged.length ? "" : (reasons[0] ?? "Nothing in those conversations was worth keeping.") };
 }
 

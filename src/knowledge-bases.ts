@@ -543,17 +543,22 @@ export class KnowledgeBases {
     if (!found.length) return null;
     const chosen = found.sort((a, b) => b.score - a.score).slice(0, 3);
     const citations = new Citations();
+    /* The knowledge base is named on every passage, not only the file inside it. A fact the owner
+       accepted into a collection weeks ago has to be answerable with "this came from your
+       knowledge base X", or the person cannot tell a remembered fact from a guess. */
     const blocks = chosen.map((hit) => {
-      const citation = citations.add({ url: `document:${hit.collection}/${hit.documentId}`, title: citationTitle(hit), quote: hit.text });
-      return `[${citation.number}] From "${citationTitle(hit)}":\n${hit.text}`;
+      const citation = citations.add({ url: `document:${hit.collection}/${hit.documentId}`, title: namedSource(hit), quote: hit.text });
+      return `[${citation.number}] From your knowledge base "${hit.collectionName}", ${citationTitle(hit)}:\n${hit.text}`;
     });
     return {
       text: `${blocks.join("\n\n")}\n\n${citations.markdown("Sources in your knowledge bases")}`,
-      sources: [...new Set(chosen.map((hit) => citationTitle(hit)))], citations: citations.list(),
+      sources: [...new Set(chosen.map(namedSource))], citations: citations.list(),
     };
   }
 }
 
+/** The same line with the knowledge base in front of it, so the source names the collection. */
+export const namedSource = (hit: KnowledgeHit): string => `${hit.collectionName} › ${citationTitle(hit)}`;
 /** The one line that tells the person where a passage came from: file, heading and page. */
 export function citationTitle(hit: KnowledgeHit): string {
   const parts = [hit.documentName, hit.heading, hit.page === null ? "" : `page ${hit.page}`].filter(Boolean);

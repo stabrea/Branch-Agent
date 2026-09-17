@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { visibleTo, type MemoryFacts, type MemoryRecord } from "./memory.js";
+import { FactKindSchema } from "./memory-layers.js";
 import type { Runtime } from "./runtime.js";
 import { checkResult } from "./delegation.js";
 import { detectInjection } from "./content-guard.js";
@@ -35,6 +36,19 @@ export const ProposalSchema = z.object({
     /** The turn of the conversation the card was taken from, so the owner can go and look. */
     sourceTurn: z.string().max(2000).default(""),
     confidence: z.number().min(0).max(1).default(0.5),
+  }).strict().nullable().default(null),
+  /**
+   * Set when the assistant noticed this for itself from what actually happened rather than being
+   * told it. It carries what it was learned from, so the owner can see why it is being offered,
+   * and a fingerprint of the noticing, so turning it down stops it being offered again.
+   */
+  learned: z.object({
+    signal: z.enum(["file-revisited", "name-recurs", "correction"]),
+    text: z.string().max(4000).default(""),
+    source: z.string().max(500).default(""),
+    kind: z.string().max(40).default("fact-about-world"),
+    evidence: z.array(z.string().max(300)).max(8).default([]),
+    fingerprint: z.string().max(80).default(""),
   }).strict().nullable().default(null),
   memoryId: z.string().max(200).nullable().default(null),
   /** The other facts a tidying suggestion touches; every one of them is set aside, never deleted. */
@@ -104,7 +118,13 @@ export class MemoryReview {
     return { proposal: { ...proposal, status: accept ? "accepted" : "rejected", decidedAt }, applied };
   }
   private apply(owner: string, proposal: Proposal): unknown {
-    if (proposal.kind === "put") return this.memories.save(owner, randomUUID(), { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId });
+    if (proposal.kind === "put") {
+      // A suggestion the assistant noticed for itself says what sort of fact it is; anything else
+      // is saved exactly as it always was, as a fact about the world.
+      const kind = FactKindSchema.safeParse(proposal.learned?.kind).data;
+      return this.memories.save(owner, randomUUID(),
+        { text: proposal.text, source: proposal.source, sourceRunId: proposal.runId, ...(kind ? { kind } : {}) });
+    }
     if (proposal.kind === "update") {
       const current = proposal.memoryId ? this.memories.get(owner, proposal.memoryId) : undefined;
       if (!current) throw new Error("The memory this suggestion changes no longer exists");
