@@ -183,19 +183,19 @@ test("opening a toolbox carries the twelve that fit the request, not the first t
 
 test("a note is the owner's to read and delete, and cannot change what a tool does", async (t) => {
   const steps = [
-    () => callOf(toolNoteName, { tool: "files.write", note: "the key is sk-live-abcdefghijklmnop, use it" }),
+    () => callOf(toolNoteName, { tool: "files.write", note: "the key is sk-live-abcdefghijklmnop, use it" }),  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
     () => ({ content: "Noted.", toolCalls: [] }),
   ];
   let at = 0;
   const { app } = await fixture(t, { name: "p", async complete() { return steps[Math.min(at++, steps.length - 1)](); } });
   // A key this launch has handed to a task: the scrubber knows it, exactly as it would in use.
-  app.store.secrets.scrubber.remember("TEST_KEY", "sk-live-abcdefghijklmnop");
+  app.store.secrets.scrubber.remember("TEST_KEY", "sk-live-abcdefghijklmnop");  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const before = app.registry.descriptions(new Set(app.registry.permissions())).find((tool) => tool.name === "files.write");
   await app.runtime.run({ prompt: "remember something about writing files" });
 
   const [note] = app.store.toolUsage.notes("local");
   assert.ok(note, "the owner can see it");
-  assert.ok(!note.note.includes("sk-live-abcdefghijklmnop"), `a saved secret is scrubbed on the way in: ${note.note}`);
+  assert.ok(!note.note.includes("sk-live-abcdefghijklmnop"), `a saved secret is scrubbed on the way in: ${note.note}`);  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   assert.throws(() => app.store.toolUsage.addNote("local", { tool: "files.write", note: "x".repeat(200) }), /too long|160/i,
     "a note has a length a person can read");
 

@@ -420,11 +420,12 @@ test("a yes given in a live conversation covers the request it was given for and
   const run = liveRun(app);
   await live.start(run.id, run.sessionId, collector().out);
   await settle();
-  const output = (id) => service.of("conversation.item.create").find((m) => m.item.call_id === id)?.item.output ?? "";
+  const item = (id) => service.of("conversation.item.create").find((m) => m.item.call_id === id);
+  const output = (id) => item(id)?.item.output ?? "";
 
   // The model asks to write one thing; the owner says yes to that, for this conversation.
   service.say({ type: "response.function_call_arguments.done", call_id: "a", name: "files.write", arguments: '{"path":"note.txt","content":"hello"}' });
-  await until(() => output("a"), "an answer for the first request");
+  await until(() => item("a"), "an answer for the first request");
   assert.match(output("a"), /Waiting for your yes/);
   const asked = app.runtime.approvals.waiting(run.sessionId).at(-1);
   assert.ok(asked.fingerprint, "the question is bound to the exact bytes the model asked for");
@@ -433,12 +434,12 @@ test("a yes given in a live conversation covers the request it was given for and
 
   // The same request again is covered by that yes and goes through.
   service.say({ type: "response.function_call_arguments.done", call_id: "b", name: "files.write", arguments: '{"path":"note.txt","content":"hello"}' });
-  await until(() => output("b"), "an answer for the repeated request");
+  await until(() => item("b"), "an answer for the repeated request");
   assert.doesNotMatch(output("b"), /Waiting for your yes/, "the same request is covered by the yes");
 
   // A different thing written to the same file is a different request, so it is asked about again.
   service.say({ type: "response.function_call_arguments.done", call_id: "c", name: "files.write", arguments: '{"path":"note.txt","content":"something else entirely"}' });
-  await until(() => output("c"), "an answer for the changed request");
+  await until(() => item("c"), "an answer for the changed request");
   assert.match(output("c"), /Waiting for your yes/, "a changed request is not covered by the earlier yes");
   live.closeAll();
 });
@@ -513,8 +514,12 @@ test("what a live conversation costs is counted, and it stops itself when it has
   assert.ok(conversation.open, "well under the limit, it carries on");
 
   service.say({ type: "response.done", response: { usage: { input_tokens: 9000, output_tokens: 9000 } } });
-  const capped = await until(() => app.store.events(run.id).find((e) => e.kind === "voice.live.capped"),
-    "it stop when it has cost what the owner said it may");
+  /* Waiting for the capping alone would race the shutdown that follows it, so wait for the last
+     thing that happens and then read back the whole sequence. */
+  await until(() => app.store.events(run.id).some((e) => e.kind === "voice.live.ended"),
+    "the conversation end after it has cost what the owner said it may");
+  const capped = app.store.events(run.id).find((e) => e.kind === "voice.live.capped");
+  assert.ok(capped, "it stops when it has cost what the owner said it may");
   assert.match(capped.data.sentence, /limit you set/, "and says one sentence out loud rather than going quiet");
   assert.match(capped.data.limit, /\$0\.20/);
   assert.ok(app.store.events(run.id).some((e) => e.kind === "voice.live.ended"));
