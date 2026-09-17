@@ -282,7 +282,8 @@ test("a message sent while a task works steers it instead of starting another", 
   model.open();
   assert.equal(await outcome, "replied");
   assert.equal(model.requests.length, 2, "no second task was started");
-  assert.match(lastUser(model.requests[1]), /Note from the person.*only the markdown files/);
+  // The runtime wraps the note in its own marker (src/steer.ts); the words inside are the person's.
+  assert.match(lastUser(model.requests[1]), /\nonly the markdown files\n/);
   assert.ok(chat.calls.some((c) => c.op === "react" && c.emoji === statusEmoji.queued && c.messageId === note.messageId), "the note was marked seen");
   assert.equal(chat.sent().filter((text) => text.startsWith("Final after")).length, 1);
 });
