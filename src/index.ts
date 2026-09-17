@@ -203,6 +203,7 @@ import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices 
 import { Reach } from "./reach/index.js"; // r17-i: reach and platform
 import { platformRunners } from "./reach/host.js"; // r17-i
 import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
+import { askMode } from "./asks/settings.js"; // r17-i: other computers follow bucket 23's switch
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -1013,7 +1014,7 @@ export async function createBranch(options: {
   // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
   const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
     secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
-    machines: { list: () => asks.nodes.nodes() }, version, ...platformRunners() });
+    machines: { list: () => (askMode(store, runtime.owner, "nodes") === "off" ? [] : asks.nodes.nodes()) }, version, ...platformRunners() });
   scheduler.onTick.add(() => reachParts.tick());
   reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry)); // R17-077 on R17-A's Trunks
   // ── end r17-i ──

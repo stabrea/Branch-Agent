@@ -128,7 +128,7 @@ async function machinesCard(state) {
     const target = field("");
     const prompt = field("", "area");
     const [look, lookHint] = button("reach-machines-look", "reach.machines.look", "Show what each is doing", "reach.machines.lookHint", "Asks every computer at once and shows one column each.",
-      attempt(status, async () => { side.replaceChildren(...(await api("reach/machines/all?view=working")).map(machineColumn)); }));
+      attempt(status, async () => { side.replaceChildren(...(await api("reach/machines/all", { view: "working" })).map(machineColumn)); }));
     const [start, startHint] = button("reach-machines-start", "reach.machines.start", "Start it there", "reach.machines.startHint", "Starts the task on that computer; its own approval rules decide what it may do.",
       attempt(status, async () => { await api("reach/machines/start", { machine: target.value.trim(), prompt: prompt.value }); done(status, "reach.machines.started", "Started."); }));
     node.append(row(look, lookHint), side,
@@ -150,7 +150,7 @@ async function trunksCard(state) {
     const to = field(""), from = field(""), text = field("", "area");
     const [look, lookHint] = button("reach-trunks-look", "reach.trunks.look", "Show them", "reach.trunks.lookHint", "Asks each computer for its Trunks.",
       attempt(status, async () => {
-        const { computers } = await api("reach/trunks/remote");
+        const { computers } = await api("reach/trunks/remote", {});
         shown.replaceChildren(list(computers.flatMap((c) => c.trunks.map((tr) => plain("li", `${tr.address} — ${tr.title}`)))));
       }));
     const [send, sendHint] = button("reach-trunks-send", "reach.trunks.send", "Send the message", "reach.trunks.sendHint", "Delivered once, with one retry if the other computer is busy.",
@@ -200,7 +200,7 @@ async function usbCard(state) {
     const found = document.createElement("ul");
     const [look, lookHint] = button("reach-usb-look", "reach.usb.look", "Show plugged-in devices", "reach.usb.lookHint", "Lists what is plugged in now; pick one to fill in the form.",
       attempt(status, async () => {
-        const { devices } = await api("reach/usb/devices");
+        const { devices } = await api("reach/usb/devices", {});
         found.replaceChildren(...devices.map((d, i) => {
           const [use, useHint] = button(`reach-usb-use-${i}`, "reach.usb.use", "Use this device", "reach.usb.useHint", "Fills in the form below.", async () => {
             vendor.value = d.vendorId; product.value = d.productId; serial.value = d.serial; label.value = d.name;

@@ -49,16 +49,19 @@ function overview({ reach }: ReachHttpDeps) {
 const reads: Record<string, Handler> = {
   "/api/reach": overview,
   "/api/reach/machines": ({ reach }) => ({ machines: reach.machines.list() }),
-  "/api/reach/machines/all": ({ reach, query }) => reach.machines.lookAll(z.enum(["health", "working", "conversations"]).parse(query.get("view") ?? "health")),
   "/api/reach/trunks/roster": ({ reach }) => reach.remoteTrunks.shared(),
-  "/api/reach/trunks/remote": async ({ reach }) => ({ computers: await reach.remoteTrunks.roster() }),
-  "/api/reach/usb/devices": async ({ reach }) => ({ devices: await reach.usb.devices() }),
   "/api/reach/notes": ({ reach }) => ({ notes: reach.notes.list() }),
   "/api/reach/arena": ({ reach }) => ({ leaderboard: reach.arena.leaderboard() }),
 };
 
-/** POST routes. */
+/**
+ * POST routes. Three of them only look, but they reach every other computer with the owner's keys
+ * or run a program on this one, so they are the owner's, not a short-lived key's.
+ */
 const changes: Record<string, Handler> = {
+  "/api/reach/machines/all": async (d) => d.reach.machines.lookAll((await body(d, z.object({ view: z.enum(["health", "working", "conversations"]).default("health") }).strict())).view),
+  "/api/reach/trunks/remote": async ({ reach }) => ({ computers: await reach.remoteTrunks.roster() }),
+  "/api/reach/usb/devices": async ({ reach }) => ({ devices: await reach.usb.devices() }),
   "/api/reach/switch": async (d) => { const { part, mode } = await body(d, z.object({ part: ReachPartSchema, mode: ReachModeSchema }).strict()); return { part, mode: await d.reach.setMode(part, { mode }) }; },
   "/api/reach/machine-name": async (d) => ({ name: d.reach.saveMachineName(await d.readBody()) }),
   "/api/reach/machines/look": async (d) => d.reach.machines.look(await body(d, z.object({ machine: z.string(), view: z.enum(machineViews), id: z.string().uuid().optional() }).strict())),

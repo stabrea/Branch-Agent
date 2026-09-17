@@ -8,9 +8,10 @@ import { requireReach } from "./settings.js";
  *
  * The computers are the ones already added under "Other computers running Branch" (src/asks/nodes.ts,
  * bucket 23): each has an address and the name of a short-lived key kept in the locker. This file
- * adds no second list and no pairing of its own; it reads that list through `MachineDirectory`, so
- * the Devices book (mac7/nodes, `src/devices/`, still in review) can be offered here the same way
- * once it lands.
+ * adds no second list and no pairing of its own; it reads that list through `MachineDirectory`, and
+ * the list is empty while bucket 23's "nodes" switch is off (the hook in src/index.ts), so switching
+ * that off closes this door too. The Devices book (`src/devices/`) is deliberately not a source: a
+ * paired device lends a few abilities and is not a Branch that answers `/api/health` or `/api/run`.
  *
  * The window never holds another computer's key: it asks this computer, which fills the key in at
  * the moment of the call and follows the owner's network rules (the fetch handed in is the guarded

@@ -49,6 +49,21 @@ test("every part ships off: its tools are not offered, and it refuses in one sen
   assert.equal(app.registry.names().includes("machines.look"), false);
 });
 
+test("R17-076: the other computers follow bucket 23's switch, and no switch shares a key with data", async (t) => {
+  const { app, store } = await scratchApp(t);
+  const { saveAskMode } = await import("../dist/asks/settings.js");
+  on(store, "machines");
+  app.asks.nodes.save({ nodes: [{ id: "studio", name: "Studio", address: "https://studio.example", secret: "STUDIO_KEY" }] });
+  saveAskMode(store, owner, "nodes", { mode: "off" });
+  assert.deepEqual(app.reachParts.machines.list(), [], "bucket 23's nodes are off, so no computer is offered here");
+  saveAskMode(store, owner, "nodes", { mode: "on" });
+  assert.deepEqual(app.reachParts.machines.list().map((m) => m.id), ["studio"]);
+  const switches = new Set(reachParts.map((part) => `reach-${part}`));
+  for (const key of ["reach-arena-ratings", "reach-machine-name", "reach-relay-chats", "reach-relay-settings", "reach-remote-trunks-inbox",
+    "reach-agent-git-sources", "reach-platform-settings", "reach-usb-rules", "reach-video-settings"])
+    assert.equal(switches.has(key), false, `${key} would overwrite a switch`);
+});
+
 test("R17-076: other computers are asked only fixed routes, with their key filled in here", async (t) => {
   const { store } = await scratchApp(t);
   const calls = [];
