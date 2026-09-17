@@ -113,7 +113,9 @@ export class CodeRunner {
     const handle = await backend.prepare(await sliceFor(root, context.sandboxPaths ?? []));
     const limits = { timeoutMs: settings.timeoutMs, maxMemoryMb: settings.maxMemoryMb,
       maxCpuSeconds: settings.maxCpuSeconds, maxOutputBytes: settings.maxOutputBytes,
-      network: !shape.netless, job: shape.job };
+      network: !shape.netless, job: shape.job,
+      // wave mac3 (os-sandbox): the wall, made stricter still when the script may not reach the internet.
+      ...(context.osSandbox ? { wall: shape.netless ? { ...context.osSandbox, network: "none" as const } : context.osSandbox } : {}) };
     const executable = this.program(input.language, backend.name, settings.python);
     const args = input.language === "python" ? ["-c", input.source] : ["--input-type=module", "--eval", input.source];
     try {

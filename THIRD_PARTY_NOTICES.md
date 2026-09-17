@@ -3254,3 +3254,15 @@ The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — countin
 ### Gemini CLI (Google) loop detection and folder trust (idea only), Apache-2.0
 
 The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, are ideas from Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
+
+### Codex (OpenAI) sandbox profile and denial check, Apache-2.0
+
+The macOS sandbox profile in `src/sandbox-seatbelt.ts` is adapted from Codex's `codex-rs/sandboxing/src/seatbelt_base_policy.sbpl`, `seatbelt_network_policy.sbpl` and `seatbelt_preferences_policy.sbpl`, and passes paths as `-D` parameters the way Codex's `seatbelt.rs` does. The bubblewrap arguments in `src/sandbox-bwrap.ts` follow `codex-rs/linux-sandbox/src/bwrap.rs`, the denial check in `src/sandbox-denial.ts` follows `codex-rs/sandboxing/src/denial.rs`, and the per-site door in `src/sandbox-proxy.ts` follows the shape of `codex-rs/network-proxy` (https://github.com/openai/codex), Copyright 2025 OpenAI, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Codex's profile in turn follows Chromium's sandbox policy. The files were changed: rewritten in TypeScript, with Branch's own folders, hidden places and door. Codex's vendored copy of bubblewrap (LGPL) was not used; Branch calls the system's own `bwrap` when it is installed and never ships it.
+
+### Gemini CLI (Google) sandbox, Apache-2.0
+
+The bubblewrap arguments in `src/sandbox-bwrap.ts` also follow Gemini CLI's `packages/core/src/sandbox/linux/bwrapArgsBuilder.ts`, the byte layout of its system-call filter follows `packages/core/src/sandbox/linux/LinuxSandboxManager.ts`, and the macOS profile was checked against `packages/core/src/sandbox/macos/baseProfile.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2026 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). The files were changed: rewritten, with a filter that also refuses non-local sockets when programs have no network.
+
+### IronClaw (NEAR AI) keys at the network edge (idea only), MIT OR Apache-2.0
+
+The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and the door swaps in the real key only for the site the key belongs to — are an idea from IronClaw's `crates/substrates/ironclaw_secrets/src/placeholder.rs` and `crates/lanes/ironclaw_sandbox/src/sandbox_process/managed_egress.rs` (https://github.com/nearai/ironclaw, MIT OR Apache-2.0; the MIT notice is above). They were written afresh; no code was copied.

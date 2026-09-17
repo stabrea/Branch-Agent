@@ -206,7 +206,9 @@ export class BackgroundProcesses {
     const handle = await backend.prepare(await sliceFor(cwd, context.sandboxPaths ?? []));
     const start = await handle.argvFor(command, { timeoutMs: settings.maxMinutes * 60_000,
       maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds,
-      maxOutputBytes: settings.bufferBytes, network: !shape.netless, job: shape.job });
+      maxOutputBytes: settings.bufferBytes, network: !shape.netless, job: shape.job,
+      // wave mac3 (os-sandbox): a program left running goes behind the wall too.
+      ...(context.osSandbox ? { wall: shape.netless ? { ...context.osSandbox, network: "none" as const } : context.osSandbox } : {}) });
     return start;
   }
   /** The conversation a task belongs to: what a program is filed under and read back by. */

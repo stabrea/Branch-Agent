@@ -87,6 +87,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
+| The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same

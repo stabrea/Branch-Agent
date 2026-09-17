@@ -158,6 +158,7 @@ import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
+import { setWallEdge } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 
 export async function createBranch(options: {
@@ -392,6 +393,10 @@ export async function createBranch(options: {
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
+  // lets a program behind the wall read Branch's own data folder.
+  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target), dataDir });
+  // ---- end wave mac3 (os-sandbox)
   // A paid search service's key comes out of the locker for the one request and is written down
   // nowhere else: the settings file only ever holds the name of the secret, never its value.
   web.searchKey = async (name: string) => {
