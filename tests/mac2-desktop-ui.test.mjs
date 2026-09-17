@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -24,14 +24,33 @@ import { keychainApi, permissionsContext } from "../dist/keychain-api.js";
  */
 const sayVoices = "Albert              en_US    # Hello! My name is Albert.\nAmélie              fr_CA    # Bonjour, je m’appelle Amélie.\n";
 
+/**
+ * A fresh app in a temporary folder. Whatever else a test opens (a server, a browser, a screen
+ * control) is handed to `closeFirst`, so one hook closes it, then the app, then deletes the folder.
+ */
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-mac2-ui-"));
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } },
   });
-  t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, root };
+  const closers = [];
+  t.after(async () => {
+    for (const close of closers.reverse()) await close();
+    await app.close();
+    await discardTemp(root);
+  });
+  return { app, root, closeFirst: (close) => closers.push(close) };
+}
+
+/** An app with its server and a headless browser page, all closed before the folder goes. */
+async function pageFixture(t) {
+  const f = await fixture(t);
+  const server = await startServer(f.app, { dataDir: join(f.root, "data"), port: 0 });
+  f.closeFirst(() => server.close());
+  const browser = await chromium.launch({ headless: true });
+  f.closeFirst(() => browser.close());
+  return { ...f, server, page: await browser.newPage() };
 }
 
 /** A pretend macOS runner: every call is written down and answered with one window. */
@@ -58,12 +77,12 @@ function fakeWindowFactory({ showing = true, fail = false } = {}) {
 }
 
 async function screenFixture(t, window) {
-  const { app } = await fixture(t);
+  const { app, closeFirst } = await fixture(t);
   saveDesktopSettings(app.store, app.runtime.owner, { enabled: true });
   const fake = fakeMac();
   const parts = screenControlParts({ platform: "darwin", posix: { exec: fake.exec }, ...(window ? { window } : {}) });
   const control = new DesktopControl(app.store, parts);
-  t.after(() => control.close());
+  closeFirst(() => control.close());
   const run = await app.runtime.run({ prompt: "look at my screen" });
   return { app, control, parts, fake, run, context: app.runtime.context({ runId: run.id }) };
 }
@@ -72,14 +91,14 @@ async function screenFixture(t, window) {
 
 test("without the desktop app a Mac or Linux refuses screen control in one sentence and starts nothing", async (t) => {
   for (const platform of ["darwin", "linux"]) {
-    const { app } = await fixture(t);
+    const { app, closeFirst } = await fixture(t);
     saveDesktopSettings(app.store, app.runtime.owner, { enabled: true });
     const fake = fakeMac();
     const control = new DesktopControl(app.store, screenControlParts({ platform, posix: { exec: fake.exec, env: { DISPLAY: ":1" }, locate: () => "/usr/bin/xdotool" } }));
+    closeFirst(() => control.close());
     const run = await app.runtime.run({ prompt: "list windows" });
     await assert.rejects(control.windows({ action: "list" }, app.runtime.context({ runId: run.id })), (error) => error.message === noBannerRefusal);
     assert.equal(fake.calls.length, 0, `${platform}: nothing was started`);
-    await control.close();
   }
   assert.match(noBannerRefusal, /from the Branch Agent app/);
 });
@@ -308,9 +327,9 @@ test("the permissions context names the computer and, on Linux, the session", ()
 });
 
 test("the routes answer through the server with the session token only", async (t) => {
-  const { app, root } = await fixture(t);
+  const { app, root, closeFirst } = await fixture(t);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(() => server.close());
+  closeFirst(() => server.close());
   const call = (path, init = {}) => fetch(server.url + path, { ...init, headers: { authorization: `Bearer ${server.token}`, ...(init.headers ?? {}) } });
   assert.equal((await fetch(server.url + "/api/keychain/settings")).status, 401);
   const permissions = await (await call("/api/os-permissions")).json();
@@ -331,11 +350,7 @@ test("the routes answer through the server with the session token only", async (
 });
 
 test("the cards appear under the screen-control card on a Mac or Linux, and a settings link opens only on a click", async (t) => {
-  const { app, root } = await fixture(t);
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); });
-  const page = await browser.newPage();
+  const { server, page } = await pageFixture(t);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   // The page is told it is a Mac, whatever this computer is, and the app's opener is a recorder.
@@ -408,13 +423,7 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
 });
 
 test("on Windows neither card is shown", async (t) => {
-  const { app, root } = await fixture(t);
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  const scratch = join(root, "unused");
-  await mkdir(scratch, { recursive: true });
-  const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); });
-  const page = await browser.newPage();
+  const { server, page } = await pageFixture(t);
   await page.route("**/api/os-permissions", (route) => route.fulfill({ json: { platform: "win32", permissions: [] } }));
   await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: { enabled: false, entries: [], available: false, references: {} } }));
   await page.goto(server.url);
