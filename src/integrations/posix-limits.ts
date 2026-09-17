@@ -30,6 +30,13 @@ export function posixLimitSupport(platform: PosixPlatform): PosixLimitSupport {
     sentence: `On ${system} the system holds the processor-time ceiling for each program in the group; the total across the group, and memory, are checked about once a second. The system's own memory caps count memory a program has only set aside, which stops programs such as Node from starting at all, so they are not used. The number of programs is not capped either: the only system cap counts every program you run, not just this command's. Ending the command ends every program it started; one that deliberately left the group may survive. This is a resource cap, not OS isolation: the command still reaches your files and the network.` };
 }
 
+/** What the system held, for a result or a list entry. */
+export interface HeldBySystem { processorTime: boolean; memory: boolean; wholeGroupEnds: boolean }
+export function heldBySystemOn(platform: PosixPlatform): HeldBySystem {
+  const { processorTime, memory, wholeGroupEnds } = posixLimitSupport(platform);
+  return { processorTime, memory, wholeGroupEnds };
+}
+
 /** Lowers one limit, soft then hard, and never raises one that is already lower. */
 function lowerLine(flag: '-t', value: number): string {
   const lower = (kind: '-S' | '-H') =>
@@ -86,6 +93,8 @@ export class PosixProcessGroup implements Job {
   constructor(private readonly limits: JobLimits, private readonly platform: PosixPlatform,
     private readonly kill: Kill = systemKill) {}
   get support(): PosixLimitSupport { return posixLimitSupport(this.platform); }
+  /** What the system is holding for the program it was given, or null when it holds nothing. */
+  held(): HeldBySystem | null { return this.wrapped && this.leader ? heldBySystemOn(this.platform) : null; }
   /** A program not given by its full address is started as it is, without the limits. */
   wrap(command: Command): Command {
     if (this.closed || !isAbsolute(command.executable)) return command;

@@ -9,6 +9,7 @@ import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.js";
 import { defaultJobObjects, jobWithin, startedThrough, type Job, type JobObjects } from "./integrations/job-object.js";
+import { PosixProcessGroup, type HeldBySystem } from "./integrations/posix-limits.js";
 import { fromTheTop, netlessEnvironment } from "./integrations/shell-config.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 import {
@@ -61,7 +62,15 @@ export interface ProcessView {
   id: string; name: string; program: string; pid: number | null; sessionId: string; runId: string;
   status: "running" | "finished" | "stopped" | "failed"; startedAt: string; endedAt: string | null;
   exitCode: number | null; isolation: "job-object" | "sampling"; bytes: number; dropped: boolean;
+  /** macOS and Linux: what the system itself holds for this program, when it holds anything. */
+  heldBySystem?: HeldBySystem;
 }
+
+/** What a macOS or Linux process group is holding, as an optional field of a list entry. */
+const heldBy = (job: Job | null): { heldBySystem?: HeldBySystem } => {
+  const held = job instanceof PosixProcessGroup ? job.held() : null;
+  return held ? { heldBySystem: held } : {};
+};
 
 /** One program left running, with what it has printed so far. */
 class Running {
@@ -112,7 +121,7 @@ class Running {
   view(): ProcessView {
     return { id: this.id, name: this.name, program: this.program, pid: this.child.pid ?? null,
       sessionId: this.sessionId, runId: this.runId, status: this.status, startedAt: this.startedAt,
-      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job?.kind === "job-object" ? "job-object" : "sampling",
+      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job?.kind === "job-object" ? "job-object" : "sampling", ...heldBy(this.job),
       bytes: this.bytes, dropped: this.dropped };
   }
   /** Stops it and everything it started; letting the job go is what really clears the tree. */

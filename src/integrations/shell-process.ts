@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { watchUsage } from './process-usage.js';
 import { startedThrough, type Job } from './job-object.js';
-import { endProcessGroup, posixLimitSupport } from './posix-limits.js';
+import { endProcessGroup, heldBySystemOn, posixLimitSupport, type HeldBySystem } from './posix-limits.js';
 
 export type StopReason = 'cancelled' | 'timed_out' | 'output_limit' | 'descendant_pipes' | 'memory_limit' | 'cpu_limit';
 export interface ProcessResult {
@@ -24,7 +24,7 @@ export interface ProcessResult {
    * macOS and Linux: what the system itself held for this command, when it was started in a
    * limited process group. Absent on Windows and where only sampling was used.
    */
-  heldBySystem?: { processorTime: boolean; memory: boolean; wholeGroupEnds: boolean };
+  heldBySystem?: HeldBySystem;
 }
 export interface ProcessOptions {
   executable: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv;
@@ -155,10 +155,7 @@ export class ShellProcess {
 }
 
 const hostPosix = (): 'darwin' | 'linux' => process.platform === 'darwin' ? 'darwin' : 'linux';
-function heldByGroup(): NonNullable<ProcessResult['heldBySystem']> {
-  const support = posixLimitSupport(hostPosix());
-  return { processorTime: support.processorTime, memory: support.memory, wholeGroupEnds: support.wholeGroupEnds };
-}
+const heldByGroup = (): HeldBySystem => heldBySystemOn(hostPosix());
 
 function decodeOutput(chunks: Buffer[], truncated: boolean): string {
   const decoder = new StringDecoder('utf8');

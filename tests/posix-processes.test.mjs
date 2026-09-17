@@ -340,6 +340,7 @@ test("a kept-open command line works with a POSIX shell, under its limits", { sk
   const opened = await shells.start({ program: "sh", args: [], cwd: ".", name: "posix" }, context);
   assert.equal(opened.status, "open");
   assert.equal(opened.isolation, "sampling", "the Windows-only name is not borrowed");
+  assert.deepEqual(opened.heldBySystem, { processorTime: true, memory: false, wholeGroupEnds: true });
   await shells.send({ id: opened.id, input: "cd inner", waitMs: 300 }, context);
   const where = await shells.send({ id: opened.id, input: "pwd; echo cpu=$(ulimit -S -t)", waitMs: 5000 }, context);
   assert.match(where.output, /inner\n/, "the folder carried over from the first command");
@@ -351,4 +352,26 @@ test("a kept-open command line works with a POSIX shell, under its limits", { sk
   assert.equal(closed.status, "closed");
   assert.equal(await gone(pid), true);
   assert.ok(shell.path.startsWith("/bin/"));
+});
+
+test("a program left running is held, listed with what the system holds, and ended with its group", { skip: !posix }, async (t) => {
+  const { BackgroundProcesses } = await import("../dist/processes.js");
+  const workspace = await scratch(t);
+  const pidFile = join(workspace, "child.pid");
+  const script = `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }).pid)); setInterval(() => {}, 1000);`;
+  const settings = { programs: { node: { path: process.execPath, args: ["-e", script] } } };
+  const store = { get: (kind, owner, key) => key === "background-processes" ? { data: settings } : undefined, run: () => undefined, event: () => undefined };
+  const processes = new BackgroundProcesses(store, "local", workspace, undefined, async () => ({ code: null, stdout: "", stderr: "", missing: true }));
+  t.after(() => processes.stopAll());
+  const started = await processes.start({ program: "node", args: [], cwd: ".", name: "held" }, { workspace, runId: "" });
+  assert.equal(started.isolation, "sampling");
+  assert.deepEqual(started.heldBySystem, { processorTime: true, memory: false, wholeGroupEnds: true });
+  let grandPid = 0;
+  for (let i = 0; i < 200 && !grandPid; i++) { grandPid = Number(await readFile(pidFile, "utf8").catch(() => 0)); if (!grandPid) await delay(25); }
+  t.after(() => { try { process.kill(grandPid, "SIGKILL"); } catch { /* already gone */ } });
+  assert.ok(grandPid > 0);
+  const stopped = await processes.stop(started.id);
+  assert.equal(stopped.status, "stopped");
+  assert.equal(await gone(grandPid), true, "what it started went with it");
+  assert.equal(await gone(started.pid), true);
 });
