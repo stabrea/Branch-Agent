@@ -3,7 +3,7 @@
  * person can write one to a file and load it from their shell profile; nothing is installed for
  * them and no script here ever runs a Branch command to work out its suggestions.
  */
-export const completionShells = ["bash", "powershell"] as const;
+export const completionShells = ["bash", "zsh", "fish", "powershell"] as const;
 export type CompletionShell = (typeof completionShells)[number];
 
 /** Every subcommand, with the options that belong to it. Also drives `branch help`. */
@@ -15,7 +15,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "status", summary: "Tasks working now, questions waiting, and a health summary", options: ["--json"] },
   { name: "logs", summary: "Print what happened during one task", options: ["--json"] },
   { name: "approve", summary: "Answer a task that stopped to ask: approve <task id> yes|no", options: ["--json"] },
-  { name: "completion", summary: "Print a completion script for bash or PowerShell", options: [] },
+  { name: "completion", summary: "Print a completion script for bash, zsh, fish or PowerShell", options: [] },
   { name: "demo", summary: "Run the offline demonstration", options: ["--json"] },
   { name: "doctor", summary: "Check that everything works", options: ["--probe", "--fix"] },
   { name: "daemon", summary: "Keep Branch working with the window closed: daemon install | uninstall | status", options: [] },
@@ -28,7 +28,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "import-agent", summary: "Read an assistant file: it shows what is inside, then --sections says what to bring in", options: ["--sections"] },
   { name: "restore", summary: "Read a backup file back in", options: [] },
   { name: "eval", summary: "Run the built-in evaluation set, or eval tools to check every tool", options: ["--suite", "--preset", "--compare", "--gate", "--json"] },
-  { name: "study", summary: "Run a written-down experiment: study list | run <id> | compare <a> <b>", options: ["--fresh", "--json"] },
+  { name: "study", summary: "Run a written-down experiment: study list | run <id> | compare <a> <b> | replay <id>", options: ["--fresh", "--json"] },
   { name: "mcp-serve", summary: "Offer Branch's tools to another AI tool", options: [] },
   { name: "acp-serve", summary: "Let a code editor talk to Branch", options: [] },
   { name: "skill", summary: "Pack a skill folder, or install a skill file: skill pack | skill install", options: ["--author", "--package-version", "--approve"] },
@@ -53,6 +53,7 @@ function bashOptionCases(): string {
 
 function bashScript(): string {
   return `# Branch Agent completion for bash. Load it with: source branch-completion.bash
+# ${completionInstallHint("bash")}
 _branch_complete() {
   local commands="${commandNames()}"
   local current="\${COMP_WORDS[COMP_CWORD]}"
@@ -93,6 +94,7 @@ function powershellOptionMap(): string {
 
 function powershellScript(): string {
   return `# Branch Agent completion for PowerShell. Load it with: . .\\branch-completion.ps1
+# ${completionInstallHint("powershell")}
 Register-ArgumentCompleter -Native -CommandName branch -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $commands = @(${cliCommands.map((command) => `'${command.name}'`).join(", ")})
@@ -119,11 +121,91 @@ ${powershellOptionMap()}
 `;
 }
 
+/** One `case` arm per subcommand for zsh, listing that command's options. */
+function zshOptionCases(): string {
+  return cliCommands
+    .filter((command) => command.options.length > 0)
+    .map((command) => `      ${command.name}) options=(${command.options.join(" ")}) ;;`)
+    .join("\n");
+}
+
+function zshScript(): string {
+  return `#compdef branch
+# Branch Agent completion for zsh.
+# ${completionInstallHint("zsh")}
+_branch() {
+  local -a commands options
+  commands=(${commandNames()})
+  if (( CURRENT == 2 )); then
+    compadd -a commands
+    return
+  fi
+  case "\$words[2]" in
+    completion) (( CURRENT == 3 )) && compadd ${completionShells.join(" ")} && return ;;
+    approve) (( CURRENT == 4 )) && compadd yes no && return ;;
+  esac
+  options=()
+  case "\$words[2]" in
+${zshOptionCases()}
+  esac
+  if [[ "\$PREFIX" == -* ]]; then
+    compadd -a options
+  else
+    _files
+  fi
+}
+if [[ "\$funcstack[1]" == "_branch" ]]; then
+  _branch "\$@"
+else
+  compdef _branch branch
+fi
+`;
+}
+
+/** One `complete` line per option, shown only after the subcommand it belongs to. */
+function fishOptionLines(): string {
+  return cliCommands
+    .flatMap((command) => command.options.map((option) =>
+      `complete -c branch -n "__fish_seen_subcommand_from ${command.name}" -l ${option.replace(/^--/, "")}`))
+    .join("\n");
+}
+
+function fishScript(): string {
+  const commandLines = cliCommands
+    .map((command) => `complete -c branch -n "__fish_use_subcommand" -a ${command.name} -d ${fishQuote(command.summary)}`)
+    .join("\n");
+  return `# Branch Agent completion for fish.
+# ${completionInstallHint("fish")}
+complete -c branch -f
+${commandLines}
+complete -c branch -n "__fish_seen_subcommand_from completion" -a "${completionShells.join(" ")}"
+complete -c branch -n "__fish_seen_subcommand_from approve" -a "yes no"
+${fishOptionLines()}
+`;
+}
+
+/** A description for fish, in single quotes, with the two characters fish treats specially escaped. */
+function fishQuote(text: string): string {
+  return `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+/** Where each shell's script goes so it loads by itself in every new terminal, in one line. */
+export function completionInstallHint(shell: CompletionShell): string {
+  switch (shell) {
+    case "bash": return "To load it in every new terminal: branch completion bash > ~/.branch-completion.bash && echo 'source ~/.branch-completion.bash' >> ~/.bashrc";
+    case "zsh": return "To load it in every new terminal: mkdir -p ~/.zfunc && branch completion zsh > ~/.zfunc/_branch, then add 'fpath=(~/.zfunc $fpath); autoload -Uz compinit; compinit' to ~/.zshrc";
+    case "fish": return "To load it in every new terminal: branch completion fish > ~/.config/fish/completions/branch.fish";
+    case "powershell": return "To load it in every new terminal: branch completion powershell >> $PROFILE";
+  }
+}
+
 /** The completion script for one shell, or a clear error naming the shells that are supported. */
 export function completionScript(shell: string): string {
   if (shell === "bash") return bashScript();
+  if (shell === "zsh") return zshScript();
+  if (shell === "fish") return fishScript();
   if (shell === "powershell" || shell === "pwsh") return powershellScript();
-  throw new Error(`Completion is available for: ${completionShells.join(", ")}. Try: branch completion bash`);
+  throw new Error(`Completion is available for: ${completionShells.join(", ")}. Try: branch completion zsh`);
 }
 
 /**

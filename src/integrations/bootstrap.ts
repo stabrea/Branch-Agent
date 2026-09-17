@@ -5,6 +5,7 @@ import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
+import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
@@ -226,6 +227,10 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.profiles = channels?.browserProfiles;
       browser.store = channels?.store as never;
       browser.tracer = channels?.tracer as never;
+      // The quirks of particular websites live in the skills the owner installed, not in the
+      // browser tool, so they are read fresh each time: installing a skill needs no restart.
+      const skillStore = channels?.store as SiteSkillSource | undefined;
+      if (skillStore) browser.siteSkills = owner => siteSkillsFor(skillStore, owner);
       // The page half of the shared "look at this, press that" tools is this browser.
       if (channels?.computer) channels.computer.page = browser;
       // Locking Branch gives back any browser of the owner's a task had borrowed, so a locked

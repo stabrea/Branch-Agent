@@ -72,11 +72,20 @@ export function requestHash(parts: CacheKeyParts): string {
  * Requests that are never kept however plain the answer looks: one carrying a picture (the bytes
  * would be kept with it, and the next screenshot is never the same picture anyway) and one that
  * names a saved secret, so nothing that stands for a password is written into a second place.
+ *
+ * A secret is named as `secret://project/NAME`, and the place it most often appears is not the
+ * words of a message but the arguments of a tool call the model asked for earlier in the same
+ * conversation — a deploy command, a header, a sign-in. Those arguments are part of the request, so
+ * they are read here too; looking only at the words let a whole conversation carrying a secret
+ * reference be kept.
  */
 export function neverKeep(parts: CacheKeyParts): boolean {
   return parts.messages.some((message) =>
-    (message.images?.length ?? 0) > 0 || message.content.includes("secret://"));
+    (message.images?.length ?? 0) > 0 || namesSecret(message.content)
+    || (message.toolCalls ?? []).some((call) => namesSecret(call.arguments) || namesSecret(call.name)));
 }
+/** Whether a piece of a request stands for something in the locker rather than saying it outright. */
+const namesSecret = (text: string): boolean => text.includes("secret://");
 
 interface CacheRow { completion: Completion; savedAt: string }
 
