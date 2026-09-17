@@ -17,6 +17,7 @@ import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, save
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
+import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -101,6 +102,10 @@ export class BranchBrowser {
    */
   siteSkills: ((owner: string) => SiteSkills) | undefined;
 
+  /** R17-S19: the owner's browser care (Settings › Computer & browser); defaults without a store. */
+  private care(owner: string): BrowserCare {
+    return this.store ? browserCare(this.store, owner) : browserCareDefaults;
+  }
   private allowed(value: string): boolean {
     try { return this.origins.has(new URL(value).origin); } catch { return false; }
   }
@@ -134,6 +139,7 @@ export class BranchBrowser {
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
     const session = new BrowserSession(() => this.starting ??= this.launch(), route => this.route(route));
     session.options.saveDownload = download => this.saveDownload(download);
+    session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
     const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
@@ -291,6 +297,7 @@ export class BranchBrowser {
   }
   /** Sends one file from the person's workspace to a file box on the page. */
   async upload(selector: string, path: string, context: ToolContext) {
+    if (this.care(context.owner).blockUploads) throw new Error(uploadsBlocked); // R17-S19
     if (!this.files) throw new Error('Sending a file to a website needs the workspace');
     const target = await this.files.checked(path);
     return this.operation(context, async page => {

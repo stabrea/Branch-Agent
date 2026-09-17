@@ -582,6 +582,8 @@ function renderAttention() {
   for (const item of waiting) {
     if (notifiedAttention.has(item.runId)) continue;
     notifiedAttention.add(item.runId);
+    // R17-S17: the owner's sound, and "the banner only" (public/comfort.js).
+    if (globalThis.branchComfort?.attention(item) === "handled") continue;
     if (typeof Notification === "undefined") continue;
     const show = () => {
       const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
@@ -1220,10 +1222,13 @@ let pendingFollowUps = 0;
 /** A message typed while the assistant is busy waits its turn in the same conversation. */
 async function queueFollowUp(prompt) {
   try {
-    const result = await api(`sessions/${sessionId}/followups`, { prompt });
+    // r17-h: wait, pass it on, or stop and go next, as the owner chose (public/flows-boards.js); null keeps the plain queue.
+    const busy = await globalThis.branchBusySend?.(sessionId, prompt);
+    const result = busy ?? await api(`sessions/${sessionId}/followups`, { prompt });
     $("prompt").value = "";
     message("user", prompt);
-    message("assistant", result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    message("assistant", busy && busy.mode !== "queue" ? busy.message : result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    if (busy?.mode === "steer") return;
     pendingFollowUps++;
   } catch (e) { toast(e.message); }
 }

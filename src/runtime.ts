@@ -48,6 +48,7 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
+import { browserConfirmationHold, holdsBrowserStep, withBrowserConfirmation } from "./comfort/browser-safety.js"; // R17-S19
 // mac5/manual-actions: the gate for tools run outside a conversation.
 import { gateToolUse, type ToolGateOptions } from "./tool-gate.js";
 import * as safetyExtras from "./safety-extras/hooks.js"; // mac7/r17-g: the safety extras' hooks
@@ -124,6 +125,7 @@ import { boundPictures, markTaken, picturesKeptInView, takenPictureWords } from 
 import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
+import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -547,7 +549,7 @@ export class Runtime {
     this.controllers.set(run.id, controller);
     const context = this.context({
       runId: run.id,
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000), ...(options.signal ? [options.signal] : [])]),
       ...(options.source ? { source: options.source } : {}),
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
     });
@@ -1335,6 +1337,7 @@ ${run.output.slice(0, 6000)}`;
     const aboutYou = knobs.aboutYouMessage(this.store, memoryScope(this.store, context)); // R17-S13
     if (aboutYou) messages.push(aboutYou);
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
+    messages.push(...learningOpening(this.store, run, context)); // R17-F (src/learning-more/hook.ts); adds nothing while its parts are off
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);
@@ -1868,7 +1871,8 @@ ${run.output.slice(0, 6000)}`;
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
-    return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
+    // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source)), this.store, this.owner);
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
@@ -1905,8 +1909,10 @@ ${run.output.slice(0, 6000)}`;
     const { rule, leak } = tightened;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
-    const hold = personalHold(tool, args, source);
-    const held = hold && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const personal = personalHold(tool, args, source);
+    // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
+    const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
+    const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
     if (hold?.onceOnly && held === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
     // --- mac7/r17-g: the emergency stop, the command scan and authenticator codes; only ever stricter.
@@ -1918,7 +1924,8 @@ ${run.output.slice(0, 6000)}`;
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
-    const answered = decision === "ask"
+    // A once-only question is never answered by a kept yes (R17-S-C integration review).
+    const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold || extra.exact) : undefined;
     const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,

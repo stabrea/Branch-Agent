@@ -6,6 +6,9 @@ import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
 import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
+// R17-S-C (comfort): shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+import { OutboundNetwork } from "./comfort/network.js";
+import { readComfort } from "./comfort/settings.js";
 import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
@@ -202,6 +205,10 @@ import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
 import { SafetyExtras } from "./safety-extras/index.js"; // mac7/r17-g: the safety extras
 import { assertAddressNotStopped } from "./safety-extras/emergency-stop.js"; // mac7/r17-g
+import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
+// R17-F: learning, deeper (src/learning-more/).
+import { homedir as learningHome } from "node:os";
+import { LearningMore } from "./learning-more/index.js";
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -299,7 +306,8 @@ export async function createBranch(options: {
   registerKeptArtifacts(registry, keptArtifacts, files);
   // bucket-18 (A1183): put a kept version back, or let one go.
   registerArtifactVersions(registry, keptArtifacts, files);
-  registerCodeSearch(registry, new WorkspaceSearch(files));
+  const workspaceSearch = new WorkspaceSearch(files); // R17-S20: the ignore-file choice is set below
+  registerCodeSearch(registry, workspaceSearch);
   // The project map: built once, then kept up to date file by file, and ordered around a request.
   const projectMap = new ProjectMap(files);
   registerProjectMap(registry, projectMap);
@@ -481,6 +489,12 @@ export async function createBranch(options: {
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
+  // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
+  const outbound = new OutboundNetwork();
+  outbound.apply(readComfort(store, runtime.owner, "network"));
+  workspaceSearch.ignoreChoice = projectMap.search.ignoreChoice = () => readComfort(store, runtime.owner, "files");
+  // ── end R17-S-C ──
   // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
   // lets a program behind the wall read Branch's own data folder.
   setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target), dataDir });
@@ -1013,6 +1027,19 @@ export async function createBranch(options: {
   const safetyExtras = new SafetyExtras({ runtime, registry, dataDir });
   web.policy.emergencyStop = (target) => assertAddressNotStopped(store, runtime.owner, target);
   // ── end mac7/r17-g ──
+  // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
+  const flowsBoards = new FlowsBoards({ runtime, registry, flows, knowledge, queue: runQueue, asks,
+    fetch: () => web.policy.guard(globalThis.fetch), ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  // ── end r17-h ──
+  // ── R17-F: learning, deeper (src/learning-more/). Every part ships off. ──
+  const learningMore = new LearningMore({ store, registry, owner: runtime.owner, models: runtime.models,
+    fetch: () => web.policy.guard(globalThis.fetch), hindsight: asks.hindsight, mirror: memoryMirror, files,
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    // A home folder given to createBranch is where to look, so the assistants' own override variables are not read then.
+    place: () => (options.home ? { platform: process.platform, env: {}, home: resolve(options.home) } : { platform: process.platform, env: process.env, home: learningHome() }),
+    provider: () => runtime.models.plan(runtime.owner, "").candidates[0]?.provider,
+    wrapEmbedder: (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache) });
+  // ── end R17-F ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -1053,6 +1080,8 @@ export async function createBranch(options: {
   return {
     store,
     registry,
+    /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */
+    comfort: { outbound },
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
     interop,
     /** bucket-15: add-on packages, lists, filters, Pipelines, drafts, search sources, Branch as a plugin. */
@@ -1071,6 +1100,10 @@ export async function createBranch(options: {
     personal,
     /** mac7/r17-g: tool scripts, WebAssembly add-ons, codes, the emergency stop, scans, the activity chain. */
     safetyExtras,
+    /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
+    flowsBoards,
+    /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
+    learningMore,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1301,6 +1334,7 @@ export async function createBranch(options: {
             void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
         },
         connections: mcpConnections,
+        startupTimeoutMs: () => readComfort(store, runtime.owner, "mcp").startupTimeoutSeconds * 1000, // R17-S20
         // mac3/security-check: a server fetched from a package registry is looked up first.
         vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
       },
@@ -1352,6 +1386,7 @@ export async function createBranch(options: {
       } finally {
         journal.close(); // mac3/never-break
         oauth.closeAll();
+        outbound.reset(); // R17-S-C: the program's proxy and certificates go back as they were
       }
     })()),
   };
@@ -1724,6 +1759,13 @@ export * from "./model-savings/reported.js";
 export * from "./model-savings/rounds.js";
 export * from "./model-savings/keep-alive.js";
 export * from "./model-savings/mixture.js";
+// R17-S-C (comfort): shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+export * from "./comfort/settings.js";
+export * from "./comfort/network.js";
+export * from "./comfort/browser-safety.js";
+export * from "./comfort/ignore-files.js";
+export * from "./comfort/status-line.js";
+export * from "./comfort/auto-update.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
 // Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.

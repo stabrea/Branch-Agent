@@ -86,6 +86,12 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
 | What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
 | "From now on" instructions (`mac7/r17-b`) | `settings:assistant` |
+| Going back to an earlier step of a flow, and checks for saved procedures (`mac7/r17-h`) | `automations:procedures` |
+| The shared board of cards (`mac7/r17-h`) | `automations:scheduled`, beside the waiting line: it is work waiting to be done (bucket 23's project board stays in `settings:general`, and the shared board lays its lanes over it) |
+| Changing the waiting line, and what typing does while a task works (`mac7/r17-h`) | `automations:scheduled`; `/queue` and `/busy` live in the message box |
+| Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
+| Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
+| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
@@ -98,6 +104,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
+| Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
@@ -148,6 +155,13 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Coding polish (`mac7/r17-d`): its switches, formatters, shell snapshot, copies, rules, checks and CI lines | `settings:advanced`, one card beside the developer tools |
 | A task's checklist (`mac7/r17-d`) | The side pane's Plan tab, under the to-do list |
 | The `@` picker (`mac7/r17-d`) | The message box, the same menu as `/`, because it changes the next message |
+| Keyboard shortcuts and vim keys, files searches skip (R17-S-C) | `settings:general` |
+| The status line and a time on each message (R17-S-C) | `settings:appearance`; the line itself sits in the composer's foot row |
+| Where you are told and the sound (R17-S-C) | `settings:notifications` |
+| Updating by itself (R17-S-C) | `settings:about` |
+| The push-to-talk key and the longest recording (R17-S-C) | `settings:voice` |
+| How carefully the browser acts, the proxy and trusted certificates (R17-S-C) | `settings:computer` |
+| How long a tool server may take to start (R17-S-C) | `customize:connections` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

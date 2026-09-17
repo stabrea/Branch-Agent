@@ -70,4 +70,9 @@ export const PARITY: readonly ParityRow[] = [
   row("Carry on elsewhere", "/handoff (Hermes)", "/handoff", "built", "A chat app that has talked to Branch, a terminal, or another assistant."),
   row("Suggested automations", "/suggestions, /suggest (Hermes)", "/suggestions", "built", "A no is kept for good."),
   row("Automation blueprints", "/blueprint, /bp (Hermes)", "/blueprint", "built", "The blanks are checked; the owner's own command is the yes."),
+  // r17-h
+  row("The waiting line", "/queue (Hermes)", "/queue", "built", "Reword, move or take out a message before it starts."),
+  row("Typing while it works", "/busy (Hermes); queue, steer or interrupt (Cline)", "/busy", "built", "Owner only; steering uses the same trusted note as the Steer button."),
+  row("Focus view", "/focus (Hermes)", "/focus", "built", "Only the prompt and the final answer; the steps are still one click away with /focus off."),
+  row("Asking for packages and tool servers", "self-modification requests (NanoClaw)", "/installs", "built", "The malware list is asked first; approving works only in the app or the owner's terminal, and nothing installs itself."),
 ];

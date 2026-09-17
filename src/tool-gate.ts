@@ -37,6 +37,8 @@ export interface ToolGateOptions {
   source?: RunSource;
   /** Where yeses already given are remembered (a workflow's or conversation's key). */
   approvalKey?: string;
+  /** r17-h integration review: the caller's own stop (a time limit, a cancelled task) reaches the tool too. */
+  signal?: AbortSignal;
 }
 
 export interface ToolGateHost {

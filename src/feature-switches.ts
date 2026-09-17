@@ -8,6 +8,8 @@ import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
 import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
 import { personalToolFeatures } from "./personal/settings.js"; // R17-C
 import { safetyToolFeatures } from "./safety-extras/settings.js"; // mac7/r17-g
+import { boardToolFeatures } from "./flows-boards/settings.js"; // r17-h
+import { learningToolFeatures } from "./learning-more/settings.js"; // R17-F
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -119,6 +121,10 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac7/r17-g: the safety extras (src/safety-extras/settings.ts keeps these lists). ──
   ...safetyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── r17-h: flows and boards (src/flows-boards/settings.ts keeps these lists). ──
+  ...boardToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── R17-F: learning, deeper (src/learning-more/settings.ts keeps these lists). ──
+  ...learningToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──

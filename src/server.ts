@@ -116,6 +116,8 @@ import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
+import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
+import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -201,6 +203,9 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
+// R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
+import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
+import { comfortRefusal } from "./short-lived-keys.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
@@ -446,6 +451,8 @@ async function staticFile(
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
+    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
+    "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -477,6 +484,7 @@ async function staticFile(
     "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
     "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
     "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
+    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
@@ -869,6 +877,10 @@ async function api(
   if (handlesSavingsPath(path))
     return savingsApi(app, request, path, new URL(request.url ?? "/", "http://branch.invalid"), readBody)
       .catch((error: unknown) => { throw error instanceof SavingsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-S-C: shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+  if (handlesComfortPath(path))
+    return comfortApi({ store: app.store, runtime: app.runtime, outbound: app.comfort.outbound }, request, path, readBody)
+      .catch((error: unknown) => { throw error instanceof ComfortApiError ? new HttpError(error.status, error.message) : error; });
   // mac6/accounts: the accounts of each connection, and switching between them.
   if (handlesAccountsPath(path))
     return accountsApi(request, path, {
@@ -2808,6 +2820,32 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the mac7/r17-g block ----
+        // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
+        if (handlesFlowsBoardsPath(path)) {
+          app.store.profiles.requireOwner("Flows and boards");
+          const answer = await flowsBoardsApi({
+            boards: app.flowsBoards, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof FlowsBoardsHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-h block ----
+        // ---- R17-F: learning, deeper under /api/learning-more (src/learning-more/api.ts); the owner's alone. ----
+        if (handlesLearningMorePath(path)) {
+          app.store.profiles.requireOwner("Learning, deeper");
+          const answer = await learningMoreApi({
+            more: app.learningMore, runtime: app.runtime, method: request.method ?? "GET", scope: app.store.profiles.scope(),
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof LearningMoreHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end R17-F ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3313,6 +3351,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
   if (handlesKnobsPath(path)) return knobsRefusal;
   if (handlesSavingsPath(path)) return savingsRefusal; // R17-E
+  // R17-S-C: the proxy, certificates, browser care and automatic updates are the owner's.
+  if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
@@ -3383,6 +3423,10 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesPersonalPath(path))
     // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
     || (request.method !== "GET" && handlesSafetyPath(path))
+    // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
+    || (request.method !== "GET" && handlesFlowsBoardsPath(path))
+    // R17-F: every change under /api/learning-more may ask a model or an outside service.
+    || (request.method !== "GET" && handlesLearningMorePath(path))
   );
 }
 function configureLimits(server: Server): void {

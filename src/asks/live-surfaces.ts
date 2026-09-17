@@ -51,12 +51,15 @@ export class LiveSurfaces {
   private readonly live = new Map<string, Surface>();
   private timer: NodeJS.Timeout | undefined;
   private ticking = false;
+  /** r17-h integration review: a check a page's tool must pass each time it is asked (a widget looks only). */
+  private guard: ((surfaceId: string, tool: string) => string | null) | undefined;
   constructor(private readonly store: Store, private readonly owner: string,
     private readonly runTool: (name: string, args: unknown, surfaceId: string) => Promise<unknown>,
     private readonly now: () => number = Date.now) {
     for (const saved of partSettings(store, owner, savedKey, SavedSchema).surfaces)
       this.live.set(saved.id, { ...saved, html: "", updatedAt: null, error: null, dueAt: 0, failures: 0, pressedAt: -Infinity });
   }
+  setGuard(guard: (surfaceId: string, tool: string) => string | null): void { this.guard = guard; }
   private persist(): void {
     this.store.save("settings", this.owner, savedKey, { surfaces: [...this.live.values()].map(({ id, page, title, tool, args, everySeconds }) => ({ id, page, title, tool, args, everySeconds })) });
   }
@@ -92,6 +95,8 @@ export class LiveSurfaces {
       surface.pressedAt = started;
     }
     try {
+      const refused = this.guard?.(surface.id, surface.tool);
+      if (refused) throw new Error(refused);
       surface.html = surfaceHtml(await this.runTool(surface.tool, surface.args, surface.id));
       surface.updatedAt = new Date(this.now()).toISOString();
       surface.error = null;

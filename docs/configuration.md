@@ -6948,6 +6948,27 @@ through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
 
+## Flows and boards (r17-h)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/flows-boards/`, owner only; a short-lived key can
+read and change nothing there except by looking (`tests/short-lived-key-routes.mjs`). Every tool call
+any of them makes goes through the one tool gate (`src/tool-gate.ts`).
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Going back in a flow | Automations → Procedures | While it is on, a graph flow keeps its values after every step. Pick a step, change a value (checked against what the flow says each value is), and run a copy from the next step. The run you came from never changes; the copy is a task of its own whose recording starts with the copied steps (`flow.steps`) |
+| Checks for procedures | Automations → Procedures | After a verified procedure runs: checks (a tool call whose answer must contain some words, or a small script through `code.run` that must end with 0), clean-up calls after each failed try, a time limit per try and per call, and 0–5 more tries. A question or a refusal from your approval rules stops it at once and is never retried. A time limit stops the check itself, not only the wait for it; when the assistant runs it, each try counts against that task's budget, the task's Stop stops it, and the repeated-call guard sees every check. A task's own call never reaches past its permissions, and a check cannot start procedures, schedules, specialists or flows (`procedures.replay_checked`) |
+| Shared board | Automations → Scheduled | Cards in To do, Doing, To check, Done and Stuck for the active project, laid over bucket 23's project board. The assistant may add cards, move them among the first three and hand them on with a note — only from your own work, never from a chat, a key, a household person or another program. Only you start work on a card (an ordinary task), finish, reset or remove one. A card whose work fails 3 times in a row (`stopAfter`, 1–10) stops in Stuck until you reset it (`board.cards`, `board.card_add`, `board.card_move`, `board.card_handoff`) |
+| Widgets the assistant built | Library → Made | The assistant suggests a widget — a look-only tool, its settings and how often to ask again — only from your own conversation. A widget may only use a tool that looks at the web, schedules, watches, GitLab, tool servers, running programs, projects or other Branch computers: never your mail, calendar, memory, history, files, documents, pictures, signed-in browser pages or devices, and this is checked again every time the page is asked, so a tool that changes under the same name is not called. The model never sees a widget's frame address, and a short-lived key cannot read the list; at most ten wait, and a no is never asked again. A yes makes it one of bucket 23's live pages (which must be on), shown in the same sealed frame and asked again only as your rules allow unattended work (`widgets.list`, `widgets.propose`) |
+| The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). Only you do this, in the window or your own terminal: a short-lived key or a household person can look with `/queue` but never reword, move or remove, because a waiting message runs as whoever queued it. While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
+| Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
+| Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
+script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
+request check at another copy of the list, as it does for the malware check.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
@@ -7161,6 +7182,10 @@ rounds are read from `/api/model-savings/rounds?session=<id>`.
 | OpenRouter company choice (R17-046) | Models → Connection | Sends OpenRouter's documented `provider` object (sort, order, only, ignore, fallbacks, data collection), and only to connections whose address is `openrouter.ai` |
 | Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
 | Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
+
+Setting names: `planModel` and `sideTier` (planning model and flex for side questions), `easyModel`, `hardModel` and
+`classifierModel` (choose by difficulty), `maxPings` (keep-alive), `allowFallbacks` and `dataCollection` (OpenRouter),
+and `mixtures` (mixtures of models).
 
 The planning, difficulty and OpenRouter ideas come from aider, cline, gemini-cli and Hermes Agent
 (Apache-2.0 and MIT); no code was copied.
@@ -7874,3 +7899,92 @@ user already had changes.
 - **R17-066** built: `src/safety-extras/activity-chain.ts`, `cli.ts`; `tests/safety-extras-chain.test.mjs`.
 - **R17-067** built: `src/safety-extras/history-repair.ts`; `tests/safety-extras-progress.test.mjs`.
 - **R17-068** awaiting owner: design note above; nothing built.
+## Comfort: shortcuts, status line, notifications, voice keys, the browser's care, proxy and certificates (R17-S-C)
+
+Every setting here ships as Branch has always behaved; nothing changes until you change it. The values live in the
+settings store (`comfort-<card>` records, `src/comfort/settings.ts`) and are changed from the window's cards
+(`public/comfort.js`), from the terminal's Settings pages, or with `POST /api/comfort` `{ card, values }` /
+`{ card, reset: true }`. A short-lived key can read them but never change them.
+
+| Setting | Where | Ships as |
+| --- | --- | --- |
+| Keys for Find anything, New conversation, Appearance settings, Fold the side pane | Settings › General | Ctrl+K, Ctrl+N, Ctrl+,, Ctrl+Shift+K (Cmd works as Ctrl on macOS) |
+| Vim keys in the message box (Esc to move: h j k l, w b, 0 $, x, dd; i a I A o O to type) | Settings › General | off |
+| Skip what `.gitignore` lists; more ignore files (such as `.aiignore`) | Settings › General | on; none. `.branchignore`, when there is one, is still used instead of `.gitignore` |
+| Status line: model, room used, folder, cost so far, time — in the window and the terminal | Settings › Appearance | as always |
+| A time on every message (from each task's start and end) | Settings › Appearance | off |
+| Where you are told: your computer and the banner, or this window only | Settings › Notifications | your computer and the banner |
+| Sound when Branch needs you: off, chime, knock | Settings › Notifications | off |
+| Updating by itself: off, look daily and tell me, look daily and install safely | Settings › Updates & about | off |
+| Push-to-talk key; longest recording in seconds | Settings › Voice | none; no limit |
+| Ask before the browser types, presses, sends a file or borrows your browser | Settings › Computer & browser (owner only) | off |
+| Never send files to websites | Settings › Computer & browser (owner only) | off |
+| A website's message boxes: dismiss or accept | Settings › Computer & browser (owner only) | dismiss |
+| Proxy address, hosts reached without it, extra trusted certificates | Settings › Computer & browser (owner only) | none |
+| Seconds a tool server may take to start | Customize › Connections | 10 |
+
+**Installing by itself** goes through the same path as the Update button: it waits until no task is working, checks
+the download against its published checksum, tries the new version on a copy of your work (never-break's canary) and
+writes a safety copy before anything is swapped. It runs in the app window only; `branch update --yes` is unchanged.
+A task paused on a question, or one somebody else in the house started, also counts as working. Only the owner can
+turn installing on or off (a household profile and a short-lived key are refused, in the window and the terminal).
+
+**The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
+address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
+and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
+can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
+card says so. Programs the assistant starts are not given the proxy. The card says plainly that a proxy passes on
+everything Branch sends, including requests carrying your provider keys, and that an added certificate lets whoever
+holds its private key read and change Branch's secure connections. Presets, "put back" and settings files never
+touch the proxy, the certificates, the browser's care or installing by itself.
+
+**Confirm sensitive browser steps** asks every time, before any standing yes, including a yes for one website; a
+refusal you wrote still decides first. It covers pressing and typing through the shared computer tools and using a
+saved sign-in, and each question can only be answered "Yes, just now". **Accept** for message boxes never answers a
+box that asks you to type something; that one is always dismissed. Extra ignore files can only hide more, and a file
+that may hold secrets (such as `.env`) can never be named as one; turning `.gitignore` off never shows a secret file.
+
+**In the terminal** each of these is a row on its Settings page: Enter moves it to the next choice, and
+`/switch <name> <value>` sets it (`vim`, `statusLine`, `timestamps`, `notify`, `sound`, `maxRecording`,
+`confirmBrowser`, `blockUploads`, `dialogs`, `proxy`, `gitignore`, `mcpTimeout`, `autoUpdate`). `/model` with nothing
+after it opens a picker of the connections.
+
+### macOS and Linux
+
+Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
+itself, not by a system program.
+
+## Learning, deeper (R17-F)
+
+Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
+is needed), all off at first. "On" loads a part's tools from the first round and, for memory blocks
+and lessons, puts them at the start of each conversation; "only when it is needed" lists the tools for
+the assistant to load (and names the memory blocks in one line); "off" refuses. The cards are in
+Library → Memory, with skill usage in Customize → Skills. Routes are under `/api/learning-more/`, the
+owner's profile only; a short-lived key may read, and may use the two searches
+(`/api/learning-more/search`, `/api/learning-more/memory/find`), and changes nothing.
+
+| Part | What it does | Tools |
+| --- | --- | --- |
+| Memory blocks | Named notes, each with a size budget, kept in front of every conversation; the assistant edits them itself. Each person, and each Trunk or specialist, has its own. A task a chat message started cannot change them. The "about-you" block is the "about you" note from Settings (its size and whether it is shown are set there; this part never shows it twice). Key-like values are hidden on save. | `memory.block_view`, `memory.block_edit` |
+| Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
+| Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
+| Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
+| Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
+| Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
+| Outside memory | One of Hindsight (the server set up under the smaller asks, with its own switch), a self-hosted Mem0 server (`POST /memories`, `POST /search`, `X-API-Key`) or Honcho (v2 session messages and the peer "dialectic" chat), none by default. Each person and agent has its own user or peer name with Mem0 and Honcho; Hindsight keeps one bank, so only the owner's own tasks can recall from it or ask it; key-like values are hidden before sending; answers are information. The Mem0 and Honcho routes were written from their public contracts and have not been tried against a live server. | `memory.outside_recall`, `memory.outside_keep`, `memory.outside_ask` |
+
+Settings fields: the switches are `mode` in `learning-more-<part>`; note read-back keeps
+`tidyInstructions` (up to 2,000 characters); the chat preferences keep `claude-code`, `codex` (both
+false) and `minChats` (2 to 20, default 2); outside memory keeps `active` (`none`, `hindsight`, `mem0`,
+`honcho`), `mem0.address`, `mem0.secret`, `mem0.user`, `honcho.address`, `honcho.secret`,
+`honcho.workspace` and `honcho.peer`; `mem0.secret` and `honcho.secret` are the names of keys in the locker (such as `MEM0_KEY`), never a key. A block has `label`, `description`, `limit` (100 to 8,000
+characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `expiresAt`.
+
+### macOS and Linux
+
+Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
+override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
+every system (`src/migrate/detect.ts`).

@@ -67,6 +67,7 @@ const CLIENT = {
   /* Bucket 12: a saved prompt. The message box is emptied once the command returns, so the text goes in just after. */
   send: (action) => setTimeout(() => { $("prompt").value = action.text; $("chat-form")?.requestSubmit(); }, 0),
   fill: (action) => setTimeout(() => { $("prompt").value = action.text; $("prompt").focus(); }, 0),
+  focus: (action) => globalThis.branchFocusView?.(action.on), // r17-h: public/flows-boards.js
 };
 
 /** Every key sends with POST, so what was typed never lands in an address; the server says what the key may do. */

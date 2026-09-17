@@ -76,6 +76,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/knowledge/ask", "asks the knowledge bases"),
   post("/api/retrieval/search", "searches passages"),
   post("/api/tools/meaning-search", "finds a tool by what it does"),
+  // R17-F (src/learning-more/api.ts): finding past conversations by meaning, and facts by label and date.
+  post("/api/learning-more/search", "searches conversations by meaning"),
+  post("/api/learning-more/memory/find", "searches what is remembered by label and date"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
   // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
@@ -110,6 +113,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/coding\/shell$/,
   // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
   /^\/api\/personal(\/|$)/,
+  // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
+  /^\/api\/flows-boards\/widgets$/,
 ];
 
 /**
@@ -127,6 +132,15 @@ export const knobsRefusal =
  */
 export const savingsRefusal =
   "A short-lived key cannot change how models are chosen or what they may spend. Do that in the app window.";
+
+/**
+ * R17-S-C: the comfort settings (`/api/comfort`, `/api/comfort/update-plan`, `/api/comfort/status`, src/comfort/api.ts) are
+ * the owner's alone. Reading them is a look (a proxy address and public certificates are not
+ * secrets); every change is refused to a short-lived key, because the cards include the proxy, the
+ * trusted certificates, how carefully the browser acts and whether Branch installs updates.
+ */
+export const comfortRefusal =
+  "A short-lived key cannot change shortcuts, notifications, updates, the browser's care, the proxy or certificates. Do that in the app window.";
 
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";

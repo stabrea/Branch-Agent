@@ -10,6 +10,8 @@ import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
 import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
+import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
+import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -80,6 +82,10 @@ const yesNo = (field: string, label: string, t: string, guard: Guard, initial = 
   ({ field, label, t, kind: { type: "yes-no" }, initial, guard });
 const one = (key: string, name: string, t: string, home: string, guard: Guard, extra: Partial<SettingSpec> = {}): SettingSpec =>
   ({ key, name, t, home, fields: [sw("mode", "Switch", "settings-kit.field.switch", guard)], ...extra });
+/** r17-h integration review: a flows-and-boards switch, written through the running copy so its tools follow. */
+const board = (part: BoardPart, name: string, home: string, guard: Guard): SettingSpec =>
+  one(`flowboards-${part}`, name, `settings-kit.name.flowboards-${part}`, home, guard,
+    { write: (store, owner, patch) => { writeBoardSwitch(store, owner, part, patch); } });
 const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): void => {
   const next = saveWallSettings(store, owner, { ...wallSettings(store, owner), ...patch });
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `The wall around programs: ${next.mode}, reach ${next.network}`,
@@ -157,6 +163,10 @@ const reach: SettingSpec[] = [
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   safetyPart("tool-scripts", "Scripts that call several tools at once", "reach"),
   safetyPart("wasm-add-ons", "Add-ons in a sealed WebAssembly box", "reach"),
+  // r17-h: checks run tools and scripts, widgets ask tools on a timer, and requests reach the package lists.
+  board("recipe-checks", "Checks for saved procedures", "automations:procedures", "reach"),
+  board("widgets", "Widgets the assistant builds", "library:made", "reach"),
+  board("install-requests", "Requests for packages and tool servers", "inbox:needs", "reach"),
 ];
 
 const comfort: SettingSpec[] = [
@@ -170,6 +180,11 @@ const comfort: SettingSpec[] = [
   one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain"),
   one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
   safetyPart("history-repair", "Tidying a conversation before it is sent", "guard"), // "repair" reads as safety-shaped (pair), so it is a guard
+  // r17-h: going back in a flow, the shared board, the waiting line and focus view only rearrange the owner's own work.
+  board("time-travel", "Going back in a flow", "automations:procedures", "plain"),
+  board("kanban", "The shared board", "automations:scheduled", "plain"),
+  board("waiting-line", "Changing the waiting line", "automations:scheduled", "plain"),
+  board("focus", "Focus view", "settings:appearance", "plain"),
   {
     key: "goal-undo", name: "Goals and going back", t: "settings-kit.name.goal-undo", home: "settings:data",
     // Working on until a goal is met is the assistant acting on its own; the snapshots are what lets you go back.
@@ -195,7 +210,33 @@ const comfort: SettingSpec[] = [
   },
 ];
 
-export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort];
+/**
+ * R17-S-C integration review: the comfort cards' switches and short lists (src/comfort/settings.ts),
+ * saved through the cards' own checks. The proxy, the certificates, the browser's care and automatic
+ * installing are not here and are on the never-touched list: no preset or file may set them.
+ */
+const viaComfort = (card: ComfortCard) => (store: Store, owner: string, patch: Record<string, unknown>): void => {
+  saveComfort(store, owner, card, patch);
+};
+const comfortCards: SettingSpec[] = [
+  { key: "comfort-keys", name: "Shortcuts", t: "comfort.keys.title", home: "settings:general", write: viaComfort("keys"),
+    fields: [yesNo("vim", "Vim keys in the message box", "comfort.field.vim", "plain")] },
+  { key: "comfort-display", name: "Status line and times", t: "comfort.display.title", home: "settings:appearance", write: viaComfort("display"),
+    fields: [yesNo("timestamps", "A time on every message", "comfort.field.timestamps", "plain")] },
+  { key: "comfort-notify", name: "Notifications and sound", t: "comfort.notify.title", home: "settings:notifications", write: viaComfort("notify"),
+    fields: [
+      { field: "method", label: "Where you are told", t: "comfort.field.method", guard: "plain", initial: "system", kind: { type: "choice", options: ["system", "window"] } },
+      { field: "sound", label: "Sound", t: "comfort.field.sound", guard: "plain", initial: "off", kind: { type: "choice", options: ["off", "chime", "knock"] } },
+    ] },
+  { key: "comfort-files", name: "Ignore files", t: "comfort.files.title", home: "settings:general", write: viaComfort("files"),
+    // Turning .gitignore off lets searches see more of the workspace (never a secret file).
+    fields: [yesNo("respectGitignore", "Skip what .gitignore lists", "comfort.field.respectGitignore", "guard", true)] },
+  { key: "comfort-mcp", name: "Tool servers' start-up time", t: "comfort.mcp.title", home: "customize:connections", write: viaComfort("mcp"),
+    fields: [{ field: "startupTimeoutSeconds", label: "Seconds a server may take to start", t: "comfort.field.startupTimeoutSeconds",
+      guard: "plain", initial: 10, kind: { type: "number", min: 1, max: 300 } }] },
+];
+
+export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort, ...comfortCards];
 
 /**
  * Records that are never touched from here, whatever a file or a preset names. The catalogue above
@@ -210,6 +251,8 @@ export const neverTouched: readonly RegExp[] = [
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
   // mac7/r17-g integration review: authenticator codes (loosening them needs a code) and the emergency stop.
   /^safety-code-approvals/, /^safety-emergency-stop/,
+  // R17-S-C integration review: the proxy and certificates, the browser's care, and updating by itself.
+  /^comfort-(network|browser|update)/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */

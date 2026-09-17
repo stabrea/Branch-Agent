@@ -3522,3 +3522,27 @@ The files in `src/safety-extras/` were written for Branch; no code was copied. I
 - Authenticator codes that cannot be used twice and an emergency stop by level (`totp.ts`, `code-approvals.ts`, `emergency-stop.ts`): ZeroClaw's `crates/zeroclaw-runtime/src/security/otp.rs` and `estop.rs` (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0). The codes themselves follow RFC 4226 and RFC 6238.
 - Repeated-text detection (a fifty-character window seen ten times) and the two conditions for "stuck" (`progress-judge.ts`): Gemini CLI's `packages/core/src/services/loopDetectionService.ts` (https://github.com/google-gemini/gemini-cli, Copyright 2026 Google LLC, Apache-2.0); the progress question: AutoGen's Magentic-One orchestrator (https://github.com/microsoft/autogen, Copyright (c) Microsoft Corporation, MIT).
 - The hash-linked activity record (`activity-chain.ts`) and history repair before sending (`history-repair.ts`): OpenFang's `crates/openfang-runtime/src/audit.rs` and `session_repair.rs` (https://github.com/RightNow-AI/openfang, Copyright (c) 2024 OpenFang Contributors, MIT OR Apache-2.0).
+
+### Flows and boards (r17-h; ideas only), MIT and Apache-2.0
+
+`src/flows-boards/` was written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- LangGraph (https://github.com/langchain-ai/langgraph, Copyright (c) 2024 LangChain, MIT): going back to a checkpoint, changing the state and running a fork from there (`libs/langgraph/langgraph/pregel/main.py`).
+- Goose (https://github.com/aaif-goose/goose, formerly block/goose, Copyright (c) Block, Inc., Apache-2.0): checks that run after a recipe, clean-up on failure, time limits and a retry count (`crates/goose/src/agents/retry.rs`).
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): the shared kanban board with lanes, hand-offs and a circuit breaker (`hermes_cli/kanban*.py`), and `/queue`, `/busy` and `/focus`.
+- OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation, MIT): widgets the assistant builds that stay current (`src/canvas/widget-tool.ts`).
+- NanoClaw (https://github.com/nanocoai/nanoclaw, Copyright (c) 2026 Gavriel, MIT): the agent asking for packages and tool servers, and the owner approving from chat (`src/modules/self-mod/`).
+
+### R17-F, learning, deeper: Letta Code, classic Letta (Apache-2.0); Hermes Agent, AutoGen, nanobot, LangGraph (MIT); ZeroClaw (MIT or Apache-2.0)
+
+The files in `src/learning-more/` were written for Branch after reading these projects; no code was copied.
+
+- `blocks.ts` follows the idea of Letta Code's memory tool (`src/tools/impl/memory.ts`, https://github.com/letta-ai/letta-code, commit 6e84e8a, Apache-2.0) — named blocks with a character limit that the model edits by exact replacement — and Hermes Agent's user profile with a character limit (`memory.user_profile_enabled`, `user_char_limit`, https://github.com/NousResearch/hermes-agent, commit 6005aa1, MIT).
+- `meaning-search.ts` follows the idea of Letta Code's message search with role and date filters (`src/backend/message-search.ts`, Apache-2.0).
+- `session-lessons.ts` follows the idea of Letta Code's history analyser (`src/agent/subagents/builtin/history-analyzer-v2.md`, Apache-2.0); Branch's version asks no model.
+- `expiry.ts` follows the ideas of item time-to-live in LangGraph's store (`libs/checkpoint/langgraph/store/base/__init__.py`, https://github.com/langchain-ai/langgraph, commit 230927f, MIT) and tag and date filters in classic Letta's archival search (`letta/functions/function_sets/base.py`, https://github.com/letta-ai/letta/tree/archive, commit 56ba9c2, Apache-2.0).
+- `curator.ts` and `journey.ts` follow the ideas of Hermes Agent's curator and skill usage counts (`agent/curator.py`, `tools/skill_usage.py`) and its `/journey` timeline (`hermes_cli/journey.py`), MIT. `providers.ts` follows the list of memory providers in Hermes Agent's `plugins/memory/`, including the self-hosted Mem0 contract in `plugins/memory/mem0/_backend.py` and Honcho's dialectic chat, MIT.
+- `lessons.ts` follows the idea of AutoGen's task-centric memory (`python/packages/autogen-ext/src/autogen_ext/experimental/task_centric_memory/memory_controller.py`, https://github.com/microsoft/autogen, commit 027ecf0, code under MIT): insights from failures on tasks with known answers, kept only when they help.
+- `readback.ts` follows the ideas of ZeroClaw's Markdown memory (`crates/zeroclaw-memory/src/markdown.rs`, https://github.com/zeroclaw-labs/zeroclaw, commit 3df68fb, MIT or Apache-2.0) and nanobot's "dream" tidy template (`nanobot/templates/agent/dream.md`, https://github.com/HKUDS/nanobot, commit 2fb1659, MIT).
+
+The MIT licence text is given under IronClaw above. For the Apache-2.0 projects: licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0); you may not use these files except in compliance with the License, and they are distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.

@@ -6,6 +6,7 @@ import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import type { RunSource } from "./policy.js";
 import { compileGraph, type CompiledGraph, type GraphEdge, type GraphNode } from "./flow-graph.js";
+import { recordFlowStep } from "./flows-boards/time-travel.js"; // r17-h: going back to an earlier step
 
 /**
  * Running a flow that is a real graph: one state object carried from box to box, each box handing
@@ -80,6 +81,8 @@ export class FlowGraphRunner {
     this.store.sqlite.prepare(`INSERT INTO flow_graph_runs(run_id,owner,flow_id,status,next_node,state,loops,depth,updated_at)
       VALUES(?,?,?,'running',?,?,'{}',?,?)`).run(run.id, this.owner, flowId, compiled.definition.entry,
       JSON.stringify(state), options.depth ?? 0, new Date().toISOString());
+    // r17-h: the state before the first box, as step 0 (src/flows-boards/time-travel.ts; nothing while off).
+    recordFlowStep(this.store, { runId: run.id, owner: this.owner, seq: 0, nodeId: compiled.definition.entry, name: "Start", nextNode: compiled.definition.entry }, state, {});
     return { runId: run.id, compiled };
   }
 
@@ -103,6 +106,7 @@ export class FlowGraphRunner {
       if ("refusal" in step) return this.stop(runId, "failed", step.refusal);
       at = step.to; loops = step.loops;
       this.save(runId, { next_node: at, state: JSON.stringify(state), loops: JSON.stringify(loops) });
+      recordFlowStep(this.store, { runId, owner: this.owner, seq, nodeId: node.id, name: node.name, nextNode: at }, state, loops); // r17-h
     }
     this.save(runId, { status: "completed", state: JSON.stringify(state) });
     this.store.finish(runId, "completed", `The flow "${compiled.definition.name}" finished.`);
