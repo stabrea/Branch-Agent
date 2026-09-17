@@ -15,6 +15,7 @@ import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { helpChapters, chapterForView } from "../dist/help.js";
+import { topLevelKeys } from "../scripts/check-docs.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const HANDBOOK = join(ROOT, "docs", "handbook");
@@ -73,6 +74,34 @@ test("H1 no chapter carries a wave number, a batch number or an audit id", async
     assert.equal(/\b(?:wave|batch)\s*\d+\b/i.test(text), false, `${chapter.id} mentions a wave or batch`);
     assert.equal(/\bA\d{4}\b/.test(text), false, `${chapter.id} carries an audit id`);
   }
+});
+
+/*
+ * Integration review (adversarial): the checker blanks block comments before it reads a schema's
+ * keys, so prose that reads like a key ("w911: the three-way switch") is not taken for one. Blanking
+ * must not reach inside a string: a default value carrying "/*" would otherwise swallow every key up
+ * to the next end-of-comment and hide a genuinely undocumented setting.
+ */
+test("H2 the key reader skips comments but never text inside a string", () => {
+  assert.deepEqual(topLevelKeys(`
+    /** The three-way switch: mode is what this says. */
+    mode: FeatureModeSchema.default("off"),
+    /* fake: not a key */
+    crawlDelayMs: z.number().default(1000),
+  `), ["mode", "crawlDelayMs"], "prose in a comment is not a key");
+  assert.deepEqual(topLevelKeys(`
+    banner: z.string().default("/* not a comment"),
+    /** A real comment in between. */
+    afterwards: z.boolean().default(false),
+  `), ["banner", "afterwards"], "a string that opens a comment hides nothing after it");
+  assert.deepEqual(topLevelKeys(`
+    sep: z.string().default('*/'),
+    later: z.boolean().default(false),
+  `), ["sep", "later"]);
+  assert.deepEqual(topLevelKeys(`
+    line: z.string().default(\`a // b\`),
+    tail: z.boolean().default(false),
+  `), ["line", "tail"]);
 });
 
 test("H2 the document checker passes: every setting is in the reference and every link resolves", () => {

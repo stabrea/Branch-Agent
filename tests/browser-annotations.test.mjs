@@ -308,9 +308,16 @@ test("A2144: the extension asks for exactly its permissions, runs a service work
      the looser rule allows. */
   const ONLY_THE_EXTENSIONS_OWN = /\.value\b(?!\s*=[^=])|\[["']value["']\]/;
   const NEVER = /\.value\b|\[["']value["']\]/;
-  const touchesThePage = (name) => name === "content.js" || name === "background.js";
+  /* Integration review (adversarial): which files run against the page the owner is reading is read
+     from the manifest, not written down here. A second content script or another service worker
+     added later would otherwise quietly get the looser rule meant for the extension's own pages. */
+  const touchingThePage = new Set([
+    ...manifest.content_scripts.flatMap((entry) => entry.js ?? []),
+    ...(manifest.background?.service_worker ? [manifest.background.service_worker] : []),
+  ]);
+  const touchesThePage = (name) => touchingThePage.has(name);
   const files = (await readdir(EXTENSION)).filter((name) => /\.(js|html)$/.test(name));
-  assert.ok(files.filter(touchesThePage).length === 2, "the two files that run against the page are still there");
+  for (const name of touchingThePage) assert.ok(files.includes(name), `${name} is named by the manifest but is not there`);
   for (const name of files) {
     const source = await readFile(new URL(name, EXTENSION), "utf8");
     assert.doesNotMatch(source, touchesThePage(name) ? NEVER : ONLY_THE_EXTENSIONS_OWN, `${name} reads a value`);
