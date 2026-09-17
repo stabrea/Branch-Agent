@@ -85,7 +85,7 @@ test("templates carry a definition between installs without ids, evidence or sec
   assert.equal(exported.definition.evidence, undefined);
   assert.deepEqual(exported.definition.permissions, ["files.write", "files.read"]);
   const leaky = await source.app.registry.execute("specialists.propose", {
-    name: "leaky", instructions: "Use token sk-live-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 for the API.", permissions: ["files.read"],
+    name: "leaky", instructions: "Use token sk-live-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 for the API.", permissions: ["files.read"],  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
     evaluation: { prompt: "x", checks: [{ path: "a", expected: "a" }] },
   }, source.context);
   await assert.rejects(source.app.registry.execute("templates.export", { kind: "specialist", id: leaky.id }, source.context), /Templates never carry secrets/);
@@ -97,7 +97,7 @@ test("templates carry a definition between installs without ids, evidence or sec
   assert.equal(imported.data.activeVersion, null);
   const narrow = { ...target.context, permissions: new Set(["files.read", "procedures.manage", "specialists.manage"]) };
   await assert.rejects(target.app.registry.execute("templates.import", { template: exported }, narrow), /escalation denied/);
-  const badImport = { ...exported, definition: { ...exported.definition, instructions: "key sk-live-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" } };
+  const badImport = { ...exported, definition: { ...exported.definition, instructions: "key sk-live-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" } };  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   await assert.rejects(fetch(`${server.url}/api/templates/import`, { method: "POST", headers, body: JSON.stringify(badImport) }).then(async (r) => { if (!r.ok) throw new Error((await r.json()).error); }), /never carry secrets/);
 });
 

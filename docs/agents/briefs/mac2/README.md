@@ -40,3 +40,9 @@ AGPL, GPL or restricted projects are study-only: implement independently, never 
 - **Nothing is decided against any more.** All 40 previously declined rows are open again; reimplement as ours.
 - **Context files belong to Legion's loader** (AGENTS/CLAUDE/GEMINI and aliases, SOUL, USER, IDENTITY, MEMORY,
   HEARTBEAT, TOOLS, SOP). Do not read those files yourself; accept their text through a parameter.
+
+## No waiting for the owner (2026-09-17)
+
+The owner runs these sessions with permissions bypassed and does not want to be asked. Never stop to wait for his
+approval: decide sensibly, build, and report what you did. New places, Settings pages and pane tabs are allowed —
+follow `docs/places.md` and say what you added. Run Linux tests only through the shared lock (see BUILD-MAC.md).

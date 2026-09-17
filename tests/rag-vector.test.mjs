@@ -416,7 +416,7 @@ test("R7 a secret file in the folder is never cut into passages or sent anywhere
   await writeFile(join(workspace, "company", "handbook.md"), handbook, "utf8");
   await writeFile(join(workspace, "company", ".env"), "OPENAI_API_KEY=sk-super-secret-value\n", "utf8");
   await writeFile(join(workspace, "company", "credentials.json"), '{"token":"sk-also-secret"}', "utf8");
-  await writeFile(join(workspace, "company", "id_rsa"), "-----BEGIN PRIVATE KEY-----secret", "utf8");
+  await writeFile(join(workspace, "company", "id_rsa"), "-----BEGIN PRIVATE KEY-----secret", "utf8");  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   await writeFile(join(workspace, "company", "server.pem"), "-----BEGIN CERTIFICATE-----secret", "utf8");
 
   // A folder holding secrets, and the same secrets named one by one, must both come to nothing.

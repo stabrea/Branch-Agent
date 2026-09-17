@@ -92,6 +92,7 @@ import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
+import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -713,6 +714,14 @@ async function api(
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
+  // The owner's own instruction files: what each one is set to, and what that produced this time.
+  if (request.method === "GET" && path === "/api/context-files")
+    return {
+      settings: contextFileSettings(app.store, app.runtime.owner),
+      files: contextFileStatus(app.store, app.runtime.owner, app.runtime.workspace),
+    };
+  if (request.method === "POST" && path === "/api/context-files")
+    return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));

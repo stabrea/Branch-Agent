@@ -136,7 +136,7 @@ test("T1: a task's spans nest, and a sub-task sits inside the same trace", async
 });
 
 test("T1: a failed tool leaves a failed span, and an attribute cannot carry a saved key", async (t) => {
-  const secret = "sk-live-never-in-a-span-0000";
+  const secret = "sk-live-never-in-a-span-0000";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const { app } = await fixture(t, [calls({ id: "c1", name: "files.read", arguments: JSON.stringify({ path: "gone.txt" }) }), say("done")]);
   app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
   const run = await app.runtime.run({ prompt: "read it" });
@@ -362,7 +362,7 @@ test("T2: a finished task sends its own steps, and crashes go too when asked for
 });
 
 test("T2: a saved key inside a tool's request never reaches the steps that are sent out", async (t) => {
-  const sentinel = "sk-live-never-export-4242";
+  const sentinel = "sk-live-never-export-4242";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const written = "every line of the file the assistant was told to write, which is no step's business";
   const { app } = await fixture(t, [calls(write("c1", "keys.txt", `${written} ${sentinel}`)), say("done")]);
   const owner = app.runtime.owner;
