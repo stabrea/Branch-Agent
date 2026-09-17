@@ -15,6 +15,10 @@ well**, without changing anything a Windows user sees. You build ONE area, named
   tree there with `rsync -a --delete --exclude node_modules --exclude dist ./ branch-test-linux:wt/<area>/`
   then `ssh branch-test-linux 'cd wt/<area> && npm ci --no-audit --no-fund >/dev/null && npm run build && xvfb-run -a node --test <files>'`.
   It is shared by several builders: only use `~/wt/<area>` there, and never install system packages.
+  **It has 2 processors and 4 GB. Run every Linux build or test through the shared lock, one at a time, with
+  concurrency 1:** `ssh branch-test-linux 'flock -w 3600 /tmp/branch-linux.lock bash -c "cd wt/<area> && … && xvfb-run -a node --test --test-concurrency=1 <files>"'`.
+  Only run the test files your change touches there, never the whole suite. On 17 September several builders at once
+  pushed it past 230% and it stopped answering.
 - Windows is checked by the pull-request CI (`.github/workflows/checks.yml` runs Windows, macOS and
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
