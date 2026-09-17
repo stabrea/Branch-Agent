@@ -479,6 +479,8 @@ export interface OpenedWall {
 interface WallPlan {
   wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[];
   extraWrites: string[]; keys: EdgeKey[]; staging: string; deps: WallDeps;
+  /** A program left running: no door is ever opened for it. */
+  doorless: boolean;
 }
 
 const fileExists = async (path: string): Promise<boolean> => !!(await stat(path).catch(() => null));
@@ -491,11 +493,14 @@ async function whichBwrap(): Promise<string | null> {
 }
 const passThrough = (start: SandboxStart): OpenedWall => ({ start, finish: async () => null, close: async () => undefined });
 
-/** Stand-ins for every saved key the owner tied to a site; the program's copy of each is replaced. */
+/**
+ * A stand-in for every saved key the call asked for; the program never holds a real one. A key the
+ * owner tied to no site stays a stand-in everywhere: the door refuses to send it anywhere.
+ */
 function edgeKeys(wall: WallContext, secrets: Readonly<Record<string, string>>): EdgeKey[] {
-  return Object.entries(secrets).flatMap(([name, value]) => {
-    const site = Object.hasOwn(wall.keySites, name) ? wall.keySites[name] : undefined;
-    return site ? [{ name, value, site, placeholder: newPlaceholder() }] : [];
+  return Object.entries(secrets).map(([name, value]) => {
+    const site = Object.hasOwn(wall.keySites, name) ? wall.keySites[name] ?? "" : "";
+    return { name, value, site, placeholder: newPlaceholder() };
   });
 }
 
@@ -513,12 +518,12 @@ async function planWall(
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
   const staging = await mkdtemp(join(temp, "branch-wall-"));
-  return { wall, network, workspace, temp, hidden, extraWrites, keys, staging, deps };
+  return { wall, network, workspace, temp, hidden, extraWrites, keys, staging, deps, doorless: options.proxy === false };
 }
 
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
   const { network, keys, wall } = plan;
-  if (network === "none" || (network === "open" && !keys.length)) return null;
+  if (plan.doorless || network === "none" || (network === "open" && !keys.length)) return null;
   return new SandboxProxy({ network, keys, check: wall.siteCheck, upstream: plan.deps.upstream, ...(paths ? { paths } : {}),
     decide: (host) => wall.answer("network.site", host) ?? (network === "open" ? "allow" : "ask") });
 }
@@ -591,13 +596,17 @@ export async function openWall(
 function wallVerdict(plan: WallPlan, door: SandboxProxy | null, result: WallRun): string | null {
   const site = door?.asked[0];
   if (site) throw new ApprovalRequiredError("network.site", site, siteQuestion(), "session");
+  const siteless = plan.keys.filter((key) => !key.site).map((key) => key.name);
+  const keysNote = siteless.length && result.exitCode !== 0
+    ? `Behind the wall, ${siteless.join(", ")} reached the program only as a stand-in, because no site is set for ${siteless.length === 1 ? "it" : "them"} in Settings, Computer.`
+    : null;
   const denial = explainDenial(result, { network: plan.network, workspace: plan.workspace, hidden: plan.hidden });
-  if (!denial) return null;
+  if (!denial) return keysNote;
   const path = denial.path;
   // Asked once: a file the owner already let through, or refused, is not asked about again.
   if (path && plan.wall.answer("sandbox.write", path) === undefined && !plan.extraWrites.includes(path))
     throw new ApprovalRequiredError("sandbox.write", path, widenQuestion(), "session");
-  return denial.message;
+  return keysNote ? `${denial.message}\n${keysNote}` : denial.message;
 }
 
 /** A program left running keeps its wall; what the wall set up is let go a little after it starts. */

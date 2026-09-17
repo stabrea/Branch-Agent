@@ -177,6 +177,7 @@ export class SandboxProxy {
     for (const placeholder of found) {
       const key = this.options.keys?.find((entry) => entry.placeholder === placeholder);
       if (!key) return "That request carries a stand-in key Branch does not know.";
+      if (!key.site) return `No site is set for the key ${key.name}, so Branch does not send it anywhere. The owner sets one in Settings, Computer.`;
       if (key.site !== host) return `The key ${key.name} belongs to ${key.site}, so it is not sent to ${host}.`;
       keys.push(key);
     }

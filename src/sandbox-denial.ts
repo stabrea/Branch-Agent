@@ -14,7 +14,7 @@ import { protectedWorkspaceNames } from "./sandbox-seatbelt.js";
  */
 
 const plainFailures = new Set([2, 126, 127]);
-const refusalWords = ["operation not permitted", "permission denied", "read-only file system", "sandbox", "seccomp", "deny(1)"];
+const refusalWords = ["operation not permitted", "permission denied", "read-only file system", "sandbox-exec", "bwrap:", "seccomp", "deny(1)"];
 const networkWords = ["could not resolve host", "network is unreachable", "name or service not known",
   "nodename nor servname", "temporary failure in name resolution", "getaddrinfo", "enotfound", "eai_again"];
 
@@ -39,8 +39,8 @@ function pathsIn(text: string): string[] {
 }
 
 /**
- * Whether the wall is the likely reason, and what could be let through. `protectedRoots` are places
- * the wall never widens for (the workspace's `.git`, `.branch` and `.agents`, and hidden places).
+ * Whether the wall is the likely reason, and what could be let through. The workspace's `.git`,
+ * `.branch` and `.agents`, and every hidden place, are never offered as a widening.
  */
 export function explainDenial(
   result: { exitCode: number | null; stdout: string; stderr: string },
