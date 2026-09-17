@@ -37,8 +37,8 @@ export const learningWindow = 200;
 export const maximumLearned = 6;
 /** How many separate tasks must show the same thing before it is worth offering. */
 export const repeatsNeeded = 3;
-/** Openings that mark a person putting the assistant right. */
-const correctionOpenings =
+/** Openings that mark a person putting the assistant right; the learning core reads the same ones. */
+export const correctionOpenings =
   /^(?:no[,.!\s]|not quite|actually[,\s]|that(?:'s| is) (?:wrong|not right|incorrect)|i meant|i said|wrong[,.!\s]|correction[:,\s])/i;
 /** Capitals that are never a name however they are placed: the word for oneself, and this app. */
 const neverNames = new Set(["I", "Branch"]);

@@ -81,12 +81,16 @@ import { tryServer } from "./mcp-workbench.js";
 import { securityCheckApi } from "./security-audit/api.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// mac2/fly-core-2: the learning core's owner routes.
+import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
+import { goalApi } from "./goal-mode.js";
+import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { lookApi } from "./terminal-theme.js";
 // Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
@@ -362,6 +366,9 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
+    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
+    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (tool-safety): the card for the second look before an approval.
     "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
@@ -377,6 +384,8 @@ async function staticFile(
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // mac2/fly-core-2: the learning core's card.
+    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
@@ -704,6 +713,12 @@ async function api(
     if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
     return answer;
   }
+  // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
+  if (handlesLearningCorePath(path))
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -740,6 +755,9 @@ async function api(
   // everything else, so a paired phone can pick up what was started at the computer.
   if (request.method === "GET" && path === "/api/sessions")
     return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
+    return goalUndoApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -1240,6 +1258,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.duplicateSession(owner, match[1]!);
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/** Wave mac2 (goal-undo): both answer only for conversations of the profile that is switched on. */
+async function goalUndoApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.store.profiles.scope(), method = request.method ?? "GET", body = () => readBody(request);
+  const answer = path.endsWith("/goal") || path === "/api/goals" || path === "/api/goal-undo/settings"
+    ? await goalApi(app.goals, (id) => app.store.ownsSession(owner, id), method, path, body)
+    : await rewindApi(app.rewinds, owner, method, path, body);
+  if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+  return answer;
 }
 async function historyApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const history = app.store.workspaceHistory;
@@ -2725,6 +2752,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
   if (path.startsWith("/api/security-check/") && path !== "/api/security-check/run")
     return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
+  // mac2/fly-core-2 (integration review): the learning core's switch and "forget" are the owner's.
+  if (handlesLearningCorePath(path)) return "A short-lived key cannot change the learning core or make it forget. Do that in the app window.";
   return null;
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
