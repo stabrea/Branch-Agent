@@ -34,7 +34,7 @@ import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
-import { describeToolCall } from "./activity.js";
+import { describeToolCall, filePathOf } from "./activity.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { memoryScope } from "./memory.js";
@@ -1761,7 +1761,11 @@ export class Runtime {
   ): Promise<unknown> {
     let args: unknown, validArgs = true;
     try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
-    this.store.event(context.runId, "tool.started", { name: call.name, id: call.id, label: describeToolCall(call.name, args) });
+    // The file a call is about is written down beside it — the path only — so that later the
+    // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
+    const path = filePathOf(call.name, args);
+    this.store.event(context.runId, "tool.started",
+      { name: call.name, id: call.id, label: describeToolCall(call.name, args), ...(path ? { path } : {}) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
     if (call.name === toolSearchName) return this.searchTools(call, context, args);
     if (call.name === toolDescribeName) return this.describeTools(call, context, args);

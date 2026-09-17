@@ -10,7 +10,8 @@ computer and what never does.
 
 - **Memory** holds everything it has been told to remember. Nothing there leaves this computer.
 - **Something to remember** adds a note by hand; you can edit or delete any of them.
-- **Tidy up** and **Repeats, disagreements and facts you never use** only ever *suggest*.
+- **Tidy up**, **Repeats, disagreements and facts you never use** and **What it has noticed by
+  itself** only ever *suggest*.
 - **Documents → Knowledge** turns folders of your work into something it can quote with citations.
 - Only two things ever leave: what you actually ask a model, and — if you switch it on — the text of
   passages sent to be compared by meaning.
@@ -50,6 +51,44 @@ still save notes yourself from **Memory**.
 
 **Tidy up** archives or purges notes not touched within a period you choose, and shows you what it
 would do first.
+
+## What it has noticed by itself
+
+Everything above starts with something you typed. This one does not.
+
+**What it has noticed by itself** looks at the tasks that have already finished and points out three
+kinds of thing:
+
+- **A file you keep coming back to.** The same file opened while doing three separate jobs.
+- **A name that keeps turning up.** A person, a project or a place named in three separate requests.
+- **Something you put it right about.** A message of yours that began "no", "actually" or "I meant".
+
+**Show what it has noticed** changes nothing whatever: it only looks. Each thing it found says, in
+plain words, *what it was learned from* — how many jobs, when the last one was, and an example — so
+you can see why it is being offered before you decide anything.
+
+**Offer these as suggestions** puts them in the **What it learns** queue, next to everything else
+waiting for you. They are still not remembered. Only accepting one saves it.
+
+**Turning one down is the end of it.** If you reject a suggestion, that same thing is never offered
+again, however many more times it happens. You do not have to keep saying no to it.
+
+It never sends anything anywhere to do this. The whole of it is worked out on this computer from the
+record of your own finished jobs, and only the *names* of files are looked at — never what is in
+them.
+
+## Refresh from recent conversations
+
+Useful things get said in passing and then scroll away. **Refresh from recent conversations**, on
+the Memory screen, reads your recent conversations again and writes up what is worth keeping as fact
+cards for one of your knowledge bases. Once a card is accepted, it is searched and quoted like any
+other passage, so something said in March can be answered with in October — and the answer says
+which knowledge base it came from.
+
+Reading conversations does mean sending them to your model service, so you are told what that would
+be first. **Show what this would cost** says how many conversations, how many turns, and roughly how
+much text would be sent. Nothing is sent until you press the second button, and even then nothing
+reaches your knowledge base: every card is a suggestion you accept or turn down.
 
 ## Repeats, disagreements and facts you never use
 
@@ -99,7 +138,11 @@ read in.
 
 You can also ask it to turn a finished conversation into **fact cards** — a title, a few sentences,
 which turn it came from, and how sure it is. Every card is a suggestion; nothing reaches a knowledge
-base until you accept it.
+base until you accept it. **Refresh from recent conversations** on the Memory screen does the same
+for the last few conversations at once, and tells you what it would cost first.
+
+When an accepted card is later used to answer something, the answer names the knowledge base it came
+from as well as the card, so you can always tell a thing you told it from a thing it worked out.
 
 ## What leaves this computer
 

@@ -73,6 +73,52 @@ export class KnowledgeCards {
       reason: dropped ? droppedMessage(dropped) : "",
     };
   }
+  /**
+   * The conversations a refresh would read: the most recent ones that have said something, newest
+   * first. Nothing about them is sent anywhere by asking.
+   */
+  private recent(owner: string, limit: number): { id: string; digest: string; turns: number }[] {
+    const since = new Date(Date.now() - refreshDays * 86_400_000).toISOString();
+    const rows = this.store.sqlite
+      .prepare("SELECT id FROM sessions WHERE owner=? AND created_at>? ORDER BY created_at DESC LIMIT 40")
+      .all(owner, since);
+    const found: { id: string; digest: string; turns: number }[] = [];
+    for (const row of rows) {
+      if (found.length >= limit) break;
+      const messages = this.store.messages(String(row.id)) as { role: string; content: string }[];
+      const digest = conversationDigest(messages);
+      if (!digest.trim()) continue;
+      found.push({ id: String(row.id), digest, turns: messages.filter((m) => m.role === "user" || m.role === "assistant").length });
+    }
+    return found;
+  }
+  /** What "Refresh from recent conversations" would cost, before anything is sent anywhere. */
+  cost(owner: string, conversations = refreshConversations): RefreshCost {
+    const recent = this.recent(owner, conversations);
+    const characters = recent.reduce((sum, entry) => sum + entry.digest.length, 0);
+    const partial = {
+      conversations: recent.length, turns: recent.reduce((sum, entry) => sum + entry.turns, 0),
+      characters, units: Math.ceil(characters / 4),
+    };
+    return { ...partial, summary: refreshSummary(partial) };
+  }
+  /**
+   * Reads the recent conversations again and suggests cards from each. Every card waits in the
+   * review queue; the knowledge base itself is not touched until the owner accepts one.
+   */
+  async refresh(owner: string, input: unknown, signal?: AbortSignal): Promise<{ collection: string; cost: RefreshCost; staged: Proposal[]; reason: string }> {
+    const { collection, conversations } = RefreshSchema.parse(input);
+    const target = this.bases.one(owner, collection);
+    const cost = this.cost(owner, conversations);
+    const staged: Proposal[] = [];
+    const reasons: string[] = [];
+    for (const entry of this.recent(owner, conversations)) {
+      const done = await this.propose(owner, { sessionId: entry.id, collection: target.id }, signal);
+      staged.push(...done.staged);
+      if (done.reason) reasons.push(done.reason);
+    }
+    return { collection: target.id, cost, staged, reason: [...new Set(reasons)].join(" ") };
+  }
   /** Each card written into the review queue, skipping ones already waiting under the same title. */
   private stage(owner: string, collection: string, cards: z.infer<typeof CardsSchema>["cards"]): Proposal[] {
     const waiting = new Set(this.store.review.proposals(owner, "pending")
@@ -90,6 +136,30 @@ export class KnowledgeCards {
     return staged;
   }
 }
+/** How many recent conversations one refresh looks at, and how far back it will reach. */
+export const refreshConversations = 5;
+export const refreshDays = 30;
+export const RefreshSchema = z.object({
+  collection: z.string().trim().min(1).max(120),
+  conversations: z.number().int().min(1).max(refreshConversations).default(refreshConversations),
+}).strict();
+/** What one refresh would read and roughly what it would cost, worked out here with no model call. */
+export interface RefreshCost {
+  conversations: number;
+  turns: number;
+  characters: number;
+  /** A rough count of the units of text that would be sent to the model service. */
+  units: number;
+  /** One sentence the owner reads before deciding. */
+  summary: string;
+}
+export const refreshSummary = (cost: Omit<RefreshCost, "summary">): string =>
+  cost.conversations === 0
+    ? "There is nothing new to read: no conversation has finished since the last refresh."
+    : `This would read ${cost.conversations} recent conversation${cost.conversations === 1 ? "" : "s"} `
+      + `(${cost.turns} turns, about ${cost.units.toLocaleString("en-US")} units of text) and send them to your `
+      + "model service to be written up. Nothing is added to your knowledge base: you accept each card yourself.";
+
 /**
  * A card is written up from a conversation, and a conversation can hold whatever was in a document
  * somebody sent. Once accepted, a card is searched and quoted back like anything else the assistant

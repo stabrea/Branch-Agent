@@ -257,6 +257,7 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
+    "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -1142,6 +1143,18 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner);
   if (request.method === "POST" && path === "/api/memory/tidy/all") return app.memory.tidy.run(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/health") return app.memory.tidy.health(owner);
+  // Wave 9: what the assistant has noticed for itself, and turning it into suggestions. Looking
+  // changes nothing at all; the second call only ever adds to the queue the owner decides on.
+  if (request.method === "GET" && path === "/api/memory/learned") return { noticed: app.learning.notice(owner) };
+  if (request.method === "POST" && path === "/api/memory/learned") {
+    z.object({}).strict().parse(await readBody(request));
+    return app.learning.propose(owner);
+  }
+  // Wave 9: reading recent conversations again for fact cards. The cost is worked out here, with
+  // no model call at all, so the owner sees it before anything is sent anywhere.
+  if (request.method === "GET" && path === "/api/memory/refresh") return app.knowledgeCards.cost(owner);
+  if (request.method === "POST" && path === "/api/memory/refresh")
+    return app.knowledgeCards.refresh(owner, await readBody(request));
   const keep = /^\/api\/memory\/([^/]{1,200})\/keep$/.exec(path);
   if (request.method === "POST" && keep) return app.store.promoteMemory(owner, decodeURIComponent(keep[1]!));
   if (request.method === "GET" && path === "/api/memory/tidy") return app.memory.hygiene.review(owner);

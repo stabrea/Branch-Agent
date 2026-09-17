@@ -3694,3 +3694,117 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 - **Programs left running** (`src/processes.ts`): `maxRunning` is how many at once, `maxMinutes` how
   long one may live before it is stopped, and `bufferBytes` how much of what it printed is kept to
   show you.
+
+## It gets better the more you use it (wave 9)
+
+Three pieces, and one rule over all of them: **it proposes, you dispose.** Nothing in this section
+deletes, rewrites or adds a remembered fact on its own. Everything becomes a suggestion in the
+**What it learns** queue, and turning a suggestion down is itself something learned.
+
+### Facts noticed from what actually happened
+
+Until now, the assistant only learned from what you typed at it. **What it has noticed by itself**,
+on the Memory screen, works the other way round: it reads the record of tasks that have already
+finished — which is kept anyway — and notices three things, all worked out on this computer with no
+model involved and nothing sent anywhere.
+
+| What it notices | When it counts | What it offers |
+| --- | --- | --- |
+| A file you keep coming back to | The same workspace file opened in three separate finished tasks | A project note naming that file |
+| A name that keeps turning up | The same capitalised name in three separate task requests | A project note naming it |
+| A correction you made | A message of yours that begins "no", "actually", "I meant", "that's wrong" and the like | A fact about the world, in your own words |
+
+Every suggestion carries **what it was learned from** — how many tasks, the last date, and an
+example — so you can see why it is being offered before you decide. A suggestion that reads like an
+order to the assistant rather than something to remember is dropped before it is ever offered.
+
+The file signal needs the path of the file a call was about. That is now written beside the call in
+the task's own record (`tool.started` events gain a `path` field for the file tools listed in
+`src/activity.ts`). The path only — never what was in the file.
+
+**Turning one down is final.** Each suggestion keeps a fingerprint of the noticing behind it. When
+you reject one, that fingerprint is remembered on the rejected suggestion, and the same thing is
+never offered again however many times it recurs. See `src/memory-learning.ts`.
+
+Routes: `GET /api/memory/learned` says what it has noticed and changes nothing at all;
+`POST /api/memory/learned` turns those into suggestions. Neither writes a fact.
+
+### Refresh from recent conversations, with the cost shown first
+
+**Refresh from recent conversations**, on the Memory screen, reads your recent conversations again
+and writes up what is worth keeping as fact cards for a knowledge base. Accepting a card folds it
+into that collection, where it is cut into passages, searched and cited exactly like a passage from
+one of your own files — so a thing said in passing in March is quotable in October, with the
+knowledge base named as the source.
+
+Because reading conversations means sending them to your model service, the cost is shown first and
+is worked out **entirely on this computer with no model call**: how many conversations, how many
+turns, and roughly how many units of text would be sent. `GET /api/memory/refresh` gives that
+figure. Only `POST /api/memory/refresh` reads anything, and even then it adds nothing: every card
+waits in **What it learns**.
+
+### Where facts are kept, and what a second place would have to do
+
+This is the honest state of it, because the ledger asks for pluggable storage several times over
+and the answer differs for each.
+
+**Saved facts.** The contract is `MemoryBackend` in `src/memory-backend.ts` — `read`, `list`,
+`write`, `search`, `forget`, `count` — with two rules for every implementation: owners never see
+each other's facts, and nothing leaves this computer unless the owner plainly asked for it. The one
+implementation that ships is `SqliteMemoryBackend`, wired in at `src/index.ts` as `memory.backend`.
+Writing a second one is a small piece of work; installing it today means changing that one line,
+because there is no chooser and no setting for it. A worked example, in full:
+
+```ts
+import type { MemoryBackend } from "branch-agent";
+
+/** A second place to keep facts. This one holds them in this process and forgets them at exit. */
+export class ScratchMemoryBackend implements MemoryBackend {
+  readonly name = "a scratch store in memory";
+  private readonly rows = new Map<string, Map<string, MemoryRecord>>();
+  private of(owner: string) { return this.rows.get(owner) ?? new Map(); }
+  read(owner: string, id: string) { return this.of(owner).get(id); }
+  list(owner: string) {
+    return [...this.of(owner).values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  write(owner: string, id: string, data: Record<string, unknown>) {
+    const now = new Date().toISOString(), before = this.read(owner, id);
+    const record = { id, owner, data, createdAt: before?.createdAt ?? now, updatedAt: now,
+      revision: (before?.revision ?? 0) + 1 };
+    const mine = this.of(owner); mine.set(id, record); this.rows.set(owner, mine);
+    return record;
+  }
+  search(owner: string, query: string) {
+    const wanted = query.toLowerCase();
+    return this.list(owner).filter((r) => String(r.data.text).toLowerCase().includes(wanted));
+  }
+  forget(owner: string, id: string) { return this.of(owner).delete(id); }
+  count(owner: string) { return this.of(owner).size; }
+}
+```
+
+Note what the contract does **not** promise: it says nothing about full-text ranking, about
+comparing by meaning, or about the version history — those live above it, in
+`src/memory-retrieval.ts` and `src/memory.ts`, and a backend that only answers the six methods gets
+the plain behaviour for the rest.
+
+**Conversations.** There is no equivalent contract, and this is worth saying plainly rather than
+leaving people to look for one. Conversations, their messages and their tasks are tables in the one
+SQLite file that `Store` opens (`src/store.ts`), and every part of the app reaches them through
+`Store` directly. Swapping that for a file store, an in-process store or a database on a server
+would mean giving `Store` an interface of its own first. That has not been done, and a file-backed
+or server-backed conversation store is not planned: one person, one computer, one file that the
+backup and the diagnostics folder both already understand is the whole design.
+
+**What is not applicable, and why.** Written down here so nobody goes looking.
+
+- **A memory service reached over the network** (the QMD-style long-term store). Not applicable:
+  it is another product's hosted service, and pointing Branch at it would mean everything the
+  assistant remembers about you living on somebody else's computer. That is the one thing this app
+  promises not to do.
+- **MongoDB, or any other database server, for conversations.** Not applicable, for the same
+  reason and for a second one: there is no server to run and no second machine in this design.
+- **A graph database for a personal knowledge base.** Not applicable as a *database*: the map of
+  what is mentioned with what is built in the same SQLite file (`src/knowledge-graph.ts`), which is
+  what a house-sized knowledge base actually needs. A separate graph server would be a service to
+  install, run and back up for no gain here.
