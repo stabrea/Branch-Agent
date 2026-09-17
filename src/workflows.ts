@@ -108,7 +108,7 @@ export class Workflows {
    */
   resumeGraph: ((id: string, within?: readonly string[]) => unknown) | null = null;
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly runtime: Runtime,
     private readonly knowledge?: Knowledge,
   ) {
@@ -389,7 +389,7 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     permission: "workflows.manage",
     parameters: WorkflowSchema,
     execute: async (value, context) => {
-      if (startedFromChat(context)) throw chatOwnerOnly("Saving a workflow");
+      if (startedFromChat(context, workflows.store)) throw chatOwnerOnly("Saving a workflow");
       return workflows.create(workflows.forOwner(context.owner), value);
     },
   });

@@ -59,7 +59,7 @@ export const AskSchema = z.object({
 export class RemoteAgents {
   private readonly rates = new RateLimiter();
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly owner: string,
     private readonly policy: NetworkPolicy,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
@@ -203,7 +203,7 @@ export function registerRemoteAgents(registry: ToolRegistry, agents: RemoteAgent
     parameters: RemoteActionSchema,
     execute: async (args, context) => {
       if (args.action === "list") return { agents: agents.list().map(({ key: _key, ...rest }) => rest) };
-      if (startedFromChat(context)) throw chatOwnerOnly("Changing the list of other assistants");
+      if (startedFromChat(context, agents.store)) throw chatOwnerOnly("Changing the list of other assistants");
       if (args.action === "remove") return agents.remove(args.agent);
       const { key: _key, ...added } = await agents.add(args);
       return added;

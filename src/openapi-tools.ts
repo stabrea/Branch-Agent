@@ -76,7 +76,7 @@ const savedKey = (name: string): string => `openapi-service:${name}`;
 
 export class OpenApiTools {
   private readonly services = new Map<string, RegisteredService>();
-  constructor(private readonly registry: ToolRegistry, private readonly host: OpenApiHost) {}
+  constructor(private readonly registry: ToolRegistry, readonly host: OpenApiHost) {}
   list(): RegisteredService[] { return [...this.services.values()]; }
   /** Takes one service's tools back out of the catalog, and forgets it for the next start too. */
   remove(name: string, owner?: string): boolean {
@@ -253,7 +253,7 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     parameters: FromOpenApiSchema,
     target: (args) => `tools from ${args.url ?? args.file} as api.${args.name}`,
     execute: async (args, context) => {
-      if (startedFromChat(context)) throw chatOwnerOnly("Adding a service's tools");
+      if (startedFromChat(context, tools.host.store)) throw chatOwnerOnly("Adding a service's tools");
       return tools.add(args, context);
     },
   });
@@ -269,7 +269,7 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     parameters: z.object({ name: groupName }).strict(),
     target: (args) => `forget api.${args.name}`,
     execute: async (args, context) => {
-      if (startedFromChat(context)) throw chatOwnerOnly("Taking a service's tools out");
+      if (startedFromChat(context, tools.host.store)) throw chatOwnerOnly("Taking a service's tools out");
       return { name: args.name, removed: tools.remove(args.name, context.owner) };
     },
   });

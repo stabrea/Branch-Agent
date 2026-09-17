@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { lateNote } from "./never-break/resume.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { z } from "zod";
+import { startedFromChat } from "./key-context.js"; // mac7/chat-source
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { Runtime } from "./runtime.js";
@@ -193,6 +194,9 @@ export class Scheduler {
       ...rest,
       dueAt: new Date(definition.dueAt).toISOString(),
       permissions,
+      // mac7/chat-source: a schedule a chat message's task makes stays the chat's, so its turns are
+      // held to the same guards. Without this, a chat could put owner-only work behind a due time.
+      ...(startedFromChat(context, this.store) ? { fromChat: true } : {}),
       status: definition.gate ? "paused" : "pending",
       ...(definition.gate ? { gateApproved: null, pausedBecause: awaitingApproval } : {}),
       history: [],
@@ -277,7 +281,8 @@ export class Scheduler {
       if (routed && "refuse" in routed) throw new Error(routed.refuse);
       const route = routed;
       const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
-        prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[], source: "schedule", ...route?.options,
+        prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[],
+        source: data.fromChat === true ? "channel" : "schedule", ...route?.options,
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });

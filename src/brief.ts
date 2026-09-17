@@ -78,7 +78,7 @@ export function assembleBrief(settings: BriefSettings, content: BriefContent, no
 
 export class MorningBrief {
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly monitors?: Monitors,
     private readonly documents?: DocumentLibrary,
     private readonly deliver?: DeliveryHandler,
@@ -158,7 +158,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
     parameters: optionalFields(BriefSettingsSchema),
     execute: async (input, context) => {
-      if (startedFromChat(context)) throw chatOwnerOnly("Changing the morning brief");
+      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
       return brief.configure(context.owner, input);
     },
   });
@@ -167,7 +167,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
     execute: async (_input, context) => {
-      if (startedFromChat(context)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Sending the morning brief to a chat");
       return brief.send(context.owner);
     },
   });
