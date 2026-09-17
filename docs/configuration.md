@@ -3493,12 +3493,14 @@ home router is no obstacle) and dials again by itself if the line drops. *Remove
 its key working at once.
 
 **What is checked.** Each connection starts with a fresh challenge the device must sign, so a
-recorded answer is useless; wrong device names and failed proofs from one address are limited to
-ten a minute, pairing to five wrong numbers per invitation and twenty tries a minute, and each device
-to thirty requests a minute. The device key opens only the device socket; it is not Branch's key.
+recorded answer is useless; wrong device names from one address, and failed proofs for one device,
+are limited to ten a minute (kept apart, so noise behind a gateway never locks a real device out),
+pairing to five wrong numbers per invitation, ten tries a minute per address and twenty overall, and
+each device to thirty requests a minute. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
 Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
-even when no approval rule says so; a rule you write still decides first. A short-lived key and
-another AI tool (MCP, A2A, ACP) can never use a device; somebody else on this computer can use only a
+even when no approval rule says so; a rule you write still decides first. A yes to the camera, the
+screen, the microphone or a command covers that one call unless you choose otherwise when answering.
+A short-lived key, another AI tool (MCP, A2A, ACP) and a message from a chat app can never use a device; somebody else on this computer can use only a
 device you shared with them. What a device sends back is marked as information, never instructions,
 passes through the leak guard, and pictures and sound (at most 8 MB) are saved in the workspace under
 `device-media/`. The device itself refuses anything not switched on, and `branch node never camera,run`
@@ -3506,7 +3508,11 @@ refuses things there whatever Branch says.
 
 **On the device.** The operating system's own permission question appears only on the device, at
 the moment you switch that capability on. `device.run` runs behind the device's own wall with no
-network, writing only inside the chosen folder, with the node's key folder unreadable.
+network, writing only inside the chosen folder, with the node's key folder unreadable and nothing of
+the node's own environment passed in. The device refuses a chosen folder that is the whole disk, the
+home folder or anything above it, or that holds or sits inside its key folder, a secrets folder
+(`.ssh`, `.aws`, the keychain…) or the Branch program. A node talks plain http only to this computer
+or a Tailscale address; anywhere else Branch must be reached over https.
 
 **macOS and Linux.** A Mac node uses `screencapture`, `osascript` notifications, `pbcopy`/`pbpaste`,
 `open`, `say`, `ffmpeg` (camera and microphone, only if already installed) and `/usr/bin/sandbox-exec`
@@ -3516,9 +3522,11 @@ the wall. A Windows node uses PowerShell for the screen, notifications, clipboar
 speech, with the model's words passed in the environment rather than the script; it offers no camera,
 microphone or commands, because Branch has no wall around a program there. Nothing is installed: a
 capability whose program is missing is simply not offered (`branch node status` lists them). The
-paired door (the Tailscale address) now answers WebSocket upgrades with the same host and page checks,
-so a phone or computer on your tailnet can use it; a task's own socket there also passes the door's
-chain. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
+paired door (the Tailscale address) now answers the device socket, and only that, with the same host
+and page checks, so a phone or computer on your tailnet can be a device; a task's own socket stays on
+this computer's own address. The door's chain (key, pairing, phone secret) is not asked of a device,
+which holds none of them and proves itself by signature instead, but a "never" rule for the device's
+id on `remote` in the list of who may reach Branch still turns it away there. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
 camera, microphone, location, speech, opening pages and showing a page while the app is open;
 notifications and the clipboard need `@capacitor/local-notifications` and `@capacitor/clipboard`, and
 working while the app is closed needs a native background service, none of which is added yet.
