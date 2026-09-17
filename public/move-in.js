@@ -126,10 +126,16 @@ async function openFile(chosen) {
 }
 
 let sources = [];
+/* Set once the owner presses "Look" while the switch says "when needed". Any later redraw (a retry
+   left from before sign-in, a language change, the end of an import) looks again instead of wiping
+   the list the owner asked to see. Moving the switch away from "when needed" forgets it. */
+let looked = false;
 
 async function showSources(asked = false) {
-  if (mode === "off" || (mode === "when-needed" && !asked)) { sources = []; $("move-in-sources").replaceChildren(); return; }
-  ({ sources } = await api(asked ? "move-in?look=1" : "move-in"));
+  if (mode !== "when-needed") looked = false;
+  else if (asked) looked = true;
+  if (mode === "off" || (mode === "when-needed" && !looked)) { sources = []; $("move-in-sources").replaceChildren(); return; }
+  ({ sources } = await api(looked ? "move-in?look=1" : "move-in"));
   const where = $("move-in-sources");
   where.replaceChildren();
   for (const entry of sources.filter((item) => item.found)) {

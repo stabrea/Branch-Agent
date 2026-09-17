@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-fonts.mjs && node scripts/copy-suites.mjs && node scripts/copy-data.mjs",
     "pretest": "node -e \"require('electron')\"",
-    "test": "npm run build && node --test --test-concurrency=3 tests/*.test.mjs packages/sdk/test/*.test.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "start": "npm run build && node dist/cli.js start",
     "chat": "npm run build && node dist/cli.js chat",
     "demo": "npm run build && node dist/cli.js demo",
