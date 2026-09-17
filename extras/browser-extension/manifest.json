@@ -2,9 +2,19 @@
   "manifest_version": 3,
   "name": "Send to Branch",
   "version": "1.0.0",
-  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task.",
+  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task. Right-click to annotate page elements.",
   "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_title": "Send to Branch",
     "default_popup": "popup.html"

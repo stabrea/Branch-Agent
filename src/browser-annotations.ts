@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Store } from './store.js';
 import type { Page } from 'playwright';
+import { stripUrl } from './leak-guard.js';
+import { FeatureModeSchema, type FeatureMode } from './feature-switches.js';
 
 /**
  * A2144: DOM annotation directives that capture information about elements the owner picked.
@@ -12,101 +14,113 @@ import type { Page } from 'playwright';
 export const DirectiveKind = z.enum(['inspect', 'change', 'lift', 'comment']);
 export type DirectiveKind = z.infer<typeof DirectiveKind>;
 
+/** Settings for the page-notes feature. */
+export const PageNotesSettingsSchema = z.object({
+  mode: FeatureModeSchema.default('off'),
+}).strict();
+export type PageNotesSettings = z.infer<typeof PageNotesSettingsSchema>;
+
+/** Input validation: only these fields are accepted from the client. */
+export const CreateDirectiveInputSchema = z.object({
+  kind: DirectiveKind,
+  pageUrl: z.string().url().max(2048),
+  selector: z.string().max(500),
+  tag: z.string().max(50),
+  text: z.string().max(200),
+  outerHTML: z.string().max(1000),
+  styles: z.record(z.string().max(100), z.string().max(500)).optional(),
+  parentChain: z.array(z.string().max(50)).max(10).optional(),
+  note: z.string().max(1000).optional(),
+  conversationId: z.string().uuid().optional(),
+}).strict();
+
 /**
  * A directive created from a picked DOM element. The element info is captured with
- * credentials stripped and sensitive data removed.
+ * credentials stripped and sensitive data removed. Server sets id and createdAt.
  */
-export const BrowserDirectiveSchema = z.object({
+export const BrowserDirectiveSchema = CreateDirectiveInputSchema.extend({
   id: z.string().uuid(),
-  kind: DirectiveKind,
-  /** Page URL with credentials stripped (use leak-guard utilities). */
-  pageUrl: z.string().url().max(2048),
-  /** Stable selector or mark number that identifies the element on the live page. */
-  selector: z.string().max(500),
-  /** The element's tag name, e.g. "button", "input". */
-  tag: z.string().max(50),
-  /** The element's visible text or label, trimmed. */
-  text: z.string().max(200),
-  /** The element's outerHTML trimmed, with script contents and input values removed. */
-  outerHTML: z.string().max(1000),
-  /** A few computed CSS styles relevant to the element. */
-  styles: z.record(z.string().max(100), z.string().max(500)).default({}),
-  /** The parent element chain up to the root, e.g. ['div', 'section', 'body']. */
-  parentChain: z.array(z.string().max(50)).max(10),
-  /** The owner's note about this element. */
-  note: z.string().max(1000),
-  /** When the directive was created. */
   createdAt: z.string().datetime(),
-  /** Which conversation this belongs to, or undefined if not yet assigned. */
-  conversationId: z.string().uuid().optional(),
+  styles: z.record(z.string().max(100), z.string().max(500)).default({}),
+  parentChain: z.array(z.string().max(50)).max(10).default([]),
+  note: z.string().max(1000).default(''),
 }).strict();
 
 export type BrowserDirective = z.infer<typeof BrowserDirectiveSchema>;
 
 const settingsKeyPrefix = 'browser-directives:';
 
+/** Get page-notes settings for an owner or a profile scope. */
+export function getPageNotesSettings(store: Pick<Store, 'get'>, scope: string): PageNotesSettings {
+  const saved = store.get('settings', scope, 'page-notes')?.data as Record<string, unknown> | undefined;
+  const parsed = PageNotesSettingsSchema.safeParse(saved ?? {});
+  return parsed.success ? parsed.data : { mode: 'off' };
+}
+
+/** Save page-notes settings. */
+export function savePageNotesSettings(store: Store, scope: string, input: unknown): PageNotesSettings {
+  const settings = PageNotesSettingsSchema.parse(input ?? {});
+  store.save('settings', scope, 'page-notes', settings);
+  return settings;
+}
+
 /**
- * Extract the owner's directives for a conversation, or all if no conversation is given.
+ * Extract the directives for a conversation under a given scope (owner or profile).
  */
 export function getDirectives(
   store: Pick<Store, 'get'>,
-  owner: string,
+  scope: string,
   conversationId?: string,
 ): BrowserDirective[] {
   const key = conversationId
     ? `${settingsKeyPrefix}${conversationId}`
     : settingsKeyPrefix;
 
-  if (conversationId) {
-    const saved = store.get('settings', owner, key)?.data as { directives?: BrowserDirective[] } | undefined;
-    return saved?.directives ?? [];
-  }
-
-  // Return all directives without a specific conversation
-  const saved = store.get('settings', owner, `${settingsKeyPrefix}all`)?.data as { directives?: BrowserDirective[] } | undefined;
+  const saved = store.get('settings', scope, key)?.data as { directives?: BrowserDirective[] } | undefined;
   return saved?.directives ?? [];
 }
 
 /**
- * Save a new directive for the owner.
+ * Save a new directive under a given scope (owner or profile).
  */
 export function saveDirective(
   store: Store,
-  owner: string,
+  scope: string,
   directive: BrowserDirective,
 ): void {
   const key = directive.conversationId
     ? `${settingsKeyPrefix}${directive.conversationId}`
-    : `${settingsKeyPrefix}all`;
+    : settingsKeyPrefix;
 
-  const saved = store.get('settings', owner, key)?.data as { directives?: BrowserDirective[] } | undefined;
+  const saved = store.get('settings', scope, key)?.data as { directives?: BrowserDirective[] } | undefined;
   const directives = [...(saved?.directives ?? []), directive];
 
-  store.save('settings', owner, key, { directives });
+  store.save('settings', scope, key, { directives });
 }
 
 /**
- * Mark a directive as resolved (move to archive or delete).
+ * Resolve a directive by removing it from storage.
  */
 export function resolveDirective(
   store: Store,
-  owner: string,
+  scope: string,
   directiveId: string,
   conversationId?: string,
 ): void {
   const key = conversationId
     ? `${settingsKeyPrefix}${conversationId}`
-    : `${settingsKeyPrefix}all`;
+    : settingsKeyPrefix;
 
-  const saved = store.get('settings', owner, key)?.data as { directives?: BrowserDirective[] } | undefined;
+  const saved = store.get('settings', scope, key)?.data as { directives?: BrowserDirective[] } | undefined;
   const directives = (saved?.directives ?? []).filter(d => d.id !== directiveId);
 
-  store.save('settings', owner, key, { directives });
+  store.save('settings', scope, key, { directives });
 }
 
 /**
- * Capture element information from a live page via read-only Playwright evaluation.
- * Never reads sensitive input values; script contents are removed.
+ * Capture element information from a live page via Playwright evaluation.
+ * Uses DOM cloning to sanitize: never reads input values directly, removes script/style/noscript,
+ * and strips all value attributes.
  */
 export async function captureElementFromPage(
   page: Page,
@@ -123,15 +137,22 @@ export async function captureElementFromPage(
     const tag = el.tagName.toLowerCase();
     const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim().slice(0, 200);
 
-    // Build a trimmed outerHTML without script contents and password fields
-    let html = el.outerHTML;
-    html = html.replace(/<script[^>]*>.*?<\/script>/gs, '');
-    // Remove password input values
-    html = html.replace(/type\s*=\s*["']?password["']?[^>]*value\s*=\s*["'][^"']*["']/gi, '');
-    html = html.replace(/type\s*=\s*["']?password["']?[^>]*/gi, '');
-    html = html.slice(0, 1000);
+    // Clone the element and sanitize it
+    const clone = el.cloneNode(true) as Element;
 
-    // Extract some computed styles
+    // Remove script, style, noscript elements from the clone
+    for (const elem of [...clone.querySelectorAll('script, style, noscript')]) {
+      elem.remove();
+    }
+
+    // Remove all value attributes to prevent storing input data
+    for (const elem of [...clone.querySelectorAll('input, textarea, select')]) {
+      elem.removeAttribute('value');
+    }
+
+    const html = clone.outerHTML.slice(0, 1000);
+
+    // Extract computed styles from the original element
     const styles = window.getComputedStyle(el);
     const styleObj: Record<string, string> = {};
     for (const prop of ['display', 'visibility', 'color', 'backgroundColor', 'fontSize']) {
@@ -139,7 +160,7 @@ export async function captureElementFromPage(
       if (val) styleObj[prop] = val.slice(0, 100);
     }
 
-    // Parent chain
+    // Build parent chain
     const chain: string[] = [];
     for (let node = el.parentElement; node && chain.length < 10; node = node.parentElement) {
       chain.push(node.tagName.toLowerCase());
@@ -153,16 +174,7 @@ export async function captureElementFromPage(
   }
 
   // Strip credentials from URL
-  let cleanUrl = pageUrl;
-  try {
-    const url = new URL(pageUrl);
-    url.username = '';
-    url.password = '';
-    cleanUrl = url.toString();
-  } catch {
-    // If URL parsing fails, try to strip manually
-    cleanUrl = pageUrl.replace(/https?:\/\/[^:@/]*(?::[^@/]*)?@/, 'https://');
-  }
+  const cleanUrl = stripUrl(pageUrl);
 
   const directive: BrowserDirective = {
     id: randomUUID(),

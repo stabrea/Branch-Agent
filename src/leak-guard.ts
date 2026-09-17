@@ -293,3 +293,34 @@ export class LeakGuard {
     try { this.record(runId, "leak.hidden", { ...notice }); } catch { /* the record never stops the task */ }
   }
 }
+
+/** w911 (A2144): Strip username and password from a URL. */
+export function stripUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    // If URL parsing fails, try regex fallback
+    return url.replace(/https?:\/\/[^:@/]*(?::[^@/]*)?@/, "$&".replace(/:[^@]*/, "").replace(/[^:@/]*@/, ""));
+  }
+}
+
+/**
+ * w911 (A2144): Sanitize HTML by removing script/style/noscript elements and all value
+ * attributes from input/textarea/select, to prevent storing sensitive data.
+ */
+export function sanitizeHTML(html: string): string {
+  // Parse as text to avoid needing a full DOM parser
+  let result = html;
+  // Remove script tags and contents
+  result = result.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+  // Remove style tags and contents
+  result = result.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+  // Remove noscript tags
+  result = result.replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, "");
+  // Remove value attributes from input, textarea, select (case-insensitive, any attribute order)
+  result = result.replace(/(<(?:input|textarea|select)[^>]*?)\s+value\s*=\s*["']?[^"'\s>]*["']?/gi, "$1");
+  return result;
+}

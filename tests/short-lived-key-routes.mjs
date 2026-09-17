@@ -62,6 +62,7 @@ export const ROUTES = {
   "/api/browser/attach": "owner POST",
   "/api/browser/notes": "task POST",
   "/api/browser/notes/:id": "task POST",
+  "/api/browser/notes/settings": "owner POST",
   "/api/browser/profiles": "owner POST",
   "/api/browser/profiles/remove": "owner POST",
   "/api/browser/signin": "owner POST",

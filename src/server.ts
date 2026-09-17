@@ -4,7 +4,7 @@ import {
   type ServerResponse,
   type Server,
 } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2886,24 +2886,65 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
     if (!app.browser) throw new HttpError(400, "The browser is not switched on in this launch's integration settings");
     return { signedIn: await app.browser.signIn(owner, name, String(body.url ?? ""), 240000) };
   }
-  // w911 (A2144): browser element annotations
+  // w911 (A2144): browser element annotations with feature switch enforcement
+  if (path === "/api/browser/notes/settings") {
+    const { getPageNotesSettings, savePageNotesSettings, pageNotesOff } = await import("./browser-annotations.js");
+    const scope = app.store.profiles.scope();
+    if (request.method === "GET") {
+      return getPageNotesSettings(app.store, scope);
+    }
+    if (request.method === "POST") {
+      const settings = savePageNotesSettings(app.store, scope, await readBody(request));
+      return settings;
+    }
+  }
+
+  // Enforce page-notes switch for all annotation routes
+  const { getPageNotesSettings, pageNotesOff, getDirectives, saveDirective, resolveDirective, CreateDirectiveInputSchema, BrowserDirectiveSchema } = await import("./browser-annotations.js");
+  const { sanitizeHTML, stripUrl } = await import("./leak-guard.js");
+  const scope = app.store.profiles.scope();
+  const pageNotesMode = getPageNotesSettings(app.store, scope).mode;
+
   const notesMatch = /^\/api\/browser\/notes(?:\/([a-f0-9-]{36}))?$/.exec(path);
   if (notesMatch) {
+    if (pageNotesMode === "off") throw new HttpError(400, pageNotesOff);
+
     if (request.method === "GET") {
-      const { getDirectives } = await import("./browser-annotations.js");
       const conversationId = new URL(request.url ?? "/", "http://local").searchParams.get("conversation");
-      return { directives: getDirectives(app.store, owner, conversationId || undefined) };
+      return { directives: getDirectives(app.store, scope, conversationId || undefined) };
     }
+
     if (request.method === "POST" && !notesMatch[1]) {
-      const { BrowserDirectiveSchema, saveDirective } = await import("./browser-annotations.js");
-      const directive = BrowserDirectiveSchema.parse(await readBody(request));
-      saveDirective(app.store, owner, directive);
+      // Create new directive: accept only specific fields, server sets id and createdAt
+      const input = CreateDirectiveInputSchema.parse(await readBody(request));
+
+      // Strip credentials from URL and sanitize HTML
+      const cleanUrl = stripUrl(input.pageUrl);
+      const cleanHTML = sanitizeHTML(input.outerHTML);
+
+      const directive = BrowserDirectiveSchema.parse({
+        id: randomUUID(),
+        createdAt: new Date().toISOString(),
+        ...input,
+        pageUrl: cleanUrl,
+        outerHTML: cleanHTML,
+      });
+
+      saveDirective(app.store, scope, directive);
+
+      // If conversationId is set, queue as a follow-up
+      if (directive.conversationId) {
+        const followUpText = `Element note (${directive.kind}): ${directive.tag} on ${new URL(directive.pageUrl).hostname}\n${directive.text ? `Text: ${directive.text}\n` : ""}${directive.note ? `Note: ${directive.note}` : ""}`;
+        app.runtime.followUp(directive.conversationId, followUpText);
+      }
+
       return { id: directive.id };
     }
+
     if (request.method === "POST" && notesMatch[1]) {
-      const { resolveDirective } = await import("./browser-annotations.js");
+      // Resolve directive
       const conversationId = new URL(request.url ?? "/", "http://local").searchParams.get("conversation");
-      resolveDirective(app.store, owner, notesMatch[1]!, conversationId || undefined);
+      resolveDirective(app.store, scope, notesMatch[1]!, conversationId || undefined);
       return { resolved: true };
     }
   }
