@@ -299,6 +299,24 @@ test("Telegram picks up where it had read to, so messages sent during a restart 
   assert.deepEqual(seen, ["one", "two", "three"], "nothing answered twice, nothing lost");
 });
 
+test("Telegram never saves past a message still being handled, even when a later one finishes first", async () => {
+  const saved = [];
+  const position = { load: () => 0, save: (value) => saved.push(value) };
+  const service = fakeTelegram([update(20, "slow"), update(21, "quick")]);
+  const release = {};
+  const slowDone = new Promise((done) => { release.slow = done; });
+  const handled = [];
+  const adapter = new TelegramAdapter({ id: "tg", token: "fake", fetch: service.fetch, position, pollTimeoutSeconds: 0 });
+  await adapter.start(async (m) => { if (m.text === "slow") await slowDone; handled.push(m.text); });
+  for (let i = 0; i < 100 && !handled.includes("quick"); i++) await delay(10);
+  assert.deepEqual(handled, ["quick"]);
+  assert.deepEqual(saved, [20], "the later message settled, but the slow one is still open, so a crash would read it again");
+  release.slow();
+  for (let i = 0; i < 100 && !handled.includes("slow"); i++) await delay(10);
+  await adapter.stop();
+  assert.equal(saved.at(-1), 22, "once both are done the position moves past them");
+});
+
 test("a repeating job cut off by a restart goes back on the list, and a missed turn runs once with a note", async (t) => {
   const root = await temp(t);
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("ran")]) });
