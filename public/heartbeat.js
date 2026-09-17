@@ -47,6 +47,7 @@ function button(key, handler, className) {
   made.type = "button";
   made.addEventListener("click", async () => {
     made.disabled = true;
+    delete made.closest("section")?.dataset.editing;
     try { await handler(); } catch (error) { toast(error.message); } finally { made.disabled = false; }
   });
   return made;
@@ -181,18 +182,25 @@ function homedCard(id, home) {
   card.id = id;
   card.className = "card";
   card.dataset.home = home;
+  /* A card being changed is not redrawn under the owner's hands until it is saved. */
+  card.addEventListener("input", () => { card.dataset.editing = "1"; });
+  card.addEventListener("change", () => { card.dataset.editing = "1"; });
   const list = document.getElementById("schedules-list");
   const after = { "quiet-checkin": "schedules-list", "quiet-health": "quiet-checkin", "quiet-interruptions": "quiet-health" }[id];
   if (list) (document.getElementById(after) ?? list).after(card);
   else document.body.append(card);
   return card;
 }
+function fill(id, home, draw) {
+  const card = homedCard(id, home);
+  if (!card.dataset.editing) draw(card);
+}
 function render() {
   if (!latest) return;
   const { switches, heartbeat, schedules, file } = latest;
-  fillCheckIn(homedCard("quiet-checkin", "automations:scheduled"), heartbeat, switches, file);
-  fillHealth(homedCard("quiet-health", "automations:scheduled"), schedules, switches);
-  fillInterruptions(homedCard("quiet-interruptions", "settings:notifications"), heartbeat.settings, switches);
+  fill("quiet-checkin", "automations:scheduled", (card) => fillCheckIn(card, heartbeat, switches, file));
+  fill("quiet-health", "automations:scheduled", (card) => fillHealth(card, schedules, switches));
+  fill("quiet-interruptions", "settings:notifications", (card) => fillInterruptions(card, heartbeat.settings, switches));
 }
 async function load() {
   const [overview, files] = await Promise.all([api("heartbeat"), api("context-files").catch(() => null)]);
@@ -202,9 +210,10 @@ async function load() {
 
 /* Words with numbers in them are written again when the language changes. */
 document.addEventListener("branch-language", render);
-/* A box that will not load leaves the rest of the page as it is. Before signing in there is nothing
-   to read, so the cards are filled again whenever the owner opens Schedules. */
+/* A card that will not load leaves the rest of the page as it is. Before signing in there is nothing
+   to read, so the cards are filled again whenever the owner opens one of their homes. */
+const homes = "[data-view='schedules'], [data-place='automations'], .lx-gear, .lx-settings-link[data-page='notifications']";
 load().catch(() => {});
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && event.target.closest("[data-view='schedules']")) load().catch(() => {});
+  if (event.target instanceof Element && event.target.closest(homes)) load().catch(() => {});
 });

@@ -1,8 +1,7 @@
 /**
  * Wave mac2, quiet-jobs: the three cards in a real (headless) browser. Each says where it lives,
  * has one heading, one sentence and one filled button, and fits 400 px without sideways scrolling.
- * Screens are opened through `openQuietCards` only, so it can become `openPlace` from
- * tests/places.mjs when the window redesign lands.
+ * Screens are opened the way a person does, through tests/places.mjs.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -13,17 +12,15 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { openPlace, openSettingFor } from "./places.mjs";
 
 const cards = { "quiet-checkin": "automations:scheduled", "quiet-health": "automations:scheduled", "quiet-interruptions": "settings:notifications" };
 
-/** The one way these tests reach the cards. Today: sign in and open Schedules. */
-async function openQuietCards(page, server) {
+async function signIn(page, server) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
-  await page.evaluate(() => document.querySelector("[data-view='schedules']")?.click());
-  await page.locator("#quiet-checkin h2").waitFor({ state: "attached" });
 }
 
 test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 400 px", async (t) => {
@@ -35,7 +32,9 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await openQuietCards(page, server);
+  await signIn(page, server);
+  await openPlace(page, "automations:scheduled");
+  await page.locator("#quiet-checkin h2").waitFor({ state: "visible" });
   for (const [id, home] of Object.entries(cards)) {
     const shape = await page.evaluate((cardId) => {
       const card = document.getElementById(cardId);
@@ -55,6 +54,7 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   }
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
+  await openSettingFor(page, "#quiet-interruptions");
   await page.locator("#quiet-interruptions select").selectOption("when-needed");
   await page.locator("#quiet-interruptions button").click();
   await page.waitForFunction(() => document.querySelector("#quiet-interruptions select")?.value === "when-needed");
