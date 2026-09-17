@@ -13,6 +13,7 @@ import { Expansion } from "../dist/fly-core/encode.js";
 import { Circuit, prune } from "../dist/fly-core/circuit.js";
 import { activeCells, kenyonCells, maximumWeightsPerSide } from "../dist/fly-core/sizes.js";
 import { FlyState, maximumActions } from "../dist/fly-core/state.js";
+import { dropIndex } from "../dist/fly-core/fast-index.js";
 import { FlyCore, watchTask } from "../dist/fly-core/hook.js";
 import { advisedFacts, advisedPreload, advisedSkills, postAdvice, preloadReason, takeDownAdvice } from "../dist/fly-core/apply.js";
 import { suggestToolName } from "../dist/fly-core/settings.js";
@@ -198,6 +199,10 @@ test("F18 a tool to avoid is only left out of the pre-load; skills and memories 
   const preload = advisedPreload("r1", [{ name: "shell.run", reason: "history" }, { name: "files.read", reason: "history" }], [{ name: "web.fetch" }, { name: "shell.run" }, { name: "files.read" }]);
   assert.deepEqual(preload.map((p) => p.name), ["web.fetch", "files.read"], "the avoided tool is only not pre-loaded; a missing tool is never added");
   assert.deepEqual(notes.map((n) => n.what), ["tools", "left-out"]);
+  notes.length = 0;
+  const offPreload = advisedPreload("r1", [], [{ name: "web.fetch" }, { name: "shell.run" }], ["web.fetch"]);
+  assert.deepEqual(offPreload, [], "a tool the owner switched off is never pre-loaded on the core's advice");
+  assert.deepEqual(notes, [], "and no line claims it was chosen");
 
   advice("r2", "s2", { skills: [{ name: "b", score: 0.5 }], memories: [{ name: "m3", score: 0.5 }] });
   const skills = [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }];
@@ -261,10 +266,20 @@ test("F21 a backup carries what was learned, and a restore leaves no orphan trac
   targetState.saveTrace("local", { runId: "gone-run", sessionId: "gone", code: [1, 2], uses: [], at: Date.now() });
   new FlyCore(target.store).suggest("local", [1, 2, 3]); // the index is warm before the restore
   const withOrphan = structuredClone(archive);
-  withOrphan.tables.fly_traces.push({ ...withOrphan.tables.fly_traces[0], run_id: "not-in-this-archive" });
+  const real = withOrphan.tables.fly_traces[0];
+  withOrphan.tables.fly_traces.push({ ...real, run_id: "not-in-this-archive" });
+  // Integration review: a trace may not borrow a task that belongs to someone else or another conversation.
+  const otherTask = withOrphan.tables.tasks.find((task) => task.id !== real.run_id);
+  withOrphan.tables.fly_wiring.push({ owner: "someone-else", seed: "foreign-seed", created_at: new Date().toISOString() });
+  withOrphan.tables.fly_traces.push({ ...real, run_id: otherTask.id, owner: "someone-else", session_id: otherTask.session_id });
+  real.session_id = "not-its-conversation"; // the owner's own task, but claimed for another conversation
   importBackup(target.store.sqlite, withOrphan, { replaceExisting: true });
   const orphans = target.store.sqlite.prepare("SELECT count(*) AS n FROM fly_traces WHERE run_id NOT IN (SELECT id FROM tasks)").get().n;
   assert.equal(orphans, 0, "no trace points at a task that is not there");
+  const borrowed = target.store.sqlite.prepare(`SELECT count(*) AS n FROM fly_traces WHERE NOT EXISTS (SELECT 1 FROM tasks
+    WHERE tasks.id = fly_traces.run_id AND tasks.owner = fly_traces.owner AND tasks.session_id = fly_traces.session_id)`).get().n;
+  assert.equal(borrowed, 0, "no trace points at another person's task or another conversation");
+  assert.equal(target.store.sqlite.prepare("SELECT count(*) AS n FROM fly_traces WHERE owner='someone-else'").get().n, 0);
   assert.equal(target.store.sqlite.prepare("SELECT seed FROM fly_wiring WHERE owner='local'").get().seed, archive.tables.fly_wiring[0].seed);
   assert.equal(target.store.sqlite.prepare("SELECT count(*) AS n FROM fly_synapses WHERE action LIKE 'action-%'").get().n, 0, "weights learned under another wiring are gone");
   const restored = new FlyCore(target.store).suggest("local", code).tools.map((s) => s.name);
@@ -315,4 +330,40 @@ test("F23 the owner's routes: the switch, what it learned in plain terms, and fo
   assert.equal(app.store.sqlite.prepare("SELECT count(*) AS n FROM fly_synapses WHERE owner='local'").get().n, 0);
   const code = new FlyCore(app.store).code("local", { prompt: "save a note about the garden" });
   assert.deepEqual(new FlyCore(app.store).suggest("local", code).tools, [], "nothing is left in memory either");
+});
+
+test("F24 the core never pre-loads a tool the owner switched off, even one it learned to like", async (t) => {
+  const { app } = await fixture(t, "on");
+  const screenTool = "desktop.windows";
+  if (!app.registry.names().includes(screenTool)) return t.skip("no screen tools in this launch");
+  for (let at = 0; at < 3; at += 1) await app.runtime.run({ prompt: `save a note about the garden ${at}` });
+  // What it learned about writing a file is moved onto a screen tool, as if learned while that switch was on.
+  app.store.sqlite.prepare("UPDATE fly_synapses SET action=? WHERE owner='local' AND kind='tool' AND action='files.write'").run(screenTool);
+  dropIndex(app.store.sqlite, "local");
+  const run = await app.runtime.run({ prompt: "save a note about the garden again" });
+  assert.ok(eventOf(app, run.id, "fly.suggested").tools.some((s) => s.name === screenTool), "the core did advise it");
+  const preloaded = eventOf(app, run.id, "catalog.preselected").preloadedFromHistory.map((entry) => entry.name);
+  assert.equal(preloaded.includes(screenTool), false, "the screen switch is off, so it is not loaded");
+  const chosen = eventsOf(app, run.id, "fly.applied").filter((a) => a.what === "tools").flatMap((a) => a.names);
+  assert.equal(chosen.includes(screenTool), false, "and Look inside does not claim it was chosen");
+});
+
+test("F25 a short-lived key may read the learning core but not switch it or make it forget", async (t) => {
+  const { app, root } = await fixture(t, "on");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  await app.runtime.run({ prompt: "save a note about the garden" });
+  const key = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 5 }).token;
+  const api = async (method, path, body, token = key) => (await fetch(server.url + path, { method,
+    headers: { authorization: `Bearer ${token}`, host: new URL(server.url).host, ...(body ? { "content-type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}) })).status;
+  const kept = () => app.store.sqlite.prepare("SELECT count(*) AS n FROM fly_synapses WHERE owner='local'").get().n;
+  const before = kept();
+  assert.ok(before > 0);
+  assert.equal(await api("GET", "/api/learning-core"), 200, "looking is allowed");
+  assert.equal(await api("POST", "/api/learning-core/settings", { mode: "off" }), 401);
+  assert.equal(await api("POST", "/api/learning-core/forget", { confirm: "forget" }), 401);
+  assert.equal(app.learningCore.settings().mode, "on", "the switch did not move");
+  assert.equal(kept(), before, "nothing was forgotten");
+  assert.equal(await api("POST", "/api/learning-core/settings", { mode: "when-needed" }, server.token), 200, "the computer's own key still can");
 });

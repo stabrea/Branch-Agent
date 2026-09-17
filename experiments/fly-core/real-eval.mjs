@@ -35,6 +35,7 @@ import { request as httpsRequest } from "node:https";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { builtInSuites } from "../../dist/evaluation-suites.js";
 import { denyProblem } from "../../dist/evaluation-grading.js";
 import { evaluateChecks } from "../../dist/reliability.js";
@@ -247,12 +248,19 @@ export async function dryRunTargets() {
   return { targets: started.map((entry) => entry.target), close };
 }
 
+function sameAddress(a, b) {
+  if (!a || !b) return false;
+  try { return new URL(a).origin === new URL(b).origin; } catch { return a === b; }
+}
+
 /** The targets the environment describes. */
 export function targetsFromEnvironment(kind, env = process.env) {
   if (kind === "hermes") return [hermesTarget(env.HERMES_EVAL_URL, env.HERMES_EVAL_KEY, env.HERMES_EVAL_MODEL, env.HERMES_EVAL_WORKSPACE)];
-  const shared = !env.BRANCH_EVAL_URL_OFF && !env.BRANCH_EVAL_URL_ON;
-  const url = (arm) => (shared ? env.BRANCH_EVAL_URL : env[`BRANCH_EVAL_URL_${arm.toUpperCase()}`]);
-  const key = (arm) => (shared ? env.BRANCH_EVAL_KEY : env[`BRANCH_EVAL_KEY_${arm.toUpperCase()}`]);
+  const separate = !!env.BRANCH_EVAL_URL_OFF || !!env.BRANCH_EVAL_URL_ON;
+  const url = (arm) => (separate ? env[`BRANCH_EVAL_URL_${arm.toUpperCase()}`] : env.BRANCH_EVAL_URL);
+  // One address given twice is still one Branch and one data folder.
+  const shared = !separate || sameAddress(url("off"), url("on"));
+  const key = (arm) => (separate ? env[`BRANCH_EVAL_KEY_${arm.toUpperCase()}`] : env.BRANCH_EVAL_KEY);
   const workspace = (arm) => env[`BRANCH_EVAL_WORKSPACE_${arm.toUpperCase()}`] ?? env.BRANCH_EVAL_WORKSPACE;
   return ["off", "on"].map((arm) => branchTarget(arm, url(arm), key(arm), shared, workspace(arm)));
 }
@@ -317,6 +325,9 @@ async function main() {
   process.stdout.write(`${options.json ? JSON.stringify(report, null, 2) : table(report)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Whether this file was started directly; a plain `file://` prefix fails on a path with a space or on Windows. */
+export const startedDirectly = (moduleUrl, script) => !!script && moduleUrl === pathToFileURL(script).href;
+
+if (startedDirectly(import.meta.url, process.argv[1])) {
   main().catch((error) => { process.stderr.write(`real-eval: ${error.message}\n`); process.exitCode = 1; });
 }

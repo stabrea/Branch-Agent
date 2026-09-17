@@ -47,12 +47,15 @@ function safely(advice: Advice, what: AppliedKind, names: string[]): void {
 
 /**
  * The tool loader's pre-load list with the core's top tools first. Only tools this task can use
- * are added; a tool the core says to avoid is dropped from the pre-load, and only from there.
+ * are added, and never one the owner switched off; a tool the core says to avoid is dropped from
+ * the pre-load, and only from there.
  */
-export function advisedPreload(runId: string, base: readonly PreloadedTool[], tools: readonly { name: string }[]): PreloadedTool[] {
+export function advisedPreload(runId: string, base: readonly PreloadedTool[], tools: readonly { name: string }[], switchedOff: readonly string[] = []): PreloadedTool[] {
   const advice = board.get(runId);
   if (!advice) return [...base];
-  const known = new Set(tools.map((tool) => tool.name));
+  // A tool the owner switched off is never pre-loaded on the core's say-so: that would bring it back.
+  const off = new Set(switchedOff);
+  const known = new Set(tools.map((tool) => tool.name).filter((name) => !off.has(name)));
   const avoided = new Set(advice.suggestions.avoid.filter((s) => s.name.startsWith("tool:")).map((s) => s.name.slice(5)));
   const chosen = advice.suggestions.tools.map((s) => s.name).filter((name) => known.has(name) && !avoided.has(name));
   const leftOut = base.filter((entry) => avoided.has(entry.name)).map((entry) => entry.name);

@@ -6,9 +6,10 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  compare, gradeLocally, hermesTarget, loadSuites, parseArguments, passSummary, runRealEval, targetsFromEnvironment,
+  compare, gradeLocally, hermesTarget, loadSuites, parseArguments, passSummary, runRealEval, startedDirectly, targetsFromEnvironment,
 } from "../experiments/fly-core/real-eval.mjs";
 
 /**
@@ -17,7 +18,7 @@ import {
  * Agent is a small fake server on this computer.
  */
 const run = promisify(execFile);
-const script = new URL("../experiments/fly-core/real-eval.mjs", import.meta.url).pathname;
+const script = fileURLToPath(new URL("../experiments/fly-core/real-eval.mjs", import.meta.url));
 
 /** A stand-in for Hermes Agent's OpenAI-compatible API. It answers the two `cost` questions. */
 async function fakeHermes(t, { key = "fake-hermes-key", toolCalls, failOn } = {}) {
@@ -132,9 +133,20 @@ test("R6 arguments, arms and the comparison rule", () => {
   const apart = targetsFromEnvironment("branch", { BRANCH_EVAL_URL_OFF: "http://a", BRANCH_EVAL_KEY_OFF: "1", BRANCH_EVAL_URL_ON: "http://b", BRANCH_EVAL_KEY_ON: "2" });
   assert.deepEqual(apart.map((target) => target.sharedFolder), [false, false]);
   assert.throws(() => targetsFromEnvironment("branch", { BRANCH_EVAL_URL_OFF: "http://a", BRANCH_EVAL_KEY_OFF: "1" }), /"on" arm/);
+  const twice = targetsFromEnvironment("branch", { BRANCH_EVAL_URL_OFF: "http://a:1/", BRANCH_EVAL_KEY_OFF: "1", BRANCH_EVAL_URL_ON: "http://a:1", BRANCH_EVAL_KEY_ON: "2" });
+  assert.deepEqual(twice.map((target) => target.sharedFolder), [true, true], "one address given twice is still one data folder");
 
   const task = (id, passed) => ({ suite: "safety", id, passed, skipped: false });
   const result = (target, safe) => ({ target, repeats: [{ passes: [{ summary: passSummary([]), failureCheck: [task("a", safe)] }] }] });
   assert.equal(compare([result("off", true), result("on", true)], 1).safetyOutcomesDiffer, false);
   assert.equal(compare([result("off", true), result("on", false)], 1).safetyOutcomesDiffer, true, "a moved safety outcome is flagged");
+});
+
+test("R7 the script runs when started directly, whatever its path looks like", async () => {
+  assert.equal(startedDirectly("file:///Volumes/512GB%20SSD/x/real-eval.mjs", "/Volumes/512GB SSD/x/real-eval.mjs"), true);
+  assert.equal(startedDirectly("file:///a/real-eval.mjs", "/a/other.mjs"), false);
+  assert.equal(startedDirectly("file:///a/real-eval.mjs", undefined), false);
+  const refused = await run(process.execPath, [script, "--target", "nope"]).catch((error) => error);
+  assert.equal(refused.code, 1, "a bad argument is an error, not a silent exit");
+  assert.match(refused.stderr, /--target is branch or hermes/);
 });

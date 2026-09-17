@@ -121,10 +121,14 @@ function prepareFlyRestore(db: DatabaseSync, archive: BackupArchive): void {
   for (const owner of owners)
     for (const table of flyTables) db.prepare(`DELETE FROM ${table} WHERE owner=?`).run(owner);
 }
-/** No trace may point at a task that is not there, and no weight may outlive its wiring seed. */
+/**
+ * No trace may point at a task that is not there or that is someone else's (same owner and same
+ * conversation), and no weight may outlive its wiring seed.
+ */
 function settleFlyRestore(db: DatabaseSync): void {
   if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fly_traces'").get()) return;
-  db.exec(`DELETE FROM fly_traces WHERE run_id NOT IN (SELECT id FROM tasks);
+  db.exec(`DELETE FROM fly_traces WHERE NOT EXISTS (SELECT 1 FROM tasks
+      WHERE tasks.id = fly_traces.run_id AND tasks.owner = fly_traces.owner AND tasks.session_id = fly_traces.session_id);
     DELETE FROM fly_traces WHERE owner NOT IN (SELECT owner FROM fly_wiring);
     DELETE FROM fly_synapses WHERE owner NOT IN (SELECT owner FROM fly_wiring);`);
 }
