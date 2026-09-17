@@ -685,6 +685,7 @@
   "settings.file.empty": "{name} est vide, ce qui est compris comme : rien à signaler.",
   "settings.file.missing": "Pas encore écrit. Créez le fichier et il sera lu.",
   "settings.file.no-room": "{name}, {size} ko. Activé, mais les autres ont pris toute la place : votre assistant en connaît seulement l'existence.",
+  "settings.file.not-trusted": "Non lu : ce dossier de travail n'est pas marqué comme fiable. Faites-lui confiance dans Autorisations pour qu'il soit lu.",
   "settings.file.off": "Non lu. Activez-le ci-dessus.",
   "settings.file.permission-shaped": "{count} de ces lignes demandent une permission. Votre assistant les lit quand même, mais la permission vient de vos règles d'autorisation et rien d'écrit dans un fichier n'y change quoi que ce soit.",
   "settings.intro.make-this-workspace-feel-like": "Faites de cet espace de travail le vôtre.",

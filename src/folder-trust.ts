@@ -1,5 +1,6 @@
+import { realpathSync } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
-import { isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import { z } from "zod";
 import { audit } from "./audit.js";
 import { presetRules, type Policy } from "./policy.js";
@@ -79,12 +80,27 @@ export function folderContains(outer: string, inner: string, platform: NodeJS.Pl
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
+/**
+ * The folder with links followed, so a folder reached through a link is judged as the folder it
+ * points to. A path that does not exist (yet) keeps its written form, with its closest existing
+ * parent resolved. Paths for another system (tests pass `platform`) are left as written.
+ */
+export function realFolder(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== process.platform) return path;
+  const full = resolve(path);
+  try { return realpathSync.native(full); } catch { /* not there yet */ }
+  const parent = dirname(full);
+  return parent === full ? full : join(realFolder(parent, platform), basename(full));
+}
+
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
   let best: { depth: number; decision: "trust" | "distrust" } | null = null;
+  const inner = realFolder(folder, platform);
   for (const entry of saved(store, owner).folders) {
-    if (!folderContains(entry.path, folder, platform)) continue;
-    const depth = entry.path.length;
+    const outer = realFolder(entry.path, platform);
+    if (!folderContains(outer, inner, platform)) continue;
+    const depth = outer.length;
     if (!best || depth >= best.depth) best = { depth, decision: entry.decision };
   }
   return best ? (best.decision === "trust" ? "trusted" : "untrusted") : "unknown";
@@ -94,7 +110,9 @@ export function folderTrust(store: Store, owner: string, folder: string, platfor
 export function decideFolder(store: Store, owner: string, workspace: string, input: unknown): { path: string; trust: FolderTrust } {
   const { folder, decision } = FolderTrustInputSchema.parse(input);
   const path = workspaceFolder(workspace, folder);
-  const kept = saved(store, owner).folders.filter((entry) => resolve(entry.path) !== path);
+  // The same folder written another way (letter case on Windows, a link) replaces the old answer.
+  const same = (other: string) => folderContains(realFolder(other), realFolder(path)) && folderContains(realFolder(path), realFolder(other));
+  const kept = saved(store, owner).folders.filter((entry) => !same(entry.path));
   const folders = [...kept, { path, decision, decidedAt: new Date().toISOString() }].slice(-200);
   store.save("settings", owner, settingsKey, { folders });
   audit(store, owner, {
@@ -204,6 +222,16 @@ export function folderAllows(store: Store, owner: string, path: string, holdsSom
   const trust = folderTrust(store, owner, path);
   if (trust !== "unknown") return trust === "trusted";
   return mode === "when-needed" && !holdsSomething;
+}
+
+/**
+ * Whether the hooks and AI tool servers named in the launch's integrations file may be started.
+ * Only a file that sits inside the workspace is a folder's own; one elsewhere is the owner's.
+ */
+export function integrationsFileTrusted(store: Store, owner: string, workspace: string, file: string): boolean {
+  const folder = realFolder(dirname(resolve(file)));
+  if (!folderContains(realFolder(workspace), folder)) return true;
+  return folderAllows(store, owner, folder);
 }
 
 /** Whether the owner should be asked about a folder now, under the owner's setting. */

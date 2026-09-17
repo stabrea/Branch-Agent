@@ -42,6 +42,7 @@ import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
 import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
+import { integrationsFileTrusted } from "./folder-trust.js";
 import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
@@ -941,6 +942,9 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
+      // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
+      configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
       mcp: {

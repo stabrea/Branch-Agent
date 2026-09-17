@@ -684,6 +684,7 @@
   "settings.file.empty": "{name} is empty, which is taken to mean there is nothing to say.",
   "settings.file.missing": "Not written yet. Make the file and it will be read.",
   "settings.file.no-room": "{name}, {size} kB. Switched on, but the others filled the room, so it is named to your assistant instead.",
+  "settings.file.not-trusted": "Not read: this workspace folder is not trusted. Trust it under Permissions to have it read.",
   "settings.file.off": "Not read. Turn it on above.",
   "settings.file.permission-shaped": "{count} of these lines ask for permission. Your assistant still reads them, but permission comes from your approval rules and nothing written in a file can change that.",
   "settings.intro.make-this-workspace-feel-like": "Make this workspace feel like yours.",

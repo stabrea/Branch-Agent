@@ -7,8 +7,10 @@ import { discardTemp } from "./temp-dir.mjs";
 import {
   assistantFolderItems, createBranch, folderAllows, decideFolder, discoverFolder, folderContains, folderTrust, folderTrustMode,
   isFolderTrusted, needsAnswer, nothingFound, presetRules, PolicySchema, saveFolderTrustSettings, trustCappedPolicy,
-  workspaceFolder,
+  workspaceFolder, assembleContext, contextFileStatus, contextFileInstructions, saveContextFileSettings, findFile,
+  integrationsFileTrusted, realFolder,
 } from "../dist/index.js";
+import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 import { startServer } from "../dist/server.js";
 import { openPlace } from "./places.mjs";
 
@@ -294,4 +296,83 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   const { loopGuardMode } = await import("../dist/index.js");
   assert.equal(loopGuardMode(app.store, owner), "when-needed");
   assert.deepEqual(errors, []);
+});
+
+/* ---------------------------------------------------- integration: the loaders that ask first */
+
+test("the owner's context files are not read from a workspace folder the owner has not trusted", async (t) => {
+  const { app, workspace, owner } = await fixture(t, { "AGENTS.md": "Work in small steps.", "SOUL.md": "Be a pirate." });
+  await writeFile(join(app.store.folder, "USER.md"), "Call me Taofik.");
+  saveContextFileSettings(app.store, owner, { files: { agents: "on", soul: "on", user: "on" } });
+  const { id: runId } = await app.runtime.run({ prompt: "hello" });
+  const context = { owner, workspace, runId };
+  const carried = () => contextFileStatus(app.store, owner, workspace).map((r) => `${r.key}:${r.outcome}`).filter((line) => /^(agents|soul|user):/.test(line));
+  // Off (the default): read exactly as before.
+  assert.deepEqual(carried(), ["soul:carried", "user:carried", "agents:carried"]);
+  // On, nobody has decided: the workspace's files are held back, the owner's own folder is still read.
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
+  assert.deepEqual(carried(), ["soul:not trusted", "user:carried", "agents:not trusted"]);
+  assert.doesNotMatch(contextFileInstructions(app.store, context).text, /small steps|pirate/);
+  assert.match(contextFileInstructions(app.store, context).text, /Call me Taofik/);
+  // context.read, the other way in, is refused the same way.
+  await assert.rejects(app.registry.execute("context.read", { file: "agents" }, app.runtime.context({ runId })), /not trusted this workspace folder/);
+  // When needed: a folder holding notes still has to be decided.
+  saveFolderTrustSettings(app.store, owner, { mode: "when-needed" });
+  assert.deepEqual(carried(), ["soul:not trusted", "user:carried", "agents:not trusted"]);
+  // Trusted: read again. Not trusted: held back whatever the mode.
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "trust" });
+  assert.match(contextFileInstructions(app.store, context).text, /small steps/);
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "distrust" });
+  assert.equal(findFile({ workspace, allows: () => false }, "agents"), null);
+  assert.equal(assembleContext(workspace, { files: { agents: "on" } }).reports.find((r) => r.key === "agents").outcome, "carried",
+    "the plain loader with no trust check is unchanged");
+  saveFolderTrustSettings(app.store, owner, { mode: "off" });
+  assert.deepEqual(carried(), ["soul:carried", "user:carried", "agents:carried"], "off means no gating, even for a folder not trusted");
+});
+
+test("hooks and AI tool servers in an integrations file inside an untrusted folder are not started", async (t) => {
+  const { app, root, workspace, owner } = await fixture(t);
+  const config = JSON.stringify({
+    mcp: [{ id: "stranger", transport: "stdio", command: join(root, "no-such-server"), tools: ["x"], expectedVersion: "1" }],
+    hooks: [{ id: "on-finish", event: "run.finished", executable: "nothing" }],
+  });
+  const inside = join(workspace, "cloned", "integrations.json"), outside = join(root, "integrations.json");
+  await mkdir(dirname(inside), { recursive: true });
+  await writeFile(inside, config); await writeFile(outside, config);
+  const load = (path) => loadIntegrations(app.registry, path, {}, app.secretsFor, app.channelHost);
+  // Off: loaded exactly as before (these hooks need a shell, so loading them fails loudly).
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, inside), true);
+  await assert.rejects(load(inside), /MCP connection failed|Hooks need the shell/);
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, inside), false);
+  assert.equal(integrationsFileTrusted(app.store, owner, workspace, outside), true, "a file outside the workspace is the owner's");
+  const before = app.registry.names().length;
+  const warned = [];
+  const original = console.warn;
+  console.warn = (line) => warned.push(line);
+  try {
+    const loaded = await load(inside);
+    assert.equal(loaded.count, 0);
+    await loaded.close();
+  } finally { console.warn = original; }
+  assert.equal(app.registry.names().length, before, "no server's tools were added");
+  assert.match(warned.join("\n"), /not trusted/);
+  await assert.rejects(load(outside), /MCP connection failed|Hooks need the shell/, "the owner's own file is still loaded");
+  decideFolder(app.store, owner, workspace, { folder: "cloned", decision: "trust" });
+  await assert.rejects(load(inside), /MCP connection failed|Hooks need the shell/, "trusting the folder lets it load");
+});
+
+test("a folder reached through a link is judged as the folder it points to", async (t) => {
+  const { app, root, workspace, owner } = await fixture(t);
+  await mkdir(join(workspace, "real"), { recursive: true });
+  await symlink(join(workspace, "real"), join(root, "alias"), "dir");
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
+  decideFolder(app.store, owner, workspace, { folder: "real", decision: "distrust" });
+  assert.equal(folderTrust(app.store, owner, join(root, "alias")), "untrusted");
+  assert.equal(folderTrust(app.store, owner, join(root, "alias", "deeper", "..", "x")), "untrusted");
+  assert.equal(realFolder(join(root, "alias", "not-yet")), join(realFolder(join(workspace, "real")), "not-yet"));
+  // Deciding again for the same folder replaces the answer rather than adding a second one.
+  decideFolder(app.store, owner, workspace, { folder: "real/", decision: "trust" });
+  assert.equal(app.store.get("settings", owner, "folder_trust").data.folders.length, 1);
+  assert.equal(folderTrust(app.store, owner, join(root, "alias")), "trusted");
 });
