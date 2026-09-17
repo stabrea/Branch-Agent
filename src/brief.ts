@@ -6,6 +6,7 @@ import type { Monitors } from "./monitors.js";
 import type { DeliveryHandler } from "./scheduler.js";
 import { nextDailyOccurrence } from "./scheduler.js";
 import { placeholders, substitute } from "./recipes.js";
+import { optionalFields } from "./feature-switches.js";
 
 /**
  * One message first thing: what is planned today, what was left unfinished, documents that arrived,
@@ -154,7 +155,7 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
   registry.register({
     name: "brief.configure", permission: "brief.manage",
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
-    parameters: BriefSettingsSchema.partial(),
+    parameters: optionalFields(BriefSettingsSchema),
     execute: async (input, context) => brief.configure(context.owner, input),
   });
   registry.register({

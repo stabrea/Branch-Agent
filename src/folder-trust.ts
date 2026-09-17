@@ -96,8 +96,10 @@ export function realFolder(path: string, platform: NodeJS.Platform = process.pla
 /** How far a folder is trusted, from the closest folder the owner has decided about. */
 export function folderTrust(store: Store, owner: string, folder: string, platform: NodeJS.Platform = process.platform): FolderTrust {
   let best: { depth: number; decision: "trust" | "distrust" } | null = null;
+  const entries = saved(store, owner).folders;
+  if (!entries.length) return "unknown";
   const inner = realFolder(folder, platform);
-  for (const entry of saved(store, owner).folders) {
+  for (const entry of entries) {
     const outer = realFolder(entry.path, platform);
     if (!folderContains(outer, inner, platform)) continue;
     const depth = outer.length;

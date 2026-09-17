@@ -34,7 +34,10 @@ export class RunGuards {
   }
   /** The approval setting with the folder's trust applied: a task in an untrusted folder asks. */
   policy(policy: Policy): Policy {
-    return trustCappedPolicy(policy, this.trust(), folderTrustMode(this.store, this.owner));
+    const mode = folderTrustMode(this.store, this.owner);
+    // Off (as shipped): nothing is looked up, so a tool call costs exactly what it did before.
+    if (mode === "off") return policy;
+    return trustCappedPolicy(policy, this.trust(), mode);
   }
   /** For any loader of what a folder carries: may it be read? See `isFolderTrusted`. */
   isFolderTrusted(path: string): Promise<boolean> {
