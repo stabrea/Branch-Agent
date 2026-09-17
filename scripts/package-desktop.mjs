@@ -63,6 +63,11 @@ export function windowsZipCommand(folder, archive) {
   return ["C:\\Windows\\System32\\tar.exe", "-a", "-cf", archive, "-C", RELEASE, basename(folder)];
 }
 
+/** Windows only makes a download with --release; its plain app folder is built for any arch, as before. */
+export function needsAssetName(platform, release) {
+  return platform !== "win32" || release;
+}
+
 export function parseArgs(argv, hostArch) {
   const at = argv.indexOf("--arch");
   const arch = at >= 0 ? argv[at + 1] : hostArch;
@@ -167,7 +172,7 @@ async function packageLinux({ arch }) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2), process.arch);
-  if (!assetNameFor(process.platform, options.arch))
+  if (needsAssetName(process.platform, options.release) && !assetNameFor(process.platform, options.arch))
     throw new Error(`There is no desktop download for ${process.platform} ${options.arch}.`);
   if (process.platform === "win32") return packageWindows(options);
   if (process.platform === "darwin") return packageMac(options);

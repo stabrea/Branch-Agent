@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, includedInApp, packagerOptions, parseArgs, windowsZipCommand,
+  assetNameFor, checksumLine, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand,
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
@@ -74,6 +74,10 @@ test("the arch can be chosen, so one Mac makes both downloads", () => {
   assert.deepEqual(parseArgs([], "arm64"), { release: false, arch: "arm64" });
   assert.deepEqual(parseArgs(["--release", "--arch", "x64"], "arm64"), { release: true, arch: "x64" });
   assert.throws(() => parseArgs(["--arch"], "arm64"), /needs a value/);
+  assert.equal(needsAssetName("win32", false), false, "a Windows app folder is still built on any arch");
+  assert.equal(needsAssetName("win32", true), true);
+  assert.equal(needsAssetName("darwin", false), true);
+  assert.equal(needsAssetName("linux", false), true);
   assert.throws(() => parseArgs(["--arch", "--release"], "arm64"), /needs a value/);
 });
 
