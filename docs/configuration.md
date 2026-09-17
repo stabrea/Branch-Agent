@@ -6808,6 +6808,30 @@ launch schema before it is replaced in one step, and the change is used from the
 apply to the same program list on every system; the loader names refused include the macOS
 `DYLD_*` family.
 
+## Models, cheaper and smarter (R17-E)
+
+Seven cards, all off at first; with nothing saved Branch sends, routes and spends exactly what it did
+before. The sub-task and side-job models, thinking effort and the priority or flex service tier are
+R17-S-B's cards (above) and are reused, not repeated. Settings are under `/api/model-savings`
+(owner only; a short-lived key and a household profile are refused every change). One conversation's
+rounds are read from `/api/model-savings/rounds?session=<id>`.
+
+| Card | Where it lives | What it does |
+| --- | --- | --- |
+| Model for planning (R17-044) | Models → Defaults | The connection that drafts the plan when "Show me the plan first" is on; the work is still done by the conversation's model |
+| Choose the model by how hard the task is (R17-047) | Models → Defaults | Off, on, or only when unsure. A small model is asked "easy or hard?" (one short, charged question per task; answers are kept for ten minutes) and the answer picks the easy or hard connection. "Only when unsure" asks only when the free length-and-tools reading cannot tell. A model picked for the run, the conversation or a routing profile always wins; a failed question leaves the usual choice |
+| Count what the service says (R17-048) | Models → Defaults | The ratio between what the service reported and Branch's estimate for the task's last request scales the estimate before the fold decision, only upwards (at most four times) |
+| Keep the cache warm during a pause (R17-050) | Models → Defaults | Claude connections only. After each answered round the same request is repeated for one token every few minutes, up to a number of pings and a spending cap per pause (both required). Each ping is priced at the full input price before it is sent; a model with no price is never pinged. Pings are added to the task's usage and written down as `cache.keep_alive` events |
+| OpenRouter company choice (R17-046) | Models → Connection | Sends OpenRouter's documented `provider` object (sort, order, only, ignore, fallbacks, data collection), and only to connections whose address is `openrouter.ai` |
+| Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
+| Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
+
+The planning, difficulty and OpenRouter ideas come from aider, cline, gemini-cli and Hermes Agent
+(Apache-2.0 and MIT); no code was copied.
+
+**macOS and Linux.** Nothing here depends on the system: the cards, the routing and the pings behave
+the same on Windows, macOS and Linux, and the keep-alive timers never keep the app from closing.
+
 ## Typed commands, the same everywhere (wave mac3)
 
 Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { openRouterBodyPart } from "./model-savings/openrouter.js"; // R17-046
 import { z } from "zod";
 import type {
   BatchApi,
@@ -292,7 +293,8 @@ export class OpenAIProvider implements Provider {
     return offersBatch(this.options.endpoint, openaiBatchHosts) ? openaiBatchApi(this.options) : null;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const body = openaiBody(request, this.options.model);
+    // R17-046: OpenRouter company preferences, added only when this address is openrouter.ai.
+    const body = { ...openaiBody(request, this.options.model), ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
     if (request.onTextDelta) {
       const stream = new OpenAIStream(request.onTextDelta);
       try {

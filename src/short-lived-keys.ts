@@ -98,6 +98,14 @@ const ownerOnlyReads: readonly RegExp[] = [
 export const knobsRefusal =
   "A short-lived key cannot change Branch's limits, which environment variables commands get, or how keys are hidden. Do that in the app window.";
 
+/**
+ * R17-E: how models are chosen and what they may spend (`savingsRoutes` in src/model-savings/api.ts).
+ * Reading the cards and one conversation's rounds is a look; every change is the owner's alone,
+ * because the cards can add model calls (a classifier, cache pings, mixtures) that cost money.
+ */
+export const savingsRefusal =
+  "A short-lived key cannot change how models are chosen or what they may spend. Do that in the app window.";
+
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";
 export const ownerOnlyReadRefusal =

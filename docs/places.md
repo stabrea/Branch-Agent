@@ -123,6 +123,10 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | How commands run, the launch settings file as a card (R17-S-B) | `settings:computer` |
 | Showing a model's thinking (R17-S-B) | `settings:appearance` |
 | How much it remembers at the start, the note about you, where things are remembered (R17-S-B) | `library:memory` |
+| Model for planning, choosing by difficulty, counting what the service says, keeping the cache warm (R17-E) | `settings:models:defaults` |
+| OpenRouter company choice (R17-E) | `settings:models:connection` |
+| Mixtures of models, which then appear in the model picker (R17-E) | `settings:models:second` |
+| The round-by-round chart switch (R17-E); the chart itself sits inside the conversation meter's popover | `settings:appearance` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

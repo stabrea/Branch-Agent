@@ -250,6 +250,8 @@ export const ROUTES = {
   "/api/keychain/settings": "owner POST",
   "/api/knobs": "owner POST", // R17-S-B
   "/api/knobs/launch-file": "owner POST", // R17-S-B
+  "/api/model-savings": "owner POST", // R17-E
+  "/api/model-savings/rounds": "look", // R17-E
   "/api/knowledge": "other POST",
   "/api/knowledge/:id": "other DELETE",
   "/api/knowledge/ask": "task POST",

@@ -204,6 +204,8 @@ import { warmLearningCore } from "./fly-core/hook.js";
 // R17-S-B: the hidden knobs, with plain labels (src/knobs/).
 import { memorySnapshotBudget as knobSnapshotLimits } from "./knobs/apply.js";
 import { leakOptions } from "./knobs/leak-options.js";
+// R17-E: mixtures of models offered as connections (src/model-savings/).
+import { syncMixtures } from "./model-savings/mixture.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
@@ -432,6 +434,7 @@ export async function createBranch(options: {
   store.review.snapshotLimits = () => knobSnapshotLimits(store, runtime.owner);
   runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
   // ── end R17-S-B ──
+  syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -1253,6 +1256,7 @@ export async function createBranch(options: {
       skillPackages.stop();
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
+      runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
@@ -1629,6 +1633,14 @@ export * from "./knobs/thinking.js";
 export * from "./knobs/commands.js";
 export * from "./knobs/leak-options.js";
 export { LaunchFileChangeSchema, launchFileView, saveLaunchFile } from "./knobs/launch-file.js";
+// R17-E: models, cheaper and smarter.
+export * from "./model-savings/settings.js";
+export * from "./model-savings/openrouter.js";
+export * from "./model-savings/difficulty.js";
+export * from "./model-savings/reported.js";
+export * from "./model-savings/rounds.js";
+export * from "./model-savings/keep-alive.js";
+export * from "./model-savings/mixture.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
 // Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.
