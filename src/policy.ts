@@ -185,6 +185,8 @@ const readOnlyPermissions = new Set([
   "devices.read",
   // R17-C: reading the owner's own mail, calendar, files, music and house only looks (src/personal/).
   "personal.read",
+  // r17-h: the shared board's cards, the widgets' list and the install requests only look (src/flows-boards/).
+  "boards.read", "widgets.read", "installs.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

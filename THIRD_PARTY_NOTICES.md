@@ -3512,6 +3512,16 @@ The Apache-2.0 sources are used under the Apache License, Version 2.0 (http://ww
 
 The shape of `src/personal/` (R17-C) — files delivered into chat apps as their own attachments, Home Assistant control, X search through xAI's `x_search` tool with the dates checked on this computer first, Spotify, and Google and Microsoft Graph connectors — follows Hermes Agent's `docs/user-guide/features/deliverable-mode.md`, `tools/homeassistant_tool.py`, `tools/x_search_tool.py`, `plugins/spotify/` and `docs/user-guide/skills/google-workspace.md` (https://github.com/NousResearch/hermes-agent, commit 6005aa1, Copyright (c) 2025 Nous Research). The spoken yes bound to one request that runs out after two minutes (`src/personal/voice-approvals.ts`) follows OpenClaw's `src/talk/client-voice-confirmation.ts` (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation). Both are under the MIT licence, whose text is given under IronClaw above. Everything was written afresh against the services' own documentation; no code was copied.
 
+### Flows and boards (r17-h; ideas only), MIT and Apache-2.0
+
+`src/flows-boards/` was written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- LangGraph (https://github.com/langchain-ai/langgraph, Copyright (c) 2024 LangChain, MIT): going back to a checkpoint, changing the state and running a fork from there (`libs/langgraph/langgraph/pregel/main.py`).
+- Goose (https://github.com/aaif-goose/goose, formerly block/goose, Copyright (c) Block, Inc., Apache-2.0): checks that run after a recipe, clean-up on failure, time limits and a retry count (`crates/goose/src/agents/retry.rs`).
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): the shared kanban board with lanes, hand-offs and a circuit breaker (`hermes_cli/kanban*.py`), and `/queue`, `/busy` and `/focus`.
+- OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation, MIT): widgets the assistant builds that stay current (`src/canvas/widget-tool.ts`).
+- NanoClaw (https://github.com/nanocoai/nanoclaw, Copyright (c) 2026 Gavriel, MIT): the agent asking for packages and tool servers, and the owner approving from chat (`src/modules/self-mod/`).
+
 ### R17-F, learning, deeper: Letta Code, classic Letta (Apache-2.0); Hermes Agent, AutoGen, nanobot, LangGraph (MIT); ZeroClaw (MIT or Apache-2.0)
 
 The files in `src/learning-more/` were written for Branch after reading these projects; no code was copied.

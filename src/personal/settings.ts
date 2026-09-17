@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { lockdownOverrides } from "../lockdown.js"; // mac7/lockdown-fix
 
 /**
  * R17-C (re-audit 2026-09-17): files, voice, devices and personal connectors. Each part has the
@@ -64,6 +65,7 @@ export const personalToolFeatures: readonly (readonly [string, string, readonly 
   .map((part) => [personalKey(part), `${personalLabels[part].charAt(0).toLowerCase()}${personalLabels[part].slice(1)} is switched on`, personalTools[part]] as const);
 
 export function personalMode(store: Pick<Store, "get">, owner: string, part: PersonalPart): PersonalMode {
+  if (lockdownOverrides(store, owner, personalKey(part))) return "off"; // mac7/lockdown-fix
   const saved = RecordSchema.safeParse(store.get("settings", owner, personalKey(part))?.data ?? {});
   return saved.success ? saved.data.mode : "off";
 }
@@ -80,6 +82,9 @@ export class PersonalOffError extends Error {
 
 /** Throws the one plain sentence a switched-off part answers with. */
 export function requirePersonal(store: Pick<Store, "get">, owner: string, part: PersonalPart): void {
+  // mac7/lockdown-fix: said as Lockdown, so the owner knows which switch to look at.
+  if (lockdownOverrides(store, owner, personalKey(part)))
+    throw new Error(`Lockdown is on, so ${personalLabels[part].charAt(0).toLowerCase()}${personalLabels[part].slice(1)} is off. Turn Lockdown off in Settings to allow it again.`);
   if (personalMode(store, owner, part) === "off")
     throw new PersonalOffError(`${personalLabels[part]} is switched off. The owner can switch it on in Branch.`);
 }

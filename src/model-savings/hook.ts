@@ -4,7 +4,7 @@ import type { ModelPreset, ModelRouter, RunModelOverride } from "../models.js";
 import type { Store } from "../store.js";
 import { estimateCost, pricingSettings } from "../pricing.js";
 import { routeByProfile } from "../model-profiles.js";
-import { withAccountCall } from "../accounts/context.js";
+import { withAccountCall, type AccountCall } from "../accounts/context.js";
 import { chooseByDifficulty, type DifficultyAsk } from "./difficulty.js";
 import { KeepAlive } from "./keep-alive.js";
 import { openRouterRouting } from "./openrouter.js";
@@ -94,6 +94,8 @@ export interface AnsweredRound {
   mainRound: boolean;
   /** The runtime's own checks, asked again before each ping (see `pingRefusal`). */
   guard?: Pick<PingGuard, "family" | "active" | "monthly">;
+  /** mac7/lockdown-fix: a Trunk's round; its ping goes through the Trunk's own keys, never a sign-in. */
+  trunk?: AccountCall["trunk"];
 }
 
 export interface PingGuard {
@@ -131,7 +133,8 @@ export function afterRound(runtime: SavingsRuntime, keepAlive: KeepAlive, round:
     refusal: () => pingRefusal(store, round.owner, { ...guard, sessionId: run.sessionId, model: preset.model }),
     send: async () => {
       // The same account wrapper as every other call, so a connection with several accounts bills the chosen one.
-      const answer: Completion = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => store.event(run.id, kind, data) },
+      const answer: Completion = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => store.event(run.id, kind, data),
+        ...(round.trunk ? { trunk: round.trunk } : {}) }, // mac7/lockdown-fix
         () => preset.provider.complete({ messages, tools, maxTokens: 1, signal: AbortSignal.timeout(60_000) }));
       const usage = UsageSchema.safeParse(answer.usage);
       store.addUsage(run.id, round.estimatedInput, 0, usage.success ? usage.data : undefined);

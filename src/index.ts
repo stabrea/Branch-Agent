@@ -203,6 +203,7 @@ import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; //
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
+import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
 // R17-F: learning, deeper (src/learning-more/).
 import { homedir as learningHome } from "node:os";
 import { LearningMore } from "./learning-more/index.js";
@@ -774,7 +775,7 @@ export async function createBranch(options: {
   registerSdkKit(registry, store);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
-  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
+  workflows.resumeGraph = (id, within) => (flows.isGraph(id) ? flows.resumeGraph(id, within ? { within } : {}) : null); // mac7/lockdown-fix: within
   // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
   // that finished, with the state exactly as that box left it. Nothing is started again from the
   // top, and a launch with no interrupted flow does nothing at all.
@@ -1020,6 +1021,10 @@ export async function createBranch(options: {
     lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
   releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
   // ── end R17-C ──
+  // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
+  const flowsBoards = new FlowsBoards({ runtime, registry, flows, knowledge, queue: runQueue, asks,
+    fetch: () => web.policy.guard(globalThis.fetch), ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  // ── end r17-h ──
   // ── R17-F: learning, deeper (src/learning-more/). Every part ships off. ──
   const learningMore = new LearningMore({ store, registry, owner: runtime.owner, models: runtime.models,
     fetch: () => web.policy.guard(globalThis.fetch), hindsight: asks.hindsight, mirror: memoryMirror, files,
@@ -1087,6 +1092,8 @@ export async function createBranch(options: {
     coding,
     /** R17-C: files, voice, devices and personal connectors (src/personal/); every part ships off. */
     personal,
+    /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
+    flowsBoards,
     /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
     learningMore,
     runtime,

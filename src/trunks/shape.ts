@@ -23,6 +23,8 @@ export interface TrunkRunShape {
    * no plan of its own and no reviewer pass — or one message from the owner would multiply model calls.
    */
   roomTurn: boolean;
+  /** mac7/lockdown-fix: the keys it may use; a sign-in account never answers for it. */
+  keys: Trunk["keys"];
 }
 
 const mcpPermission = /^mcp\.([^.]+)\.[a-f0-9]{16}$/;
@@ -73,6 +75,7 @@ export function shapeFor(trunk: Trunk, roster: readonly Trunk[], options: {
   return {
     trunkId: trunk.id,
     roomTurn: options.roomTurn === true,
+    keys: trunk.keys,
     agent: options.agent,
     instructions: trunkInstructions(trunk, roster, options.messaging),
     // A reviewing style takes away everything that writes, exactly as it does for a specialist.

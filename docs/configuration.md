@@ -1840,7 +1840,10 @@ The design, the threat list and the test for each threat are in [never-break.md]
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
-**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
+**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. A workflow a task started (`workflows.run`, or `workflows.resume` carrying a saved or graph flow on) is also held to that task's own permissions (mac7/lockdown-fix): every tool step and box is refused before any question if the task could not use the tool itself (`within` in `src/tool-gate.ts`), its prompt steps and the flows inside it get only those permissions, and the limit is kept with the workflow, so the owner's yes later does not widen it. A workflow the owner starts afresh runs as before. Saving a workflow's steps again keeps the limit, a flow the
+`flow.search` tool drafts and tries keeps to the calling task's tools, and a graph flow run's kept limit
+(settings record `flow-run-limit:<runId>`, never reachable from the settings kit) is removed when the run
+finishes or its flow is removed; a failed run keeps it, because it can still be carried on. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
 
 ## Always allow, per command, and a second look before approvals (wave mac3)
 
@@ -5445,7 +5448,7 @@ back-end, implement `Provider` and register a preset — that is the whole contr
 - `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
 - It also sits at the top of the sidebar.
 
-Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+Turning it on **refuses commands without asking** (see below) and makes **every other tool wait for your yes**, and switches off running a script (`code.run`),
 leaving a program running (`process.start` refuses by name, because the list of programs allowed to
 be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
 out, and telling other programs what happened. It also ends every "yes, just for this conversation"
@@ -5453,10 +5456,24 @@ you gave earlier, so nothing that was already said yes to carries on unasked. On
 it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
 still on after the app is closed and opened again.
 
+It also switches off automations that start by themselves (every part under Automations),
+routines a Trunk owns, your other devices (`src/devices/`) and every personal connector
+(`src/personal/`). **Lockdown wins over every saved switch** (mac7/lockdown-fix): each of these
+features asks `src/lockdown.ts` whenever its switch is read, so a mode saved as "on" or "when needed",
+before or during Lockdown, reads as off until Lockdown is turned off. Commands, scripts, programs, the
+screen and keyboard, borrowing your browser and your other devices (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`, `desktop.*`, `browser.borrow`, `devices.*`), handing a task to another
+computer running Branch (`nodes.run`) and a step that sends something to another app (`blocks.run`) are
+refused outright in `Runtime.checkPolicy`, whatever a rule says: you are not asked, you are told Lockdown is
+on. This is a change from before, when a command was asked about. A rule saved while Lockdown is on cannot
+let any other tool past without a yes. A task that was already working when Lockdown went on meets the
+refusal at its next tool call. Turning it on closes every open device socket at once, and nothing more is
+sent to a device while it is on. The `/lockdown` command in the app, the terminal (`branch lockdown on`)
+and the route all end earlier yeses the same way; only the owner may use any of them (a chat sender, a
+short-lived key and somebody else's profile are refused).
+
 What it does **not** switch off, because there is no switch to throw:
 
-- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
-  refused outright.
 - A **server for another AI tool** that is already set up stays reachable; every tool call through it
   waits for your yes like any other.
 
@@ -6934,10 +6951,17 @@ than whoever started its turn; a reviewing style takes away every tool that writ
 saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
 facts you marked as shared unless you switch that off; it never writes into the shared facts. A
 Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
-without its own plan or reviewer pass. Keys are copies of yours. With several accounts per
-connection switched on (`src/accounts/`), the account you pick for a Trunk is its conversation's
-choice; without a pick, the connection's default account answers, sign-ins included, and the editor
-says so. A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+without its own plan or reviewer pass. A Trunk answers through API keys only, never through a
+sign-in account (a ChatGPT sign-in, an installed program's sign-in, or Gemini signed in with Google):
+in its own conversation, in a room and in its routines alike, sign-in connections are skipped in its
+model list and a task where only sign-ins are left is refused in one sentence
+(`src/accounts/trunk-guard.ts`). With several accounts per connection switched on (`src/accounts/`),
+the key you pick for a Trunk is the one it uses first; with "copy from owner" on it may go on to your
+other keys, with it off a connection with no pick refuses the Trunk rather than using your default.
+The same holds for everything a Trunk's turn sets going: a summary or document read one of its tools asks
+for, a workflow or flow it starts, a mixture of models (a sign-in member is skipped) and the keep-alive
+ping. Each sign-in connection (ChatGPT, an installed program, Gemini signed in with Google) refuses work
+marked as a Trunk's, whichever way the call arrives (`refuseSignInForTrunk` in `src/accounts/context.ts`). A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
 memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
 itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
 Teaching learns only from a task you started yourself.
@@ -6947,6 +6971,27 @@ a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The pi
 through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
+## Flows and boards (r17-h)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/flows-boards/`, owner only; a short-lived key can
+read and change nothing there except by looking (`tests/short-lived-key-routes.mjs`). Every tool call
+any of them makes goes through the one tool gate (`src/tool-gate.ts`).
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Going back in a flow | Automations → Procedures | While it is on, a graph flow keeps its values after every step. Pick a step, change a value (checked against what the flow says each value is), and run a copy from the next step. The run you came from never changes; the copy is a task of its own whose recording starts with the copied steps (`flow.steps`) |
+| Checks for procedures | Automations → Procedures | After a verified procedure runs: checks (a tool call whose answer must contain some words, or a small script through `code.run` that must end with 0), clean-up calls after each failed try, a time limit per try and per call, and 0–5 more tries. A question or a refusal from your approval rules stops it at once and is never retried. A time limit stops the check itself, not only the wait for it; when the assistant runs it, each try counts against that task's budget, the task's Stop stops it, and the repeated-call guard sees every check. A task's own call never reaches past its permissions, and a check cannot start procedures, schedules, specialists or flows (`procedures.replay_checked`) |
+| Shared board | Automations → Scheduled | Cards in To do, Doing, To check, Done and Stuck for the active project, laid over bucket 23's project board. The assistant may add cards, move them among the first three and hand them on with a note — only from your own work, never from a chat, a key, a household person or another program. Only you start work on a card (an ordinary task), finish, reset or remove one. A card whose work fails 3 times in a row (`stopAfter`, 1–10) stops in Stuck until you reset it (`board.cards`, `board.card_add`, `board.card_move`, `board.card_handoff`) |
+| Widgets the assistant built | Library → Made | The assistant suggests a widget — a look-only tool, its settings and how often to ask again — only from your own conversation. A widget may only use a tool that looks at the web, schedules, watches, GitLab, tool servers, running programs, projects or other Branch computers: never your mail, calendar, memory, history, files, documents, pictures, signed-in browser pages or devices, and this is checked again every time the page is asked, so a tool that changes under the same name is not called. The model never sees a widget's frame address, and a short-lived key cannot read the list; at most ten wait, and a no is never asked again. A yes makes it one of bucket 23's live pages (which must be on), shown in the same sealed frame and asked again only as your rules allow unattended work (`widgets.list`, `widgets.propose`) |
+| The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). Only you do this, in the window or your own terminal: a short-lived key or a household person can look with `/queue` but never reword, move or remove, because a waiting message runs as whoever queued it. While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
+| Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
+| Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
+script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
+request check at another copy of the list, as it does for the malware check.
 
 ## Comments that ask the assistant (A0344)
 

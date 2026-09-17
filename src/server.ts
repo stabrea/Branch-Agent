@@ -113,6 +113,7 @@ import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
+import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
@@ -446,6 +447,7 @@ async function staticFile(
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
+    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
@@ -2793,6 +2795,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-C block ----
+        // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
+        if (handlesFlowsBoardsPath(path)) {
+          app.store.profiles.requireOwner("Flows and boards");
+          const answer = await flowsBoardsApi({
+            boards: app.flowsBoards, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof FlowsBoardsHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-h block ----
         // ---- R17-F: learning, deeper under /api/learning-more (src/learning-more/api.ts); the owner's alone. ----
         if (handlesLearningMorePath(path)) {
           app.store.profiles.requireOwner("Learning, deeper");
@@ -3381,6 +3396,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesCodingPath(path))
     // R17-C: every change under /api/personal may reach an outside service or start a program.
     || (request.method !== "GET" && handlesPersonalPath(path))
+    // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
+    || (request.method !== "GET" && handlesFlowsBoardsPath(path))
     // R17-F: every change under /api/learning-more may ask a model or an outside service.
     || (request.method !== "GET" && handlesLearningMorePath(path))
   );
