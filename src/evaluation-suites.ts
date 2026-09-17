@@ -8,7 +8,7 @@ import { ScorerSchema } from "./evaluation-scorers.js";
 
 /**
  * Evaluation suites kept as plain data, so a person can read one, copy it, and write their own
- * without touching the program. The five that ship live in `data/evaluation/*.json`; the owner's
+ * without touching the program. The six that ship live in `data/evaluation/*.json`; the owner's
  * own suites are saved alongside their other records and can be made from any past task.
  */
 export const EvaluationTaskSchema = z.object({

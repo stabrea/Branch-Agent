@@ -3,7 +3,8 @@ import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import {
-  declaredHosts, packSkill, readSkillPackage, requestedPermissions, SkillHooksSchema, SkillToolsSchema,
+  declaredHosts,
+  declaredSites, packSkill, readSkillPackage, requestedPermissions, SkillHooksSchema, SkillToolsSchema,
   type SkillPackageManifest,
 } from "./skill-package.js";
 import {
@@ -58,7 +59,7 @@ export class SkillPackages {
     const { manifest, files } = readSkillPackage(bytes);
     const tools = files["tools.json"] ? SkillToolsSchema.parse(JSON.parse(files["tools.json"])).tools : [];
     return {
-      manifest, permissions: requestedPermissions(files), hosts: declaredHosts(files),
+      manifest, permissions: requestedPermissions(files), hosts: declaredHosts(files), sites: declaredSites(files),
       tools: tools.map((tool) => ({ name: tool.name, description: tool.description, method: tool.method, address: tool.url, secrets: secretsUsed(tool) })),
       hooks: files["hooks.json"] ? SkillHooksSchema.parse(JSON.parse(files["hooks.json"])).hooks : [],
       document: files["SKILL.md"] ?? "",
