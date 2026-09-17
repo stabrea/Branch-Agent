@@ -110,4 +110,6 @@ export async function drawFlows() {
 }
 
 $("flows-refresh")?.addEventListener("click", () => { void drawFlows(); });
-document.querySelector('[data-view="procedures"]')?.addEventListener("click", () => { void drawFlows(); });
+document.addEventListener("branch-place", (event) => {
+  if (["procedures", "automations:procedures"].includes(event.detail.view)) void drawFlows();
+});

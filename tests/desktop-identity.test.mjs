@@ -1,4 +1,5 @@
 import test from "node:test";
+import { openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { _electron } from "playwright";
 import { desktopOptions } from "./fixtures/desktop-options.mjs";
@@ -9,7 +10,7 @@ test("native identity settings survive restart and apply to a new task without e
   try {
     const page = await first.firstWindow();
     await page.getByText("Connected", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettingFor(page, "#identity-name");
     await page.getByLabel("Assistant name", { exact: true }).fill("Native Juniper");
     await page.getByLabel("Working instructions", { exact: true }).fill("Keep checked results concise.");
     await page.getByRole("button", { name: "Save identity", exact: true }).click();
@@ -20,10 +21,10 @@ test("native identity settings survive restart and apply to a new task without e
   try {
     const page = await second.firstWindow();
     await page.getByText("Connected", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await openSettingFor(page, "#identity-name");
     assert.equal(await page.getByLabel("Assistant name", { exact: true }).inputValue(), "Native Juniper");
     assert.equal(await page.getByLabel("Working instructions", { exact: true }).inputValue(), "Keep checked results concise.");
-    await page.getByRole("button", { name: "Conversation", exact: true }).click();
+    await page.locator(".lx-settings-close").click();
     await page.getByLabel("Your message", { exact: true }).fill("Run the file workflow.");
     await page.locator("#send").click();
     await page.waitForFunction(() => !document.getElementById("send").disabled);

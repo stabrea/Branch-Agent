@@ -6,8 +6,8 @@
  */
 const CACHE = "branch-shell-v1";
 const SHELL = [
-  "/", "/tokens.css", "/style.css", "/shell.css", "/web-ui.css",
-  "/app.js", "/shell.js", "/appearance.js", "/context-pane.js", "/acorn.js",
+  "/", "/tokens.css", "/style.css", "/shell.css", "/web-ui.css", "/layout.css",
+  "/app.js", "/shell.js", "/layout.js", "/theme-catalogue.js", "/grove.js", "/appearance.js", "/context-pane.js", "/acorn.js",
   "/markdown.js", "/i18n.js", "/inspector.js", "/live-run.js", "/token-meter.js",
   "/locales/en.json", "/manifest.webmanifest",
   "/assets/keepoak-mark.png", "/assets/keepoak-mark-reversed.png",
