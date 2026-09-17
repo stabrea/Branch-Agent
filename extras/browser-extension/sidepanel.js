@@ -6,6 +6,8 @@
 import { hostPattern, messageFor, refusal, sendTurn } from "./chat.js";
 
 const $ = (id) => document.getElementById(id);
+/** What is typed into one of the panel's own boxes, read through its form, never off the page. */
+const typed = (input) => String(new FormData(input.form).get(input.name) ?? "");
 const conversation = { sessionId: null };
 
 function show(who, text) {
@@ -32,12 +34,12 @@ async function mayReach(where) {
   return Boolean(await chrome.permissions?.request({ origins }));
 }
 
-chrome.storage?.local.get(["where"]).then((saved) => { if (saved.where) $("where").value = saved.where; });
+chrome.storage?.local.get(["where"]).then((saved) => { if (saved.where) $("where").setAttribute("value", saved.where); });
 
 $("new").addEventListener("click", () => { conversation.sessionId = null; $("log").textContent = ""; });
 $("form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const where = $("where").value.trim(), key = $("key").value.trim(), text = $("message").value;
+  const where = typed($("where")).trim(), key = typed($("key")).trim(), text = typed($("message"));
   const why = refusal(where, key);
   if (why) { show("note", why); return; }
   if (!text.trim() && !$("page").checked) return;
@@ -46,7 +48,7 @@ $("form").addEventListener("submit", async (event) => {
     await chrome.storage?.local.set({ where });
     const prompt = messageFor(text, $("page").checked ? await pageNow() : null);
     show("you", prompt);
-    $("message").value = "";
+    $("message").value = ""; // a write into the panel's own box, not a read of anything on the page
     const turn = await sendTurn(fetch, where, key, prompt, conversation);
     show(turn.ok ? "branch" : "note", turn.answer);
   } catch (error) { show("note", error.message); }

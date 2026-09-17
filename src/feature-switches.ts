@@ -79,6 +79,8 @@ export const systemVoiceTools = ["voice.say"] as const;
 export const sdkKitToolNames = ["sdk.routes", "sdk.route", "sdk.starter"] as const;
 /** Bucket 17: watching and saving videos with the owner's own ffmpeg and yt-dlp (src/media-understand.ts). */
 export const videoProgramTools = ["media.watch", "media.frames", "media.convert", "media.download", "media.captions"] as const;
+/** w911 (A2144): page notes, the owner pointing at one thing on a page (src/integrations/browser-notes-tool.ts). */
+export const pageNotesTools = ["browser.notes"] as const;
 
 type Reader = Pick<Store, "get">;
 /** mac4/bucket-20: each interop part with tools — its settings record, why it is loaded, and its tools. */
@@ -110,6 +112,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
   // w911 (A0374) hook: fixing a failed command (src/troubleshoot.ts; the name is written here to avoid an import loop).
   { reason: "fixing failed commands is switched on", tools: ["troubleshoot.run"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "troubleshoot") },
+  // w911 (A2144) hook: page notes.
+  { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──

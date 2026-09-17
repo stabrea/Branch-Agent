@@ -15,6 +15,8 @@ import { resolve as healResolve, type HealTarget } from './browser-heal.js';
 import { SiteSkills, applyQuirks, type QuirksApplied } from './browser-sites.js';
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
+import { registerPageNotes } from './browser-notes-tool.js'; // w911 (A2144)
+import type { MarkChecks } from './browser-heal.js'; // w911 (A2144)
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
 import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
@@ -268,6 +270,11 @@ export class BranchBrowser {
       return { url: found.url, map: found.map, numbered: found.marks.length, truncated: found.truncated,
         marks: found.marks.map(mark => ({ id: mark.id, role: mark.role, name: mark.name })) };
     });
+  }
+  /** w911 (A2144): one read-only look at the page this task has open, with its numbers checkable. */
+  async lookAtPage<T extends object>(context: ToolContext, look: (page: Page, checks: MarkChecks) => Promise<T>): Promise<T> {
+    const entry = this.entry(context);
+    return this.operation(context, page => look(page, { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) }));
   }
   /** Takes the numbered labels off the page again. */
   async clearMarks(context: ToolContext) {
@@ -622,4 +629,5 @@ function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowse
     description: 'Keep a recording of what the browser does in this task, to look at afterwards. Start it, then keep it when the work is done.',
     parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),
     execute: (a, c) => a.action === 'start' ? browser.startRecording(c) : browser.keepRecording(c) });
+  registerPageNotes(registry, browser); // w911 (A2144) hook: page notes, hidden and refused while switched off.
 }

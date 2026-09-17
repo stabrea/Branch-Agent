@@ -483,6 +483,49 @@ on a different thing from the one it was given to, so it was not used".
 
 **The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
+### Pointing at a thing on a page (A2144)
+
+A page note is you pointing at one thing on a web page and saying what Branch should do with it:
+**inspect** it, **change** it, **lift** it out to reuse, or leave a **comment** on it. The switch is
+`page-notes` (off, when needed, on), off until you turn it on with
+`POST /api/browser/notes/settings {"mode":"on"}` (there is no Settings card for it yet). Only the owner may read
+or change the switch; a short-lived key cannot change it. While it is off, every page-note route and
+the tool answer "Page notes are switched off." and the tool is not offered to the assistant.
+
+There are two ways to leave a note:
+
+- **From your own browser**, with the "Send to Branch" extension (`extras/browser-extension`). Right-click
+  anything and choose **Branch: look at this**, **change this**, **lift this out** or **comment on this**.
+  It talks only to your paired remote address with the paired key, never to this computer's own address.
+  Its README lists every permission it asks for and why.
+- **From Branch's own browser**, with the tool `browser.notes { action: "capture", mark | selector, kind, note? }`.
+  `mark` is a number from `browser.annotate`; a number that has moved to something else, or a selector
+  that matches more than one thing, is refused.
+
+`browser.notes { action: "list" }` shows the notes, and `{ action: "resolve", id }` takes a dealt-with one
+off the list. Over HTTP: `GET /api/browser/notes[?conversation=<id>]`, `POST /api/browser/notes`, and
+`POST /api/browser/notes/<id>/resolve` (a short-lived "run" key may use these three).
+
+**What a note keeps:** the kind, the page address, a selector, the tag, the words on it, a few computed
+styles, the boxes it sits inside, its HTML, and your note. Branch sets the id and the date itself and
+refuses any other field. The address loses any sign-in name and password, its `#` part, and any query
+part that looks like a key; the HTML is cleaned again on arrival, whatever the sender did: scripts,
+styles, `noscript`, templates and text boxes are removed with their contents, and no form field keeps a
+`value` attribute, whatever its order, quoting or case. Branch's own capture works on a copy of the
+element and never asks a field what it holds, so a typed password is never read. Sizes are capped
+(HTML 20,000 characters, words and note 2,000 each, address 2,048), and at most 200 notes are kept.
+
+**Where it goes:** notes are kept per person — a household profile sees and resolves only its own. A
+note sent with `conversationId` becomes that conversation's next message, with what came from the page
+between markers saying it is untrusted data, plus the kind and your note; an unknown conversation is
+refused. Without one, the note waits in the list for the assistant to read.
+
+**The honest limits:** a note is a description, not a live link, so it goes stale when the page
+changes. The extension's content script is present on every web page you open (Chrome warns about
+this), though it only remembers what you right-clicked and sends nothing until you choose an entry.
+A conversation a household profile started cannot take a queued note yet, for the same reason it
+cannot take any other queued message.
+
 ### Data in the shape you asked for
 
 `browser.shape { rows?, fields, limit? }` reads the page into an exact shape. Each field says where to read it (`selector`, or `attribute` for something like a link's address), and what kind of thing it is: `text`, `number`, `boolean`, `date` or `url`. `rows` names the repeated block — a table row, a card — and without it the page is read once.

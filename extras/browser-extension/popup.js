@@ -5,17 +5,18 @@
  * It talks only to the paired remote listener, with the key pairing gave you, and it refuses a
  * loopback address outright — the key the app's own page uses on your computer is the whole of
  * Branch's authority there, and an extension must not be able to borrow it.
+ *
+ * w911 (A2144): the address rule lives in address.js, shared with the right-click menu
+ * (background.js). Sending once also keeps the key in the browser's memory for this session
+ * (chrome.storage.session, never on disk) so the menu can use it; closing the browser forgets it.
  */
+import { hostPattern, isLoopback } from "./address.js";
+
+export { isLoopback };
 const $ = (id) => document.getElementById(id);
 const say = (message) => { $("said").textContent = message; };
-
-/** This computer talking to itself, which this extension will not do. */
-export function isLoopback(origin) {
-  let host;
-  try { host = new URL(origin).hostname.toLowerCase(); } catch { return true; }
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "[::1]") return true;
-  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
-}
+/** What is typed into one of the popup's own boxes, read through its form. */
+const typed = (input) => String(new FormData(input.form).get(input.name) ?? "");
 
 /** What is on the page: its address, its title, and whatever is selected on it. */
 async function pageNow() {
@@ -41,10 +42,7 @@ export function taskFrom(page, note) {
  * asks for no website up front, so an extension sitting unused can reach nothing at all; Chrome puts
  * the question to the owner itself, and a no leaves everything exactly as it was.
  */
-export function hostPattern(where) {
-  const url = new URL(where);
-  return `${url.protocol}//${url.hostname}${url.port ? ":" + url.port : ""}/*`;
-}
+export { hostPattern };
 async function mayReach(where) {
   const origins = [hostPattern(where)];
   if (await chrome.permissions?.contains({ origins })) return true;
@@ -52,10 +50,10 @@ async function mayReach(where) {
 }
 
 /* The address and key are remembered in the extension's own storage, never in the page. */
-chrome.storage?.local.get(["where"]).then((saved) => { if (saved.where) $("where").value = saved.where; });
+chrome.storage?.local.get(["where"]).then((saved) => { if (saved.where) $("where").setAttribute("value", saved.where); });
 
 $("send").addEventListener("click", async () => {
-  const where = $("where").value.trim().replace(/\/$/, ""), key = $("key").value.trim();
+  const where = typed($("where")).trim().replace(/\/$/, ""), key = typed($("key")).trim();
   if (!where || !key) { say("Fill in your paired Branch address and its key first."); return; }
   if (isLoopback(where)) {
     say("This extension will not talk to Branch on your computer's own address. Turn on reaching Branch from your phone, pair once, and use that address and key.");
@@ -72,10 +70,11 @@ $("send").addEventListener("click", async () => {
     const page = await pageNow();
     if (!page) { say("There is no page to send."); return; }
     await chrome.storage?.local.set({ where });
+    await chrome.storage?.session?.set({ key });
     const response = await fetch(where + "/api/run", {
       method: "POST",
       headers: { authorization: "Bearer " + key, "content-type": "application/json" },
-      body: JSON.stringify({ prompt: taskFrom(page, $("note").value) }),
+      body: JSON.stringify({ prompt: taskFrom(page, typed($("note"))) }),
     });
     const data = await response.json();
     say(response.ok ? String(data.output ?? "Sent.") : String(data.error ?? "That did not work."));

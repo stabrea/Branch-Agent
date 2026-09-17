@@ -96,6 +96,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/safety-extras/codes/confirm", "types an authenticator code for a question it may answer"),
   // w911 (A1753) hook: an accepted page test scenario, run through the suite runner.
   post(new RegExp(`^/api/qa/scenarios/${id}/run$`), "runs a page test the owner already accepted"),
+  // w911 (A2144) hook: a page note is work for a task, and a dealt-with one is taken off the list.
+  post("/api/browser/notes", "points a task at one thing on a web page"),
+  post(new RegExp(`^/api/browser/notes/${id}/resolve$`), "marks a page note as dealt with"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */

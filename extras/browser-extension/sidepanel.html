@@ -21,15 +21,15 @@
     <details>
       <summary>Your paired Branch</summary>
       <label for="where">Paired address</label>
-      <input id="where" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
+      <input id="where" name="where" form="form" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
       <label for="key">The key pairing gave you</label>
-      <input id="key" type="password" autocomplete="off" />
+      <input id="key" name="key" form="form" type="password" autocomplete="off" />
     </details>
     <div id="log" role="log" aria-live="polite"></div>
     <form id="form">
       <label class="row"><input id="page" type="checkbox" /> About this page</label>
       <label for="message">Message</label>
-      <textarea id="message" rows="3"></textarea>
+      <textarea id="message" name="message" rows="3"></textarea>
       <button type="submit">Send</button>
       <button id="new" type="button">New conversation</button>
     </form>

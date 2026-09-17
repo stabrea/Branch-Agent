@@ -18,13 +18,15 @@
       Your paired Branch only. Turn on reaching Branch from your phone, pair once, and paste that
       address and key here. This never uses the key the app's own page uses on your computer.
     </p>
+    <form id="form">
     <label for="where">Your paired Branch address</label>
-    <input id="where" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
+    <input id="where" name="where" type="text" placeholder="http://your-machine.tailnet.ts.net:8765" />
     <label for="key">The key pairing gave you</label>
-    <input id="key" type="password" autocomplete="off" />
+    <input id="key" name="key" type="password" autocomplete="off" />
     <label for="note">Anything to add</label>
-    <input id="note" type="text" placeholder="Summarise this for me" />
+    <input id="note" name="note" type="text" placeholder="Summarise this for me" />
     <button id="send" type="button">Send it</button>
+    </form>
     <p id="said" role="status" aria-live="polite"></p>
     <script src="popup.js" type="module"></script>
   </body>

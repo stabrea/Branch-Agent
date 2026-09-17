@@ -170,6 +170,7 @@ import { bucket17Api, handlesBucket17, readMediaBody } from "./media-understand-
 import { troubleshootApi } from "./troubleshoot.js"; // w911 (A0374) hook.
 import { handlesQa, qaApi, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { browserContainerApi, handlesBrowserContainer } from "./browser-container-api.js"; // w911 (A2019) hook: import
+import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -1045,6 +1046,8 @@ async function api(
   if (handlesBrowserContainer(path))
     return browserContainerApi({ store: app.store, owner: app.runtime.owner, secrets: () => app.store.secrets,
       requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", () => readBody(request));
+  // w911 (A2144) hook: page notes, before the browser routes read the body.
+  if (handlesPageNotes(path)) return pageNotesApi(app, request.method ?? "GET", path, new URL(request.url ?? "/", "http://local").searchParams, () => readBody(request, 262144));
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
