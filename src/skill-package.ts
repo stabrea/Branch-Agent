@@ -4,6 +4,7 @@ import { z } from "zod";
 import { parseSkillDocument } from "./skill-document.js";
 import { hookEvents } from "./hooks.js";
 import { ParametersSchema } from "./recipes.js";
+import { SiteSkillFileSchema, siteSkillEntry } from "./integrations/browser-sites.js";
 
 /**
  * A skill package is one file the owner can hand to someone else. Inside it is the folder they
@@ -64,11 +65,28 @@ export function requestedPermissions(files: Record<string, string>): { permissio
     const hosts = [...new Set(tools.map((tool) => new URL(tool.url.replace(/\{\{[a-z0-9_]*\}\}/g, "x")).host))];
     asked.push({ permission: "skills.http", why: `Call ${tools.length} web address${tools.length === 1 ? "" : "es"} at ${hosts.join(", ")}` });
   }
+  // A site block asks for nothing extra — it is selectors and nothing else — but the owner should
+  // still read which websites a skill claims to know before they install it.
+  const siteFile = files[siteSkillEntry];
+  if (siteFile) {
+    const { site } = SiteSkillFileSchema.parse(JSON.parse(siteFile));
+    // What it presses is named, not only which websites it knows: a selector that dismisses a
+    // cookie notice and one that confirms a deletion read the same until the owner sees it.
+    const presses = site.dismiss.length ? `presses ${site.dismiss.join(", ")} when a page opens` : "presses nothing";
+    asked.push({ permission: "skills.read",
+      why: `Know the quirks of ${site.hosts.join(", ")}: ${presses}. Selectors only, and no website is added to the allowed list.` });
+  }
   if (hooksFile) {
     const { hooks } = SkillHooksSchema.parse(JSON.parse(hooksFile));
     asked.push({ permission: "procedures.use", why: hooks.map((hook) => `Run your recipe "${hook.recipe}" when ${hook.event.replace(/[._]/g, " ")}`).join("; ") });
   }
   return asked;
+}
+
+/** The websites a package knows the quirks of, so the owner sees them before saying yes. */
+export function declaredSites(files: Record<string, string>): string[] {
+  const siteFile = files[siteSkillEntry];
+  return siteFile ? [...SiteSkillFileSchema.parse(JSON.parse(siteFile)).site.hosts] : [];
 }
 
 /** The web addresses a package's declared calls name, so the owner sees every one before saying yes. */
@@ -88,10 +106,13 @@ export function packSkill(input: { files: Record<string, string>; author: string
   for (const name of Object.keys(files)) {
     packageEntryName.parse(name);
     if (name === manifestEntry) throw new Error(`${manifestEntry} is written by the packer; remove it from the folder`);
-    if (!["SKILL.md", "tools.json", "hooks.json"].includes(name) && !name.endsWith(".md"))
-      throw new Error(`A skill package holds SKILL.md, tools.json, hooks.json and extra .md notes; ${name} is not one of them`);
+    if (!["SKILL.md", "tools.json", "hooks.json", siteSkillEntry].includes(name) && !name.endsWith(".md"))
+      throw new Error(`A skill package holds SKILL.md, tools.json, hooks.json, ${siteSkillEntry} and extra .md notes; ${name} is not one of them`);
   }
-  const permissions = requestedPermissions(files).map((entry) => entry.permission);
+  // A site block is checked here rather than at install time, so a skill that names a website
+  // Branch never opens, or that tries to smuggle script into a selector, cannot be packed at all.
+  if (files[siteSkillEntry]) SiteSkillFileSchema.parse(JSON.parse(files[siteSkillEntry]));
+  const permissions = [...new Set(requestedPermissions(files).map((entry) => entry.permission))];
   const manifest = SkillPackageManifestSchema.parse({
     format: "branch-skill-package", version: 1, name: metadata.name, packageVersion: input.packageVersion,
     author: input.author, description: (input.description ?? metadata.description).slice(0, 500), permissions,
