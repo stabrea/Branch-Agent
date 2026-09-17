@@ -5,10 +5,11 @@ import type { Message, ToolCall } from "../contracts.js";
  * service does not refuse it. The kept conversation is never changed; only what is sent.
  *
  * Always, when the part is not off (the problems services refuse outright):
- *  - a tool result with no call before it, or cut off from its call by another message, is dropped;
+ *  - a tool result with no call before it, or arriving after the next answer, is dropped;
  *  - a second result for the same call is dropped;
  *  - a call made twice under the same id in one message keeps its first copy;
- *  - a call with no result gets a stand-in result saying the outcome is unknown.
+ *  - a call with no result gets a stand-in result saying the outcome is unknown;
+ *  - a note that landed between two results is moved after them.
  * Only with the part "on" (tidier, but not needed by most services):
  *  - an empty answer with no calls is dropped;
  *  - two messages in a row from the person, or two plain answers in a row, are joined.
@@ -44,19 +45,26 @@ function pairResults(messages: readonly Message[], fixes: string[]): Message[] {
   let open = new Map<string, ToolCall>();
   let held: Message[] = [];
   const answered = new Set<string>();
-  const flush = () => {
-    if (held.length) fixes.push(`moved ${held.length} message(s) after the results they interrupted`);
+  /** `moved` when a result came after the held messages, so they really change place. */
+  const flush = (moved: boolean) => {
+    if (held.length && moved) fixes.push(`moved ${held.length} message(s) after the results they interrupted`);
     out.push(...held); held = [];
   };
+  let movedAny = false;
   const close = () => {
     for (const call of open.values()) { out.push(standIn(call)); fixes.push(`added a stand-in result for ${call.name}`); }
     open = new Map();
-    flush();
+    flush(movedAny);
+    movedAny = false;
   };
   for (const original of messages) {
     if (original.role === "tool") {
       const id = original.toolCallId ?? "";
-      if (open.delete(id)) { answered.add(id); out.push(original); if (!open.size) flush(); }
+      if (open.delete(id)) {
+        answered.add(id); out.push(original);
+        movedAny ||= held.length > 0;
+        if (!open.size) { flush(movedAny); movedAny = false; }
+      }
       else fixes.push(answered.has(id) ? "dropped a second result for one call" : "dropped a result with no call before it");
       continue;
     }
