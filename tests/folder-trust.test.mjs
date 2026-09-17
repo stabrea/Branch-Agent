@@ -129,6 +129,7 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
     [["", "unknown", true], ["site", "unknown", false]]);
   assert.equal(first.body.folders[0].path, workspace);
   assert.match(first.body.folders[1].label, /"Site" project/);
+  assert.deepEqual(first.body.folders.map((folder) => folder.project), [null, "Site"]);
 
   const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 });
   const refused = await call("POST", { folder: "", decision: "trust" }, key.token);
@@ -148,7 +149,10 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
 
 test("the chat screen asks once, the answer sticks, and Settings shows it", async (t) => {
   const { chromium } = await import("playwright");
-  const { app, root, workspace, owner } = await fixture(t, { "AGENTS.md": "a", ".mcp.json": JSON.stringify({ mcpServers: { planted: {} } }) });
+  const deep = "folderwithaverylongnameandnowheretobreakit".repeat(4); // no spaces or hyphens to wrap at
+  const { app, root, workspace: top, owner } = await fixture(t, { [`${deep}/AGENTS.md`]: "a", [`${deep}/.mcp.json`]: JSON.stringify({ mcpServers: { planted: {} } }) });
+  app.store.projects.save(owner, { id: "deep", name: "Deep", folder: deep });
+  const workspace = join(top, deep);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); });
@@ -161,12 +165,30 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   await page.locator("#workspace").waitFor({ state: "visible" });
   const ask = page.locator("#folder-trust-ask");
   await ask.waitFor({ state: "attached" });
-  assert.match(await ask.textContent(), /Do you trust this folder\?[\s\S]*AGENTS\.md[\s\S]*planted/);
+  assert.match(await ask.textContent(), /Do you trust this folder\?[\s\S]*Your workspace holds[\s\S]*AGENTS\.md/);
   const settings = page.locator("#folder-trust-card");
-  assert.match(await settings.textContent(), /Trusted folders[\s\S]*Not decided yet/);
+  assert.match(await settings.textContent(), /Trusted folders[\s\S]*Not decided yet[\s\S]*The folder of the “Deep” project[\s\S]*planted/);
   await ask.getByRole("button", { name: "Don't trust it", exact: true }).click();
   await ask.waitFor({ state: "detached" });
   assert.equal(folderTrust(app.store, owner, workspace), "untrusted");
   await page.waitForFunction(() => document.getElementById("folder-trust-card")?.textContent.includes("Not trusted"));
+  // Every word is behind a key: switching to French redraws the card in French.
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.getElementById("folder-trust-card")?.textContent.includes("Dossiers de confiance"));
+  assert.match(await settings.textContent(), /Votre espace de travail[\s\S]*Pas de confiance[\s\S]*Le dossier du projet « Deep »/);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
+  // At 400 px nothing on the card, long folder path included, widens the page.
+  await page.setViewportSize({ width: 400, height: 800 });
+  const nav = page.locator('.nav[data-view="settings"]').first();
+  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
+  await nav.click();
+  await page.evaluate(() => document.body.classList.remove("rail-open"));
+  await settings.scrollIntoViewIfNeeded();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page scrolls sideways");
+  // A box can stay inside the window while its words spill out of it, so both are measured.
+  const wide = await page.evaluate(() => [...document.querySelectorAll("#folder-trust-card *")]
+    .filter((node) => node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1)
+    .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`));
+  assert.deepEqual(wide, []);
   assert.deepEqual(errors, []);
 });

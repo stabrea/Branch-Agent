@@ -184,6 +184,8 @@ export interface FolderTrustView {
   /** The folder as the owner sends it back: "" for the workspace, or a folder inside it. */
   folder: string;
   label: string;
+  /** The project whose folder this is, or null for the workspace itself. */
+  project: string | null;
   trust: FolderTrust;
   found: FolderFindings;
   /** True when the owner should be asked: not decided yet, and the folder carries something. */
@@ -198,15 +200,16 @@ export function handlesFolderTrustPath(path: string): boolean {
 export async function folderTrustView(app: FolderTrustApp): Promise<{ folders: FolderTrustView[] }> {
   const { owner, workspace } = app.runtime;
   const projects = app.store.projects.list(owner);
-  const places = new Map<string, string>([["", "Your workspace"]]);
+  const places = new Map<string, string | null>([["", null]]);
   for (const project of projects)
-    if (project.folder && !places.has(project.folder)) places.set(project.folder, `The "${project.name}" project's folder`);
+    if (project.folder && !places.has(project.folder)) places.set(project.folder, project.name);
   const folders: FolderTrustView[] = [];
-  for (const [folder, label] of places) {
+  for (const [folder, project] of places) {
     const path = workspaceFolder(workspace, folder);
     const trust = folderTrust(app.store, owner, path);
     const found = await discoverFolder(path);
-    folders.push({ path, folder, label, trust, found, needsAnswer: trust === "unknown" && !nothingFound(found) });
+    const label = project === null ? "Your workspace" : `The "${project}" project's folder`;
+    folders.push({ path, folder, label, project, trust, found, needsAnswer: trust === "unknown" && !nothingFound(found) });
   }
   return { folders };
 }
