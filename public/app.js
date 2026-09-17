@@ -552,6 +552,9 @@ async function refresh() {
   void window.branchDiagnostics?.render();
   // Wave 8: the Lockdown switch, and the shape branched conversations make.
   void window.branchOther?.render();
+  // Batch 26 (wave 8): where scripts run, what can reach out, the ceilings, the other computers,
+  // and how long conversations are kept.
+  void window.branchSandboxRemote?.render();
 }
 const notifiedAttention = new Set();
 function renderAttention() {

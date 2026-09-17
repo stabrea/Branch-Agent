@@ -73,6 +73,25 @@ export class KnowledgeCards {
       reason: dropped ? droppedMessage(dropped) : "",
     };
   }
+  /**
+   * What "Refresh from recent conversations" would cost, worked out here on this computer with no
+   * model call at all, so the owner sees it before a word of their conversations is sent anywhere.
+   * It counts the same conversations the refresh itself reads — `store.recentSessions` — leaving
+   * out the empty ones, which the refresh passes over without sending anything.
+   */
+  cost(owner: string, conversations = refreshConversations): RefreshCost {
+    let turns = 0, characters = 0, counted = 0;
+    for (const session of this.store.recentSessions(owner, conversations).sessions.slice(0, conversations)) {
+      const messages = this.store.messages(session.sessionId) as { role: string; content: string }[];
+      const digest = conversationDigest(messages);
+      if (!digest.trim()) continue;
+      counted += 1;
+      turns += messages.filter((message) => message.role === "user" || message.role === "assistant").length;
+      characters += digest.length;
+    }
+    const partial = { conversations: counted, turns, characters, units: Math.ceil(characters / 4) };
+    return { ...partial, summary: refreshSummary(partial) };
+  }
   /** Each card written into the review queue, skipping ones already waiting under the same title. */
   private stage(owner: string, collection: string, cards: z.infer<typeof CardsSchema>["cards"]): Proposal[] {
     const waiting = new Set(this.store.review.proposals(owner, "pending")
@@ -90,6 +109,25 @@ export class KnowledgeCards {
     return staged;
   }
 }
+/** How many recent conversations one refresh looks at, and how far back it will reach. */
+export const refreshConversations = 3;
+/** What one refresh would read and roughly what it would cost, worked out here with no model call. */
+export interface RefreshCost {
+  conversations: number;
+  turns: number;
+  characters: number;
+  /** A rough count of the units of text that would be sent to the model service. */
+  units: number;
+  /** One sentence the owner reads before deciding. */
+  summary: string;
+}
+export const refreshSummary = (cost: Omit<RefreshCost, "summary">): string =>
+  cost.conversations === 0
+    ? "There is nothing to read: none of your recent conversations has anything in it yet."
+    : `This would read ${cost.conversations} recent conversation${cost.conversations === 1 ? "" : "s"} `
+      + `(${cost.turns} turns, about ${cost.units.toLocaleString("en-US")} units of text) and send them to your `
+      + "model service to be written up. Nothing is added to your knowledge base: you accept each card yourself.";
+
 /**
  * A card is written up from a conversation, and a conversation can hold whatever was in a document
  * somebody sent. Once accepted, a card is searched and quoted back like anything else the assistant

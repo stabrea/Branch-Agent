@@ -62,6 +62,9 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   if (!target) return null;
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   if (/^(browser|web)\./.test(tool) || /^(browser|web)\./.test(permission)) return { kind: "host", value: target };
+  // Batch 26 (wave 8): a program on another computer is a command like any other, but its target
+  // reads "tower: make build", so the computer's name is taken off before the program is read.
+  if (tool === "remote.run") return { kind: "command", value: commandAlias(target.split(": ").slice(1).join(": ") || target) };
   if (tool === "shell.execute" || /^(shell|terminal)\./.test(tool)) return { kind: "command", value: commandAlias(target) };
   if (/^(channels|email)\./.test(tool) || /^(channels|email)\./.test(permission))
     return { kind: "channel", value: String(a.channel ?? a.to ?? a.chat ?? target) };
@@ -86,6 +89,7 @@ const actionWords: Record<string, { words: string; bareHost?: boolean }> = {
   "files.write": { words: "writing files" },
   "files.delete": { words: "deleting files" },
   "shell.execute": { words: "running commands" },
+  "remote.execute": { words: "running a program on another computer" },
   "terminal.*": { words: "running commands" },
   "browser.*": { words: "browsing", bareHost: true },
   "browser.navigate": { words: "opening", bareHost: true },
