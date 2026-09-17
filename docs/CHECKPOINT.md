@@ -97,13 +97,18 @@ it — and ships **off**. A fresh install is the provider talking and nothing in
 8. **A caveat is a bug you have not fixed yet.** A flow box interrupted between finishing and its
    checkpoint was silently re-run, and that was nearly shipped as a line in the release notes.
 
-## Two things known to be wrong, and worth someone's attention
+## Two more that were found and fixed, worth knowing because they will recur
 
-- **Whole-file test failures under concurrency.** Twice now a file has failed as a whole — first
-  `tests/chatgpt.test.mjs`, then `tests/evaluation-more.test.mjs` — with every test inside it
-  passing and no error printed beyond `'test failed'`. Both pass on their own. `busy_timeout` is set
-  to 100ms in `src/store.ts`, which is short for a loaded machine, and is the first thing worth
-  looking at.
+- **Teardown order decides whether Windows finishes the run at all.** node runs `after` hooks in
+  the order they were registered, so a scratch folder registered in a fixture and an app closed in
+  the test tear down backwards: the folder goes first, while SQLite still holds its write-ahead log
+  open. macOS allows unlinking an open file; Windows raises EBUSY, the hook throws, node marks the
+  **whole file** failed with no message beyond `'test failed'`, and the database that never closed
+  keeps the process alive so the run never ends. One stalled for half an hour with 39 node processes
+  up and nothing written to the log. It explained two earlier whole-file failures nobody could
+  place. `tests/mac-followups.test.mjs` now names what holds the folder open and shuts it first;
+  `tests/posix-os.test.mjs` had the same fault a day earlier. **Close the app in the same hook that
+  removes the folder, app first.**
 - **Linux Electron tests had never once run.** `ubuntu-24.04` switches off unprivileged user
   namespaces, which Electron's sandbox is built on, so all five desktop tests died with "Process
   failed to launch!" before reaching an assertion. Relaxed on the build machine only, in
