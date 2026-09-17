@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { FeatureModeSchema } from "./feature-switches.js";
-import { startedWithShortLivedKey } from "./key-context.js";
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
+import { runOrigin, startedWithShortLivedKey } from "./key-context.js";
 import { issueLinksIn } from "./integrations/issue-context.js";
 import type { ToolContext } from "./contracts.js";
 import type { GitRunOptions, GitOutcome } from "./integrations/git-run.js";
@@ -57,6 +59,8 @@ export interface PullRequestDeps {
   registry: ToolRegistry;
   /** Runs a registered tool as the owner (the saved GitHub tools); the runtime's executeTool. */
   runTool: (name: string, args: unknown) => Promise<unknown>;
+  /** Integration review: Branch's own guard (src/never-break/protected.ts); a reason when a path may not be read. */
+  guard?: (path: string) => string | null;
 }
 export interface OpenedPullRequest { repository: string; branch: string; base: string; files: string[]; pullRequest: unknown }
 
@@ -82,16 +86,20 @@ export function githubRepositoryOf(address: string): { repo: string; https: URL 
   return { repo: `${parts[1]}/${parts[2]}`, https: new URL(`https://github.com/${parts[1]}/${parts[2]}`) };
 }
 
-async function gitText(deps: PullRequestDeps, cwd: string, args: string[], signal: AbortSignal, timeoutMs = 30000): Promise<string> {
+async function gitText(deps: PullRequestDeps, cwd: string, args: string[], signal: AbortSignal, timeoutMs = 30000, raw = false): Promise<string> {
   const outcome = await deps.git({ cwd, args, timeoutMs }, signal);
   if (outcome.status !== "completed") throw new Error(`Git stopped: ${(outcome.stderr || outcome.stdout).trim().split("\n")[0]?.slice(0, 200) ?? "no reason given"}`);
-  return outcome.stdout.trim();
+  return raw ? outcome.stdout : outcome.stdout.trim();
 }
 
 /** Where the work would go: the repository, the base and the remote's default branch. */
 async function destination(deps: PullRequestDeps, cwd: string, settings: PullRequestHookSettings, signal: AbortSignal) {
-  const address = await gitText(deps, cwd, ["remote", "get-url", settings.remote], signal);
-  const { repo, https } = githubRepositoryOf(address);
+  // Every address a push goes to (a remote may have several, and a push address of its own).
+  const addresses = (await gitText(deps, cwd, ["remote", "get-url", "--push", "--all", settings.remote], signal)).split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!addresses.length) throw new Error("The remote has no address.");
+  const found = addresses.map(githubRepositoryOf);
+  const { repo, https } = found[0]!;
+  if (found.some((each) => each.repo.toLowerCase() !== repo.toLowerCase())) throw new Error("The remote sends to more than one repository, so nothing was sent.");
   await deps.policy.assertAllowed(https, "GitHub repository");
   const headRef = await gitText(deps, cwd, ["symbolic-ref", "--quiet", `refs/remotes/${settings.remote}/HEAD`], signal).catch(() => "");
   const defaultBranch = headRef ? headRef.replace(`refs/remotes/${settings.remote}/`, "") : null;
@@ -102,8 +110,9 @@ async function destination(deps: PullRequestDeps, cwd: string, settings: PullReq
  * Commits the named files on a new `branch/<name>` line, sends it, and opens a draft pull request.
  * Every refusal is thrown with a plain reason; the caller records it.
  */
-export async function pullRequestFromChanges(deps: PullRequestDeps, input: { name: string; title: string; summary: string; paths: string[] | null; signal: AbortSignal }): Promise<OpenedPullRequest> {
-  if (startedWithShortLivedKey()) throw new Error("A short-lived key cannot send work to GitHub. Do that in the app window.");
+export async function pullRequestFromChanges(deps: PullRequestDeps, input: { name: string; title: string; summary: string; paths: string[] | null; signal: AbortSignal; runId?: string }): Promise<OpenedPullRequest> {
+  if (startedWithShortLivedKey() || (input.runId && runOrigin(deps.store, input.runId).shortLivedKey))
+    throw new Error("A short-lived key cannot send work to GitHub. Do that in the app window.");
   const settings = pullRequestHookSettings(deps.store, deps.owner);
   if (settings.mode === "off") throw new Error("Opening pull requests from changes is switched off. Turn it on in Settings → Developer → Pull requests from changes.");
   if (!deps.registry.names().includes("github.open_pull_request")) throw new Error("Connect GitHub first: GitHub is not set up with a saved token.");
@@ -112,12 +121,13 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: { nam
   const head = `branch/${input.name}`;
   assertSafeHead(head, where.base, where.defaultBranch);
   const paths = input.paths ?? (await changedPaths(deps, cwd, input.signal));
-  const visible = [];
-  for (const path of paths) if (!(await deps.files.hidden(path, false))) visible.push(path);
-  if (!visible.length) throw new Error("There are no changed files to send.");
+  const visible = await sendablePaths(deps, cwd, paths);
+  if (!visible.length) throw new Error("There are no changed files that may be sent.");
   await gitText(deps, cwd, ["switch", "--create", head], input.signal);
-  await gitText(deps, cwd, ["add", "--", ...visible], input.signal);
-  await gitText(deps, cwd, ["commit", "--message", input.title.slice(0, 200)], input.signal);
+  // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
+  // whatever else happened to be staged already.
+  await gitText(deps, cwd, ["--literal-pathspecs", "add", "--", ...visible], input.signal);
+  await gitText(deps, cwd, ["--literal-pathspecs", "commit", "--only", "--message", input.title.slice(0, 200), "--", ...visible], input.signal);
   // An explicit refspec: exactly this new line, to a branch of the same name, never anything else.
   await gitText(deps, cwd, ["push", "--set-upstream", settings.remote, `refs/heads/${head}:refs/heads/${head}`], input.signal, 180000);
   const pullRequest = await deps.runTool("github.open_pull_request", {
@@ -133,8 +143,27 @@ const issueArgument = (text: string): { issue?: string } => {
   return link && link.tracker === "github" ? { issue: `${link.repo}#${link.number}` } : {};
 };
 
+/**
+ * Integration review: the files that may leave this computer. Each goes through the same checks as the
+ * assistant's own file tools (inside the workspace, no secret-looking name, no link, nothing
+ * `.branchignore` hides) and Branch's own guard; a folder is never sent whole.
+ */
+async function sendablePaths(deps: PullRequestDeps, cwd: string, paths: readonly string[]): Promise<string[]> {
+  const kept: string[] = [];
+  for (const path of paths) {
+    if (!path || path.endsWith("/")) continue;
+    const allowed = await deps.files.checked(path).then(() => true, () => false);
+    if (!allowed || (await deps.files.hidden(path, false)) || deps.guard?.(path)) continue;
+    const info = await lstat(join(cwd, path)).catch(() => null);
+    if (info && !info.isFile()) continue;
+    kept.push(path);
+  }
+  return kept;
+}
+
 async function changedPaths(deps: PullRequestDeps, cwd: string, signal: AbortSignal): Promise<string[]> {
-  const text = await gitText(deps, cwd, ["status", "--porcelain=v1"], signal);
+  // Untrimmed: each line starts with two status letters, the first often a space.
+  const text = await gitText(deps, cwd, ["status", "--porcelain=v1"], signal, 30000, true);
   return text.split("\n").filter(Boolean).map((line) => line.slice(3).split(" -> ").at(-1)!).filter((path) => !path.startsWith('"')).slice(0, 200);
 }
 
@@ -150,20 +179,28 @@ function note(deps: PullRequestDeps, runId: string, kind: string, data: Record<s
   try { deps.store.event(runId, kind, data); } catch { /* the app is closing */ }
 }
 
+/** Why a finished task's work is not sent by itself; null when it may be. Read from the task's own record. */
+function skipReason(store: Store, runId: string): string | null {
+  const origin = runOrigin(store, runId);
+  if (startedWithShortLivedKey() || origin.shortLivedKey) return "The task was started with a short-lived key, so its work was not sent to GitHub.";
+  if (origin.parentRunId) return "A specialist's part of a task is sent with the task it belongs to, not on its own.";
+  if (origin.source !== "owner") return `The task was started by ${origin.source === "schedule" ? "a schedule" : origin.source === "trigger" ? "a trigger" : "another program"}, not by you, so its work was not sent to GitHub.`;
+  if (origin.permissions && !origin.permissions.includes("github.manage")) return "The task was not allowed to publish (a message from a chat app, for one), so its work was not sent to GitHub.";
+  return null;
+}
+
 /** "On": after a task that finished well and changed files, send those files and open a pull request. */
 export function watchFinishedTasks(deps: PullRequestDeps, track: (work: () => Promise<unknown>) => void = (work) => void work()): () => void {
   return deps.store.onEvent((runId, kind, data) => {
     if (kind !== "run.finished" || data.status !== "completed") return;
     if (pullRequestHookSettings(deps.store, deps.owner).mode !== "on") return;
-    if (startedWithShortLivedKey()) {
-      deps.store.event(runId, "pull_request.skipped", { reason: "The task was started with a short-lived key, so its work was not sent to GitHub." });
-      return;
-    }
     const run = deps.store.run(runId);
     // A save from the window's editor or a single tool pressed by hand is not a task.
     if (run?.prompt.startsWith("Manual action:")) return;
     const paths = filesChangedBy(deps.store, runId);
     if (!paths.length) return;
+    const skipped = skipReason(deps.store, runId);
+    if (skipped) { note(deps, runId, "pull_request.skipped", { reason: skipped }); return; }
     const prompt = run?.prompt ?? "";
     const title = `Branch: ${prompt.split("\n")[0]!.trim().slice(0, 150) || "changes from a task"}`;
     const summary = `${prompt.trim().slice(0, 4000)}\n\nOpened by Branch when task ${runId.slice(0, 8)} finished.`;
@@ -202,7 +239,7 @@ export function registerPullRequestFromChanges(deps: PullRequestDeps): void {
     target: (args) => `send changes to GitHub on branch/${String((args as { name?: unknown }).name ?? "")} and open a pull request`,
     execute: async (args, context: ToolContext) => {
       try {
-        return await pullRequestFromChanges(deps, { ...args, paths: args.paths ?? null, signal: context.signal });
+        return await pullRequestFromChanges(deps, { ...args, paths: args.paths ?? null, signal: context.signal, ...(context.runId ? { runId: context.runId } : {}) });
       } catch (error) {
         if (context.runId) deps.store.event(context.runId, "pull_request.failed", { reason: error instanceof Error ? error.message.slice(0, 500) : "unknown" });
         throw error;

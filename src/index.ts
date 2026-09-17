@@ -167,6 +167,7 @@ import { isReadOnlyPermission } from "./policy.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { registerArtifactVersions } from "./artifact-versions.js"; // bucket-18 (A1183)
 import { offerPullRequestFromChanges, watchFinishedTasks, type PullRequestDeps } from "./pr-hook.js"; // bucket-18 (A0300)
+import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
 // mac3/security-check: the security self-check and the malware check on add-ons.
@@ -475,6 +476,8 @@ export async function createBranch(options: {
     store, owner: runtime.owner, files, policy: web.policy, registry,
     git: (options, signal) => gitRunner.run(options, AbortSignal.any([signal, pullRequestStop.signal])),
     runTool: (name, args) => runtime.executeTool(name, args),
+    // Integration review: Branch's saved work and keys never leave in a pull request.
+    guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
   };
   const stopOfferingPullRequests = offerPullRequestFromChanges(pullRequestDeps);
   const stopPullRequests = watchFinishedTasks(pullRequestDeps, (work) => {

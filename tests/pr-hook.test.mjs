@@ -10,7 +10,9 @@ import {
   assertSafeHead, githubRepositoryOf, pullRequestFromChanges, pullRequestHookSettings,
   savePullRequestHookSettings, watchFinishedTasks,
 } from "../dist/pr-hook.js";
-import { underShortLivedKey } from "../dist/key-context.js";
+import { runOrigin, underShortLivedKey } from "../dist/key-context.js";
+import { writeFile } from "node:fs/promises";
+import { protectedAreas, protectedTarget } from "../dist/never-break/protected.js";
 import { discardTemp } from "./temp-dir.mjs";
 
 /* bucket-18 (A0300): pull requests opened from a task's changes. Git and GitHub are stand-ins. */
@@ -101,7 +103,10 @@ test("A0300 on: a finished task's own files go to a new branch, are pushed by na
   const head = `branch/task-${run.id.slice(0, 8)}`;
   const commands = calls.map((args) => args.join(" "));
   assert.ok(commands.includes(`switch --create ${head}`));
-  assert.ok(commands.includes("add -- src/a.ts"), "only the file this task changed is committed, not the owner's other edits");
+  assert.ok(commands.includes("remote get-url --push --all origin"), "every push address is read, not only the fetch one");
+  assert.ok(commands.includes("--literal-pathspecs add -- src/a.ts"), "only the file this task changed is added, not the owner's other edits");
+  assert.ok(commands.includes("--literal-pathspecs commit --only --message Branch: Fix the widget total -- src/a.ts"),
+    "only that file is committed, whatever else was staged");
   assert.ok(commands.includes(`push --set-upstream origin refs/heads/${head}:refs/heads/${head}`), "the push names exactly the new branch");
   assert.equal(commands.filter((line) => line.startsWith("push")).length, 1);
   assert.equal(d.opened.length, 1);
@@ -245,4 +250,136 @@ test("A0300 over HTTP: a short-lived key is refused the switch, the tool, and th
   assert.ok(kinds.includes("file.changed"));
   assert.ok(kinds.includes("pull_request.skipped"), "the task a script started is never sent to GitHub");
   assert.equal(kinds.includes("pull_request.failed"), false);
+});
+
+/* ---- Integration review (bucket 18): holes found after the builder's round. ---- */
+
+test("A0300 review: secrets, Branch's own files, folders and wildcards never leave in a pull request", async (t) => {
+  const { app, owner, workspace } = await fixture(t);
+  savePullRequestHookSettings(app.store, owner, { mode: "when-needed" });
+  await mkdir(join(workspace, "src"), { recursive: true });
+  await mkdir(join(workspace, "prog", "dist"), { recursive: true });
+  await writeFile(join(workspace, "src", "a.ts"), "export const a = 1;\n");
+  await writeFile(join(workspace, ".env"), "TOKEN=1\n");
+  const { git, calls } = fakeGit();
+  const d = deps(app, git);
+  const areas = protectedAreas({ workspace, dataDir: join(workspace, "..", "data"), installRoot: join(workspace, "prog") });
+  d.value.guard = (path) => protectedTarget({ tool: "files.write", readOnly: false, args: { path }, target: path, workspace }, areas);
+  const opened = await pullRequestFromChanges(d.value, { name: "fix", title: "t", summary: "s", signal: signal(),
+    paths: [".env", "config/id_rsa", "keys/deploy.pem", "*", "src", "src/", "prog/dist/index.js", "src/a.ts"] });
+  assert.deepEqual(opened.files, ["src/a.ts"]);
+  const add = calls.find((args) => args.includes("add"));
+  assert.deepEqual(add, ["--literal-pathspecs", "add", "--", "src/a.ts"]);
+  const commit = calls.find((args) => args.includes("commit"));
+  assert.deepEqual(commit.slice(-2), ["--", "src/a.ts"]);
+
+  // Nothing left to send: nothing is switched, added or pushed.
+  const none = fakeGit();
+  await assert.rejects(pullRequestFromChanges(deps(app, none.git).value, { name: "fix2", title: "t", summary: "s", paths: [".env"], signal: signal() }), /no changed files/);
+  assert.equal(none.calls.some((args) => args.includes("switch") || args.includes("push")), false);
+  // Without paths, what `git status` lists goes through the same checks.
+  const status = fakeGit({ status: " M .env\n?? src/\n M src/a.ts\n" });
+  const fromStatus = await pullRequestFromChanges(deps(app, status.git).value, { name: "fix3", title: "t", summary: "s", paths: null, signal: signal() });
+  assert.deepEqual(fromStatus.files, ["src/a.ts"]);
+});
+
+test("A0300 review: every push address must be the same GitHub repository", async (t) => {
+  const { app, owner } = await fixture(t);
+  savePullRequestHookSettings(app.store, owner, { mode: "when-needed" });
+  const elsewhere = fakeGit({ "remote get-url": "git@github.com:acme/widgets.git\nhttps://gitlab.example.com/acme/widgets.git\n" });
+  await assert.rejects(pullRequestFromChanges(deps(app, elsewhere.git).value, { name: "a", title: "t", summary: "s", paths: ["x"], signal: signal() }), /not on GitHub/);
+  const twice = fakeGit({ "remote get-url": "git@github.com:acme/widgets.git\nhttps://github.com/evil/copy.git\n" });
+  await assert.rejects(pullRequestFromChanges(deps(app, twice.git).value, { name: "a", title: "t", summary: "s", paths: ["x"], signal: signal() }), /more than one repository/);
+  for (const calls of [elsewhere.calls, twice.calls]) assert.equal(calls.some((args) => args.includes("push") || args.includes("switch")), false);
+});
+
+/** A model that waits for a signal before it answers, so a conversation can be kept busy. */
+function gated() {
+  let open;
+  const gate = new Promise((resolve) => { open = resolve; });
+  let first = true;
+  return { open: () => open(), provider: { name: "gated", async complete() {
+    if (first) { first = false; await gate; }
+    return { content: "Done.", toolCalls: [] };
+  } } };
+}
+const startOf = (app, runId) => app.store.events(runId).find((event) => event.kind === "run.started")?.data ?? {};
+const waitFor = async (check) => { for (let i = 0; i < 300 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 10)); return check(); };
+
+test("A0300 review: a short-lived key's mark is kept on the task, so later work started from it is never sent", async (t) => {
+  const model = gated();
+  const { app, owner } = await fixture(t, model.provider);
+  savePullRequestHookSettings(app.store, owner, { mode: "on" });
+  const { git, calls } = fakeGit();
+  const d = deps(app, git);
+  const work = [];
+  t.after(watchFinishedTasks(d.value, (job) => work.push(job())));
+
+  // A follow-up queued with a short-lived key while the owner's task holds the conversation.
+  const busy = app.runtime.run({ prompt: "owner's long task" });
+  const ownerRun = await waitFor(() => [...app.store.sqlite.prepare("SELECT id, session_id FROM tasks WHERE prompt=?").all("owner's long task")][0]);
+  underShortLivedKey(() => app.runtime.followUp(ownerRun.session_id, "script's follow-up"));
+  model.open();
+  await busy;
+  const follow = await waitFor(() => app.store.sqlite.prepare("SELECT id FROM tasks WHERE prompt=?").get("script's follow-up"));
+  assert.ok(await waitFor(() => app.store.events(follow.id).some((event) => event.kind === "run.finished")));
+  assert.equal(startOf(app, follow.id).shortLivedKey, true, "the follow-up started outside the request still carries the mark");
+  assert.equal(startOf(app, ownerRun.id).shortLivedKey, undefined, "the owner's own task is not marked");
+
+  // A background specialist of a marked task, and a task continued from one, inherit it.
+  const parent = app.store.createRun(owner, "marked parent");
+  app.store.event(parent.id, "run.started", { parentRunId: null, source: "owner", shortLivedKey: true, permissions: [] });
+  const child = await app.runtime.delegateBackground("help", app.runtime.context({ runId: parent.id }), [], "");
+  assert.ok(await waitFor(() => startOf(app, child.childRunId).parentRunId === parent.id));
+  assert.equal(startOf(app, child.childRunId).shortLivedKey, true);
+  assert.equal(runOrigin(app.store, child.childRunId).shortLivedKey, true);
+
+  // Afterwards, outside any request, the finished follow-up is skipped by what it recorded.
+  app.store.event(follow.id, "file.changed", { path: "src/a.ts" });
+  app.store.event(follow.id, "run.finished", { status: "completed", output: "" });
+  await Promise.all(work);
+  const skipped = app.store.events(follow.id).find((event) => event.kind === "pull_request.skipped");
+  assert.match(skipped?.data.reason ?? "", /short-lived key/);
+  // And the tool refuses for a task that recorded the mark.
+  await assert.rejects(pullRequestFromChanges(d.value, { name: "a", title: "t", summary: "s", paths: ["x"], signal: signal(), runId: follow.id }), /short-lived key/);
+  assert.equal(calls.length, 0);
+  assert.equal(d.opened.length, 0);
+});
+
+test("A0300 review: a task queued with a short-lived key keeps the mark when the line starts it later", async (t) => {
+  const model = gated();
+  const { app, owner } = await fixture(t, model.provider);
+  app.runQueue.configure(owner, { atOnce: 1 });
+  app.runQueue.submit(owner, { prompt: "owner first" });
+  const queued = underShortLivedKey(() => app.runQueue.submit(owner, { prompt: "script second" }));
+  assert.equal(queued.status, "waiting");
+  model.open();
+  const second = await waitFor(() => app.runQueue.entry(owner, queued.id)?.runId);
+  assert.ok(second);
+  assert.ok(await waitFor(() => startOf(app, second).shortLivedKey === true), "started by the owner's finishing task, still marked");
+  const first = app.store.sqlite.prepare("SELECT id FROM tasks WHERE prompt=?").get("owner first");
+  assert.equal(startOf(app, first.id).shortLivedKey, undefined);
+});
+
+test("A0300 review: only the owner's own tasks that may publish are sent by themselves", async (t) => {
+  const { app, owner } = await fixture(t);
+  savePullRequestHookSettings(app.store, owner, { mode: "on" });
+  const { git, calls } = fakeGit();
+  const d = deps(app, git);
+  const work = [];
+  t.after(watchFinishedTasks(d.value, (job) => work.push(job())));
+  const chat = await app.runtime.run({ prompt: "from a chat app", permissions: app.registry.permissions().filter((p) => p !== "github.manage") });
+  const scheduled = await app.runtime.run({ prompt: "from a schedule", source: "schedule" });
+  const triggered = await app.runtime.run({ prompt: "from a comment", source: "trigger" });
+  assert.equal(startOf(app, scheduled.id).source, "schedule");
+  const expected = [[chat, /not allowed to publish/], [scheduled, /a schedule/], [triggered, /a trigger/]];
+  for (const [run] of expected) {
+    app.store.event(run.id, "file.changed", { path: "src/a.ts" });
+    app.store.event(run.id, "run.finished", { status: "completed", output: "" });
+  }
+  await Promise.all(work);
+  for (const [run, reason] of expected)
+    assert.match(app.store.events(run.id).find((event) => event.kind === "pull_request.skipped")?.data.reason ?? "", reason);
+  assert.equal(calls.length, 0);
+  assert.equal(d.opened.length, 0);
 });
