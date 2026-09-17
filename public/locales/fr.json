@@ -739,5 +739,16 @@
   "todos.title": "Encore à faire",
   "usage.card.limit": "Limite mensuelle",
   "usage.card.limitPurpose": "Arrêter de lancer de nouvelles tâches une fois atteint un nombre de mots, un montant, ou l'un ou l'autre. Laissez une case vide pour ne pas l'utiliser.",
-  "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches."
+  "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches.",
+  "settings.card.second-look": "Un second regard avant les autorisations",
+  "reviewer.lead": "Un autre modèle examine une étape risquée avant qu'on vous la demande : il dit si un outil ne fait que lire, et il peut retenir une étape contraire à vos règles.",
+  "field.reviewer-mode": "Second regard",
+  "reviewer.modes": "« Quand c'est utile » n'examine que les outils qui ne disent pas ce qu'ils font et les commandes qu'aucune de vos règles ne tranche. « Activé » examine aussi chaque étape qui attendrait votre accord, et chaque commande.",
+  "field.reviewer-connection": "Quelle connexion examine",
+  "reviewer.same-connection": "Celle qui répond",
+  "field.reviewer-rules": "Vos règles, avec vos propres mots",
+  "reviewer.stock-rules": "Laissé vide, voici ce qui s'applique : refuser tout ce qui envoie vos fichiers, mots de passe ou clés là où la tâche ne l'a pas demandé, efface des choses hors du dossier de la tâche, télécharge un programme puis le lance, cache ce qu'il fait ou demande plus d'accès que nécessaire. Demander avant de dépenser de l'argent, d'écrire à quelqu'un, de publier, ou de faire quoi que ce soit d'irréversible.",
+  "field.reviewer-ceiling": "Le maximum qu'un examen peut dépenser (mots de contexte)",
+  "reviewer.promise": "Il ne peut que rendre les choses plus strictes. Une étape qu'il retient vous parvient avec sa raison, et vous pouvez quand même l'autoriser cette fois-là. S'il ne peut pas répondre, vos règles décident seules. Chaque examen coûte autant que n'importe quel autre appel à un modèle.",
+  "live.onceOnly": "Le contrôle de sécurité le déconseille : vous ne pouvez l'autoriser que cette fois-ci."
 }

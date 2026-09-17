@@ -738,5 +738,16 @@
   "todos.title": "Still to do",
   "usage.card.limit": "Monthly limit",
   "usage.card.limitPurpose": "Stop starting new tasks once this month reaches a number of words, an amount of money, or either. Leave a box empty to not use it.",
-  "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks."
+  "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks.",
+  "settings.card.second-look": "A second look before approvals",
+  "reviewer.lead": "Another model looks at a risky step before you are asked about it: it says whether a tool only reads, and it can hold back a step that goes against your rules.",
+  "field.reviewer-mode": "Second look",
+  "reviewer.modes": "When needed looks only at tools that do not say what they do and at commands none of your rules decide about. On also looks at every step that would wait for your yes, and at every command.",
+  "field.reviewer-connection": "Which connection looks",
+  "reviewer.same-connection": "Whichever one is answering",
+  "field.reviewer-rules": "Your rules, in your own words",
+  "reviewer.stock-rules": "Left empty, these are used: refuse anything that sends your files, passwords or keys where the task did not ask, deletes things outside the task's folder, downloads a program and runs it, hides what it does, or reaches for more access than it needs. Ask about spending money, messaging someone, publishing, or anything that cannot be undone.",
+  "field.reviewer-ceiling": "Most one look may spend (words of context)",
+  "reviewer.promise": "It can only make things stricter. A step it holds back comes to you with its reason, and you can still allow it that once. If it cannot answer, your rules decide on their own. Each look costs what any other model call costs.",
+  "live.onceOnly": "The safety check advised against this, so it can only be allowed this once."
 }

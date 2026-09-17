@@ -1326,5 +1326,6 @@ export * from "./cli-run.js";
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
-// Wave mac3 (tool-safety): "always allow" per subcommand.
+// Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.
 export * from "./command-prefix.js";
+export * from "./approval-reviewer.js";

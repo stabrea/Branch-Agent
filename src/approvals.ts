@@ -29,7 +29,16 @@ export interface PendingApproval {
    */
   bytes?: string;
   fingerprint?: string;
+  /**
+   * Wave mac3 (tool-safety): the safety check advised against this exact request, so the owner may
+   * overrule it only this once ("Yes, just now"), never for the conversation or for good.
+   */
+  onceOnly?: boolean;
 }
+
+/** Wave mac3 (tool-safety): what the owner is told when they try to keep a yes the safety check advised against. */
+export const onceOnlyRefusal =
+  "The safety check advised against this, so it can only be allowed this once. Choose \"Yes, just now\" to go ahead.";
 
 /** A yes kept for the rest of a conversation, and when it stops counting. */
 export interface SessionGrant {
@@ -119,6 +128,10 @@ export class ApprovalGate {
    * twice is the same question, so it replaces rather than piles up.
    */
   private readonly pending = new Map<string, PendingApproval[]>();
+  /** Wave mac3 (tool-safety): requests the safety check advised against, by fingerprint, with its reason. */
+  private readonly advisedAgainst = new Map<string, string>();
+  /** Wave mac3 (tool-safety): one-time overrules the owner gave, as conversation and fingerprint. */
+  private readonly overrules = new Set<string>();
   /**
    * The answer already given in this conversation for the same tool and target. When a fingerprint
    * is supplied and the kept answer was given for a different one, there is no answer: the exact
@@ -179,6 +192,7 @@ export class ApprovalGate {
   forgetAll(): number {
     const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
     this.answers.clear();
+    this.overrules.clear();
     return count;
   }
   /**
@@ -189,6 +203,7 @@ export class ApprovalGate {
    * an answer that will never come.
    */
   ask(request: PendingApproval): PendingApproval | null {
+    if (request.fingerprint && this.advisedAgainst.has(request.fingerprint)) request = { ...request, onceOnly: true };
     const forSession = this.pending.get(request.sessionId) ?? [];
     this.pending.set(request.sessionId, forSession);
     const same = forSession.findIndex((entry) => sameQuestion(entry, request));
@@ -234,6 +249,31 @@ export class ApprovalGate {
   forget(sessionId: string): void {
     this.answers.delete(sessionId);
     this.pending.delete(sessionId);
+    for (const key of this.overrules) if (key.startsWith(sessionId + "\u0000")) this.overrules.delete(key);
+  }
+
+  /* ------------------------------------------ wave mac3 (tool-safety): overruling the safety check once */
+
+  /** Notes that the safety check advised against this exact request, so its question is once-only. */
+  adviseAgainst(fingerprint: string, reason: string): void {
+    if (this.advisedAgainst.size >= 500) this.advisedAgainst.delete(this.advisedAgainst.keys().next().value!);
+    this.advisedAgainst.set(fingerprint, reason);
+  }
+  /**
+   * Checks an answer to a question before it is recorded. A request the safety check advised against
+   * may be allowed only "just now": that yes is kept as a single pass for this very request in this
+   * conversation, and anything longer-lasting is refused. Other questions are not touched.
+   */
+  settleOverrule(sessionId: string, question: PendingApproval, decision: "allow" | "deny", remember: PolicyRemember): void {
+    const fingerprint = question.fingerprint;
+    if (!fingerprint || !this.advisedAgainst.has(fingerprint)) return;
+    if (decision === "allow" && remember !== "never") throw new Error(onceOnlyRefusal);
+    this.advisedAgainst.delete(fingerprint);
+    if (decision === "allow") this.overrules.add(`${sessionId}\u0000${fingerprint}`);
+  }
+  /** Uses up the owner's one-time overrule for this request, if there is one. */
+  takeOverrule(sessionId: string, fingerprint: string | undefined): boolean {
+    return fingerprint !== undefined && this.overrules.delete(`${sessionId}\u0000${fingerprint}`);
   }
 }
 
