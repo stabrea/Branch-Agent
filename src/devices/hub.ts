@@ -152,6 +152,7 @@ export class DeviceHub {
 
   private keepAlive(link: Link, socket: Duplex, state: { open: boolean; lastPong: number }): void {
     if (!state.open) return;
+    if (this.book.mode() === "off") { link.close("Using other devices is switched off."); socket.destroy(); return; } // mac7/lockdown-fix
     if (this.now() - state.lastPong > 3 * (this.options.pingMs ?? 25_000)) { link.close("The device stopped answering."); socket.destroy(); return; }
     socket.write(Buffer.from([0x89, 0x00]));
   }
@@ -227,6 +228,8 @@ export class DeviceHub {
 
   /** Asks one connected device to do one switched-on thing. The tool gate has already decided. */
   invoke(deviceId: string, capability: Capability, args: Record<string, unknown>, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<InvokeAnswer> {
+    // mac7/lockdown-fix (integration review): nothing reaches a device while the feature reads off (Lockdown included).
+    if (this.book.mode() === "off") return Promise.reject(new Error("Using other devices is switched off, or Lockdown is on."));
     const device = this.book.device(deviceId);
     if (!device) return Promise.reject(new Error("That device is not on the list."));
     if (!device.enabled.includes(capability))

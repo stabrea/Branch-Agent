@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { lockdownOverrides } from "../lockdown.js"; // mac7/lockdown-fix
 
 /**
  * Bucket R17-A (wave mac7): Trunks, Branch's named long-lived agents. Each part has the owner's
@@ -48,6 +49,7 @@ export const trunkToolFeatures: readonly (readonly [string, string, readonly str
   .map((part) => [trunkKey(part), `${trunkLabels[part].charAt(0).toLowerCase()}${trunkLabels[part].slice(1)} is switched on`, trunkTools[part]] as const);
 
 export function trunkMode(store: Pick<Store, "get">, owner: string, part: TrunkPart): TrunkMode {
+  if (lockdownOverrides(store, owner, trunkKey(part))) return "off"; // mac7/lockdown-fix
   const saved = RecordSchema.safeParse(store.get("settings", owner, trunkKey(part))?.data ?? {});
   if (!saved.success) return "off";
   // Every other part needs Trunks themselves: with those off, nothing of theirs works either.

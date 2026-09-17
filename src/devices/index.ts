@@ -2,6 +2,7 @@ import type { WorkspaceFiles } from "../files.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { DeviceBook, type DeviceMode } from "./book.js";
+import { onLockdownChange } from "../lockdown.js"; // mac7/lockdown-fix
 import { deviceTools } from "./capabilities.js";
 import { DeviceHub, type HubOptions } from "./hub.js";
 import { registerDeviceTools } from "./tools.js";
@@ -21,12 +22,17 @@ export class Devices {
     this.book = new DeviceBook(deps.store, deps.owner);
     this.hub = new DeviceHub(this.book, deps.hub);
     this.sync();
+    // mac7/lockdown-fix (integration review): Lockdown closes every device's socket straight away.
+    this.stopListening = onLockdownChange((store, owner, on) => {
+      if (on && store === deps.store && owner === deps.owner) this.hub.disconnectAll("Lockdown is on.");
+    });
   }
+  private readonly stopListening: () => void;
 
   /** The tools are in the catalog exactly while the feature is not off. */
   private sync(): void {
     for (const name of deviceTools) this.deps.registry.unregister(name);
-    if (this.book.mode() !== "off")
+    if (this.book.savedMode() !== "off") // mac7/lockdown-fix: Lockdown is refused at use, not by unregistering
       registerDeviceTools(this.deps.registry, { store: this.deps.store, owner: this.deps.owner, book: this.book, hub: this.hub, files: this.deps.files });
   }
 
@@ -37,5 +43,5 @@ export class Devices {
     return mode;
   }
 
-  close(): void { this.hub.close(); }
+  close(): void { this.stopListening(); this.hub.close(); }
 }

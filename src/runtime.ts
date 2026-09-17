@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { withAccountCall } from "./accounts/context.js"; // mac6/accounts
+import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
+import { lockdownActive, lockdownToolRefusal } from "./lockdown.js"; // mac7/lockdown-fix
+import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
@@ -549,6 +551,8 @@ export class Runtime {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000), ...(options.signal ? [options.signal] : [])]),
       ...(options.source ? { source: options.source } : {}),
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
+      // mac7/lockdown-fix: work a task set going keeps to that task's permissions.
+      ...(options.within ? { permissions: this.registry.permissions().filter((p) => options.within!.includes(p)) } : {}),
     });
     this.store.event(run.id, "tool.started", { name, manual: true });
     let result: unknown;
@@ -584,6 +588,8 @@ export class Runtime {
       approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
       target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
   }
+  /** The kind of permission a tool needs (src/tool-gate.ts asks). */
+  permissionOf(tool: string): string { return this.registry.permissionOf(tool); }
   /** mac5/manual-actions: src/tool-gate.ts decides; a refusal is written on the record first. */
   private gateManual(runId: string, name: string, args: unknown, context: ToolContext, options: ToolGateOptions) {
     try {
@@ -684,10 +690,21 @@ ${run.output.slice(0, 6000)}`;
     if (parent.runId) this.store.event(parent.runId, "delegation.fanout", { waves, tasks: Object.fromEntries(Object.entries(outcomes).map(([id, o]) => [id, { runId: o.runId, status: o.status, result: o.result.status }])) });
     return { waves, tasks: outcomes };
   }
+  /**
+   * mac7/lockdown-fix: a Trunk's tool runs marked as the Trunk's, so a model call it makes on the side
+   * (a summary, a document read, a flow it starts) never goes through a sign-in account either.
+   */
+  private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
+    if (!context.trunkKeys || currentAccountCall()?.trunk) return work();
+    const sessionId = this.store.run(context.runId)?.sessionId ?? "";
+    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+  }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
   private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
     // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
-    const context = trunk ? { ...given, agent: trunk.agent } : given;
+    // mac7/lockdown-fix: trunkKeys. Work a Trunk set going (a workflow's prompt step, a flow box) is its work too.
+    const inherited = given.trunkKeys ?? currentAccountCall()?.trunk?.keys;
+    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
     if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
@@ -1094,7 +1111,8 @@ ${run.output.slice(0, 6000)}`;
     const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
-    const route = { index: 0, reasoning: plan.choice.reasoning, candidates: plan.candidates };
+    // mac7/lockdown-fix: a Trunk's turn skips sign-in connections, and is refused when nothing else is left.
+    const route = { index: 0, reasoning: plan.choice.reasoning, candidates: context.trunkKeys ? trunkCandidates(plan.candidates) : plan.candidates };
     // A plan-execute specialist plans its own sub-task, which an ordinary delegated run never does.
     const planned = shape.plan ? { plan: true, delegated: false } : {};
     const conductor = this.orchestration.conductor(run, { ...conduct, ...planned, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
@@ -1715,6 +1733,8 @@ ${run.output.slice(0, 6000)}`;
     context.budget.step(context.signal);
     // R17-S09: a task that has reached the owner's spending cap for one task stops here.
     this.checkSpendCap(run, preset.model);
+    // mac7/lockdown-fix: no side job of a Trunk's goes through a sign-in either.
+    if (context.trunkKeys && isSignInConnection(preset)) throw new Error(trunkSignInRefusal);
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
     if (input > knobs.contextWindow(this.store, this.owner, contextLimit)) throw new BudgetError(tooLong); // R17-S08
@@ -1754,7 +1774,8 @@ ${run.output.slice(0, 6000)}`;
         ...savings.requestExtras(this.store, this.owner, preset, !context.permissions.size), // R17-045 / R17-046
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
-      const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data) }, async () => onTextDelta
+      const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
+        ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}) }, async () => onTextDelta
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
         : await preset.provider.complete({ ...request, signal: context.signal }));
@@ -1762,6 +1783,7 @@ ${run.output.slice(0, 6000)}`;
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
       savings.afterRound(this, this.keepAlive, { run, owner: this.owner, preset, messages: request.messages, tools, estimatedInput: input, reported,
         mainRound: context.depth === 0 && context.permissions.size > 0 && !shape,
+        ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}), // mac7/lockdown-fix
         guard: { family: this.spendFamily(run.id), active: () => this.activeSessions.has(run.sessionId), monthly: () => this.monthlyBudgetRefusal() } });
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
@@ -1895,6 +1917,10 @@ ${run.output.slice(0, 6000)}`;
     // --- end mac3/never-break ---
     const refusal = this.roleRefusal(tool, permission);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
+    // --- mac7/lockdown-fix: while Lockdown is on, commands, programs, the screen and the borrowed browser are
+    // refused whatever a switch or rule says, and nothing is allowed without a yes, even under rules saved since.
+    const locked = lockdownToolRefusal(this.store, this.owner, tool, permission);
+    if (locked) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: locked };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
     const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
     const { rule, leak } = tightened;
@@ -1903,9 +1929,11 @@ ${run.output.slice(0, 6000)}`;
     const personal = personalHold(tool, args, source);
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
-    const decision = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const decision = held === "allow" && lockdownActive(this.store, this.owner) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
+    // --- end mac7/lockdown-fix ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
@@ -2368,7 +2396,7 @@ ${run.output.slice(0, 6000)}`;
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       // mac2/leak-guard: key-shaped values the locker never saw are hidden here too.
-      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.registry.execute(call.name, args, scoped)));
+      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => this.registry.execute(call.name, args, scoped))));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
       this.noteApp(call, context, result);

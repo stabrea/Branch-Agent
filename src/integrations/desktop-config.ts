@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Store } from '../store.js';
 import { FeatureModeSchema, sentFields, settleSwitch } from '../feature-switches.js';
+import { lockdownOverrides } from '../lockdown.js'; // mac7/lockdown-fix
 
 /**
  * Settings, input shapes and refusals for letting the assistant use the screen and keyboard of
@@ -24,6 +25,8 @@ const settingsKey = 'desktop-control';
 export function readDesktopSettings(store: Store, owner: string): DesktopSettings {
   const saved = DesktopSettingsSchema.safeParse(store.get('settings', owner, settingsKey)?.data ?? {});
   const settings = saved.success ? saved.data : DesktopSettingsSchema.parse({});
+  // mac7/lockdown-fix: while Lockdown is on the switch reads off, whatever mode was saved.
+  if (lockdownOverrides(store, owner, settingsKey)) return { ...settings, enabled: false, mode: 'off' };
   return { ...settings, ...settleSwitch(settings, {}) };
 }
 export function saveDesktopSettings(store: Store, owner: string, input: unknown): DesktopSettings {

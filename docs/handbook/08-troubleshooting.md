@@ -110,8 +110,8 @@ on the right, and in full under the task — say so: every successful tool resul
 
 ## When you want everything to stop
 
-**Lockdown**, at the top of the rail, makes every tool wait for your yes and switches off everything
-that reaches past the app. Turning it off puts back exactly the settings you had. See
+**Lockdown**, at the top of the rail, refuses commands and everything that reaches past the app
+without asking, and makes every other tool wait for your yes. Turning it off puts back exactly the settings you had. See
 [Permissions and safety](04-permissions-and-safety.md#lockdown-one-switch).
 
 ## Where to go next

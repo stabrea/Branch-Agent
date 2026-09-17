@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { lockdownOverrides } from "../lockdown.js"; // mac7/lockdown-fix
 
 /**
  * Bucket R17-B: "it suggests, and runs things on its own". Each part has the owner's three-way
@@ -55,6 +56,7 @@ export const autonomyToolFeatures: readonly (readonly [string, string, readonly 
   .map((part) => [autonomyKey(part), `${autonomyLabels[part].replace(/^"|"/g, "").toLowerCase()} is switched on`, autonomyTools[part]] as const);
 
 export function autonomyMode(store: Pick<Store, "get">, owner: string, part: AutonomyPart): AutonomyMode {
+  if (lockdownOverrides(store, owner, autonomyKey(part))) return "off"; // mac7/lockdown-fix
   const saved = RecordSchema.safeParse(store.get("settings", owner, autonomyKey(part))?.data ?? {});
   return saved.success ? saved.data.mode : "off";
 }

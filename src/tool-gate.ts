@@ -39,6 +39,11 @@ export interface ToolGateOptions {
   approvalKey?: string;
   /** r17-h integration review: the caller's own stop (a time limit, a cancelled task) reaches the tool too. */
   signal?: AbortSignal;
+  /**
+   * mac7/lockdown-fix: set when a task (not the owner) started this work, such as a workflow a task
+   * ran: the task's own permissions. Only tools they cover run; the call's context is narrowed to them.
+   */
+  within?: readonly string[];
 }
 
 export interface ToolGateHost {
@@ -46,6 +51,8 @@ export interface ToolGateHost {
   readonly owner: string;
   readonly guards: RunGuards;
   checkPolicy(tool: string, args: unknown, context: ToolContext, fingerprint?: string): PolicyCheck;
+  /** The kind of permission a tool needs; empty for a tool that is not there. */
+  permissionOf(tool: string): string;
   /** The OS sandbox wall, decided exactly as for a task's call: the owner's switch, tightened by rules. */
   wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox">;
 }
@@ -119,12 +126,27 @@ function carriesCredential(args: unknown): boolean {
   return typeof address === "string" && credentialInUrl(address) !== null;
 }
 
+/** mac7/lockdown-fix: what a step is told when the task that started its workflow may not use the tool. */
+export const outsideTaskRefusal = (tool: string): string =>
+  `The task that started this workflow may not use ${tool}, so this step was not run. Start the workflow yourself to use it.`;
+
+/**
+ * mac7/lockdown-fix: a call whose tool is outside its context's permissions is refused here, before
+ * any question is put, so work a task set going can never use a tool that task could not.
+ */
+export function outsideTask(host: Pick<ToolGateHost, "permissionOf">, tool: string, context: Pick<ToolContext, "permissions">): string | null {
+  const permission = host.permissionOf(tool);
+  return permission && !context.permissions.has(permission) ? outsideTaskRefusal(tool) : null;
+}
+
 /**
  * Decides one call. Throws `PolicyRefusedError` or `ApprovalRequiredError`; otherwise answers with
  * the sandbox the matching rule wants, to be put on the context the tool runs with.
  */
 export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, context: ToolContext,
   fingerprint: string, mode: ToolGateMode = "policy"): SandboxScope {
+  const outside = outsideTask(host, tool, context); // mac7/lockdown-fix
+  if (outside) throw refused(tool, tool, outside);
   if (mode === "owner") {
     // The owner is the one asking, so an "ask first" rule of theirs does not stop it.
     const verdict = manualVerdict(host, tool, args, context, fingerprint);

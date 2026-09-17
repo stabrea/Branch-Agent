@@ -1,6 +1,6 @@
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
 import { ProviderHttpError } from "../provider-retry.js";
-import { currentAccountCall, type AccountCall } from "./context.js";
+import { currentAccountCall, trunkSignInRefusal, type AccountCall } from "./context.js";
 import {
   type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, smartOrder, unavailable,
 } from "./pool.js";
@@ -36,6 +36,11 @@ export interface PoolHooks {
   now: () => number;
 }
 
+/** mac7/lockdown-fix: what a Trunk's call is told when no key may answer it (see trunk-guard.ts). */
+export { trunkSignInRefusal };
+export const trunkKeyRefusal = (pool: string): string =>
+  `This Trunk does not copy your keys and has no key picked for ${pool}. Pick one for it in Edit Trunk, under Keys.`;
+
 /** A sign-in account reached its plan limit and Branch did not switch by itself. */
 export class AccountLimitError extends Error {
   override name = "AccountLimitError";
@@ -62,8 +67,10 @@ export class AccountPoolProvider {
 
   complete = async (request: CompletionRequest): Promise<Completion> => {
     const pool = this.hooks.settings();
-    if (!pool || pool.accounts.length < 2) return this.original.complete(request);
     const call = currentAccountCall();
+    // mac7/lockdown-fix: a Trunk's call never falls through to a sign-in or to the owner's default.
+    if (call?.trunk) return this.forTrunk(pool, call, request);
+    if (!pool || pool.accounts.length < 2) return this.original.complete(request);
     const usable = pool.accounts.filter((account) => this.personMayUse(pool, account));
     if (!usable.length) throw new Error("None of this connection's accounts is shared with you. Ask the owner to share one.");
     if (pool.kind === "api-key") return this.withKeys(pool, usable, request, call);
@@ -80,8 +87,26 @@ export class AccountPoolProvider {
     return found;
   }
   private preferred(pool: Pool, call: AccountCall | undefined): string | null {
+    if (call?.trunk) return call.trunk.keys.accounts[pool.pool] ?? null; // mac7/lockdown-fix: the Trunk's pick only
     const chosen = call?.sessionId ? this.hooks.sessionChoice(call.sessionId) : null;
     return chosen ?? pool.defaultAccount;
+  }
+  /**
+   * mac7/lockdown-fix (R17-005): a Trunk uses API keys only — the one picked for it first, then the
+   * owner's other keys when it copies them — and never a sign-in account.
+   */
+  private forTrunk(pool: Pool | null, call: AccountCall, request: CompletionRequest): Promise<Completion> {
+    // No list saved yet: the connection's one key is the owner's, so it is used only when copied.
+    if (!pool) {
+      if (!call.trunk!.keys.copyFromOwner) throw new Error(trunkKeyRefusal(this.hooks.pool));
+      return this.original.complete(request);
+    }
+    if (pool.kind !== "api-key") throw new Error(trunkSignInRefusal);
+    const picked = call.trunk!.keys.accounts[pool.pool];
+    const usable = pool.accounts.filter((account) => this.personMayUse(pool, account)
+      && (call.trunk!.keys.copyFromOwner || account.id === picked));
+    if (!usable.length) throw new Error(trunkKeyRefusal(pool.pool));
+    return this.withKeys(pool, usable, request, call);
   }
   private why(account: Account): string | null {
     return unavailable(account, this.state(account.id), this.hooks.model, this.hooks.now(), this.hooks.capReached(account));
