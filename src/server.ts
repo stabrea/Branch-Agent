@@ -148,6 +148,9 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
+import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
@@ -389,6 +392,9 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // mac3/never-break: the Keep running card and the Telegram setup card.
+    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
@@ -721,6 +727,14 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
+  if (handlesNeverBreakPath(path))
+    return neverBreakApi(dataDir, request, path, readBody, {
+      snapshot: () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database }),
+      telegram: app.neverBreak.telegram,
+    }).catch((error: unknown) => {
+      throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
@@ -2464,6 +2478,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
+  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
+    void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
+    void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
+  }
   if (options.presence) {
     await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
     await noteFirstStart(app, options.dataDir).catch(() => undefined);
@@ -2827,6 +2846,10 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // mac3/never-break: the gateway's settings are the owner's alone.
+  if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
+  if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
   if (path === "/api/media/programs" || path === "/api/voice/engines")
     return "A short-lived key cannot choose which programs or speech services Branch uses. Do that in the app window.";

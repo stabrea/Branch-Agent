@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { lateNote } from "./never-break/resume.js"; // mac3/never-break
+import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { z } from "zod";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
@@ -51,7 +53,7 @@ export const failuresBeforePausing = 3;
 const repeating = (data: Record<string, unknown>): boolean =>
   typeof data.intervalMs === "number" || typeof data.dailyAt === "string";
 /** The moment a repeating schedule is next due after `now`. */
-const nextTurn = (data: Record<string, unknown>, now: Date): string =>
+export const nextTurn = (data: Record<string, unknown>, now: Date): string =>
   typeof data.dailyAt === "string"
     ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
     : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
@@ -260,11 +262,14 @@ export class Scheduler {
     const startedAt = now.toISOString(), data = record.data;
     const history = (Array.isArray(data.history) ? data.history as HistoryEntry[] : []).slice(-(historyLimit - 1));
     const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
+    // mac3/never-break: a turn missed while Branch was not running runs once, and says so.
+    const late = trigger === "schedule" && neverBreakModeSync(this.store.folder) !== "off" ? lateNote(data.dueAt, now) : null;
+    if (late) Object.assign(entry, { late });
     this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
     try {
       const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
         prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[], source: "schedule",
-        onStarted: (started) => { entry.runId = started.id; },
+        onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
