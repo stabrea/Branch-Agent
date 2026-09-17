@@ -12,7 +12,7 @@ import {
   localModelSupportsImages,
 } from "../dist/local-models.js";
 import { LocalRuntimes } from "../dist/local-runtimes.js";
-import { describeHardware, gb, readGraphicsCard, recommendModels } from "../dist/local-hardware.js";
+import { describeHardware, gb, parseLspci, parseMacDisplays, parseNvidiaSmi, readGraphicsCard, recommendModels, useGraphicsReader } from "../dist/local-hardware.js";
 import { chooseRoute, classifyTask, looksPersonal, routeForTask, routingSettings, saveRoutingSettings } from "../dist/local-routing.js";
 import { ModelRouter } from "../dist/models.js";
 import { Store } from "../dist/store.js";
@@ -183,7 +183,70 @@ test("L2 asking Windows for the graphics card never throws, whatever comes back"
   assert.deepEqual(ok, { name: "Intel Iris Xe", memoryBytes: 1073741824 });
   assert.equal(await readGraphicsCard(async () => { throw new Error("powershell is not here"); }, "win32"), null);
   assert.equal(await readGraphicsCard(async () => ({ stdout: "not json" }), "win32"), null);
-  assert.equal(await readGraphicsCard(async () => ({ stdout: "{}" }), "linux"), null, "nothing is asked off Windows");
+  assert.equal(await readGraphicsCard(async () => ({ stdout: "{}" }), "sunos"), null, "nothing is asked where there is no known way");
+});
+
+// Captured on the owner's Mac mini (Apple M4) with `system_profiler SPDisplaysDataType -json`,
+// trimmed to the fields that matter and with the monitors' serial numbers left out.
+const appleSiliconSample = JSON.stringify({ SPDisplaysDataType: [{
+  _name: "Apple M4", spdisplays_mtlgpufamilysupport: "spdisplays_metal4",
+  spdisplays_ndrvs: [{ _name: "C27G4Z", _spdisplays_pixels: "1920 x 1080", spdisplays_main: "spdisplays_yes" }],
+  spdisplays_vendor: "sppci_vendor_Apple", sppci_bus: "spdisplays_builtin", sppci_cores: "10",
+  sppci_device_type: "spdisplays_gpu", sppci_model: "Apple M4",
+}] });
+// The shape an Intel Mac with a separate card writes: two entries, each with its own memory figure.
+const intelMacSample = JSON.stringify({ SPDisplaysDataType: [
+  { _name: "Intel UHD Graphics 630", sppci_model: "Intel UHD Graphics 630", spdisplays_vendor: "Intel", spdisplays_vram_shared: "1536 MB", sppci_bus: "spdisplays_builtin" },
+  { _name: "AMD Radeon Pro 5500M", sppci_model: "AMD Radeon Pro 5500M", spdisplays_vendor: "sppci_vendor_amd", spdisplays_vram: "8 GB", sppci_bus: "spdisplays_pcie_device" },
+] });
+
+test("L2 a Mac's graphics are read from system_profiler, and Apple silicon is said to share memory", async () => {
+  const apple = parseMacDisplays(appleSiliconSample);
+  assert.deepEqual(apple, { name: "Apple M4", memoryBytes: null, sharedMemory: true });
+  assert.deepEqual(parseMacDisplays(intelMacSample), { name: "AMD Radeon Pro 5500M", memoryBytes: 8 * 1024 ** 3 });
+  assert.equal(parseMacDisplays('{"SPDisplaysDataType":[]}'), null);
+  assert.equal(parseMacDisplays('{"SPDisplaysDataType":"nonsense"}'), null);
+  const asked = [];
+  const card = await readGraphicsCard(async (file, args) => { asked.push([file, ...args]); return { stdout: appleSiliconSample }; }, "darwin");
+  assert.deepEqual(card, apple);
+  assert.deepEqual(asked, [["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"]]);
+  assert.equal(await readGraphicsCard(async () => ({ stdout: "not json" }), "darwin"), null);
+
+  const mac = { totalMemoryBytes: 16 * 1024 ** 3, cores: 10, graphics: apple };
+  assert.equal(describeHardware(mac).summary, "16 GB memory, 10 processor cores, Apple M4 graphics, which share that memory");
+  const advice = recommendModels(mac);
+  assert.deepEqual(advice.map((entry) => entry.fits), [true, true, false]);
+  assert.match(advice[0].note, /share this computer's memory/);
+  assert.doesNotMatch(advice[1].note, /word at a time/, "Apple silicon is not treated as having no graphics");
+  assert.match(advice[2].note, /crawl/);
+});
+
+test("L2 Linux asks nvidia-smi first and falls back to lspci", async () => {
+  assert.deepEqual(parseNvidiaSmi("NVIDIA GeForce RTX 3060, 12288\n"), { name: "NVIDIA GeForce RTX 3060", memoryBytes: 12288 * 1024 ** 2 });
+  assert.equal(parseNvidiaSmi("No devices were found"), null);
+  // The real line from the Linux check machine (a virtual one), and a typical desktop one.
+  const vm = "00:00.0 Host bridge: Intel Corporation 440FX - 82441FX PMC [Natoma] (rev 02)\n00:01.0 VGA compatible controller: Cirrus Logic GD 5446\n";
+  assert.deepEqual(parseLspci(vm), { name: "Cirrus Logic GD 5446", memoryBytes: null });
+  assert.deepEqual(parseLspci("01:00.0 3D controller: NVIDIA Corporation TU117M [GeForce GTX 1650 Mobile] (rev a1)"),
+    { name: "NVIDIA Corporation TU117M [GeForce GTX 1650 Mobile]", memoryBytes: null });
+  assert.equal(parseLspci("00:1f.3 Audio device: Intel Corporation"), null);
+
+  const asked = [];
+  const withNvidia = await readGraphicsCard(async (file, args) => { asked.push([file, ...args]); return { stdout: "NVIDIA RTX A4000, 16376" }; }, "linux");
+  assert.equal(withNvidia.name, "NVIDIA RTX A4000");
+  assert.deepEqual(asked, [["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]]);
+  const fallback = await readGraphicsCard(async (file) => {
+    if (file === "nvidia-smi") throw Object.assign(new Error("spawn nvidia-smi ENOENT"), { code: "ENOENT" });
+    return { stdout: vm };
+  }, "linux");
+  assert.deepEqual(fallback, { name: "Cirrus Logic GD 5446", memoryBytes: null });
+  assert.equal(await readGraphicsCard(async () => { throw new Error("nothing here"); }, "linux"), null);
+});
+
+test("L2 this computer's own graphics are read without an error", { skip: process.platform !== "linux" }, async () => {
+  // Linux only: nvidia-smi and lspci only read, so the real ones are safe to ask on the check machine.
+  const card = await readGraphicsCard();
+  assert.ok(card === null || (typeof card.name === "string" && card.name.length > 0));
 });
 
 // ----------------------------------------------------------------- L3: per-task routing rules
@@ -311,6 +374,10 @@ test("L5 the health report has a section for models on this computer", async (t)
 });
 
 test("L5 the routes answer: what is here, and a preview of which model would take a task", async (t) => {
+  // The route asks for the graphics card; a stand-in answers so no real system_profiler, nvidia-smi or lspci runs.
+  const asked = [];
+  useGraphicsReader(async () => { asked.push("graphics"); return { name: "Stand-in card", memoryBytes: 4 * 1024 ** 3 }; });
+  t.after(() => useGraphicsReader(() => readGraphicsCard()));
   const root = await scratch("local-routes");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -322,7 +389,8 @@ test("L5 the routes answer: what is here, and a preview of which model would tak
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const view = await (await call("/api/local-models")).json();
-  assert.equal(typeof view.hardware.summary, "string");
+  assert.match(view.hardware.summary, /Stand-in card \(4 GB\)/);
+  assert.deepEqual(asked, ["graphics"]);
   assert.equal(view.recommendations.length, 3);
   assert.equal(view.routing.enabled, false);
   assert.equal(view.ollama.downloadPage, "https://ollama.com/download");
