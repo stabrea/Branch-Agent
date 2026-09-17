@@ -154,7 +154,16 @@ test("review over HTTP: a person gets 403 everywhere, a short-lived key 401 on e
     assert.match(answer.body.error, /belongs to the owner/);
   }
   await call("/api/profiles/switch", { profileId: null });
-  const run = app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token;
+  // The owner still saves both kinds of file through the real never-break guard: a project's file in
+  // the workspace, and a file about you in the data folder (the one place that guard is not asked).
+  await mkdir(app.runtime.workspace, { recursive: true });
+  for (const [slot, where] of [["memory", join(app.runtime.workspace, "MEMORY.md")], ["soul", join(app.store.folder, "SOUL.md")]]) {
+    const saved = await call("/api/settings-kit/files", { slot, text: `about ${slot}` });
+    assert.equal(saved.status, 200, `${slot}: ${saved.body.error}`);
+    assert.equal((await call(`/api/settings-kit/files/${slot}`)).body.text, `about ${slot}\n`);
+    assert.equal(await readFile(where, "utf8"), `about ${slot}\n`);
+  }
+  const run =app.sessionTokens.create(app.runtime.owner, { name: "script", scope: "run", minutes: 5 }).token;
   for (const [path, body] of routes.slice(1)) assert.equal((await call(path, body, run)).status, 401, `${path} must be refused to a run key`);
   for (const path of ["/api/settings-kit/files/soul-2", "/api/settings-kit/files/x_y", "/api/settings-kit/export/"])
     assert.ok(offLimitsToShortLivedKeys("GET", path), `${path} must be refused to a short-lived key`);
