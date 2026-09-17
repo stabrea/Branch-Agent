@@ -5082,7 +5082,7 @@ every row is listed here and that every file named here exists.
   `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
   filed under a project.
 - **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
-  version, up to 20, each with its checksum (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
+  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
   Changing an artifact means keeping the changed file as the next version; there is no editor for it.
 - **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
   Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
@@ -5119,8 +5119,9 @@ every row is listed here and that every file named here exists.
 - **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
   (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
   the shared one.
-- **A0464** (desktop conversations that last) — verified: the desktop app (`src/desktop/main.ts`) shows the
-  same conversations, which come back after a restart (`tests/long-jobs.test.mjs`).
+- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
+  same app and server, and a conversation coming back after a restart is proven for that shared core
+  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
 - **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
   page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
   Windows-only.
