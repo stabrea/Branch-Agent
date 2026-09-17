@@ -73,4 +73,14 @@ test("the cards sit in Permissions, every control is named and described, the sw
   await page.locator("#safety-chain-card").getByText("The record is unbroken.").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   assert.equal(wide, false, "no sideways scrolling in Permissions");
+
+  // Integration review: switching the language re-words every button's name and description.
+  const fr = JSON.parse(await readFile(new URL("locales/fr.json", PUBLIC), "utf8"));
+  await page.evaluate(async () => { const i18n = await import("/i18n.js"); await i18n.setLanguage("fr"); });
+  const words = async () => page.evaluate(() => { const b = document.getElementById("safety-scan-run");
+    return { text: b.textContent, title: b.getAttribute("title"), description: b.getAttribute("aria-description") }; });
+  for (let i = 0; i < 40 && (await words()).description !== fr["safety.scan.runHint"]; i++) await page.waitForTimeout(50);
+  assert.deepEqual(await words(), { text: fr["safety.scan.run"], title: fr["safety.scan.runHint"], description: fr["safety.scan.runHint"] });
+  assert.equal(await page.locator("#safety-extras-card h2").innerText(), fr["safety.extras.title"]);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, "French still fits 400 px");
 });

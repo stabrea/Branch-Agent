@@ -43,6 +43,7 @@ function button(id, key, english, hintKey, hint, handler, primary = false) {
   node.title = say(hintKey, hint);
   node.dataset.tTitle = hintKey;
   node.setAttribute("aria-description", node.title);
+  node.dataset.tAriaDescription = hintKey; // re-worded with the rest when the language changes
   node.addEventListener("click", async () => {
     node.disabled = true;
     try { await handler(); } finally { node.disabled = false; }
@@ -256,3 +257,5 @@ function whenReady(work) {
 }
 
 whenReady(() => { void drawCards(); });
+// Sentences made from the server's answers are drawn again in the language just chosen.
+document.addEventListener("branch-language", () => { if ($("safety-extras-card")) void drawCards(); });
