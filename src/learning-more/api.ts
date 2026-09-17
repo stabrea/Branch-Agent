@@ -18,6 +18,7 @@ export const learningMoreRoutes = {
   curator: "/api/learning-more/curator", dryRun: "/api/learning-more/curator/dry-run", merge: "/api/learning-more/curator/merge",
   journey: "/api/learning-more/journey", search: "/api/learning-more/search",
   lessons: "/api/learning-more/lessons", lessonsForget: "/api/learning-more/lessons/forget",
+  lessonsDecide: "/api/learning-more/lessons/decide",
   sessions: "/api/learning-more/sessions", scan: "/api/learning-more/sessions/scan",
   keep: "/api/learning-more/sessions/keep", decline: "/api/learning-more/sessions/decline",
   tags: "/api/learning-more/memory/tags", find: "/api/learning-more/memory/find", label: "/api/learning-more/memory/label",
@@ -79,6 +80,7 @@ const posts: Record<string, Handler> = {
   [R.dryRun]: async (deps) => deps.more.curator.dryRun(deps.runtime.owner, await deps.readBody()),
   [R.merge]: async (deps) => deps.more.curator.suggest(deps.runtime.owner, await deps.readBody()),
   [R.search]: async (deps) => deps.more.meaning.search(deps.runtime.owner, await deps.readBody()),
+  [R.lessonsDecide]: async (deps) => ({ lesson: deps.more.lessons.decide(deps.runtime.owner, await deps.readBody()) }),
   [R.lessonsForget]: async (deps) => { Confirm.parse(await deps.readBody()); return { forgotten: deps.more.lessons.forget(deps.runtime.owner) }; },
   [R.sessions]: async (deps) => ({ settings: deps.more.sessions.configure(deps.runtime.owner, await deps.readBody()) }),
   [R.scan]: async (deps) => deps.more.sessions.scan(deps.runtime.owner),
@@ -95,7 +97,7 @@ const posts: Record<string, Handler> = {
 const partOf: Record<string, z.infer<typeof LearningPartSchema>> = {
   [R.blocks]: "blocks", [R.blockEdit]: "blocks", [R.blockRemove]: "blocks", [R.dryRun]: "curator", [R.merge]: "curator",
   [R.search]: "meaning-search", [R.scan]: "session-lessons", [R.keep]: "session-lessons", [R.find]: "expiry", [R.label]: "expiry",
-  [R.tidy]: "readback",
+  [R.tidy]: "readback", [R.lessonsDecide]: "lessons",
 };
 
 /** Answers one request under /api/learning-more/, or throws a LearningMoreHttpError. */

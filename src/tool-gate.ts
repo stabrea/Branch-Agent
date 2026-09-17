@@ -3,7 +3,7 @@ import type { ToolContext } from "./contracts.js";
 import { folderTrustMode } from "./folder-trust.js";
 import { startedWithShortLivedKey } from "./key-context.js";
 import { credentialInUrl } from "./leak-guard.js";
-import { lockedDown } from "./lockdown.js";
+import { lockedDown, lowersRiskOnly } from "./lockdown.js";
 import type { RunSource } from "./policy.js";
 import type { RunGuards } from "./run-guards.js";
 import type { PolicyCheck } from "./runtime.js";
@@ -76,9 +76,9 @@ function refused(tool: string, label: string, reason?: string): PolicyRefusedErr
 }
 
 /** Lockdown and an untrusted folder speak as "ask"; for a hand-pressed change they are a refusal. */
-function ownerHold(host: ToolGateHost, check: PolicyCheck): string | null {
+function ownerHold(host: ToolGateHost, tool: string, check: PolicyCheck): string | null {
   if (check.readOnly) return null;
-  if (lockedDown(host.store, host.owner)) return lockdownManualRefusal;
+  if (lockedDown(host.store, host.owner) && !lowersRiskOnly(tool)) return lockdownManualRefusal;
   if (folderTrustMode(host.store, host.owner) !== "off" && host.guards.trust() === "untrusted") return untrustedManualRefusal;
   return null;
 }
@@ -115,7 +115,7 @@ export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, c
   const base = { label: check.label, target: check.target, scope: scopeOf(host, tool, args, context, check), leak: carriesCredential(args) };
   const key = startedWithShortLivedKey();
   if (check.decision === "deny") return { ...base, decision: "deny", reason: key ? forKey(tool, check.reason) : check.reason ?? null };
-  const held = ownerHold(host, check);
+  const held = ownerHold(host, tool, check);
   if (held) return { ...base, decision: "deny", reason: key ? forKey(tool, held) : held };
   if (check.decision === "ask" && key) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
   if (check.decision === "ask" && check.needsCode) return { ...base, decision: "deny", reason: codeManualRefusal }; // mac7/r17-g
@@ -133,6 +133,10 @@ function carriesCredential(args: unknown): boolean {
 /** mac7/lockdown-fix: what a step is told when the task that started its workflow may not use the tool. */
 export const outsideTaskRefusal = (tool: string): string =>
   `The task that started this workflow may not use ${tool}, so this step was not run. Start the workflow yourself to use it.`;
+
+/** The same, for a saved recipe (its steps, checks or clean-up) that a task asked for. */
+export const outsideRecipeRefusal = (tool: string): string =>
+  `The task that asked for this recipe may not use ${tool}, so this step was not run. Run the recipe yourself to use it.`;
 
 /**
  * mac7/lockdown-fix: a call whose tool is outside its context's permissions is refused here, before

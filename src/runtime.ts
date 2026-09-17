@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
-import { lockdownActive, lockdownToolRefusal } from "./lockdown.js"; // mac7/lockdown-fix
+import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
@@ -473,7 +473,10 @@ export class Runtime {
     const lentTo = origin?.lentTo ?? null;
     if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
+    // A chat message's task carries on as the chat's, with the same tools, never as the owner's own.
+    const chat = origin.source === "channel"
+      ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {};
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id, ...chat };
     const go = async () => {
       if (!lentTo) return this.execute(again);
       // Lent to the assistant for the resumed task, and handed back to the person after it.
@@ -1939,7 +1942,7 @@ ${run.output.slice(0, 6000)}`;
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
     const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
-    const guarded = held === "allow" && lockdownActive(this.store, this.owner) ? "ask" : held; // mac7/lockdown-fix
+    const guarded = held === "allow" && lockdownActive(this.store, this.owner) && !lowersRiskOnly(tool) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && guarded === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
     // --- end mac7/lockdown-fix ---
@@ -2462,7 +2465,7 @@ ${run.output.slice(0, 6000)}`;
 export function channelSource(answeredOn: string | undefined): AuditSource | null {
   if (!answeredOn) return null;
   const name = answeredOn.trim().toLowerCase();
-  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system"].includes(name)
+  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system", "channel"].includes(name)
     ? (name as AuditSource) : "chat";
 }
 

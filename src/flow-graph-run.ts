@@ -7,7 +7,7 @@ import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import type { RunSource } from "./policy.js";
 import { compileGraph, type CompiledGraph, type GraphEdge, type GraphNode } from "./flow-graph.js";
-import { recordFlowStep } from "./flows-boards/time-travel.js"; // r17-h: going back to an earlier step
+import { hasFlowSteps, recordFlowStep } from "./flows-boards/time-travel.js"; // r17-h: going back to an earlier step
 
 /**
  * Running a flow that is a real graph: one state object carried from box to box, each box handing
@@ -120,8 +120,9 @@ export class FlowGraphRunner {
       recordFlowStep(this.store, { runId, owner: this.owner, seq, nodeId: node.id, name: node.name, nextNode: at }, state, loops); // r17-h
     }
     this.save(runId, { status: "completed", state: JSON.stringify(state) });
-    // mac7/lockdown-fix (integration review): a finished run cannot be carried on, so its limit goes.
-    this.forgetLimit(runId);
+    // mac7/lockdown-fix (integration review): a finished run cannot be carried on, so its limit goes,
+    // unless its steps were kept: going back to one makes a copy that must keep the same limit.
+    if (!hasFlowSteps(this.store, runId)) this.forgetLimit(runId);
     this.store.finish(runId, "completed", `The flow "${compiled.definition.name}" finished.`);
     return this.view(runId);
   }
@@ -190,7 +191,7 @@ export class FlowGraphRunner {
     if (node.kind === "subflow") return this.subflow(node, state, options);
     if (node.kind === "prompt") {
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
-        signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined, ...this.limited(options) });
+        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options) });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
       return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }
@@ -246,6 +247,10 @@ export class FlowGraphRunner {
    * mac7/lockdown-fix: drops a run's kept limit. A failed or waiting run keeps it, because it can still
    * be carried on; a finished run, or every run of a flow that is removed, has no use for it.
    */
+  /** The limit kept with a run, when a task started or carried it on. */
+  limitOf(runId: string): string[] | undefined {
+    return (this.store.get("settings", this.owner, limitKey(runId))?.data as { within?: string[] } | undefined)?.within;
+  }
   forgetLimit(runId: string): void {
     this.store.delete("settings", this.owner, limitKey(runId));
   }

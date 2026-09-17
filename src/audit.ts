@@ -43,7 +43,7 @@ export type AuditAction = (typeof auditActions)[number];
  * Where a task can start: the owner's own app, a schedule, a trigger, or another AI tool. This is
  * what the "started by" column holds, and it is the older, shorter of the two lists below.
  */
-export const auditOrigins = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system"] as const;
+export const auditOrigins = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system", "channel"] as const;
 export type AuditOrigin = (typeof auditOrigins)[number];
 /**
  * Where the moment itself happened. Everywhere a task can start, and also every chat app an answer

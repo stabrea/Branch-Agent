@@ -14,7 +14,8 @@ import { boardMode, requirePart } from "./settings.js";
  * Going back never changes the run it came from. A copy is a new task of its own, with the boxes up
  * to the chosen one copied across as they were, so its recording (Inbox › History) reads from the
  * start, and the original stays as the "undo". The copy runs as the owner's own flow run does: every
- * tool a box uses is held to the approval rules through the one tool gate.
+ * tool a box uses is held to the approval rules through the one tool gate, and a copy of a run a task
+ * started keeps to that task's tools.
  */
 const maxStateBytes = 64 * 1024;
 const made = new WeakSet<object>();
@@ -45,6 +46,14 @@ export function recordFlowStep(store: Store, point: StepPoint, state: Record<str
       VALUES(?,?,?,?,?,?,?,?,?)`).run(point.runId, point.seq, point.owner, point.nodeId, point.name.slice(0, 120),
       point.nextNode, Buffer.byteLength(text) > maxStateBytes ? null : text, JSON.stringify(loops), new Date().toISOString());
   } catch { /* going back is a convenience; the flow carries on regardless */ }
+}
+
+/** Whether any step of this run was kept, so it can be gone back into. */
+export function hasFlowSteps(store: Store, runId: string): boolean {
+  try {
+    ensureTables(store);
+    return !!store.sqlite.prepare("SELECT 1 AS found FROM flow_graph_steps WHERE run_id=? LIMIT 1").get(runId);
+  } catch { return false; }
 }
 
 export interface FlowStep { seq: number; nodeId: string; name: string; nextNode: string | null; state: Record<string, unknown> | null; at: string }
@@ -115,7 +124,9 @@ export class FlowTimeTravel {
     store.sqlite.prepare("INSERT INTO flow_graph_forks(run_id,owner,from_run,from_seq,changed,at) VALUES(?,?,?,?,?,?)")
       .run(copy.id, owner, runId, seq, JSON.stringify(changed), new Date().toISOString());
     store.event(copy.id, "flow.forked", { fromRun: runId, fromSeq: seq, changed });
-    const work = this.deps.graphs.work(copy.id, compiled, { source: "owner" }).catch(() => this.deps.graphs.view(copy.id));
+    // A copy of a run a task started keeps that task's limit (mac7/lockdown-fix), even though the owner made it.
+    const within = this.deps.graphs.limitOf(runId);
+    const work = this.deps.graphs.work(copy.id, compiled, { source: "owner", ...(within ? { within } : {}) }).catch(() => this.deps.graphs.view(copy.id));
     this.working.set(copy.id, work);
     void work.finally(() => this.working.delete(copy.id));
     return { runId: copy.id, fromRun: runId, fromSeq: seq, changed };

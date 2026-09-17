@@ -672,6 +672,36 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 
 `activation`, `pairing` and `allowlist` mean the same on every channel, and every channel uses the same delivery ledger, the same pairing codes and `POST /api/channels/link { channel, chatId, sessionId }`. Every credential is read from an environment variable of that name first, then from a secret of that name in the **default project's** locker; nothing is ever written into the connections file. Every outbound request goes through the network settings in `web`, including the chat sockets (checked as the matching `https://` address) and the mail servers (checked by host name). `GET /api/channels` reports each channel's `health` as `connected`, `reconnecting` or `needs attention` with a plain reason; **Settings → Channels** shows the same line and a **Check the connection** button. A secret never appears in that output, in an error message or in the log.
 
+### Who a chat message's task counts as (mac7/chat-source)
+
+A chat app cannot prove who is typing, even when the sender is you on your own paired account. So a
+task a chat message starts is marked as coming from a chat (`source: "channel"` on the task and in the
+record), and so is everything it starts: a helper it hands work to, a side question (`/btw`, `/compact`,
+`/help <question>`), a prompt step of a workflow it runs, and the same task carried on after a restart
+(with the same tools it had). No setting makes a chat account count as you. The one list of your own
+chat accounts (under reach, for `/platform pause|resume|status`) is used only for that command and
+lends those accounts nothing else. What that means:
+
+- **Your approval rules are held to "Ask before changes"**, as they are for a schedule or another AI
+  tool: your standing yeses do not reach a chat's task, so a change it wants waits for a yes. The chat
+  may still answer that one question (`y` or `n`, or the Yes and No buttons), but it is never offered
+  **Yes always**, and a standing yes sent from a chat is refused.
+- **Never from a chat:** proposing an automation or a standing order, being told your standing orders,
+  changing memory blocks, your other devices, your mail, calendar, files, music and house (refused
+  even if a rule would allow it), being the task a Trunk learns from, saving a workflow, trying out
+  drafted flows, changing the morning brief or sending it to a chat, adding or removing other
+  assistants, adding or removing a service's tools, installing skills from a folder, handing work to
+  your other computers, looking at your other computers, screen, videos or notes (R17-I), and "/learn"
+  (from a chat it is ordinary words). Changing settings, approvals,
+  installs, the `/lockdown` switch and the other owner-only commands was already refused from a chat.
+  Each of these refuses a chat's task by itself, and the tools behind them are also kept out of what a
+  chat's task may use at all (`chatPermissionsOf` in `src/channels/router.ts`, alongside commands, your
+  devices, your personal connectors and sending to other chats).
+- **Unchanged:** which chats are answered (`allowlist`, pairing), and everything you start in the window,
+  the terminal or with your own key.
+
+A task saved before this change carries only the `channel.inbound` mark; it is read the same way.
+
 ### Watching and steering a task from the chat
 
 Everything in this section is **off on a fresh install**: chat replies arrive exactly as before until you switch a part on. There are four switches, each `on`, `off` or `when-needed`, read from `GET /api/channels` (`live`) and changed with `POST /api/channels/live { liveStatus?, commands?, steering?, splitting? }` (the ones you leave out keep their value):
@@ -4779,7 +4809,8 @@ a yes for this conversation that runs out in an hour, or a standing rule you can
 ### Answering an approval from a chat app
 When a task started from Telegram or Discord stops to ask whether it may go ahead, the question is
 put in that chat with buttons: Yes, Yes always (only for a task you started yourself, the same rule
-the app's own card follows) and No. Telegram uses an inline keyboard, Discord an action row of
+the app's own card follows; a task a chat message started never counts as that, so a chat gets only
+Yes and No) and No. Telegram uses an inline keyboard, Discord an action row of
 message components. Each button carries its answer and the fingerprint of the exact request, so a
 yes cannot be replayed against a different one, and the conversation it belongs to is worked out
 from the chat rather than carried in the button — Telegram allows only 64 bytes there.
@@ -5467,7 +5498,8 @@ computer running Branch (`nodes.run`) and a step that sends something to another
 refused outright in `Runtime.checkPolicy`, whatever a rule says: you are not asked, you are told Lockdown is
 on. This is a change from before, when a command was asked about. A rule saved while Lockdown is on cannot
 let any other tool past without a yes. A task that was already working when Lockdown went on meets the
-refusal at its next tool call. Turning it on closes every open device socket at once, and nothing more is
+refusal at its next tool call. Stopping a running program (`process.stop`) is the one exception: it only
+lowers the risk, so it is never refused while Lockdown is on (starting one still is). Turning it on closes every open device socket at once, and nothing more is
 sent to a device while it is on. The `/lockdown` command in the app, the terminal (`branch lockdown on`)
 and the route all end earlier yeses the same way; only the owner may use any of them (a chat sender, a
 short-lived key and somebody else's profile are refused).
@@ -7089,6 +7121,12 @@ any of them makes goes through the one tool gate (`src/tool-gate.ts`).
 | Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
 | Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
 
+**Work a task set going keeps to that task's tools.** A copy made by going back in a flow that a task
+started or carried on keeps that task's limit (the run's `flow-run-limit:<runId>` record is kept while its
+steps are kept), even though you pressed the button. Checks and clean-up of a procedure a task asked for
+(`procedures.replay_checked`) hold only the task's tools, and a step, check or clean-up outside them is
+refused in a plain sentence ("The task that asked for this recipe may not use …") before anything runs.
+
 **macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
 script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
 request check at another copy of the list, as it does for the malware check.
@@ -8094,7 +8132,7 @@ owner's profile only; a short-lived key may read, and may use the two searches
 | Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
 | Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
 | Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
-| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson that waits for your yes on the Lessons card (**Try this lesson** or **Turn it down**, `POST /api/learning-more/lessons/decide { id, approve }`); nothing is shown to any task until you approve it. An approved lesson goes on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
 | Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
 | Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
 | Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
