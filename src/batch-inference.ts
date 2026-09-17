@@ -3,6 +3,7 @@ import type { BatchAnswer, BatchRequest, Message, Provider, Usage } from "./cont
 import type { Store } from "./store.js";
 import type { ModelPreset } from "./models.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
+import { FeatureModeSchema, optionalFields, type FeatureMode } from "./feature-switches.js";
 
 /**
  * Asking a lot of questions at once. Evaluation sets and reading a knowledge base both ask the same
@@ -18,6 +19,15 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 export const BatchSettingsSchema = z.object({
   /** Off by default: batch answers arrive later, which is not what most tasks want. */
   enabled: z.boolean().default(false),
+  /**
+   * w911: the three-way switch. "when-needed" hands over only a set big enough to be worth the wait
+   * (`minQuestions` or more); a smaller one is asked the ordinary way. "on" hands over every set. A
+   * save from before this switch had only `enabled`, and a yes there handed over every set, so it
+   * reads as "on".
+   */
+  mode: FeatureModeSchema.optional(),
+  /** Under "when-needed", the smallest set that is handed over rather than asked one at a time. */
+  minQuestions: z.number().int().min(2).max(10_000).default(10),
   /** How long to keep asking whether the set is done before giving up. */
   maxWaitMs: z.number().int().min(1000).max(86_400_000).default(600_000),
   /** How long to wait between asking. */
@@ -37,9 +47,27 @@ export function batchSettings(store: Store, owner: string): BatchSettings {
   return saved.success ? saved.data : BatchSettingsSchema.parse({});
 }
 export function saveBatchSettings(store: Store, owner: string, input: unknown): BatchSettings {
-  const next = BatchSettingsSchema.parse({ ...batchSettings(store, owner), ...(input as object ?? {}) });
+  const current = batchSettings(store, owner);
+  const given = optionalFields(BatchSettingsSchema).parse(input ?? {});
+  const merged = BatchSettingsSchema.parse({ ...current, ...given });
+  // A bare yes turns it back on as it was, or fully on: that is what a yes meant before the three-way switch.
+  const was = batchMode(current);
+  const mode = given.mode ?? (given.enabled === false ? "off" : given.enabled === true ? (was === "off" ? "on" : was) : was);
+  const next = { ...merged, mode, enabled: mode !== "off" };
   store.save("settings", owner, settingsKey, next);
   return next;
+}
+/** The mode a saved record stands for; an older yes handed over every set, so it is "on". */
+export function batchMode(settings: Pick<BatchSettings, "enabled" | "mode">): FeatureMode {
+  return settings.mode ?? (settings.enabled ? "on" : "off");
+}
+/** Why a set of this size is asked the ordinary way under these settings, or null when it may be handed over. */
+export function batchRefusal(settings: BatchSettings, size: number): string | null {
+  const mode = batchMode(settings);
+  if (mode === "off") return "Batch mode is switched off.";
+  if (mode === "when-needed" && size < settings.minQuestions)
+    return `Only ${size} question(s), fewer than the ${settings.minQuestions} worth waiting for, so they were asked one at a time.`;
+  return null;
 }
 
 /** One question in a set, before it is handed over. */
@@ -86,10 +114,11 @@ export async function runBatch(
   options: { sleep?: (ms: number) => Promise<void>; runId?: string } = {},
 ): Promise<BatchOutcome> {
   const settings = batchSettings(store, owner);
-  const api = settings.enabled ? (() => { try { return preset.provider.batch?.() ?? null; } catch { return null; } })() : null;
+  const refused = batchRefusal(settings, questions.length);
+  const api = refused ? null : (() => { try { return preset.provider.batch?.() ?? null; } catch { return null; } })();
   if (!api)
     return direct(store, owner, preset, questions, signal, options,
-      settings.enabled ? "This connection does not take a whole set at once." : "Batch mode is switched off.");
+      refused ?? "This connection does not take a whole set at once.");
   // A set carries words only. A question with a picture in it would arrive at the service without
   // the picture, which is a different question, so the whole set goes the ordinary way instead.
   if (questions.some((question) => question.messages.some((message) => (message.images?.length ?? 0) > 0)))

@@ -30,6 +30,19 @@ export interface SecurityApp {
   sessionTokens: { list(owner: string): { name: string; scope: string; expiresAt: string; revokedAt: string | null }[] };
   plugins: { list(): Promise<{ id: string; enabled: boolean; summary: { permissions: string[] } | null }[]> };
   pluginCatalog: { list(): Promise<{ id: string; unchanged: boolean }[]> };
+  /** bucket 19 (integration review): the sign-in door for people on their own device. */
+  people?: {
+    settings(): { mode: string; chain: string[]; sessionMinutes: number };
+    keys: { list(): { revokedAt: string | null; expiresAt: string }[] };
+    suggestions(): unknown[];
+  };
+}
+
+function peopleFacts(app: SecurityApp, now: Date): NonNullable<SecuritySnapshot["people"]> | null {
+  if (!app.people) return null;
+  const settings = app.people.settings();
+  const signedIn = app.people.keys.list().filter((key) => !key.revokedAt && Date.parse(key.expiresAt) > now.getTime()).length;
+  return { mode: settings.mode, chain: [...settings.chain], sessionMinutes: settings.sessionMinutes, signedIn, waiting: app.people.suggestions().length };
 }
 
 export interface CollectOptions {
@@ -108,6 +121,7 @@ function settingsFacts(app: SecurityApp, now: Date) {
   const trace = traceExportSettings(store, owner);
   return {
     gatewayChain: [...readGatewayAuth(store, owner).chain], knownDevices: knownDevices(store, owner).length,
+    people: peopleFacts(app, now),
     sessionLock: { idleMinutes: lock.idleMinutes, secretsWhileLocked: lock.secretsWhileLocked },
     privacy: { outbound: privacy.pii.outbound, moderation: privacy.moderation.enabled },
     network: { allowPrivateAddresses: network.allowPrivateAddresses, allowedHosts: network.allowedHosts ?? null, blockedHosts: network.blockedHosts.length },

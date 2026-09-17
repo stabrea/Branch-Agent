@@ -85,6 +85,10 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
   new RegExp(`^/api/(triggers|webhooks)(/${id})?$`),
   /^\/api\/channels\/addresses$/,
+  // integration review (bucket 16, merged into bucket 19): the waiting Slack events carry message text.
+  /^\/api\/channels\/slack-automations$/,
+  // bucket 19: who may sign in, their linked accounts and devices, and the share list.
+  /^\/api\/people\/(settings|shares\/export)$/,
 ];
 
 export const generalShortLivedKeyRefusal =
